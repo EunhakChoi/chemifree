@@ -453,6 +453,11 @@ fn every_scene_reason_code_is_distinct_and_stable() {
             "reference_unknown",
             "reference_in_use",
             "reference_limit",
+            "arrangement_too_few_units",
+            "arrangement_empty_geometry",
+            "arrangement_negative_gap",
+            "transform_invalid_angle",
+            "transform_rectangle_unsupported",
         ]
     );
 }

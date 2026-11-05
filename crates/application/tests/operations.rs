@@ -400,12 +400,15 @@ fn the_catalog_says_exactly_which_operations_run() {
     let id = created(&app);
     let catalog = serde_json::to_value(app.operation_catalog()).unwrap();
     let operations = catalog["operations"].as_array().unwrap();
-    assert_eq!(operations.len(), 30);
+    assert_eq!(operations.len(), 31);
     let minimal = |operation: &str| match operation {
         "capabilities.inspect" => json!({}),
         "document.create" => json!({}),
         "document.selection_scope" => json!({"document_id":id,"selection":{}}),
         "document.arrangement_plan" => json!({"document_id":id,"objects":[],"mode":"align_left"}),
+        "document.transform_plan" => {
+            json!({"document_id":id,"selection":{},"pivot":{"x":0,"y":0},"transform":{"type":"rotate","degrees":0}})
+        }
         "chem.properties" => json!({"document_id": id, "scope": "molecule", "property": "formula"}),
         "chem.identity" => json!({"document_id": id, "mode": "recorded"}),
         "chem.substructure" => json!({"query_document_id": id, "target_document_id": id}),
@@ -475,6 +478,7 @@ fn the_catalog_says_exactly_which_operations_run() {
             "document.snapshot",
             "document.selection_scope",
             "document.arrangement_plan",
+            "document.transform_plan",
             "document.transaction",
             "history.undo",
             "history.redo",
@@ -674,6 +678,7 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "update_atom",
             "move_atoms",
             "move_selection",
+            "transform_selection",
             "arrange_objects",
             "delete_atoms",
             "add_bond",
@@ -733,6 +738,7 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "move_objects",
             "move_selection",
             "arrange_objects",
+            "transform_selection",
             "add_reference",
             "remove_reference",
         ]
@@ -777,12 +783,12 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "split_stereo_group"
         ]
     );
-    assert_eq!(commands.len(), 34, "{commands:?}");
+    assert_eq!(commands.len(), 35, "{commands:?}");
     assert_eq!(capabilities.len(), 11, "{capabilities:?}");
     assert_eq!(
         transaction["sub_operations"].as_array().unwrap().len(),
-        45,
-        "34 command rows and 11 capability rows"
+        46,
+        "35 command rows and 11 capability rows"
     );
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }

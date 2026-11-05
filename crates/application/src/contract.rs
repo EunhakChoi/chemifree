@@ -13,7 +13,7 @@ use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
     AlignMode, DeleteMode, DistributionAxis, Graphic, GraphicShape, ObjectArrangement, ObjectRef,
     ReferenceTarget, SceneError, SceneObject, SceneReference, Selection, SelectionRequest,
-    TransactionSelection,
+    SelectionTransform, TransactionSelection,
 };
 use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, Settings, SettingsEdit};
 use chemifree_domain::states::{
@@ -315,6 +315,26 @@ impl From<ArrangementModeDto> for ObjectArrangement {
     }
 }
 
+/// Geometry-only transform about an explicit page-coordinate pivot.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SelectionTransformDto {
+    Rotate { degrees: f64 },
+    // Empty struct variants keep deny_unknown_fields effective for reflection objects.
+    ReflectHorizontal {},
+    ReflectVertical {},
+}
+
+impl From<SelectionTransformDto> for SelectionTransform {
+    fn from(transform: SelectionTransformDto) -> Self {
+        match transform {
+            SelectionTransformDto::Rotate { degrees } => Self::Rotate { degrees },
+            SelectionTransformDto::ReflectHorizontal {} => Self::ReflectHorizontal,
+            SelectionTransformDto::ReflectVertical {} => Self::ReflectVertical,
+        }
+    }
+}
+
 /// A bond's kind. `aromatic`, `dative`, `query`, and `unknown` were added within v1; a bond of
 /// order `query` carries its expression in `query`.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -479,6 +499,14 @@ pub enum CommandDto {
     ArrangeObjects {
         objects: Vec<String>,
         mode: ArrangementModeDto,
+    },
+    /// Transforms resolved geometry only; stored stereo and history selection are independent.
+    TransformSelection {
+        selection: SelectionDto,
+        pivot: PointDto,
+        transform: SelectionTransformDto,
+        #[serde(default)]
+        instance: Option<String>,
     },
     /// `query` is required with order `query` and refused with any other.
     UpdateBond {
@@ -1020,6 +1048,20 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
                 .collect::<Result<_, _>>()?,
             arrangement: (*mode).into(),
         },
+        CommandDto::TransformSelection {
+            selection,
+            pivot,
+            transform,
+            instance,
+        } => Command::TransformSelection {
+            selection: exact_selection(selection).map_err(|message| Refusal {
+                scene: Some(SceneError::SelectionUnknown),
+                ..message.into()
+            })?,
+            instance: instance.as_deref().map(instance_id).transpose()?,
+            pivot: point(*pivot)?,
+            transform: (*transform).into(),
+        },
         CommandDto::UpdateBond { bond, order, query } => Command::UpdateBond {
             bond: bond_id(bond)?,
             order: bond_order(*order, query.as_ref())?,
@@ -1532,7 +1574,7 @@ fn element(symbol: &str) -> Result<Element, String> {
     Element::from_symbol(symbol).ok_or_else(|| format!("{symbol:?} is not an element symbol"))
 }
 
-fn point(position: PointDto) -> Result<Point, String> {
+pub(crate) fn point(position: PointDto) -> Result<Point, String> {
     Point::new(position.x, position.y).map_err(|error| error.to_string())
 }
 

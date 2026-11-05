@@ -20,10 +20,11 @@ use std::fmt;
 use crate::element::Element;
 use crate::scene;
 use crate::scene::{
-    ArrangementPlan, ArrangementUnit, Bounds, DeleteMode, Graphic, MAX_DEPTH, MAX_OBJECTS,
-    MAX_REFERENCES, ObjectArrangement, ObjectKind, ObjectRef, ReferenceTarget, SceneError,
-    SceneObject, SceneReference, SceneTree, Selection, SelectionRequest, SelectionScope,
-    TransactionSelection,
+    ArrangementPlan, ArrangementUnit, Bounds, DeleteMode, Graphic, GraphicShape, MAX_DEPTH,
+    MAX_OBJECTS, MAX_REFERENCES, ObjectArrangement, ObjectKind, ObjectRef, ReferenceTarget,
+    SceneError, SceneObject, SceneReference, SceneTree, Selection, SelectionRequest,
+    SelectionScope, SelectionTransform, TransactionSelection, TransformPlan, TransformedGraphic,
+    TransformedPosition,
 };
 use crate::settings::{Settings, SettingsEdit, SettingsError};
 use crate::states::{
@@ -459,6 +460,14 @@ pub enum Command {
         objects: Vec<ObjectId>,
         arrangement: ObjectArrangement,
     },
+    /// Transforms the resolved union of geometry once around an explicit pivot.
+    /// Stored chemical configurations, marks and enhanced group membership do not change.
+    TransformSelection {
+        selection: Selection,
+        instance: Option<ObjectId>,
+        pivot: Point,
+        transform: SelectionTransform,
+    },
     /// Adds or removes a directed scene reference without assigning chemical meaning to it.
     AddReference {
         reference: SceneReference,
@@ -641,6 +650,10 @@ pub enum EditError {
     ArrangementEmptyGeometry(ObjectId),
     /// Fixed endpoints cannot contain all unit extents without overlapping equal gaps.
     ArrangementNegativeGap,
+    /// A rotation angle is not finite, even for an empty selection.
+    TransformInvalidAngle,
+    /// This selected rectangle cannot be represented after an arbitrary-angle rotation.
+    TransformRectangleUnsupported(ObjectId),
     /// A refused combination of recorded states, with its stable code.
     InvalidState(StateError),
     Settings(SettingsError),
@@ -680,6 +693,8 @@ impl EditError {
             Self::ArrangementTooFewUnits { .. } => SceneError::ArrangementTooFewUnits,
             Self::ArrangementEmptyGeometry(_) => SceneError::ArrangementEmptyGeometry,
             Self::ArrangementNegativeGap => SceneError::ArrangementNegativeGap,
+            Self::TransformInvalidAngle => SceneError::TransformInvalidAngle,
+            Self::TransformRectangleUnsupported(_) => SceneError::TransformRectangleUnsupported,
             _ => return None,
         })
     }
@@ -814,6 +829,11 @@ impl fmt::Display for EditError {
             }
             Self::ArrangementNegativeGap => formatter.write_str(
                 "fixed endpoint units leave insufficient space for nonoverlapping equal gaps",
+            ),
+            Self::TransformInvalidAngle => formatter.write_str("rotation degrees must be finite"),
+            Self::TransformRectangleUnsupported(object) => write!(
+                formatter,
+                "rectangle {object} requires an exact quarter-turn rotation; arbitrary angles cannot be represented by its two axis-aligned corners"
             ),
             Self::SceneTreeInvalid(detail) => formatter.write_str(detail),
             Self::InvalidState(error) => error.fmt(formatter),
@@ -1334,6 +1354,58 @@ impl Content {
             }
         }
         Ok(plan)
+    }
+
+    fn selection_transform(
+        &self,
+        selection: &Selection,
+        instance: Option<ObjectId>,
+        pivot: Point,
+        transform: SelectionTransform,
+    ) -> Result<TransformPlan, EditError> {
+        let scope = self.selection_scope(selection, instance)?;
+        let prepared = scene::PreparedTransform::new(transform)?;
+        let mut positions = Vec::with_capacity(scope.positions.len());
+        let mut graphics = Vec::with_capacity(scope.graphics.len());
+        for key in &scope.positions {
+            let before = *self
+                .positions
+                .get(key)
+                .ok_or(EditError::MissingPosition(key.instance))?;
+            positions.push(TransformedPosition {
+                key: *key,
+                before,
+                after: prepared.point(before, pivot)?,
+            });
+        }
+        for object in &scope.graphics {
+            if let SceneObject::Graphic(before) = self.scene.get(*object)? {
+                if before.shape == GraphicShape::Rectangle && !prepared.supports_rectangle() {
+                    return Err(EditError::TransformRectangleUnsupported(*object));
+                }
+                let after = Graphic {
+                    shape: before.shape,
+                    points: [
+                        prepared.point(before.points[0], pivot)?,
+                        prepared.point(before.points[1], pivot)?,
+                    ],
+                };
+                graphics.push(TransformedGraphic {
+                    object: *object,
+                    before: before.clone(),
+                    after,
+                });
+            }
+        }
+        let drawing_stereo_may_change = positions
+            .iter()
+            .any(|position| position.before != position.after);
+        Ok(TransformPlan {
+            scope,
+            positions,
+            graphics,
+            drawing_stereo_may_change,
+        })
     }
 
     /// `selection` less what does not exist here.
@@ -2107,6 +2179,25 @@ impl Draft {
                     self.translate_scope(&unit.scope, unit.delta)?;
                 }
             }
+            Command::TransformSelection {
+                selection,
+                instance,
+                pivot,
+                transform,
+            } => {
+                let plan = self
+                    .content
+                    .selection_transform(selection, *instance, *pivot, *transform)?;
+                for position in plan.positions {
+                    self.content.positions.insert(position.key, position.after);
+                }
+                for graphic in plan.graphics {
+                    self.content
+                        .scene
+                        .objects
+                        .insert(graphic.object, SceneObject::Graphic(graphic.after));
+                }
+            }
             Command::AddReference { reference } => {
                 if !self.content.scene.objects.contains_key(&reference.source)
                     || !self.content.target_exists(reference.target)
@@ -2735,6 +2826,28 @@ impl Document {
         arrangement: ObjectArrangement,
     ) -> Result<ArrangementPlan, EditError> {
         self.content.object_arrangement(objects, arrangement)
+    }
+
+    /// Checks a geometry-only transform of the authoritative selected union without editing.
+    /// Positive angles rotate clockwise in page coordinates; horizontal reflection mirrors
+    /// about y=pivot.y, vertical reflection about x=pivot.x. Quarter turns are exact affine
+    /// mappings. Arbitrary rotations are supported for atom positions, lines and arrows;
+    /// any selected rectangle, including descendants and degenerate rectangles, requires
+    /// an exact quarter turn. Diagonal/angled reflection is outside this bounded profile.
+    /// Stored stereo remains unchanged, and may disagree with the transformed picture.
+    ///
+    /// # Errors
+    /// Refuses invalid targets/placement, nonfinite angles, unsupported rectangle rotations
+    /// or any final geometry point outside the finite document coordinate limits.
+    pub fn selection_transform(
+        &self,
+        selection: &Selection,
+        instance: Option<ObjectId>,
+        pivot: Point,
+        transform: SelectionTransform,
+    ) -> Result<TransformPlan, EditError> {
+        self.content
+            .selection_transform(selection, instance, pivot, transform)
     }
 
     /// Every atom's position in `instance`, by atom; empty for an unknown instance.

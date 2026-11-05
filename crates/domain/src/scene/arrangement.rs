@@ -147,12 +147,12 @@ impl Rounded {
 // Keeping the residuals makes the sign exact for finite bounded input coordinates:
 // an actually negative available gap is never excused by a rounding tolerance.
 #[derive(Default)]
-struct ExactSum {
+pub(super) struct ExactSum {
     parts: Vec<f64>,
 }
 
 impl ExactSum {
-    fn add(&mut self, value: f64) {
+    pub(super) fn add(&mut self, value: f64) {
         let mut running = value;
         let mut parts = Vec::with_capacity(self.parts.len() + 1);
         for part in &self.parts {
@@ -168,6 +168,9 @@ impl ExactSum {
             parts.push(running);
         }
         self.parts = parts;
+    }
+    pub(super) fn rounded_value(&self) -> f64 {
+        self.rounded().value
     }
     fn is_negative(&self) -> bool {
         self.parts.last().is_some_and(|part| *part < 0.0)
