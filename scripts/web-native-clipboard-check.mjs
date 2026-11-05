@@ -271,12 +271,16 @@ try {
   await page.getByRole('button', { name: 'Copy fragment…', exact: true }).click()
   await page.waitForFunction(() => document.querySelector('[role="dialog"]')?.textContent.includes('Preparing fragment'))
   await page.getByRole('button', { name: 'Close', exact: true }).click()
+  // Base UI keeps a closed popup mounted for its exit animation. First prove that the
+  // original popup has left; then release the response and await the hook's queue settlement.
+  await page.getByRole('dialog').waitFor({ state: 'detached' })
   await copyReady
   await heldCopy()
   delayCopy = false
   heldCopy = null
-  await page.getByRole('button', { name: 'Copy fragment…', exact: true }).waitFor({ state: 'visible' })
+  await page.waitForFunction(() => !window.clipboardHarness.editor.busy)
   assert.equal(await page.getByRole('dialog').count(), 0)
+  assert.equal(await page.getByRole('textbox', { name: 'Native fragment text' }).count(), 0)
 
   // Real hook queue: the copy captures a1/s2 before live changes, but reads the queued
   // renamed snapshot. Holding the real HTTP transaction makes this ordering deterministic.
