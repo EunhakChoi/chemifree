@@ -1984,12 +1984,13 @@ step = 'after placements_move_independently'
       const scaleX = Math.hypot(matrix.a, matrix.b)
       const scaleY = Math.hypot(matrix.c, matrix.d)
       if (!(scaleX > 0 && scaleY > 0 && Number.isFinite(scaleX) && Number.isFinite(scaleY))) throw new Error('Invalid canvas scale')
-      // Chromium quantizes small SVG text bounds in CSS pixels. At fitted zoom only,
-      // allow half a CSS pixel per edge for measured text, converted through the actual
-      // SVG scale. Model boxes, dots, strokes and view containment retain strict checks.
+      // Chromium quantizes small SVG text bounds in CSS pixels. Position and extent
+      // rounding can each contribute half a pixel to the measured far edge. At fitted
+      // zoom only, allow their combined one-pixel budget for text, converted through
+      // the actual SVG scale. Model boxes, dots, strokes and view containment stay strict.
       // A separate 100% probe below checks the text with no pixel allowance.
-      const textExtraX = fitted ? 0.5 / scaleX : 0
-      const textExtraY = fitted ? 0.5 / scaleY : 0
+      const textExtraX = fitted ? 1 / scaleX : 0
+      const textExtraY = fitted ? 1 / scaleY : 0
       const describeBox = ({ x, y, width, height }) =>
         [x, y, width, height].map((value) => Number(value.toFixed(4))).join(',')
       const inView = (box) => within(box, view)
