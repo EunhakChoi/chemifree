@@ -60,6 +60,7 @@
 3. CONTRACT.md: 현재 v1 계약(문서 API·명령·오류·쓰기 보호·파일 형식)과 버전 정책.
 4. SHADCN_REVIEW.ko.md: UI 도구 선택, 현재 연결 상태와 정책 제안.
 5. TRACEABILITY.ko.md: 요구사항·공개 선언 추적, conformance runner와 추적 검사가 확인하는 것과 확인하지 않는 것.
+6. testing-practice.md: 테스트 방법(실패 확인, 결정성, 독립 oracle, 격리 실행)과 검증 명령 목록.
 6. roadmap/implementation-roadmap.json(.html): PR 계획과 행별 상태. 후속 계획 ID는 이 행들이다.
 7. verification/review-history.md, verification/review-history-batch2.md: PR별 리뷰 회차·CI 이력과 정정. 닫힌 PR의 지적은 이후 설계 요건이다.
 8. architecture.html: scaffold 기준의 레이어·소스 링크를 담은 대화형 설계안(스냅숏). 브라우저로 열 수 있다.
