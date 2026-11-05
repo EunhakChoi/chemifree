@@ -545,9 +545,9 @@ export function bondUnderlay(order: BondOrder, lineWidth: number, spacing: numbe
   return Math.max(SELECTION_STROKE * unitsPerPixel, 2 * reach + 6 * unitsPerPixel)
 }
 
-/** The width of the stroke underlaying a selected graphic drawn `lineWidth` wide. */
-export function graphicUnderlay(lineWidth: number) {
-  return Math.max(SELECTION_STROKE, lineWidth + 6)
+/** The graphic's ink plus a 3 CSS-pixel halo on each side, with an 8-pixel minimum width. */
+export function graphicUnderlay(lineWidth: number, unitsPerPixel = 1) {
+  return Math.max(SELECTION_STROKE * unitsPerPixel, lineWidth + 6 * unitsPerPixel)
 }
 
 /** Whether a bond of `order` can carry `mark`: wedge, hashed wedge and wavy a single bond, crossed a double bond. */
