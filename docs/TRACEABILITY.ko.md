@@ -29,11 +29,11 @@ P29f는 기존 CODEC-01·CODEC-02의 제한된 도면 export에 웹 패널을 �
 
 P29g는 [형식별 표](CONTRACT.md#stereo-interchange-evidence-p29g)와 [codec corpus 검사](../crates/application/tests/stereo_codec_corpus.rs), 새 적합성 사례 세 개를 연결한다. suite 25는 99/99 통과(accept 74·reject 25)이며 corpus 두 테스트는 도면 경로 92개와 별도 선언한 그룹 경로 16개를 통과했다. 기존 23개 corpus는 그대로이고 그래프·배치·partition·표시를 따로 비교한다. 출력 `0445=true`는 도면이 저장하지 않는 가시성의 명시적 정규화(`enhanced_stereo_display`)이며 보존된 배치·그룹의 비교 축에 섞지 않는다. RDKit 2022.03.2 별도 대조는 도면 23개 0 problems·SMILES 24개 0 failures·지원 V3000 core/marks/partition 일치였으나 `STERAC-128` 번호는 RDKit이 건너뛰며 CDXML/CDX 출력은 독립 판독하지 않았다. 수동 RDKit 대조를 새 적합성 사례나 자동 추적 근거로 세지 않는다. P29는 이 문서화된 bounded 프로필을 `done`으로 기록한다. 방향 결합은 열린 P21에 연결한 미구현 후속 **P29c2**이며 SMILES의 lone-pair 넷째 자리 표는 계속 거절이다. CODEC/STEREO의 미구현 catch-all 상태는 유지하고 완료한 P29 대신 해당 열린 행에 후속을 연결한다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 98개(implemented 49, partial 12, unverified 4, not_implemented 33) · conformance 사례 99개(passed 99: accept 74·reject 25, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 98개(implemented 51, partial 12, unverified 2, not_implemented 33) · conformance 사례 99개(passed 99: accept 74·reject 25, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
-P31은 웹 캔버스의 로컬 중심·배율, pointer 고정 zoom·pan·fit·100% reset, 역 SVG 좌표 변환과 CSS px 기준 hit/drag 범위를 더한다. 뷰 상태는 문서·명령·revision·Undo·저장에 들어가지 않고 편집·resize에서 유지되며 문서 ID 변경·새로고침은 초기 fit이다. Pan view(H)의 한 포인터 터치와 툴바는 있지만 pinch·다중 터치는 없다. 로드맵은 `in_progress`, 요구사항의 새 `OPS-01.viewport`·`RENDER-01.viewport` 부분은 최종 검사·리뷰 전 `unverified`로 둔다(요구사항 상태 어휘에는 `in_progress`가 없다). 구현 경로와 검증 후보 `scripts/web-viewport-check.mjs`·브라우저 스모크를 연결하지만 여기서 실행 통과나 P31 완료를 주장하지 않는다.
+P31은 웹 캔버스의 로컬 중심·배율, pointer 고정 zoom·pan·fit·100% reset, 역 SVG 좌표 변환과 CSS px 기준 hit/drag 범위를 더한다. 뷰 상태는 문서·명령·revision·Undo·저장에 들어가지 않고 편집·resize에서 유지되며 문서 ID 변경·새로고침은 초기 fit이다. Pan view(H)의 한 포인터 터치와 툴바는 있지만 pinch·다중 터치는 없다. 로드맵은 이 제한된 뷰포트 범위를 `done`으로 기록하고 `OPS-01.viewport`·`RENDER-01.viewport`를 구현된 부분으로 연결한다. `scripts/web-viewport-check.mjs`, 브라우저 smoke, 리뷰 및 병합 후 CI의 실제 근거와 제한은 [P31 완료 기록](verification/p31-viewport-completion.md)에 있다. 상위 요구사항과 P32의 선택·변환 범위는 열린 상태다.
 
 ## 파일
 
