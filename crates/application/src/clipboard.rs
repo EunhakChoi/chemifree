@@ -146,7 +146,7 @@ where
 
 pub(crate) fn refusal(reason: &'static str, message: impl Into<String>) -> ApplicationError {
     ApplicationError {
-        invalid_clipboard: Some(reason),
+        invalid_clipboard: Some(Box::new(crate::error::ClipboardRefusal { reason })),
         ..ApplicationError::new(ErrorCode::InvalidCommand, message)
     }
 }

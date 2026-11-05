@@ -379,8 +379,10 @@ fn style_multi_placement_and_coordinate_refusals_leave_destination_exactly_uncha
     let fragment = copy_fragment(&chain(), &selected(&[1], &[]), object(1))
         .unwrap()
         .fragment;
-    let mut settings = Settings::default();
-    settings.line_width_pt = 2.0;
+    let settings = Settings {
+        line_width_pt: 2.0,
+        ..Settings::default()
+    };
     let changed_style = Document::new_with_settings(
         DocumentId::parse("changed-style").unwrap(),
         "Other style",

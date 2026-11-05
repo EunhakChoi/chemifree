@@ -108,7 +108,7 @@ pub use documents::{
 };
 pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
-pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
+pub use error::{ApplicationError, ClipboardRefusal, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
     AromaticityResult, AromaticitySystem, ArrangementAxis, ArrangementBounds,
     ArrangementPlanResult, ArrangementTranslationView, ArrangementUnitView, AtomDrawnView,

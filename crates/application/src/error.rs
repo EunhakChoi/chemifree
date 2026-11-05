@@ -106,6 +106,12 @@ impl StorageReason {
     }
 }
 
+/// Native clipboard refusal details, boxed in the shared error to keep ordinary results compact.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClipboardRefusal {
+    pub reason: &'static str,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplicationError {
     pub code: ErrorCode,
@@ -132,7 +138,7 @@ pub struct ApplicationError {
     /// Set when the chosen aromaticity model cannot safely convert the recorded graph.
     pub invalid_aromaticity: Option<&'static str>,
     /// A bounded native clipboard refusal.
-    pub invalid_clipboard: Option<&'static str>,
+    pub invalid_clipboard: Option<Box<ClipboardRefusal>>,
     /// Set with `TimeLimit`: the time limit, in milliseconds, that stopped the computation.
     pub limit_ms: Option<u64>,
 }
@@ -187,7 +193,7 @@ impl ApplicationError {
             .or(self.invalid_derivation.map(NotDerivable::code))
             .or(self.invalid_stereo_group)
             .or(self.invalid_aromaticity)
-            .or(self.invalid_clipboard)
+            .or(self.invalid_clipboard.as_deref().map(|error| error.reason))
     }
 }
 
@@ -214,4 +220,27 @@ pub struct ErrorResponse {
     /// stereo mark or configuration was.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boxed_clipboard_refusal_preserves_the_public_error_envelope() {
+        let error = ApplicationError {
+            invalid_clipboard: Some(Box::new(ClipboardRefusal {
+                reason: "clipboard_fragment_invalid",
+            })),
+            ..ApplicationError::new(ErrorCode::InvalidCommand, "Malformed native clipboard data")
+        };
+        assert_eq!(error.clone(), error);
+        assert_eq!(
+            serde_json::to_value(error.to_response()).unwrap(),
+            serde_json::json!({
+                "api_version":"v1", "code":"invalid_command", "message":"Malformed native clipboard data",
+                "reason":"clipboard_fragment_invalid"
+            })
+        );
+    }
 }
