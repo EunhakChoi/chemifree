@@ -19,6 +19,7 @@
 
 - 읽기 전용 `document.arrangement_plan`과 트랜잭션 명령 `arrange_objects`가 기존 scene object의 outermost 단위를 기하 경계 기준으로 정렬/분배한다. mode는 align_left/horizontal_center/right/top/vertical_center/bottom(실제 문자열은 각각 align_ 접두사)와 distribute_horizontal/vertical이다. 그룹은 강체 단위이며 부분 원자/결합은 받지 않는다. 경계는 원자 위치와 graphic 두 점만 쓰고 글자·stroke·화살촉은 제외한다.
 - 정렬은 전체 union 경계를 기준으로 2개 이상, 분배는 leading edge→ID 순서의 3개 이상이며 양끝을 고정하고 동일한 edge 간격을 만든다. 음수 간격·빈 기하·대상 부족·미상 객체·최종 좌표 초과는 전체 거절하고 이미 배치된 결과는 no-op이다. 미리보기는 snapshot과 단위별 원래 bounds/delta/translation/scope를 보여 주며 commit token이 아니다. delta는 보고용 근삿값이고 실제 좌표는 translation의 axis/source/target으로 `좌표 + target - source`의 정확한 합을 구한 뒤 binary64로 한 번만 최근접·ties-to-even 반올림한다. 정지 단위의 translation은 null이며 다른 축은 유지한다. delta를 단순히 더하면 상쇄 오차로 실제 결과와 달라질 수 있다.
+- 중심 정렬은 실제 반올림 좌표의 midpoint 오차를 줄이는 이동만 받으며 같은 거리의 비표현 midpoint tie는 유지한다. 적용 후 union 중심으로 같은 정렬을 다시 평가했을 때 추가 이동이 필요하면 preview/command 전체를 arrangement_center_unstable로 거절한다. 숨은 반복 이동 없이 앞선 명령·revision·selection·history·redo를 보존한다.
 - P32b 도입 시 연산 30개(기본 실행 20), transaction 45개(명령 34·capability 11), scene_tree 명령 10개였다. 현재 수는 P32c 절에 있다. P32b 전용 accept/reject 두 사례는 clean isolated suite28에서 모두 통과했고 OPS-01.object-arrangement는 제한된 범위의 case 근거로 implemented다. 전체 P32 및 최종 리뷰/CI 완료 주장은 아니다. P32는 계속 in_progress이고 제한된 박스 선택·이동 후보는 P32e, Scene 웹 제어 후보는 P32d, 공유 회전·반사 primitive는 P32c가 더한다. snapping은 미구현이다.
 
 ## P32c 제한된 구현 인계
