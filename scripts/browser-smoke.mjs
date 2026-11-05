@@ -4261,7 +4261,7 @@ step = 'after short_wide_bond_is_selectable'
       }
 
       // Honest text, ungrouped state, and every action disabled with its reason while nothing is selected.
-      assert.equal(await section.getByTestId('groups-note').textContent(), 'Groups are stored and edited here. The SMILES and MOL (V2000) exports of this page carry no groups and report a loss; MOL (V3000) export from this page writes them as COLLECTION entries when you choose V3000 or Auto, and reading a V3000 file with such collections creates groups. Query features, S-groups and R-groups are refused, not read. They are not compared with the drawing, and do not change CIP labels or identity.')
+      assert.equal(await section.getByTestId('groups-note').textContent(), 'Groups are stored and edited here. Recorded SMILES writes supported groups; canonical SMILES and MOL (V2000) export require consent to drop them. MOL (V3000) writes groups as COLLECTION entries when you choose V3000 or Auto, and reading a V3000 file with such collections creates groups. Query features, S-groups and R-groups are refused, not read. They are not compared with the drawing, and do not change CIP labels or identity.')
       assert.equal(await section.getByTestId('groups-not-examined').textContent(), 'Not examined or unsupported: double bonds cannot be grouped; centers stored unknown cannot be members; group meaning is ignored by CIP labels, identity and substructure search.')
       assert.equal(await section.getByTestId('groups-empty').count(), 1)
       assert.deepEqual(await groupsOf(), [])
