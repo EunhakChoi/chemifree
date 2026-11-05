@@ -99,7 +99,7 @@ fn content(snapshot: &Value) -> Value {
 fn preview_reports_exact_scope_and_coordinates_and_commit_matches_without_chemistry_changes() {
     let (app, _directory, id) = setup();
     let before = snapshot(&app, &id);
-    let transform = json!({"type":"rotate","degrees":90});
+    let transform = json!({"type":"rotate","degrees":90.0});
     let preview = call(
         &app,
         "document.transform_plan",
