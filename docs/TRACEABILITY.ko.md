@@ -41,7 +41,11 @@ P32e는 Select canvas의 Shift-click atom/bond/graphic toggle, active-placement 
 
 P32f는 기존 ±90° 회전·수평/수직 축 반사 네 웹 버튼을 captured Scene/atom/bond 혼합 union에 연결한 후보 구현이다. 명시 graph 대상은 누른 시점의 active placement를 유지하고 Scene placement는 자기 위치 집합을 유지한다. 큐의 최신 snapshot에서 전체 대상을 다시 검증하고 중복 제거한 geometry 경계 중심을 명시 pivot으로 계산한다. 대상/배치 소실·문서 전환·기하 없음은 전체 lapse하며 live 선택/배치 변경으로 요청을 재지정하지 않는다. 기존 transform_selection과 stored stereo/mark/group·원자성·history 규칙을 유지한다. OPS-01.mixed-selection-transform은 unverified/evidence[]이며 새 client/browser·최종 리뷰/CI 근거는 아직 없다. 정렬/분배는 whole-object 전용이고 custom-angle/pivot UI·snapping·cleanup은 미구현이며 P32는 in_progress다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 104개(implemented 54, partial 12, unverified 5, not_implemented 33) · conformance 사례 105개(passed 105: accept 77·reject 28, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+P33a는 backend `document.clipboard_copy`·`document.clipboard_paste`로 제한된 native graph fragment를 연결한다. source instance를 명시하고 선택 원자·결합 끝점의 induced 내부 결합과 crossing 결합 보고를 제공하며 기록 상태·mark·완전한 저장 0D 입체를 보존한다. 빠진 stereo 이웃과 selected enhanced-group member는 거절한다. 단일 destination placement·동일 settings를 요구하고 명시 offset·fresh ID mapping·selection_after를 한 원자적 transaction/replay/Undo·Redo 경계에 둔다. strict data-only `chemifree.clipboard` version 1 payload는 UTF-8 64 KiB·projected command 500개 및 domain 한도 안에서만 받는다. 연산은 33개(기본 실행 23개)이며 P33은 `in_progress`다. OS/browser clipboard·웹 제어·cut·scene hierarchy·외부 clipboard 형식은 미구현이다.
+
+P33a의 `p33a-final-targeted.log`에는 domain `native_fragment` 10/10, application `native_clipboard` 10/10, `operations` 11/11 및 scoped clippy 통과가 기록됐다(sandbox exit 0, peak real(anon) 1,244 MiB, cap 6,144 MiB·swap 0). 이는 해당 Rust 경계의 제한 실행이며 전체 check·브라우저·CI 통과나 새 conformance 사례의 실행을 뜻하지 않는다. 새 사례 작성과 실제 실행 근거는 구분하며 제한된 backend 부분 OPS-01.native-clipboard는 check:check:rust 경로와 targeted 결과를 연결하며 상위 P33 완료 상태나 새 사례 통과를 주장하지 않는다. suite29의 새 native clipboard 두 사례는 작성됐으나 실행 전이며, 아래 conformance 집계는 아직 커밋된 suite28 실행 기록의 105개를 가리킨다.
+
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 105개(implemented 55, partial 12, unverified 5, not_implemented 33) · conformance 사례 105개(passed 105: accept 77·reject 28, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
