@@ -51,7 +51,7 @@
 - payload는 `format: "chemifree.clipboard"`, `version: 1`의 data-only JSON 문자열이다. UTF-8 64 KiB, projected command 500개와 기존 domain 한도를 적용하며 미상 필드·중복 JSON 키·ID·끊긴 참조·부정합 상태를 거절한다. nullable isotope/query/mark도 키는 필수이며 null 값도 생략하지 않고 명시한다. 임의 명령을 실행하는 형식이 아니다.
 - 기록된 원자/결합 상태·mark와 완전한 저장 0D 입체는 보존한다. 이웃이 빠진 저장 입체와 선택 원자가 속한 enhanced stereo group은 전체 거절한다. paste는 단일 destination placement와 source/destination settings의 정확한 일치를 요구하고 명시한 offset을 적용하며 fresh atom/bond ID mapping을 돌려준다. 붙인 대상을 selection_after로 둔 한 원자적 transaction으로 Undo/Redo·revision·request replay 규칙을 따른다.
 - 카탈로그는 연산 33개(기본 실행 23개)다. `p33a-final-targeted.log`에 기록된 제한 실행은 domain `native_fragment` 10/10, application `native_clipboard` 10/10, `operations` 11/11과 scoped clippy 통과다. 격리 sandbox exit 0, peak real(anon) 1,244 MiB, cap 6,144 MiB·swap 0으로 끝났다. 이 결과는 전체 check·브라우저·CI나 새 conformance 실행 근거가 아니다.
-- P33은 `in_progress`다. P33a 도입 당시 backend-only였으며 P33b가 아래의 제한된 명시 browser clipboard/native-text 제어를 더한다. cut·scene hierarchy 복사·외부 clipboard 형식은 미구현이고 전체 clipboard 완료를 뜻하지 않는다. 상세 wire·거절·범위는 CONTRACT.md의 Native graph-fragment copy and paste 절을 따른다.
+- P33은 `in_progress`다. P33a 도입 당시 backend-only였으며 P33b가 아래의 제한된 명시 browser clipboard/native-text 제어를 더한다. P33c가 단일 배치의 닫힌 graph fragment Cut을 더하며 scene hierarchy 복사·외부 clipboard 형식은 미구현이다. 전체 clipboard 완료를 뜻하지 않는다. 상세 wire·거절·범위는 CONTRACT.md의 Native graph-fragment copy and paste 절을 따른다.
 
 - clean isolated suite29 실제 실행은 107/107 passed(accept 78·reject 29, failed 0·not_run 0)이며 `native-clipboard-copy-paste-history`와 `native-clipboard-refusals-atomic` 두 사례도 통과했다. [실행 기록](verification/conformance-report.json)을 갱신했고 OPS-01.native-clipboard의 case 근거에 연결한다. 이 결과는 전체 check·브라우저·CI 완료나 P33 전체 완료를 뜻하지 않는다.
 
@@ -61,6 +61,13 @@
 - Paste fragment 열기는 clipboard를 읽지 않는다. 명시 Read clipboard 클릭 또는 일반 textarea 붙여넣기를 거쳐 별도 submit 때 local service에 보낸다. pt 단위 x/y offset은 각 축에 destination bond length 한 개로 시작하며 viewport 재배치·연속 paste 자동 이동은 없다. 한 destination placement·정확한 settings 일치와 기존 원자적 거절 규칙을 유지한다.
 - paste의 payload·offset·document·selection-before는 제출 때 고정하고 expected revision은 큐 실행 때 최신 값을 쓴다. lost reply는 동일 request ID/body로만 확인한다. 미확정 상태는 후속 document queue action을 잠그고 Check paste outcome을 제공하며 service restart 뒤에는 새 process로 재전송하지 않고 명시 reload로 reconcile한다.
 - background clipboard read·전역 Ctrl/Cmd+C/V/X 가로채기·payload logging/storage·Cut·scene clone·외부 clipboard format은 없다. 닫기/문서 전환 시 임시 dialog text를 버리며 OS clipboard는 지우지 않는다. 기존 P33a suite29 107/107은 새 웹 동작 실행 근거가 아니다. 01de94d의 격리 targeted frontend lint/typecheck·client384개·web build와 npm run test:browser:clipboard가 통과했다. 전체 npm run check는 진행 중이며 일반 full browser/CI 통과나 P33 완료는 아직 주장하지 않는다. P33은 계속 in_progress다.
+
+## P33c 단일 배치의 닫힌 graph fragment Cut 후보 인계
+
+- Cut fragment는 기존 native copy 결과에 source placement 정확히 하나·crossing bond 없음·copied atom/bond를 가리키는 Scene reference 없음 조건을 추가한다. 선택 bond의 끝점도 copied atom에 포함하므로 Cut은 해당 원자 전체를 지우며 bond만 지우는 명령이 아니다. Copy의 induced boundary 동작과 기존 stereo/enhanced group 거절은 유지한다.
+- 별도 Cut to clipboard 클릭에서 plain-text write를 직접 시작하고 그 promise를 edit queue에서 기다린다. write 실패/불가이면 deletion request가 없다. 성공 뒤 source snapshot/revision·document·service generation이 준비 때와 정확히 같아야 frozen copied atom ID에 delete_atoms 하나를 보낸다. 수동 text 선택/복사에는 삭제 권한이 없다.
+- OS clipboard와 document 삭제는 하나의 원자적 transaction이 아니다. write 뒤 거절이면 copy만 남고 Cut 삭제는 없으며 이전 clipboard 복원·자동 paste-back을 하지 않는다. document Undo/Redo만 기존 ID·selection을 복구하며 clipboard는 바꾸지 않는다. 미확정 삭제는 동일 request ID/body/process로만 확인하고 확인 중 clipboard를 다시 쓰지 않는다. service restart/terminal conflict는 명시 reload/reconcile, old-process held success는 generation guard를 따른다.
+- 기존 P33a/P33b 실행 근거를 새 Cut 검증으로 재사용하지 않는다. 새 client/browser 회귀는 작성했으며 격리 담당자가 실행할 예정이다. 이 작업에서는 tests/build/browser/lint를 실행하지 않았고 P33은 in_progress다. crossing boundary·여러 source placement·scene clone·외부 clipboard format·전역 Ctrl/Cmd+X는 미구현이다.
 
 ## 프로젝트와 현재 기준
 

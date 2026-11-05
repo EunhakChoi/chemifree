@@ -85,8 +85,12 @@ try {
       selection: { objects: [], atoms: [], bonds: [] } },
       session: { saved_revision: 3, unsaved_changes: false, undo_depth: 0, redo_depth: 0, draft_revision: null }, recovery: null, notes: [] }
   }
-  const documents = { alpha: snapshot('alpha', true), beta: snapshot('beta', false) }
+  const documents = { alpha: snapshot('alpha', true), beta: snapshot('beta', false), gamma: snapshot('gamma', false) }
   const operations = []
+  const cutRequests = []
+  const cutReplies = new Map()
+  let cutHistory
+  let cutFails = 0
   let heldCopy = null
   let delayCopy = false
   let copyReceived
@@ -111,7 +115,8 @@ try {
         id: item.id, kind: { type: 'element', symbol: item.element }, charge: item.charge, isotope: item.isotope,
         hydrogens: item.hydrogens, radical: item.radical, attachment_points: item.attachment_points,
         position: source.document.scene.instances.find((item) => item.id === instance).positions.find((entry) => entry.atom === item.id),
-      })).map((item) => ({ ...item, position: { x: item.position.x, y: item.position.y } })), bonds: [], stereo: [] })
+      })).map((item) => ({ ...item, position: { x: item.position.x, y: item.position.y } })),
+      bonds: source.document.bonds.filter((bond) => selected.includes(bond.begin) && selected.includes(bond.end)), stereo: [] })
   }
   function envelope(request, result) {
     return { envelope: 'operation_result', contract: 1, request_id: request.request_id, operation: request.operation,
@@ -123,9 +128,46 @@ try {
     const path = new URL(route.request().url()).pathname
     if (path === '/api/v1/session') return reply(route, { header: 'x-chemifree-session', token: serviceToken })
     if (path === '/api/v1/documents' || path === '/api/v1/trash') return reply(route, { api_version: 'v1', documents: [], unreadable: [] })
-    const documentMatch = path.match(/^\/api\/v1\/documents\/(alpha|beta)$/)
+    const documentMatch = path.match(/^\/api\/v1\/documents\/(alpha|beta|gamma)$/)
     if (documentMatch) { readsReceived += 1; return reply(route, documents[documentMatch[1]]) }
+    if (path.endsWith('/undo') || path.endsWith('/redo')) {
+      assert.ok(cutHistory, 'history requires an actual committed cut')
+      const undo = path.endsWith('/undo')
+      const next = structuredClone(undo ? cutHistory.before : cutHistory.after)
+      next.document.revision = documents.gamma.document.revision + 1
+      next.session.saved_revision = next.document.revision
+      next.session.undo_depth = undo ? 0 : 1
+      next.session.redo_depth = undo ? 1 : 0
+      documents.gamma = next
+      return reply(route, next)
+    }
     if (path.endsWith('/transactions')) {
+      const body = route.request().postDataJSON()
+      if (body.commands[0]?.op === 'delete_atoms') {
+        cutRequests.push(body)
+        let confirmed = cutReplies.get(body.request_id)
+        if (!confirmed) {
+          assert.equal(body.expected_revision, documents.gamma.document.revision)
+          assert.deepEqual(body.commands, [{ op: 'delete_atoms', atoms: ['a1', 'a2'] }])
+          const before = structuredClone(documents.gamma)
+          before.document.selection = body.selection_before
+          const next = structuredClone(documents.gamma)
+          next.document.revision += 1
+          next.document.atoms = []
+          next.document.bonds = []
+          next.document.scene.instances[0].positions = []
+          next.document.selection = body.selection_after
+          next.session.saved_revision = next.document.revision
+          next.session.undo_depth = 1
+          next.session.redo_depth = 0
+          documents.gamma = next
+          cutHistory = { before, after: structuredClone(next) }
+          confirmed = structuredClone(next)
+          cutReplies.set(body.request_id, confirmed)
+        }
+        if (cutFails > 0) { cutFails -= 1; return route.abort('failed') }
+        return reply(route, confirmed)
+      }
       transactionsReceived += 1
       renameReceived()
       await new Promise((resolve) => { renameRelease = resolve })
@@ -142,9 +184,12 @@ try {
     })
     if (request.operation === 'document.clipboard_copy') {
       const source = structuredClone(documents[request.parameters.document_id])
-      const selected = request.parameters.selection.atoms
+      const selected = [...new Set([...request.parameters.selection.atoms,
+        ...source.document.bonds.filter((bond) => request.parameters.selection.bonds.includes(bond.id)).flatMap((bond) => [bond.begin, bond.end])])]
+      const copiedBonds = source.document.bonds.filter((bond) => selected.includes(bond.begin) && selected.includes(bond.end)).map((bond) => bond.id)
+      const boundaryBonds = source.document.bonds.filter((bond) => selected.includes(bond.begin) !== selected.includes(bond.end)).map((bond) => bond.id)
       const result = envelope(request, { snapshot: source, instance: request.parameters.instance,
-        copied: { objects: [], atoms: selected, bonds: [] }, boundary_bonds: ['b1'],
+        copied: { objects: [], atoms: selected, bonds: copiedBonds }, boundary_bonds: boundaryBonds,
         payload: nativePayload(source, selected, request.parameters.instance) })
       if (delayCopy) { heldCopy = () => reply(route, result); copyReceived(); return }
       return reply(route, result)
@@ -175,7 +220,7 @@ try {
     return reply(route, confirmed)
   })
   await page.addInitScript(() => {
-    window.clipboardAdapter = { reads: [], writes: [], denyRead: false, denyWrite: false, nextText: '', deferred: false }
+    window.clipboardAdapter = { reads: [], writes: [], denyRead: false, denyWrite: false, nextText: '', deferred: false, deferredWrite: false }
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
       readText() {
         const state = window.clipboardAdapter
@@ -187,7 +232,9 @@ try {
       writeText(text) {
         const state = window.clipboardAdapter
         state.writes.push({ activated: navigator.userActivation.isActive, text })
-        return state.denyWrite ? Promise.reject(new DOMException('Denied', 'NotAllowedError')) : Promise.resolve()
+        if (state.denyWrite) return Promise.reject(new DOMException('Denied', 'NotAllowedError'))
+        if (state.deferredWrite) return new Promise((resolve) => { state.finishWrite = resolve })
+        return Promise.resolve()
       },
     } })
   })
@@ -395,8 +442,116 @@ try {
   await page.waitForFunction(() => !window.clipboardHarness.editor.clipboardPending)
   assert.equal(await page.evaluate(() => window.clipboardHarness.editor.current.document.title), 'Restarted drawing')
   assert.equal(operations.filter((item) => item.operation === 'document.clipboard_paste').length, pasteCountBeforeRestartReconcile)
+  // Cut eligibility is checked before touching clipboard or sending any delete. Whole
+  // source components are required, with exactly one placement and no incoming references.
+  const writesBeforeEligibility = await page.evaluate(() => window.clipboardAdapter.writes.length)
+  await page.evaluate(async () => { await window.clipboardHarness.editor.open('alpha'); window.clipboardHarness.select(['a1', 'a2']); window.clipboardHarness.setPlacement('s1') })
+  await page.getByRole('button', { name: 'Cut fragment…', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'exactly one source placement' }).waitFor()
+  assert.equal(await page.getByRole('button', { name: 'Cut to clipboard', exact: true }).isDisabled(), true)
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.evaluate(async () => { await window.clipboardHarness.editor.open('gamma'); window.clipboardHarness.select(['a1']) })
+  await page.getByRole('button', { name: 'Cut fragment…', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'no crossing bonds' }).waitFor()
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  documents.gamma.document.scene.objects.push({ kind: 'graphic', id: 's2', parent: null, shape: 'line', points: [{ x: 50, y: 0 }, { x: 60, y: 0 }] })
+  documents.gamma.document.scene.roots.push('s2')
+  documents.gamma.document.scene.references.push({ source: 's2', target: { kind: 'atom', id: 'a1' } })
+  await page.evaluate(async () => { await window.clipboardHarness.editor.reload(); window.clipboardHarness.select(['a1', 'a2']) })
+  await page.getByRole('button', { name: 'Cut fragment…', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'Scene references target this fragment' }).waitFor()
+  assert.equal(await page.evaluate(() => window.clipboardAdapter.writes.length), writesBeforeEligibility)
+  assert.equal(cutRequests.length, 0)
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  documents.gamma.document.scene.references = []
+  documents.gamma.document.scene.objects.pop()
+  documents.gamma.document.scene.roots.pop()
+  await page.evaluate(async () => { await window.clipboardHarness.editor.reload(); window.clipboardHarness.select(['a1', 'a2']); window.clipboardAdapter.denyWrite = true })
+
+  // An eligible Cut offers selectable text first. Selecting text or a denied explicit
+  // write never authorizes deletion. The direct write still retains user activation.
+  await page.getByRole('button', { name: 'Cut fragment…', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.includes('chemifree.clipboard'))
+  assert.match(await page.getByRole('dialog').innerText(), /2 atoms, 1 bonds from s1/)
+  const cutPayload = await page.getByRole('textbox', { name: 'Native fragment text' }).inputValue()
+  await page.getByRole('button', { name: 'Select native text', exact: true }).click()
+  assert.equal(await page.evaluate(() => window.clipboardAdapter.writes.length), writesBeforeEligibility)
+  await page.getByRole('button', { name: 'Cut to clipboard', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'The source was not cut' }).waitFor()
+  assert.deepEqual(await page.evaluate(() => window.clipboardAdapter.writes.at(-1)), { activated: true, text: cutPayload })
+  assert.equal(cutRequests.length, 0)
+  assert.equal(documents.gamma.document.atoms.length, 2)
+  assert.equal(await page.getByRole('textbox', { name: 'Native fragment text' }).inputValue(), cutPayload)
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+
+  // The clipboard write can wait while another real-client inspection discovers a new
+  // service/source. Even a successful write must then retain the source and send no delete.
+  await page.evaluate(() => { window.clipboardAdapter.denyWrite = false; window.clipboardAdapter.deferredWrite = true })
+  await page.getByRole('button', { name: 'Cut fragment…', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.includes('chemifree.clipboard'))
+  await page.getByRole('button', { name: 'Cut to clipboard', exact: true }).click()
+  await page.waitForFunction(() => typeof window.clipboardAdapter.finishWrite === 'function')
+  serviceToken = 'cut-restarted-service'
+  documents.gamma.document.title = 'Changed source after restart'
+  assert.equal(await page.evaluate(() => window.clipboardHarness.editor.inspectIdentity('gamma', 'recorded', null)
+    .then(() => 'unexpected success', (error) => error.code)), 'service_restarted')
+  await page.evaluate(() => window.clipboardAdapter.finishWrite())
+  await page.waitForFunction(() => !window.clipboardHarness.editor.busy)
+  assert.equal(cutRequests.length, 0)
+  assert.equal(documents.gamma.document.atoms.length, 2)
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.evaluate(async () => { await window.clipboardHarness.editor.reload(); window.clipboardHarness.select(['a1', 'a2']); window.clipboardAdapter.deferredWrite = false })
+
+  // A successful explicit Cut is one delete command with the frozen history selection.
+  // Undo restores that selection and graph; redo removes them again without rewriting clipboard.
+  // Selecting only the bond must still cut its copied endpoints, while Undo restores
+  // the original bond-only selection rather than an expanded atom selection.
+  await page.evaluate(() => window.clipboardHarness.select(['b1']))
+  await page.getByRole('button', { name: 'Cut fragment…', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.includes('chemifree.clipboard'))
+  await page.getByRole('button', { name: 'Cut to clipboard', exact: true }).click()
+  await page.getByRole('dialog').waitFor({ state: 'detached' })
+  assert.equal(cutRequests.length, 1)
+  assert.deepEqual(cutRequests[0].commands, [{ op: 'delete_atoms', atoms: ['a1', 'a2'] }])
+  assert.deepEqual(cutRequests[0].selection_before, { objects: [], atoms: [], bonds: ['b1'] })
+  assert.deepEqual(cutRequests[0].selection_after, { objects: [], atoms: [], bonds: [] })
+  assert.equal(documents.gamma.document.atoms.length, 0)
+  const writesAfterCut = await page.evaluate(() => window.clipboardAdapter.writes.length)
+  await page.evaluate(() => window.clipboardHarness.editor.undo())
+  assert.deepEqual(await page.evaluate(() => ({
+    atoms: window.clipboardHarness.editor.current.document.atoms.map((item) => item.id),
+    bonds: window.clipboardHarness.editor.current.document.bonds.map((item) => item.id),
+    selection: [...window.clipboardHarness.editor.selection],
+  })), { atoms: ['a1', 'a2'], bonds: ['b1'], selection: ['b1'] })
+  await page.evaluate(() => window.clipboardHarness.editor.redo())
+  assert.equal(await page.evaluate(() => window.clipboardHarness.editor.current.document.atoms.length), 0)
+  assert.equal(await page.evaluate(() => window.clipboardAdapter.writes.length), writesAfterCut)
+  await page.evaluate(() => window.clipboardHarness.editor.undo())
+
+  // Commit-and-lose both initial replies. Check cut outcome repeats the immutable delete
+  // request; it must not write clipboard again or create a second cut transaction.
+  cutFails = 2
+  await page.getByRole('button', { name: 'Cut fragment…', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.includes('chemifree.clipboard'))
+  await page.getByRole('button', { name: 'Cut to clipboard', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Check cut outcome', exact: true }).waitFor()
+  assert.equal(documents.gamma.document.atoms.length, 0)
+  assert.equal(cutRequests.length, 3)
+  assert.deepEqual(cutRequests[1], cutRequests[2])
+  const writesBeforeCutCheck = await page.evaluate(() => window.clipboardAdapter.writes.length)
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.getByRole('dialog').waitFor({ state: 'detached' })
+  const checkCut = page.getByRole('button', { name: 'Check cut outcome', exact: true })
+  assert.equal(await checkCut.isEnabled(), true)
+  await checkCut.click()
+  await page.waitForFunction(() => !window.clipboardHarness.editor.clipboardPending)
+  assert.equal(cutRequests.length, 4)
+  assert.deepEqual(cutRequests[3], cutRequests[1])
+  assert.equal(cutReplies.size, 2, 'one original successful cut and one recovered cut, never a duplicate commit')
+  assert.equal(await page.evaluate(() => window.clipboardAdapter.writes.length), writesBeforeCutCheck)
+  assert.equal(await page.evaluate(() => window.clipboardHarness.editor.current.document.atoms.length), 0)
   assert.deepEqual(pageErrors, [])
-  console.log('Native clipboard panel, explicit permissions, cancellation and real-hook queue/replay checks passed.')
+  console.log('Native clipboard panel, explicit permissions, Cut eligibility and real-hook queue/replay checks passed.')
 } finally {
   await browser?.close()
   await server.close()
