@@ -4,6 +4,8 @@ use super::SelectionScope;
 use crate::document::{EditError, ObjectId, Point, Vector};
 
 /// Six alignments against the union of the selected units' original bounds.
+/// Center alignment retains a pose when rounded translation cannot improve its exact
+/// midpoint error, including a tie between two equally close representable poses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AlignMode {
     Left,
@@ -100,11 +102,7 @@ impl ArrangementUnit {
             DistributionAxis::Horizontal => point.x(),
             DistributionAxis::Vertical => point.y(),
         };
-        let mut sum = ExactSum::default();
-        sum.add(coordinate);
-        sum.add(translation.target);
-        sum.add(-translation.source);
-        let coordinate = sum.nearest();
+        let coordinate = translated_coordinate(coordinate, translation.source, translation.target);
         match translation.axis {
             DistributionAxis::Horizontal => Point::new(coordinate, point.y()),
             DistributionAxis::Vertical => Point::new(point.x(), coordinate),
@@ -262,6 +260,56 @@ fn center(low: f64, high: f64) -> Rounded {
     Rounded::exact(low).add(Rounded::exact(high)).divide(2.0)
 }
 
+fn translated_coordinate(coordinate: f64, source: f64, target: f64) -> f64 {
+    let mut sum = ExactSum::default();
+    sum.add(coordinate);
+    sum.add(target);
+    sum.add(-source);
+    sum.nearest()
+}
+
+// Twice the exact midpoint error avoids division, including subnormal rounding.
+fn midpoint_error(low: f64, high: f64, target: f64) -> ExactSum {
+    let mut error = ExactSum::default();
+    for value in [low, high, -target, -target] {
+        error.add(value);
+    }
+    if error.is_negative() {
+        for part in &mut error.parts {
+            *part = -*part;
+        }
+    }
+    error
+}
+
+fn center_displacement(low: f64, high: f64, source: f64, target: f64) -> f64 {
+    let delta = target - source;
+    if delta == 0.0 {
+        return 0.0;
+    }
+    let current = midpoint_error(low, high, target);
+    let candidate = midpoint_error(
+        translated_coordinate(low, source, target),
+        translated_coordinate(high, source, target),
+        target,
+    );
+    let mut improvement = ExactSum::default();
+    for part in candidate.parts {
+        improvement.add(part);
+    }
+    for part in current.parts {
+        improvement.add(-part);
+    }
+    // A non-point midpoint may be unrepresentable at the requested center. Moving
+    // between equally close rounded poses would oscillate; retain the current one.
+    // Exact comparison preserves genuinely improving moves, even a point's one ULP.
+    if improvement.is_negative() {
+        delta
+    } else {
+        0.0
+    }
+}
+
 pub(crate) fn plan(
     mut units: Vec<ArrangementUnit>,
     arrangement: ObjectArrangement,
@@ -300,7 +348,12 @@ pub(crate) fn plan(
                             DistributionAxis::Horizontal,
                             source.value,
                             target.value,
-                            target.subtract(source).displacement(),
+                            center_displacement(
+                                unit.bounds.left,
+                                unit.bounds.right,
+                                source.value,
+                                target.value,
+                            ),
                         )
                     }
                     AlignMode::Right => (
@@ -322,7 +375,12 @@ pub(crate) fn plan(
                             DistributionAxis::Vertical,
                             source.value,
                             target.value,
-                            target.subtract(source).displacement(),
+                            center_displacement(
+                                unit.bounds.top,
+                                unit.bounds.bottom,
+                                source.value,
+                                target.value,
+                            ),
                         )
                     }
                     AlignMode::Bottom => (
