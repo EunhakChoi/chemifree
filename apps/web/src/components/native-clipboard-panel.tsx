@@ -207,22 +207,23 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy || activePlacement === null} />} onClick={() => void prepareCopy()}>Copy fragment…</DialogTrigger>
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy} />} onClick={() => openPaste()}>Paste fragment…</DialogTrigger>
       </div>
-      <DialogContent>
-        <DialogHeader>
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden sm:max-w-lg">
+        <DialogHeader className="shrink-0 pr-8">
           <DialogTitle>{mode === 'copy' ? 'Copy native fragment' : 'Paste native fragment'}</DialogTitle>
+        </DialogHeader>
+        <div className="-mx-4 flex min-h-0 flex-col gap-4 overflow-x-hidden overflow-y-auto px-4 pb-4">
           <DialogDescription>{mode === 'copy'
             ? 'This text contains the captured graph fragment. Select it for manual copying if browser clipboard access is unavailable.'
             : 'Paste Chemifree native fragment text below. Reading the browser clipboard is optional and requires your click. Text is sent to the local service only when you press Paste fragment.'}</DialogDescription>
-        </DialogHeader>
         {mode === 'copy' ? <>
           {currentOffer && <p role="status">{currentOffer.copied.atoms.length} atoms, {currentOffer.copied.bonds.length} bonds from {currentOffer.instance}, revision {currentOffer.snapshot.document.revision}.</p>}
           {currentOffer && currentOffer.boundaryBonds.length > 0 && <p>{currentOffer.boundaryBonds.length} crossing bonds omitted; the copied fragment ends at those boundaries.</p>}
           {(offer && !currentOffer || pending !== null && pending.generation !== editor.serviceGeneration) && <p>The service changed. Close this dialog and copy the fragment again.</p>}
           <FieldGroup><Field>
             <FieldLabel htmlFor={`${id}-copy`}>Native fragment text</FieldLabel>
-            <Textarea id={`${id}-copy`} value={currentOffer?.payload ?? ''} readOnly rows={7} spellCheck={false} onFocus={(event) => event.currentTarget.select()} />
+            <Textarea id={`${id}-copy`} className="field-sizing-fixed max-h-48 resize-y" value={currentOffer?.payload ?? ''} readOnly rows={7} spellCheck={false} onFocus={(event) => event.currentTarget.select()} />
           </Field></FieldGroup>
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0">
             <Button variant="outline" disabled={busy || !currentOffer} onClick={() => void writeClipboard()}>Copy to clipboard</Button>
           </DialogFooter>
         </> : <>
@@ -232,7 +233,7 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor={`${id}-paste`}>Native fragment text</FieldLabel>
-              <Textarea id={`${id}-paste`} value={text} onChange={(event) => setText(event.target.value)} disabled={busy || editor.clipboardPending} rows={7} spellCheck={false} />
+              <Textarea id={`${id}-paste`} className="field-sizing-fixed max-h-48 resize-y" value={text} onChange={(event) => setText(event.target.value)} disabled={busy || editor.clipboardPending} rows={7} spellCheck={false} />
             </Field>
             <Field data-invalid={!validX || undefined}>
               <FieldLabel htmlFor={`${id}-x`}>Offset x (pt)</FieldLabel>
@@ -245,7 +246,7 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
               {!validY && <FieldError>Enter a finite y offset in points.</FieldError>}
             </Field>
           </FieldGroup>
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0">
             <Button variant="outline" disabled={busy || editor.clipboardPending} onClick={() => void readClipboard()}>Read clipboard</Button>
             <Button disabled={busy || editor.clipboardPending || !singleDestination || !text.trim() || !validX || !validY} onClick={() => void paste()}>Paste fragment</Button>
           </DialogFooter>
@@ -253,6 +254,7 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
         {localBusy && <p role="status">{pending?.action === 'copy' ? 'Preparing fragment…' : 'Working…'}</p>}
         {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
         {status && <p role="status">{status}</p>}
+        </div>
       </DialogContent>
     </Dialog>
     {mode !== 'paste' && unresolved}

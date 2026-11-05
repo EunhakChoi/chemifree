@@ -225,7 +225,32 @@ try {
   await page.getByRole('textbox', { name: 'Native fragment text' }).fill(payload)
   assert.equal(await page.getByRole('button', { name: 'Paste fragment', exact: true }).isDisabled(), true)
   assert.match(await page.getByRole('dialog').innerText(), /exactly one placement/)
+  // A narrow, short viewport must contain the dialog even with long pasted text and
+  // validation messages. The body scrolls while its header Close stays reachable.
+  await page.setViewportSize({ width: 360, height: 480 })
+  await page.getByRole('textbox', { name: 'Native fragment text' }).fill('native fragment text\n'.repeat(2000))
+  await page.getByRole('textbox', { name: 'Offset y (pt)' }).fill('')
+  await page.getByRole('textbox', { name: 'Offset y (pt)' }).press('Tab')
+  assert.equal(await page.getByRole('button', { name: 'Read clipboard', exact: true }).evaluate((element) => element === document.activeElement), true)
+  const narrowPaste = await page.getByRole('dialog').boundingBox()
+  assert.ok(narrowPaste && narrowPaste.x >= 0 && narrowPaste.y >= 0 && narrowPaste.x + narrowPaste.width <= 360 && narrowPaste.y + narrowPaste.height <= 480,
+    'the paste dialog must fit inside the narrow viewport')
+  const narrowText = await page.getByRole('textbox', { name: 'Native fragment text' }).boundingBox()
+  assert.ok(narrowText && narrowText.height <= 192, 'long clipboard text must scroll within a bounded textarea')
+  const focusedRead = await page.getByRole('button', { name: 'Read clipboard', exact: true }).boundingBox()
+  assert.ok(focusedRead && focusedRead.y >= 0 && focusedRead.y + focusedRead.height <= 480, 'keyboard focus must bring footer actions into view')
+  const narrowClose = await page.getByRole('button', { name: 'Close', exact: true }).boundingBox()
+  assert.ok(narrowClose && narrowClose.y >= 0 && narrowClose.y + narrowClose.height <= 480, 'Close must remain in the fixed dialog header after body scrolling')
   await page.getByRole('button', { name: 'Close', exact: true }).click()
+
+  await page.getByRole('button', { name: 'Copy fragment…', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.includes('chemifree.clipboard'))
+  await page.getByRole('textbox', { name: 'Native fragment text' }).focus()
+  assert.deepEqual(await page.getByRole('textbox', { name: 'Native fragment text' }).evaluate((element) => [element.selectionStart, element.selectionEnd]), [0, payload.length])
+  const narrowCopy = await page.getByRole('dialog').boundingBox()
+  assert.ok(narrowCopy && narrowCopy.y >= 0 && narrowCopy.y + narrowCopy.height <= 480, 'the copy dialog must fit the same narrow viewport')
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.setViewportSize({ width: 1280, height: 720 })
 
   // A late permitted clipboard read cannot populate another opening of the dialog.
   await page.evaluate(() => { window.clipboardAdapter.denyRead = false; window.clipboardAdapter.deferred = true })
