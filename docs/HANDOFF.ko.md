@@ -2,6 +2,14 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P32 제한된 납품 최종 확인 대기
+
+- P32-center #159(ab26cc1)은 late one-ULP suppression과 midpoint tie를 수정했고 isolated full check/browser·strict routes0/1000·no-skips(skipped_steps=[]·mixed flags=true) 및 mutation이 통과했다. peak anon1702/cache96MiB,6G swap0다. 병합545c09ddecc667b67d19049031428b70b1daa805의 mainCI42113776746은 확인 대기다. 이후 Codex post-union-center drift P2(discussion_r4486304783)가 발견되어 추가 수정/회귀 근거가 필요하며 P32는 in_progress다.
+
+- P32a–f는 roadmap의 box/복합 선택·group/ungroup·회전/반사·정렬/분배·실제 영향 범위 및 중복/참조/비선택 대상 보존·Undo/Redo 요구를 제한된 계약으로 연결한다. 현재 추가 구현 누락이 확인된 것은 아니며 최종 검증·리뷰·납품 근거를 기다린다. P32는 계속 `in_progress`다.
+- [P32 completion record](verification/p32-selection-completion.md)는 기준별 구현/검사 위치와 pending gate를 구분한다. implementation commit a542abc의 격리 로컬 npm run check(373 client·105/105 conformance·traceability), strict routes(0/1000 stalled), no-skips browser(skipped_steps=[]·mixed selection/transform flags=true)는 확인됐다. shared lock/private copy·MemoryMax6G·swap0, peak anon1760MiB·cache74MiB다. 최종 통합 리뷰 기록·P32f PR/main CI·병합 근거와 추적 상태 승격은 아직 대기이며 P32는 in_progress다. 기존 서버 conformance suite28 105/105는 기록된 서버 근거이며 최신 웹 최종 검증으로 재사용하지 않는다. 세 웹 부분은 여전히 unverified/evidence[]다.
+- whole-object 정렬/분배, 제한된 box 포함 기준, 단일 active placement의 명시 graph 대상, 웹 quarter turn/축 반사와 서버 rectangle 제한은 공개된 bounded 범위다. snapping·cleanup·lasso·여러 배치 raw graph 선택·custom-angle/pivot 웹 UI는 P32 완료의 추가 필수 조건으로 바꾸지 않는다. 완료 확정 시에는 문서/추적 상태·집계·roadmap JSON/HTML을 실제 최종 근거에 맞춰 함께 갱신한다.
+
 ## P30 제한된 프로필 완료 인계
 
 - `chem.inchi`가 Application 소유 포트와 선택적 Linux native provider로 Standard InChI/InChIKey를 생성한다. HTTP/CLI 조립은 `--inchi-library`, `--inchi-version 1.07.5`, `--inchi-sha256`를 함께 요구하고 `--inchi-timeout-seconds`(기본 5, 1–60)를 받는다. 같은 이름의 `CHEMIFREE_INCHI_*` 환경변수도 지원한다. 버전은 등록값이며 런타임 감지가 아니다. SHA는 사용자가 제시한 바이트와의 일치만 확인한다. 미설정·로딩 실패는 `inchi_unavailable`이며 다른 호스트 기능은 유지된다.
@@ -33,7 +41,7 @@
 - 웹 **Scene → Arrange and transform scene objects**에 align_left/horizontal_center/right/top/vertical_center/bottom 여섯 제어, 수평/수직 equal-gap distribute, 시계/반시계 90° 회전, 수평/수직 축 반사 제어를 연결한 후보 구현이다. Scene 목록에서 고른 whole scene object/group 단위만 다룬다. 선택한 조상이 있으면 자손은 별도 단위로 세지 않고, 경계는 원자 위치·graphic 두 점만 사용하여 label/stroke는 제외한다.
 - 회전/반사는 누르는 시점의 Scene 선택을 잡아 두고, 큐에서 적용할 최신 도면의 선택 geometry 경계 중심을 다시 계산해 명시 pivot으로 보낸다. 수평 축 반사는 중심 위/아래를, 수직 축 반사는 좌/우를 뒤집는다. 원자/결합 혼합 선택의 정렬/분배는 비활성화하며 회전/반사는 P32f가 확장한다. 미상 대상은 전체 요청을 보내지 않고 lapse하며, 기하 없음·단위 부족·빈 arrangement 단위는 클라이언트에서 막고 음수 간격·좌표·rectangle 등 최종 규칙은 서버의 기존 원자적 검증을 따른다. frontend bounds/pivot은 요청 구성용이며 서버 계획/좌표 검증을 대체하지 않는다.
 - sibling Group은 Scene 객체만 묶고 독립된 atom/bond 선택은 유지한다. 성공 뒤 잡아 둔 grouped member 선택을 새 group으로 대체하면서 대기 중 다른 live 선택은 보존하도록 선택 병합을 둔다. Transform은 stored stereo/mark/group을 바꾸지 않으며 그림이 stored 입체와 어긋날 수 있다는 안내와 기존 stereo inspection을 이용한다. Undo/Redo·no-op·revision·request replay는 기존 transaction 경로를 사용한다.
-- 현재 P32d client/browser 검사는 진행 중이며 이 문단은 통과·리뷰·CI 완료를 주장하지 않는다. `OPS-01.scene-controls`는 `unverified`, evidence는 비어 있다. 기존 suite28의105/105(accept77·reject28)는 서버 primitive 근거이고 새 웹 제어 검증으로 재사용하지 않는다. 카탈로그/명령/적합성 사례 수는 P32c와 같고 P32는 계속 `in_progress`다. 임의 각도·사용자 지정 pivot·대각선 반사 UI, P32d 자체에는 Scene box/복합 canvas gesture가 없고 P32e가 제한된 선택·이동 후보를 더한다. snapping·cleanup은 미구현이다.
+- P32d 도입 당시에는 검증 전이었으며 현재 로컬 통과 근거는 위 P32 최종 확인 절을 따른다. 최종 리뷰/CI 완료 주장은 아니다. `OPS-01.scene-controls`는 `unverified`, evidence는 비어 있다. 기존 suite28의105/105(accept77·reject28)는 서버 primitive 근거이고 새 웹 제어 검증으로 재사용하지 않는다. 카탈로그/명령/적합성 사례 수는 P32c와 같고 P32는 계속 `in_progress`다. 임의 각도·사용자 지정 pivot·대각선 반사 UI, P32d 자체에는 Scene box/복합 canvas gesture가 없고 P32e가 제한된 선택·이동 후보를 더한다. snapping·cleanup은 미구현이다.
 
 ## P32e 제한된 canvas 복합 선택·이동 후보 인계
 
@@ -41,14 +49,14 @@
 - 선택했거나 선택 subtree가 덮는 atom/bond/graphic을 drag하면 누른 시점의 scene/atom/bond union 전체를 preview하고 scene-aware 응답에서는 기존 `move_selection` 한 명령으로 보낸다. scene 정보가 없는 구형 응답은 제한된 `move_atoms` 호환 경로를 유지한다. 로컬 drag preview는 서버 계획/동의 토큰이 아니며 실제 범위와 최종 좌표는 transaction 시점의 서버 검증을 따른다. 조상/자손·atom/bond 끝점 중복은 per-instance atom/graphic 단위로 한 번만 이동한다. 그래프 ID는 하나지만 explicit atom/bond 이동은 active placement에 한정하고, 선택한 Scene instance/group은 자기 배치의 위치를 포함한다. CSS px drag threshold·inverse SVG 좌표·pan/zoom은 기존 viewport 규칙을 유지한다.
 - canvas에 **Atom and bond movement placement** 선택/상태를 둔다. 다른 배치 atom/bond 클릭이나 selector 변경은 graph 선택을 지우고 독립 scene 선택을 유지한다. active placement가 없어지면—even 남은 배치가 하나여도—자동 대체하지 않고 다시 선택해야 graph 이동을 보낸다. scene-only 선택 이동은 active graph placement가 없어도 가능하다. 큐에서 잡아 둔 대상/배치가 사라지면 일부만 재해석하지 않고 전체 동작을 lapse한다. gesture의 selection-before와 진행 중 live 선택은 기존 transaction/history 경로로 전달한다.
 - 서버/operation/catalog/명령 한도/과학 규칙은 바꾸지 않는다. 기존 원자적 범위·좌표 검증·stored stereo/marks/groups 보존·revision·Undo/Redo·no-op 규칙을 따른다. 정렬/분배 버튼은 whole Scene object 전용이며 atom/bond 혼합 선택에서는 비활성화한다. P32f가 제한된 혼합 회전/반사를 더한다. mixed graph arrangement, lasso, edge-intersection 선택, 여러 배치에 걸친 graph 선택, snapping·cleanup은 미구현이다.
-- client/browser 검증·리뷰는 확인 전이며 `OPS-01.canvas-selection`은 `unverified`/evidence[]다. P32d의 기존 unverified 상태도 바꾸지 않고, 기존 서버 suite28 105/105(accept77·reject28)를 새 웹 동작 실행 근거로 세지 않는다. 연산 31개·transaction 46개(명령35·capability11)·scene_tree11개와 적합성 사례 수는 그대로이고 P32는 계속 `in_progress`다. 이 문단은 미실행 검사의 통과·CI·완료 주장이 아니다.
+- 로컬 client/browser 통과는 위 최종 확인 절에 기록했으며 최종 통합 리뷰/CI는 대기다. 추적 승격 전 `OPS-01.canvas-selection`은 `unverified`/evidence[]다. P32d의 기존 unverified 상태도 바꾸지 않고, 기존 서버 suite28 105/105(accept77·reject28)를 새 웹 동작 실행 근거로 세지 않는다. 연산 31개·transaction 46개(명령35·capability11)·scene_tree11개와 적합성 사례 수는 그대로이고 P32는 계속 `in_progress`다. 이 문단은 미실행 검사의 통과·CI·완료 주장이 아니다.
 
 ## P32f 제한된 혼합 선택 회전·반사 후보 인계
 
 - 기존 ±90° 회전·수평/수직 축 반사 네 버튼을 Scene subtree·명시 atom·bond 끝점의 혼합 union에 연결한다. graph 대상은 누른 시점의 active placement를 명시 instance로 잡고 Scene placement는 자기 위치 집합을 유지한다. 조상/자손·object/atom·atom/bond 중복은 배치별 한 번만 변환하며 reference·연결 성분을 따라가지 않는다. 정렬/분배는 여전히 whole Scene object 전용이다.
 - 누를 때 대상 ID·document ID·필요한 graph 배치를 잡고 큐 실행 시 최신 snapshot에서 전체 대상을 재검증한다. label/stroke/arrowhead를 제외한 atom 위치·graphic 두 점 union 경계 중심을 명시 pivot으로 계산해 기존 transform_selection 한 명령으로 보낸다. 대상/배치 소실·문서 전환·기하 없음은 전체 lapse하며 대기 중 live 선택/active placement 변경으로 재지정하지 않는다. 반복 누름은 큐의 최신 기하에 합성된다.
 - 좌표만 바꾸고 graph·mark·stored configuration·enhanced group·hierarchy·reference를 유지한다. 그림과 stored 입체가 어긋날 수 있으며 chem.stereo로 검사한다. 서버 명령·카탈로그·과학 규칙·원자성·Undo/Redo 경계는 바꾸지 않는다. 임의 각도/custom pivot/대각선 반사 UI·snapping·cleanup은 미구현이다.
-- P32f client/browser·최종 리뷰/CI 실행 근거는 아직 확인하지 않았으며 OPS-01.mixed-selection-transform은 unverified/evidence[]다. 기존 서버 suite28 105/105를 새 웹 동작 근거로 재사용하지 않는다. 연산31·transaction46·scene_tree11 및 적합성 사례 수는 그대로이며 P32는 in_progress다.
+- P32f 로컬 client/browser 통과는 위 최종 확인 절에 기록했고 최종 통합 리뷰/CI는 대기이며 OPS-01.mixed-selection-transform은 unverified/evidence[]다. 기존 서버 suite28 105/105를 새 웹 동작 근거로 재사용하지 않는다. 연산31·transaction46·scene_tree11 및 적합성 사례 수는 그대로이며 P32는 in_progress다.
 
 ## 프로젝트와 현재 기준
 
