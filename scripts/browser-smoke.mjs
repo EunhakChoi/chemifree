@@ -2216,6 +2216,76 @@ step = 'after recorded_states_drawn_and_kept'
 }
 step = 'after scene_group_and_queued_delete_selection'
 
+// Scene geometry controls act on whole objects, preserving grouped units and
+// using one explicit geometry-center pivot for quarter turns and axis mirrors.
+{
+  await closeShown()
+  const created = page.waitForResponse((r) => r.url().endsWith('/api/v1/documents') && r.request().method() === 'POST')
+  await page.getByRole('button', { name: 'New document' }).click()
+  docId = (await (await created).json()).document.id
+  await page.getByLabel('Document title').waitFor()
+  const toggle = (id) => page.getByRole('button', { name: `Select scene object ${id}`, exact: true })
+  const action = (name) => page.getByRole('button', { name, exact: true })
+  const graphics = async () => (await openDoc()).document.scene.objects
+    .filter((object) => object.kind === 'graphic')
+    .map((object) => ({ id: object.id, points: object.points }))
+  assert.equal(await action('Rotate 90° clockwise').isDisabled(), true, 'no selected geometry')
+  for (const shape of ['line', 'arrow', 'rectangle']) {
+    await clickFor(action(`Add ${shape}`), '/transactions')
+  }
+  await toggle('s3').click()
+  assert.equal(await action('Align left').isDisabled(), true, 'alignment needs two outermost objects')
+  await clickFor(action('Move selected scene objects right'), '/transactions')
+  await toggle('s2').click()
+  assert.equal(await action('Distribute horizontal gaps').isDisabled(), true, 'distribution needs three outermost objects')
+  await toggle('s4').click()
+  await clickFor(action('Distribute horizontal gaps'), '/transactions')
+  assert.deepEqual(await graphics(), [
+    { id: 's2', points: [{ x: 20, y: 20 }, { x: 44, y: 20 }] },
+    { id: 's3', points: [{ x: 55, y: 20 }, { x: 79, y: 20 }] },
+    { id: 's4', points: [{ x: 90, y: 20 }, { x: 114, y: 36 }] },
+  ], 'equal edge gaps restore the middle object while retaining endpoints')
+  const beforeAlign = await graphics()
+  await clickFor(action('Align bottom'), '/transactions')
+  const aligned = [
+    { id: 's2', points: [{ x: 20, y: 36 }, { x: 44, y: 36 }] },
+    { id: 's3', points: [{ x: 55, y: 36 }, { x: 79, y: 36 }] },
+    { id: 's4', points: [{ x: 90, y: 20 }, { x: 114, y: 36 }] },
+  ]
+  assert.deepEqual(await graphics(), aligned)
+  await clickFor(action('Undo'), '/undo')
+  assert.deepEqual(await graphics(), beforeAlign)
+  await clickFor(action('Redo'), '/redo')
+  assert.deepEqual(await graphics(), aligned)
+  await clickFor(action('Group'), '/transactions')
+  await toggle('s5').waitFor()
+  await toggle('s2').click()
+  assert.equal(await action('Align left').isDisabled(), true, 'a selected group and its child count as one unit')
+  await clickFor(action('Rotate 90° clockwise'), '/transactions')
+  assert.deepEqual(await graphics(), [
+    { id: 's2', points: [{ x: 59, y: -19 }, { x: 59, y: 5 }] },
+    { id: 's3', points: [{ x: 59, y: 16 }, { x: 59, y: 40 }] },
+    { id: 's4', points: [{ x: 75, y: 51 }, { x: 59, y: 75 }] },
+  ], 'group plus selected descendant rotates each endpoint once around (67,28)')
+  await clickFor(action('Reflect across horizontal axis'), '/transactions')
+  assert.deepEqual(await graphics(), [
+    { id: 's2', points: [{ x: 59, y: 75 }, { x: 59, y: 51 }] },
+    { id: 's3', points: [{ x: 59, y: 40 }, { x: 59, y: 16 }] },
+    { id: 's4', points: [{ x: 75, y: 5 }, { x: 59, y: -19 }] },
+  ], 'horizontal-axis reflection reverses y and preserves x and corner identities')
+  await drawPair()
+  await tool('Select and move')
+  const at = await atomScreen(await openDoc(), 'a1')
+  await page.mouse.click(at.x, at.y)
+  await page.getByRole('heading', { name: 'Atom a1', exact: true }).waitFor()
+  await toggle('s5').click()
+  assert.equal(await action('Rotate 90° clockwise').isDisabled(), true)
+  assert.equal(await action('Reflect across vertical axis').isDisabled(), true)
+  await page.getByText('Choose scene objects to arrange or transform. Atom and bond selection is not supported by these controls yet.', { exact: true }).waitFor()
+  results.scene_geometry_controls = true
+}
+step = 'after scene_geometry_controls'
+
 // Document style and preferences: a document's style is changed in its Document style dialog (two quick
 // presses while the first request is held both count), the canvas follows it (measured from the
 // DOM: font size and family, carbon labels, stroke width, label boxes holding the drawn text, the

@@ -531,6 +531,18 @@ export interface BondKind {
   query?: BondQuery
 }
 
+/** Geometry-only arrangements against the selected scene units' bounds. */
+export type ArrangementMode =
+  | 'align_left' | 'align_horizontal_center' | 'align_right'
+  | 'align_top' | 'align_vertical_center' | 'align_bottom'
+  | 'distribute_horizontal' | 'distribute_vertical'
+
+/** Page-coordinate transforms; horizontal/vertical name the mirror axis through the pivot. */
+export type SelectionTransform =
+  | { type: 'rotate'; degrees: number }
+  | { type: 'reflect_horizontal' }
+  | { type: 'reflect_vertical' }
+
 export type Command =
   /** Named by exactly one of `element` and `query`; a query atom carries no charge or isotope. */
   | ({ op: 'add_atom'; bond_to?: { atom: AtomRef } & BondKind } & ({ element: string } | { query: QueryAtom }) &
@@ -562,6 +574,9 @@ export type Command =
   | { op: 'reorder'; object: string; index: number }
   | { op: 'delete_objects'; objects: string[]; mode: 'subtree' | 'object_only' }
   | { op: 'move_objects'; objects: string[]; delta: Position }
+  | { op: 'move_selection'; selection: SelectionView; delta: Position; instance?: string }
+  | { op: 'arrange_objects'; objects: string[]; mode: ArrangementMode }
+  | { op: 'transform_selection'; selection: SelectionView; pivot: Position; transform: SelectionTransform; instance?: string }
   | { op: 'add_reference' | 'remove_reference'; source: string; target: ReferenceTarget }
   | ({ op: 'update_settings' } & SettingsEdit)
   /** `bond` is an id or `$N`, the bond created by command N (an `add_bond`, or an `add_atom` with `bond_to`). `null` clears. */

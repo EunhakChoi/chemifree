@@ -1015,7 +1015,7 @@
         },
         {
           "id": "OPS-01.object-arrangement",
-          "summary": "Bounded P32b geometry-only document.arrangement_plan and atomic arrange_objects: six union-bound alignments and horizontal/vertical equal-edge-gap distribution of outermost scene units. Descendants of selected ancestors are absorbed into rigid groups, leading-edge/ID order is deterministic, endpoints stay fixed, and too few units, empty geometry, negative gap or coordinate overflow refuse whole. No-op preserves history/redo; plans include original bounds/nominal deltas/translation anchors/scopes and exact snapshot, not a commit token. Anchors reconstruct each moved coordinate with exact coordinate + target - source summed before one binary64 ties-even rounding; null leaves stationary units untouched. Both dedicated conformance cases passed in clean isolated suite 28; full P32 and final CI/review status remain separate; no arrangement web controls, partial atom arrangement targets or snapping. P32c adds separate geometry rotation/reflection primitives.",
+          "summary": "Bounded P32b geometry-only document.arrangement_plan and atomic arrange_objects: six union-bound alignments and horizontal/vertical equal-edge-gap distribution of outermost scene units. Descendants of selected ancestors are absorbed into rigid groups, leading-edge/ID order is deterministic, endpoints stay fixed, and too few units, empty geometry, negative gap or coordinate overflow refuse whole. No-op preserves history/redo; plans include original bounds/nominal deltas/translation anchors/scopes and exact snapshot, not a commit token. Anchors reconstruct each moved coordinate with exact coordinate + target - source summed before one binary64 ties-even rounding; null leaves stationary units untouched. Both dedicated conformance cases passed in clean isolated suite 28; full P32 and final CI/review status remain separate; P32b itself has no web controls or partial atom arrangement targets. P32c adds separate geometry rotation/reflection primitives, and the bounded web controls are tracked separately as unverified P32d. Snapping remains absent.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/scene/arrangement.rs",
@@ -1031,7 +1031,7 @@
         },
         {
           "id": "OPS-01.selection-transform",
-          "summary": "Bounded P32c document.transform_plan and atomic transform_selection use the existing exact selected union and explicit finite pivot for geometry-only rotation and horizontal/vertical axis reflection. Positive degrees are clockwise in page coordinates; modulo-360 identities and quarter turns avoid trigonometric drift. Arbitrary rotations support atoms, lines and arrows; any selected rectangle, including descendants/degenerate rectangles, requires an exact quarter turn. Plans report immutable snapshot/scope and exact before/after geometry; drawing_stereo_may_change is only an advisory that graph positions change, not a stereo assessment or loss. Hierarchy, references, marks, stored configurations/groups and other placements remain unchanged; invalid/unsupported/out-of-range targets roll back the whole edit. Empty/identity no-op preserves revision/history/redo. Both dedicated conformance cases passed in clean isolated suite 28; full P32 and final CI/review status remain separate; no web controls, diagonal reflection, implicit pivot, snapping or cleanup.",
+          "summary": "Bounded P32c document.transform_plan and atomic transform_selection use the existing exact selected union and explicit finite pivot for geometry-only rotation and horizontal/vertical axis reflection. Positive degrees are clockwise in page coordinates; modulo-360 identities and quarter turns avoid trigonometric drift. Arbitrary rotations support atoms, lines and arrows; any selected rectangle, including descendants/degenerate rectangles, requires an exact quarter turn. Plans report immutable snapshot/scope and exact before/after geometry; drawing_stereo_may_change is only an advisory that graph positions change, not a stereo assessment or loss. Hierarchy, references, marks, stored configurations/groups and other placements remain unchanged; invalid/unsupported/out-of-range targets roll back the whole edit. Empty/identity no-op preserves revision/history/redo. Both dedicated conformance cases passed in clean isolated suite 28; full P32 and final CI/review status remain separate; P32c itself has no web controls or implicit pivot. Bounded center-pivot web controls are tracked separately as unverified P32d; diagonal reflection, snapping and cleanup remain absent.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/scene/transform.rs",
@@ -1044,6 +1044,21 @@
             "case:selection-transform-refusal-atomic"
           ],
           "followups": []
+        },
+        {
+          "id": "OPS-01.scene-controls",
+          "summary": "P32d candidate web Scene controls expose six geometry-bound alignments, two equal-edge-gap distributions, clockwise/counterclockwise quarter-turn rotation and horizontal/vertical axis reflection for whole scene objects. Selected ancestor/descendant units collapse once; rotation/reflection submits an explicit pivot at the current selected geometry-bounds center. Bounds exclude labels/strokes. Atom/bond or mixed graph geometry targets are disabled; missing targets lapse as a whole, empty geometry and insufficient arrangement units are gated, and queued actions recompute against the latest document while retaining the selection captured at press. Sibling grouping preserves independent atom/bond selection and replaces grouped member selection with the created group without discarding unrelated live choices. Existing authoritative server validation, history and stored-stereo limits remain; no arbitrary-angle/custom-pivot/diagonal-reflection UI, scene box/mixed canvas selection, snapping or cleanup. Client/browser checks and review are in progress; no verified P32d evidence is recorded yet.",
+          "status": "unverified",
+          "implementation": [
+            "apps/web/src/components/document-workspace.tsx",
+            "apps/web/src/editor/scene-geometry.ts",
+            "apps/web/src/editor/scene-selection.ts",
+            "apps/web/src/hooks/use-document-editor.ts"
+          ],
+          "evidence": [],
+          "followups": [
+            "P32"
+          ]
         },
         {
           "id": "OPS-01.rest",

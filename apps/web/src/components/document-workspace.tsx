@@ -74,6 +74,8 @@ import * as edits from '@/editor/atom-edits'
 import { stillApplicable } from '@/editor/commands'
 import { queryDescription, queryLabel } from '@/editor/label'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
+import { sceneGeometry, sceneGeometryCommands, type SceneGeometryAction } from '@/editor/scene-geometry'
+import { groupableSceneObjects } from '@/editor/scene-selection'
 import { StructureCanvas, type DrawnKind, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
 import { MarkGlyph } from '@/editor/stroke-shapes'
 import { buildMark, inspectorWhere, setMark } from '@/editor/mark-gestures'
@@ -1205,6 +1207,21 @@ const NUDGES: { label: string; offset: Position; icon: ReactNode }[] = [
   { label: 'right', offset: { x: NUDGE, y: 0 }, icon: <ArrowRightIcon /> },
 ]
 
+const SCENE_GEOMETRY_ACTIONS: { label: string; action: SceneGeometryAction; minimum: number }[] = [
+  { label: 'Align left', action: { kind: 'arrange', mode: 'align_left' }, minimum: 2 },
+  { label: 'Align horizontal center', action: { kind: 'arrange', mode: 'align_horizontal_center' }, minimum: 2 },
+  { label: 'Align right', action: { kind: 'arrange', mode: 'align_right' }, minimum: 2 },
+  { label: 'Align top', action: { kind: 'arrange', mode: 'align_top' }, minimum: 2 },
+  { label: 'Align vertical center', action: { kind: 'arrange', mode: 'align_vertical_center' }, minimum: 2 },
+  { label: 'Align bottom', action: { kind: 'arrange', mode: 'align_bottom' }, minimum: 2 },
+  { label: 'Distribute horizontal gaps', action: { kind: 'arrange', mode: 'distribute_horizontal' }, minimum: 3 },
+  { label: 'Distribute vertical gaps', action: { kind: 'arrange', mode: 'distribute_vertical' }, minimum: 3 },
+  { label: 'Rotate 90° clockwise', action: { kind: 'transform', transform: { type: 'rotate', degrees: 90 } }, minimum: 1 },
+  { label: 'Rotate 90° counterclockwise', action: { kind: 'transform', transform: { type: 'rotate', degrees: -90 } }, minimum: 1 },
+  { label: 'Reflect across horizontal axis', action: { kind: 'transform', transform: { type: 'reflect_horizontal' } }, minimum: 1 },
+  { label: 'Reflect across vertical axis', action: { kind: 'transform', transform: { type: 'reflect_vertical' } }, minimum: 1 },
+]
+
 /** Scene selection stays interactive while an edit is in flight. */
 function SceneControls({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
   const objects = document.scene?.objects
@@ -1212,7 +1229,8 @@ function SceneControls({ document, editor }: { document: DocumentView; editor: D
   const references = document.scene?.references
   if (!objects || !roots || !references) return null
   const chosen = objects.filter((object) => editor.selection.has(object.id))
-  const groupable = chosen.length >= 2 && chosen.every((object) => object.parent === chosen[0].parent)
+  const geometry = sceneGeometry(document, editor.selection)
+  const groupable = groupableSceneObjects(document, editor.selection)
   const one = chosen.length === 1 ? chosen[0] : undefined
   const siblings = one?.parent === null ? roots : objects.find((object) => object.id === one?.parent && object.kind === 'group')
   const siblingsOfOne = Array.isArray(siblings) ? siblings : siblings?.kind === 'group' ? siblings.children : []
@@ -1300,12 +1318,11 @@ function SceneControls({ document, editor }: { document: DocumentView; editor: D
       )}
       <div className="flex flex-wrap gap-1">
         <Button size="sm" variant="outline" disabled={!groupable} onClick={() => {
-          const ids = chosen.map((object) => object.id)
+          if (!groupable) return
+          const ids = groupable
           void editor.apply((latest) => {
-            const selected = latest.scene?.objects?.filter((object) => ids.includes(object.id)) ?? []
-            return selected.length === ids.length && selected.every((object) => object.parent === selected[0].parent)
-              ? [{ op: 'group', objects: ids }]
-              : null
+            const selected = groupableSceneObjects(latest, new Set(ids))
+            return selected?.length === ids.length ? [{ op: 'group', objects: ids }] : null
           }, { kind: 'group', objects: ids })
         }}>Group</Button>
         <Button size="sm" variant="outline" disabled={one?.kind !== 'group'} onClick={() => {
@@ -1313,6 +1330,29 @@ function SceneControls({ document, editor }: { document: DocumentView; editor: D
         }}>Ungroup</Button>
         <Button size="sm" variant="outline" disabled={!one || index <= 0} onClick={() => one && reorder(one.id, -1)}>Earlier</Button>
         <Button size="sm" variant="outline" disabled={!one || index < 0 || index === siblingsOfOne.length - 1} onClick={() => one && reorder(one.id, 1)}>Later</Button>
+      </div>
+      <div className="flex flex-col gap-2" role="group" aria-labelledby="scene-geometry-heading" aria-describedby="scene-geometry-help">
+        <h4 id="scene-geometry-heading" className="text-sm font-medium">Arrange and transform scene objects</h4>
+        <p id="scene-geometry-help" className="text-xs text-muted-foreground">
+          Select scene objects above. Groups count once. Align at least two objects against their combined geometry bounds;
+          distribute at least three with equal edge gaps and fixed endpoints. Bounds exclude labels and stroke widths.
+          Rotations and reflections use the selected geometry center. Horizontal reflection swaps above and below that center; vertical reflection swaps left and right.
+        </p>
+        {geometry.hasGraphTargets && <p className="text-xs text-muted-foreground">Choose scene objects to arrange or transform. Atom and bond selection is not supported by these controls yet.</p>}
+        {geometry.hasEmptyUnits && <p className="text-xs text-muted-foreground">An empty scene unit cannot be aligned or distributed. Transforms need some selected geometry.</p>}
+        <div className="flex flex-wrap gap-1">
+          {SCENE_GEOMETRY_ACTIONS.map(({ label, action, minimum }) => (
+            <Button key={label} size="sm" variant="outline"
+              disabled={geometry.hasGraphTargets || geometry.hasMissingTargets || geometry.bounds === null || geometry.objects.length < minimum || (action.kind === 'arrange' && geometry.hasEmptyUnits)}
+              onClick={() => {
+                const pressed = editor.selectionAtPress()
+                void editor.apply((latest) => latest.id === document.id ? sceneGeometryCommands(latest, pressed, action) : null)
+              }}>
+              {label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">Transforms keep stored stereo configurations and bond marks. The transformed drawing may disagree with them; use the stereo inspection to check.</p>
       </div>
       <div className="flex flex-wrap gap-1">
         {NUDGES.map((nudge) => (
