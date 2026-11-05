@@ -1,8 +1,8 @@
 <!--
 Follow .github/CONTRIBUTING.md. Keep simple changes short; use N/A with a reason
 where a section does not apply. Replace prompts with observed facts.
-The initial Codex review starts automatically. Do not put bot mentions in this
-description; later review requests belong in standalone PR comments.
+Each PR receives one Codex review (automatic on creation) and one independent
+subagent review. Do not put bot mentions in this description.
 -->
 
 ## Problem and resulting behavior
@@ -48,23 +48,26 @@ Keep unsupported and untested behavior explicit; link follow-up plan IDs. -->
 
 ## Review record
 
-<!-- At most three rounds per PR, including the first automatic round. Each round
-has a 15-minute deadline including queue time; service errors/timeouts count as
-failures. Re-review after any head change. Keep the table current or link a PR
-comment containing these fields. A late result cannot reverse a timed-out round.
-The reviewed final SHA can be recorded in a PR comment without another commit. -->
+<!-- One Codex review and one independent subagent review per PR. The subagent
+checks arbitrary interpretations of abstract or undecided requirements and code
+quality (policy consistency for docs). Address findings without another review
+round; record later fixes and their checks. The Codex deadline is 15 minutes
+including queue time. On a service error or timeout, record it and use one
+independent local `codex review` as the fallback.
+The evidence may live in a PR comment without another documentation commit. -->
 
-| Round | Trigger / request link | Full head SHA | Requested / deadline / completed (UTC) | Elapsed | Result / findings / evidence |
+| Reviewer | Trigger / request link | Reviewed full head SHA / local diff | Requested / deadline / completed (UTC) | Elapsed | Result / findings / fixes / evidence |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Automatic on PR creation | | | | Pending |
+| Codex | Automatic on PR creation | | | | Pending |
+| Independent subagent | | | | | Pending |
 
 ## Delivery checks
 
 - [ ] The scope, decisions, and compatibility impact match the final diff.
 - [ ] Relevant verification is recorded, including failures and checks not run.
 - [ ] Affected contracts, capabilities, traceability, roadmap, and docs are updated, or N/A is explained.
-- [ ] The diff excludes credentials, private DATA, vendor artifacts, and unrelated changes.
-- [ ] The current head has a completed passing Codex review within three rounds, with no outstanding findings.
+- [ ] The diff excludes credentials, local data, generated outputs, caches, and unrelated changes.
+- [ ] One Codex review and one independent subagent review are completed, and their findings are addressed.
 - [ ] Required CI jobs pass for the current head.
 
 <!-- After merging, record the merge SHA and its main CI result in a PR comment.
