@@ -508,12 +508,99 @@ fn attributes_without_a_public_meaning_stay_refused() {
             "{extra}"
         );
     }
-    let (preview, _) = import(
-        &application,
-        "cdxml",
-        &fan("ShowAtomEnhancedStereo=\"yes\"", ""),
-    );
-    assert_eq!(preview["diagnostics"][0]["code"], "unsupported_node");
+    assert_eq!(count(&application), 0);
+}
+
+#[test]
+fn atom_enhanced_stereo_display_is_a_rendering_loss_without_configuration_or_membership() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    for (format, source) in [
+        ("cdxml", fan("ShowAtomEnhancedStereo=\"yes\"", "")),
+        ("cdxml", fan("ShowAtomEnhancedStereo=\"no\"", "")),
+        ("cdx", cdx(&[common::prop(0x0445, &[0])], &[])),
+        ("cdx", cdx(&[common::prop(0x0445, &[1])], &[])),
+        ("cdx", cdx(&[common::prop(0x0445, &[255])], &[])),
+    ] {
+        let (preview, created) = import(&application, format, &source);
+        assert!(
+            !created["result"].is_null(),
+            "{format}: {preview} {created}"
+        );
+        assert!(stereo_atoms(&created).is_empty(), "{created}");
+        assert!(groups(&created).is_empty(), "{created}");
+        let entry = loss(&created, "enhanced_stereo_display");
+        assert_eq!(entry["semantic_impact"], "rendering");
+        assert_eq!(entry["disposition"], "dropped");
+        assert!(
+            entry.get("consent").is_none(),
+            "consent is internal: {entry}"
+        );
+        let reported = features(&created);
+        assert!(
+            reported.contains(&"enhanced_stereo_display".to_owned()),
+            "{created}"
+        );
+        assert!(
+            !reported.contains(&"unprojected_property".to_owned()),
+            "{created}"
+        );
+    }
+}
+
+#[test]
+fn hiding_the_enhanced_stereo_label_preserves_drawn_configuration_and_group_membership() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    let attrs = "EnhancedStereoType=\"Or\" EnhancedStereoGroupNum=\"5\"";
+    let (_, baseline) = import(&application, "cdxml", &fan(attrs, "Display=\"WedgeBegin\""));
+    assert_eq!(groups(&baseline).len(), 1, "{baseline}");
+    assert_eq!(stereo_atoms(&baseline).len(), 1, "{baseline}");
+    for show in ["yes", "no"] {
+        let source = fan(
+            &format!("{attrs} ShowAtomEnhancedStereo=\"{show}\""),
+            "Display=\"WedgeBegin\"",
+        );
+        let (_, created) = import(&application, "cdxml", &source);
+        assert_eq!(stereo_atoms(&created), stereo_atoms(&baseline), "{created}");
+        assert_eq!(groups(&created), groups(&baseline), "{created}");
+    }
+    let member = [common::prop(0x0446, &[3]), common::prop(0x0447, &[5, 0])];
+    let bond = [common::prop(0x0601, &[6, 0])];
+    let (_, baseline) = import(&application, "cdx", &cdx(&member, &bond));
+    assert_eq!(groups(&baseline).len(), 1, "{baseline}");
+    assert_eq!(stereo_atoms(&baseline).len(), 1, "{baseline}");
+    for byte in [0, 1, 255] {
+        let mut properties = member.to_vec();
+        properties.push(common::prop(0x0445, &[byte]));
+        let (_, created) = import(&application, "cdx", &cdx(&properties, &bond));
+        assert_eq!(stereo_atoms(&created), stereo_atoms(&baseline), "{created}");
+        assert_eq!(groups(&created), groups(&baseline), "{created}");
+    }
+}
+
+#[test]
+fn malformed_atom_display_booleans_refuse_import_without_creating_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let application = app(dir.path());
+    for value in ["", "true", "false", "0", "1", "YES", " no", "yes "] {
+        let source = fan(&format!("ShowAtomEnhancedStereo=\"{value}\""), "");
+        let (preview, created) = import(&application, "cdxml", &source);
+        assert_eq!(
+            preview["diagnostics"][0]["code"], "invalid_stereo_attribute",
+            "{value:?}: {preview}"
+        );
+        assert!(created.is_null(), "{created}");
+    }
+    for bytes in [&[][..], &[0, 0], &[1, 0, 0, 0]] {
+        let source = cdx(&[common::prop(0x0445, bytes)], &[]);
+        let (preview, created) = import(&application, "cdx", &source);
+        assert_eq!(
+            preview["diagnostics"][0]["code"], "invalid_stereo_attribute",
+            "{bytes:?}: {preview}"
+        );
+        assert!(created.is_null(), "{created}");
+    }
     assert_eq!(count(&application), 0);
 }
 

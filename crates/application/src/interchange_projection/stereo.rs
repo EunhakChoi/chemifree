@@ -1,9 +1,9 @@
 //! The stereo statements of a CDXML or CDX fragment, read from the opaque properties the rich
 //! tree keeps for them. Only what the public sources confirm is read: the bond `Display` and
 //! `Display2` values and the atom `Geometry`, `BondOrdering`, `AS`, `EnhancedStereoType` and
-//! `EnhancedStereoGroupNum` attributes in CDXML, and the atom tags `0430`, `0431`, `0446` and
-//! `0447` (and `0437` as a hint) in CDX, and the binary bond `Display` (`0601`, an `INT16`), which is decoded through
-//! the same `LOOKS` table as the CDXML names. `Display2` and `DoublePosition` have no tag in the
+//! `EnhancedStereoGroupNum` and `ShowAtomEnhancedStereo` attributes in CDXML, and the atom tags
+//! `0430`, `0431`, `0445`, `0446` and `0447` (and `0437` as a hint) in CDX, and the binary bond
+//! `Display` (`0601`, an `INT16`), decoded through the same `LOOKS` table as the CDXML names. `Display2` and `DoublePosition` have no tag in the
 //! public sources used, so a binary bond that carries one stays an unread property and is
 //! refused, exactly as before.
 
@@ -28,12 +28,19 @@ enum Carrier {
     Label,
     EnhancedType,
     EnhancedNumber,
+    ShowEnhancedStereo,
     Display,
     Display2,
 }
 
 fn carrier(owner: &ObjectKind, kind: &PropertyKind) -> Option<Carrier> {
     match (owner, kind) {
+        (ObjectKind::Bond, PropertyKind::BondDisplay) => Some(Carrier::Display),
+        (ObjectKind::Node, PropertyKind::EnhancedStereoType) => Some(Carrier::EnhancedType),
+        (ObjectKind::Node, PropertyKind::EnhancedStereoGroupNum) => Some(Carrier::EnhancedNumber),
+        (ObjectKind::Node, PropertyKind::ShowAtomEnhancedStereo) => {
+            Some(Carrier::ShowEnhancedStereo)
+        }
         (
             ObjectKind::Node,
             PropertyKind::UnknownXml(XmlName {
@@ -46,12 +53,14 @@ fn carrier(owner: &ObjectKind, kind: &PropertyKind) -> Option<Carrier> {
             "AS" => Some(Carrier::Label),
             "EnhancedStereoType" => Some(Carrier::EnhancedType),
             "EnhancedStereoGroupNum" => Some(Carrier::EnhancedNumber),
+            "ShowAtomEnhancedStereo" => Some(Carrier::ShowEnhancedStereo),
             _ => None,
         },
         (ObjectKind::Node, PropertyKind::UnknownBinary(tag)) => match tag {
             0x0430 => Some(Carrier::Geometry),
             0x0431 => Some(Carrier::BondOrdering),
             0x0437 => Some(Carrier::Label),
+            0x0445 => Some(Carrier::ShowEnhancedStereo),
             0x0446 => Some(Carrier::EnhancedType),
             0x0447 => Some(Carrier::EnhancedNumber),
             _ => None,
@@ -135,6 +144,14 @@ enum EnhancedType {
 
 fn enhanced_type(value: &PropertyValue, path: &str) -> Result<EnhancedType, InterchangeError> {
     match value {
+        PropertyValue::Integer(value) => match value {
+            0 => Ok(EnhancedType::Unspecified),
+            1 => Ok(EnhancedType::None),
+            2 => Ok(EnhancedType::Kind(GroupKind::Absolute)),
+            3 => Ok(EnhancedType::Kind(GroupKind::Or)),
+            4 => Ok(EnhancedType::Kind(GroupKind::And)),
+            _ => Err(invalid(path, "an unknown enhanced stereo type")),
+        },
         PropertyValue::Text(text) => match text.as_str() {
             "Unspecified" => Ok(EnhancedType::Unspecified),
             "None" => Ok(EnhancedType::None),
@@ -172,6 +189,8 @@ fn enhanced_type(value: &PropertyValue, path: &str) -> Result<EnhancedType, Inte
 /// reader of another program that is observed to turn them into -128 and 2 is not copied).
 fn enhanced_number(value: &PropertyValue, path: &str) -> Result<i32, InterchangeError> {
     match value {
+        PropertyValue::Integer(value) => i32::try_from(*value)
+            .map_err(|_| invalid(path, "a group number outside the 32-bit integer range")),
         PropertyValue::Text(text) => text.trim().parse::<i32>().map_err(|_| {
             invalid(
                 path,
@@ -192,6 +211,40 @@ fn enhanced_number(value: &PropertyValue, path: &str) -> Result<i32, Interchange
             )),
         },
         _ => Err(invalid(path, "a group number of an unexpected kind")),
+    }
+}
+
+/// `ShowAtomEnhancedStereo` is a display preference, not a stereo assertion. The public
+/// CDXBoolean representation is exactly one byte: zero is false, any nonzero byte is true.
+fn show_enhanced_stereo(value: &PropertyValue, path: &str) -> Result<bool, InterchangeError> {
+    match value {
+        PropertyValue::Integer(0) => Ok(false),
+        PropertyValue::Integer(1) => Ok(true),
+        PropertyValue::Text(text) => match text.as_str() {
+            "yes" => Ok(true),
+            "no" => Ok(false),
+            other => Err(invalid(
+                path,
+                &format!(
+                    "a ShowAtomEnhancedStereo {:?} other than yes or no",
+                    shown(other)
+                ),
+            )),
+        },
+        PropertyValue::Bytes(bytes) => match bytes.as_slice() {
+            [byte] => Ok(*byte != 0),
+            other => Err(invalid(
+                path,
+                &format!(
+                    "a ShowAtomEnhancedStereo of {} bytes where one is expected",
+                    other.len()
+                ),
+            )),
+        },
+        _ => Err(invalid(
+            path,
+            "a ShowAtomEnhancedStereo of an unexpected kind",
+        )),
     }
 }
 
@@ -327,6 +380,19 @@ pub(super) fn read_node(
                     ),
                 ));
             }
+            Carrier::ShowEnhancedStereo => {
+                let show = show_enhanced_stereo(&property.value, &at)?;
+                losses.push(note(
+                    at,
+                    "enhanced_stereo_display",
+                    LossDisposition::Dropped,
+                    SemanticImpact::Rendering,
+                    format!(
+                        "ShowAtomEnhancedStereo={} is a display preference that the editor does not store; it states no configuration or group membership.",
+                        if show { "yes" } else { "no" }
+                    ),
+                ));
+            }
             Carrier::EnhancedType => enhanced = enhanced_type(&property.value, path)?,
             Carrier::EnhancedNumber => {
                 number = Some((enhanced_number(&property.value, path)?, at));
@@ -452,6 +518,10 @@ fn read_look(
     at: &str,
 ) -> Result<Option<(Look, &'static str)>, InterchangeError> {
     match value {
+        PropertyValue::Integer(value) => Ok(usize::try_from(*value)
+            .ok()
+            .and_then(|index| LOOKS.get(index))
+            .copied()),
         PropertyValue::Text(text) => Ok(LOOKS.iter().find(|(_, name)| name == text).copied()),
         PropertyValue::Bytes(bytes) => {
             let Ok(pair) = <[u8; 2]>::try_from(bytes.as_slice()) else {
@@ -594,14 +664,26 @@ mod tests {
 
     fn text(name: &str, value: &str) -> Property {
         Property {
-            kind: xml(name),
+            kind: match name {
+                "Display" => PropertyKind::BondDisplay,
+                "EnhancedStereoType" => PropertyKind::EnhancedStereoType,
+                "EnhancedStereoGroupNum" => PropertyKind::EnhancedStereoGroupNum,
+                "ShowAtomEnhancedStereo" => PropertyKind::ShowAtomEnhancedStereo,
+                _ => xml(name),
+            },
             value: PropertyValue::Text(value.into()),
         }
     }
 
     fn binary(tag: u16, bytes: &[u8]) -> Property {
         Property {
-            kind: PropertyKind::UnknownBinary(tag),
+            kind: match tag {
+                0x0601 => PropertyKind::BondDisplay,
+                0x0445 => PropertyKind::ShowAtomEnhancedStereo,
+                0x0446 => PropertyKind::EnhancedStereoType,
+                0x0447 => PropertyKind::EnhancedStereoGroupNum,
+                _ => PropertyKind::UnknownBinary(tag),
+            },
             value: PropertyValue::Bytes(bytes.to_vec()),
         }
     }
@@ -630,6 +712,67 @@ mod tests {
 
     fn group(kind: GroupKind, number: i32) -> Result<Option<Membership>, InterchangeError> {
         Ok(Some(Membership { kind, number }))
+    }
+
+    #[test]
+    fn display_boolean_reads_every_byte_without_creating_membership() {
+        for byte in u8::MIN..=u8::MAX {
+            let value = PropertyValue::Bytes(vec![byte]);
+            assert_eq!(show_enhanced_stereo(&value, "n"), Ok(byte != 0), "{byte}");
+            let mut losses = Vec::new();
+            let membership = read_node(&node(vec![binary(0x0445, &[byte])]), "n", &mut losses);
+            assert_eq!(membership, Ok(None), "{byte}");
+            assert_eq!(losses.len(), 1, "{byte}: {losses:?}");
+            assert_eq!(losses[0].feature, "enhanced_stereo_display");
+            assert_eq!(losses[0].semantic_impact, SemanticImpact::Rendering);
+            assert_eq!(losses[0].disposition, LossDisposition::Dropped);
+            assert_eq!(losses[0].consent, LossConsent::NotRequired);
+            assert_eq!(losses[0].source_path, "n.properties[0]");
+        }
+    }
+
+    #[test]
+    fn display_boolean_requires_its_exact_public_spelling_and_width() {
+        for (text, expected) in [("yes", true), ("no", false)] {
+            assert_eq!(
+                show_enhanced_stereo(&PropertyValue::Text(text.into()), "n"),
+                Ok(expected)
+            );
+        }
+        for value in [
+            text("ShowAtomEnhancedStereo", ""),
+            text("ShowAtomEnhancedStereo", "true"),
+            text("ShowAtomEnhancedStereo", "1"),
+            text("ShowAtomEnhancedStereo", "YES"),
+            text("ShowAtomEnhancedStereo", " no"),
+            text("ShowAtomEnhancedStereo", "yes "),
+            binary(0x0445, &[]),
+            binary(0x0445, &[1, 0]),
+            binary(0x0445, &[0, 0, 0, 0]),
+        ] {
+            let error = member(vec![value.clone()]).unwrap_err();
+            assert_eq!(error.code, "invalid_stereo_attribute", "{value:?}");
+        }
+    }
+
+    #[test]
+    fn a_display_preference_does_not_change_membership_and_cannot_be_duplicated() {
+        for property in [text("ShowAtomEnhancedStereo", "no"), binary(0x0445, &[255])] {
+            assert_eq!(
+                member(vec![
+                    property,
+                    text("EnhancedStereoType", "Or"),
+                    text("EnhancedStereoGroupNum", "5"),
+                ]),
+                group(GroupKind::Or, 5)
+            );
+        }
+        let error = member(vec![
+            text("ShowAtomEnhancedStereo", "yes"),
+            binary(0x0445, &[0]),
+        ])
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_stereo_attribute");
     }
 
     #[test]
@@ -1133,6 +1276,7 @@ mod tests {
 
     #[test]
     fn only_the_confirmed_properties_are_carriers() {
+        assert!(is_carrier(&ObjectKind::Bond, &PropertyKind::BondDisplay));
         assert!(is_carrier(&ObjectKind::Bond, &xml("Display")));
         assert!(!is_carrier(&ObjectKind::Bond, &xml("DoublePosition")));
         assert!(!is_carrier(&ObjectKind::Bond, &xml("CIP")));
@@ -1147,22 +1291,28 @@ mod tests {
             ));
         }
         assert!(!is_carrier(&ObjectKind::Node, &xml("Display")));
-        assert!(!is_carrier(
+        assert!(is_carrier(
             &ObjectKind::Node,
             &xml("ShowAtomEnhancedStereo")
         ));
-        for tag in [0x0430, 0x0431, 0x0437, 0x0446, 0x0447] {
+        for kind in [
+            PropertyKind::ShowAtomEnhancedStereo,
+            PropertyKind::EnhancedStereoType,
+            PropertyKind::EnhancedStereoGroupNum,
+        ] {
+            assert!(is_carrier(&ObjectKind::Node, &kind));
+            assert!(!is_carrier(&ObjectKind::Bond, &kind));
+        }
+        for tag in [0x0430, 0x0431, 0x0437, 0x0445, 0x0446, 0x0447] {
             assert!(is_carrier(
                 &ObjectKind::Node,
                 &PropertyKind::UnknownBinary(tag)
             ));
         }
-        for tag in [0x0445, 0x0448] {
-            assert!(!is_carrier(
-                &ObjectKind::Node,
-                &PropertyKind::UnknownBinary(tag)
-            ));
-        }
+        assert!(!is_carrier(
+            &ObjectKind::Node,
+            &PropertyKind::UnknownBinary(0x0448)
+        ));
         let namespaced = PropertyKind::UnknownXml(XmlName {
             namespace: Some("urn:x".into()),
             local: "Geometry".into(),

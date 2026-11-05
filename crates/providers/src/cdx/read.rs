@@ -348,6 +348,44 @@ impl<'a> Builder<'a> {
                 PropertyValue::Bytes(data.to_vec()),
             ));
         };
+        if kind.is_opaque() {
+            opaque(properties);
+            return Ok(());
+        }
+        let stereo = match (kind, raw.tag) {
+            (O::Bond, tag::BOND_DISPLAY) => Some((PropertyKind::BondDisplay, 2)),
+            (O::Node, tag::SHOW_ATOM_ENHANCED_STEREO) => {
+                Some((PropertyKind::ShowAtomEnhancedStereo, 1))
+            }
+            (O::Node, tag::ENHANCED_STEREO_TYPE) => Some((PropertyKind::EnhancedStereoType, 1)),
+            (O::Node, tag::ENHANCED_STEREO_GROUP_NUM) => {
+                Some((PropertyKind::EnhancedStereoGroupNum, 2))
+            }
+            _ => None,
+        };
+        if let Some((stereo_kind, width)) = stereo {
+            if data.len() != width {
+                opaque(properties);
+                return Ok(());
+            }
+            let number = match stereo_kind {
+                PropertyKind::ShowAtomEnhancedStereo => i64::from(data[0] != 0),
+                PropertyKind::BondDisplay => i64::from(i16::from_le_bytes([data[0], data[1]])),
+                _ => integer(data, raw, false)?,
+            };
+            let maximum = match stereo_kind {
+                PropertyKind::BondDisplay => 14,
+                PropertyKind::EnhancedStereoType => 4,
+                PropertyKind::ShowAtomEnhancedStereo => 1,
+                _ => i64::from(u16::MAX),
+            };
+            if !(0..=maximum).contains(&number) {
+                opaque(properties);
+                return Ok(());
+            }
+            properties.push(property(stereo_kind, PropertyValue::Integer(number)));
+            return Ok(());
+        }
         let known = match (kind, raw.tag) {
             (
                 O::Document | O::Page | O::Group | O::Fragment | O::Text | O::Graphic,

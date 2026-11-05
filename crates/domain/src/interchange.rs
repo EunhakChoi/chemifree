@@ -63,6 +63,14 @@ pub enum PropertyKind {
     Isotope,
     Radical,
     BondOrder,
+    /// Public bond display enumeration, encoded as an integer from 0 to 14.
+    BondDisplay,
+    /// Enhanced stereo type enumeration: unspecified, none, absolute, or, and (0 to 4).
+    EnhancedStereoType,
+    /// Enhanced stereo group number, a signed 32-bit value.
+    EnhancedStereoGroupNum,
+    /// Atom enhanced stereo label display preference (0 or 1).
+    ShowAtomEnhancedStereo,
     BondBegin,
     BondEnd,
     GraphicType,
@@ -80,6 +88,28 @@ pub enum PropertyKind {
     UnknownXml(XmlName),
     UnknownBinary(u16),
 }
+
+/// Public CDXML names in the CDX bond display enumeration's numeric order.
+pub const BOND_DISPLAY_NAMES: [&str; 15] = [
+    "Solid",
+    "Dash",
+    "Hash",
+    "WedgedHashBegin",
+    "WedgedHashEnd",
+    "Bold",
+    "WedgeBegin",
+    "WedgeEnd",
+    "Wavy",
+    "HollowWedgeBegin",
+    "HollowWedgeEnd",
+    "WavyWedgeBegin",
+    "WavyWedgeEnd",
+    "Dot",
+    "DashDot",
+];
+
+/// Public CDXML enhanced stereo type names in CDX numeric order.
+pub const ENHANCED_STEREO_TYPE_NAMES: [&str; 5] = ["Unspecified", "None", "Absolute", "Or", "And"];
 
 /// A value decoded by a codec; opaque binary data has no presumed reference semantics.
 #[derive(Clone, Debug, PartialEq)]
@@ -517,6 +547,14 @@ fn inspect_object(
                 value: property.clone(),
             });
         }
+        if !object.kind.is_opaque()
+            && object.properties[..index].iter().any(|previous| {
+                stereo_alias_kind(&property.kind).as_ref() == Some(&previous.kind)
+                    || stereo_alias_kind(&previous.kind).as_ref() == Some(&property.kind)
+            })
+        {
+            return Err(ValidationError::DuplicateProperty);
+        }
         if !valid_property(property) || !property_allowed(&object.kind, &property.kind) {
             return Err(ValidationError::InvalidProperty);
         }
@@ -704,6 +742,31 @@ fn discard_opaque_from(object: &mut Object) -> usize {
     removed
 }
 
+// A codec may preserve unrecognized carrier values as opaque, but a typed statement and
+// its opaque alias cannot coexist on the same known object.
+fn stereo_alias_kind(kind: &PropertyKind) -> Option<PropertyKind> {
+    match kind {
+        PropertyKind::UnknownBinary(tag) => match tag {
+            0x0601 => Some(PropertyKind::BondDisplay),
+            0x0445 => Some(PropertyKind::ShowAtomEnhancedStereo),
+            0x0446 => Some(PropertyKind::EnhancedStereoType),
+            0x0447 => Some(PropertyKind::EnhancedStereoGroupNum),
+            _ => None,
+        },
+        PropertyKind::UnknownXml(XmlName {
+            namespace: None,
+            local,
+        }) => match local.as_str() {
+            "Display" => Some(PropertyKind::BondDisplay),
+            "ShowAtomEnhancedStereo" => Some(PropertyKind::ShowAtomEnhancedStereo),
+            "EnhancedStereoType" => Some(PropertyKind::EnhancedStereoType),
+            "EnhancedStereoGroupNum" => Some(PropertyKind::EnhancedStereoGroupNum),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn valid_property(property: &Property) -> bool {
     use PropertyKind as K;
     use PropertyValue as V;
@@ -717,6 +780,10 @@ fn valid_property(property: &Property) -> bool {
         (K::Isotope, V::Integer(value)) => (0..=i64::from(i16::MAX)).contains(value),
         (K::Radical, V::Integer(value)) => (0..=255).contains(value),
         (K::BondOrder, V::Integer(value)) => (1..=i64::from(u16::MAX)).contains(value),
+        (K::BondDisplay, V::Integer(value)) => (0..=14).contains(value),
+        (K::EnhancedStereoType, V::Integer(value)) => (0..=4).contains(value),
+        (K::EnhancedStereoGroupNum, V::Integer(value)) => i32::try_from(*value).is_ok(),
+        (K::ShowAtomEnhancedStereo, V::Integer(value)) => (0..=1).contains(value),
         (K::BondBegin | K::BondEnd | K::RepresentObject, V::ObjectReference(_)) => true,
         (K::FontIndex | K::FontFace | K::ColorIndex, V::Integer(value)) => {
             (0..=i64::from(u16::MAX)).contains(value)
@@ -744,7 +811,10 @@ fn property_allowed(object: &ObjectKind, property: &PropertyKind) -> bool {
         ),
         P::Position => matches!(object, O::Node | O::Text),
         P::NodeType | P::AtomicNumber | P::Charge | P::Isotope | P::Radical => *object == O::Node,
-        P::BondOrder | P::BondBegin | P::BondEnd => *object == O::Bond,
+        P::BondOrder | P::BondDisplay | P::BondBegin | P::BondEnd => *object == O::Bond,
+        P::EnhancedStereoType | P::EnhancedStereoGroupNum | P::ShowAtomEnhancedStereo => {
+            *object == O::Node
+        }
         P::GraphicType => *object == O::Graphic,
         P::FontIndex => matches!(object, O::Font | O::StyleRun),
         P::FontName | P::FontCharset => *object == O::Font,

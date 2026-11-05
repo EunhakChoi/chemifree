@@ -401,6 +401,32 @@ impl Writer<'_> {
                     })?;
                 self.property_bytes(tag::BOND_ORDER, &order.to_le_bytes())?;
             }
+            (K::BondDisplay, V::Integer(value)) => {
+                self.int16(tag::BOND_DISPLAY, *value, 0..=14, "bond display")?;
+            }
+            (K::EnhancedStereoType | K::ShowAtomEnhancedStereo, V::Integer(value)) => {
+                let (property_tag, maximum) = if item.kind == K::EnhancedStereoType {
+                    (tag::ENHANCED_STEREO_TYPE, 4)
+                } else {
+                    (tag::SHOW_ATOM_ENHANCED_STEREO, 1)
+                };
+                let byte = u8::try_from(*value)
+                    .ok()
+                    .filter(|value| *value <= maximum)
+                    .ok_or_else(|| {
+                        self.refuse("invalid_stereo_attribute", "Invalid stereo enumeration")
+                    })?;
+                self.property_bytes(property_tag, &[byte])?;
+            }
+            (K::EnhancedStereoGroupNum, V::Integer(value)) => {
+                let number = u16::try_from(*value).map_err(|_| {
+                    self.refuse(
+                        "out_of_range",
+                        "The enhanced stereo group number does not fit CDX UINT16",
+                    )
+                })?;
+                self.property_bytes(tag::ENHANCED_STEREO_GROUP_NUM, &number.to_le_bytes())?;
+            }
             (K::BondBegin, V::ObjectReference(id)) => {
                 self.property_bytes(tag::BOND_BEGIN, &id.to_le_bytes())?;
             }

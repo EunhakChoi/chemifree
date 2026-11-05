@@ -2,7 +2,8 @@
 
 The rich CDXML tree is available through operation contract 1 in the Rust
 application, HTTP and CLI. The browser can preview a selected page and molecule
-and create a new editable drawing after the user accepts its loss report. A bounded
+and create a new editable drawing after the user accepts its loss report. The HTTP/CLI
+operation also exports a current drawing through the bounded P29e profile below. A bounded
 CDX codec feeds the same tree and operations; see [CDX](#cdx-binary-codec).
 
 `chemifree_domain::interchange::Document` is an ordered tree independent of the
@@ -71,7 +72,7 @@ permits a label to carry the chemical description. Rich read and unchanged expor
 remain available. In particular, dative bonds remain in the rich tree but
 are refused by editor projection: the [public bond-order specification](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Bond_Order.htm)
 describes the first endpoint as positive, while the editor's first endpoint is a
-donor. The projection does not infer that these conventions coincide. A bond whose `Display` is outside the public list (or whose `Display2` is not a listed name) is refused by the projection as `unsupported_bond` rather than created as a plain bond, and the listed wedge, hashed wedge and wavy values are read as bond marks (see the contract's "CDXML and CDX stereo import"); no operation converts a Chemifree drawing's bond marks to CDXML. Default
+donor. The projection does not infer that these conventions coincide. A bond whose `Display` is outside the public list (or whose `Display2` is not a listed name) is refused by the projection as `unsupported_bond` rather than created as a plain bond, and the listed wedge, hashed wedge and wavy values are read as bond marks (see the contract's "CDXML and CDX stereo import"); drawing export now writes the supported marks through the bounded profile below. Default
 implicit-hydrogen interpretation is reported as
 uncertain because the editor's bounded inference need not agree with another
 reader. Double bonds also report uncertainty about stereo another reader may
@@ -98,6 +99,47 @@ Public format references: [CDXML introduction](https://iupac.github.io/IUPAC-FAI
 [graphics](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Graphic_Type.htm),
 [bond orders](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/properties/Bond_Order.htm),
 and [represented-property references](https://iupac.github.io/IUPAC-FAIRSpec/cdx_sdk/Represent.htm).
+
+## Drawing export (P29e)
+
+`document.export { format: "cdxml" | "cdx", document_id, accepted_losses? }`
+exports a captured drawing and returns `content` plus its document/session `snapshot`.
+It is separate from the unchanged rich-tree input form: do not combine `document_id`
+with `document`, `original` or `discard_opaque`. The first placement becomes one page
+and fragment; additional placements, native IDs, scene objects/references, selection
+and settings have explicit losses. Supported element atoms, coordinates, charge,
+isotope, radical states and single/double/triple/aromatic bonds are written. Query
+atoms, dative/query/unknown bonds and unknown radicals are refused. Unwritten stated
+hydrogens and attachment points require consent. No web drawing-export control is added.
+
+Four properties have verified typed cross-format encodings: bond `BondDisplay`
+(`Display`, tag `0601`, INT16 0–14), node `EnhancedStereoType` (`0446`, UINT8 0–4),
+`EnhancedStereoGroupNum` (`0447`, UINT16 binary, int32 common model/CDXML), and
+`ShowAtomEnhancedStereo` (`0445`, one-byte boolean, CDXML `yes`/`no`). Unknown names,
+locations, namespaces, widths and values remain opaque under the existing preservation
+policy. Known typed values can cross formats without discarding opaque extensions;
+this does not make other extensions safe to rewrite.
+
+Wedge/hash marks preserve the narrow end; wavy single and crossed double bonds use
+`Wavy`. The exporter synthesizes no marks, CIP labels, `Geometry` or `BondOrdering`.
+Stored configurations are checked against the output's marks and actual coordinates,
+including fixed-point CDX quantization. A mismatch requires `stereo_configuration`
+consent; stored double-bond statements require `double_bond_configuration` consent.
+An absolute/and/or group is emitted only when every member's written drawing derives
+the stored tetrahedral state; otherwise `stereo_group` reports the whole omitted group.
+A member subset is never silently kept. Output numbers 1–127 are preserved; others
+receive the lowest free positive number per kind after existing valid numbers are
+reserved (`stereo_group_number`, informational normalization). A full number space
+is refused as `stereo_group_limit`. Group IDs are informational `stereo_group_identity`
+losses. Originally ungrouped stored centers require `stereo_ungrouped_centers` consent.
+
+Required losses are shown in diagnostic `details.losses` with `loss_digest`, and no
+content. Repeat with that digest as `accepted_losses`; changed losses or output bytes
+invalidate it. Loss entries expose no `consent` field. CDX precision losses use the
+same flow. Export changes neither source drawing nor history. Tests exercised for
+this slice: `cdxml_stereo_export` (7), `cdxml_stereo_import` (34),
+`stereo_carrier_typing` (5), and application unit tests (25). Full-format compatibility,
+double-bond E/Z derivation and a general scene export remain outside this profile.
 
 ## CDX binary codec
 
@@ -135,7 +177,7 @@ properties (font table + fonts, color table + colors, style runs, Represents). T
 **Interpreted subset**, mirroring the CDXML reader: Document, Page, Group, Fragment, Node, Bond,
 Text, Graphic; bounding box, 2D position, node type, element, isotope, charge, radical, bond
 order, bond endpoints, graphic type, font table (`0x0100`), color table (`0x0300`), text string
-(`0x0700`) and Represents (`0x000E`). Everything else, a known tag on an object the CDXML
+(`0x0700`), Represents (`0x000E`) and the four typed stereo carriers described above. Everything else, a known tag on an object the CDXML
 reader would not interpret it on, and every descendant of an unknown object, stays opaque
 binary. Coordinates are 1/65536 point (y before x; rectangles top, left, bottom, right).
 Integers are read by the width the file gives them (1, 2 or 4 bytes). A known value outside

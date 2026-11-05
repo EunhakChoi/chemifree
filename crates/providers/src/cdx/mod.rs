@@ -39,6 +39,10 @@ pub(crate) mod tag {
     pub const ISOTOPE: u16 = 0x0420;
     pub const CHARGE: u16 = 0x0421;
     pub const RADICAL: u16 = 0x0422;
+    pub const SHOW_ATOM_ENHANCED_STEREO: u16 = 0x0445;
+    pub const ENHANCED_STEREO_TYPE: u16 = 0x0446;
+    pub const ENHANCED_STEREO_GROUP_NUM: u16 = 0x0447;
+    pub const BOND_DISPLAY: u16 = 0x0601;
     pub const BOND_ORDER: u16 = 0x0600;
     pub const BOND_BEGIN: u16 = 0x0604;
     pub const BOND_END: u16 = 0x0605;
