@@ -15,7 +15,8 @@ mod transform;
 
 pub(crate) use arrangement::plan as plan_arrangement;
 pub use arrangement::{
-    AlignMode, ArrangementPlan, ArrangementUnit, Bounds, DistributionAxis, ObjectArrangement,
+    AlignMode, ArrangementPlan, ArrangementTranslation, ArrangementUnit, Bounds, DistributionAxis,
+    ObjectArrangement,
 };
 pub(crate) use transform::PreparedTransform;
 pub use transform::{SelectionTransform, TransformPlan, TransformedGraphic, TransformedPosition};

@@ -1273,7 +1273,7 @@
     "P31",
     "P11"
    ],
-   "note": "첫 납품 P32a는 read-only document.selection_scope와 원자적 move_selection만 연결한다. 포함 subtree·원자·결합 끝점의 안정된 union과 중복 이동 방지, instance 범위, 참조 비추적, no-op·이력·전체 rollback을 검사한다. 새 conformance 두 사례와 최종 검사·리뷰는 확인 전이며 P32 완료가 아니다. 웹 복합/박스 선택·회전·반사·정렬/분배 UI·snapping은 미구현이다. P32b는 scene outermost 단위의 geometry-only align 6종·equal-gap distribute 2종, 읽기 전용 document.arrangement_plan과 원자적 arrange_objects를 더한다. 기하 없는 단위·대상 부족·음수 간격은 거절하며 snapshot 계획은 commit token이 아니다. 웹 제어·부분 원자 배치·회전·반사·snapping은 미구현이고 최종 검사/리뷰 전이다."
+   "note": "첫 납품 P32a는 read-only document.selection_scope와 원자적 move_selection만 연결한다. 포함 subtree·원자·결합 끝점의 안정된 union과 중복 이동 방지, instance 범위, 참조 비추적, no-op·이력·전체 rollback을 검사한다. 새 conformance 두 사례와 최종 검사·리뷰는 확인 전이며 P32 완료가 아니다. 웹 복합/박스 선택·회전·반사·정렬/분배 UI·snapping은 미구현이다. P32b는 scene outermost 단위의 geometry-only align 6종·equal-gap distribute 2종, 읽기 전용 document.arrangement_plan과 원자적 arrange_objects를 더한다. 기하 없는 단위·대상 부족·음수 간격은 거절하며 snapshot 계획은 commit token이 아니다. translation 앵커로 좌표+target-source를 정확히 합산한 뒤 binary64로 한 번 반올림하며 delta는 보고용 근삿값이다. 웹 제어·부분 원자 배치·회전·반사·snapping은 미구현이고 최종 검사/리뷰 전이다."
   },
   {
    "phase": "editor",

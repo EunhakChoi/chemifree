@@ -18,7 +18,7 @@
 ## P32b 진행 중 인계
 
 - 읽기 전용 `document.arrangement_plan`과 트랜잭션 명령 `arrange_objects`가 기존 scene object의 outermost 단위를 기하 경계 기준으로 정렬/분배한다. mode는 align_left/horizontal_center/right/top/vertical_center/bottom(실제 문자열은 각각 align_ 접두사)와 distribute_horizontal/vertical이다. 그룹은 강체 단위이며 부분 원자/결합은 받지 않는다. 경계는 원자 위치와 graphic 두 점만 쓰고 글자·stroke·화살촉은 제외한다.
-- 정렬은 전체 union 경계를 기준으로 2개 이상, 분배는 leading edge→ID 순서의 3개 이상이며 양끝을 고정하고 동일한 edge 간격을 만든다. 음수 간격·빈 기하·대상 부족·미상 객체·최종 좌표 초과는 전체 거절하고 이미 배치된 결과는 no-op이다. 미리보기는 snapshot과 단위별 원래 bounds/delta/scope를 보여 주며 commit token이 아니다.
+- 정렬은 전체 union 경계를 기준으로 2개 이상, 분배는 leading edge→ID 순서의 3개 이상이며 양끝을 고정하고 동일한 edge 간격을 만든다. 음수 간격·빈 기하·대상 부족·미상 객체·최종 좌표 초과는 전체 거절하고 이미 배치된 결과는 no-op이다. 미리보기는 snapshot과 단위별 원래 bounds/delta/translation/scope를 보여 주며 commit token이 아니다. delta는 보고용 근삿값이고 실제 좌표는 translation의 axis/source/target으로 `좌표 + target - source`의 정확한 합을 구한 뒤 binary64로 한 번만 최근접·ties-to-even 반올림한다. 정지 단위의 translation은 null이며 다른 축은 유지한다. delta를 단순히 더하면 상쇄 오차로 실제 결과와 달라질 수 있다.
 - 연산 30개(기본 실행 20), transaction 45개(명령 34·capability 11), scene_tree 명령 10개다. P32a suite26의 101개 사례는 유지하고 P32b 후보 두 사례를 더했다. 실행 보고서는 별도 갱신하며 이 문단은 최종 통과 주장이 아니다. P32는 계속 in_progress이고 웹 제어·박스 선택·회전·반사·snapping은 미구현이다.
 
 ## 프로젝트와 현재 기준

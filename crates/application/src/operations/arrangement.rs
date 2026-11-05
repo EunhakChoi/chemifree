@@ -1,5 +1,6 @@
 //! Checked read-only plans for the same rigid arrangement used by `arrange_objects`.
 
+use chemifree_domain::scene::DistributionAxis;
 use serde::Deserialize;
 
 use super::*;
@@ -22,12 +23,32 @@ pub struct ArrangementBounds {
     pub bottom: f64,
 }
 
+/// Coordinate axis affected by a rigid arrangement translation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArrangementAxis {
+    Horizontal,
+    Vertical,
+}
+
+/// Materializes a coordinate as the exact sum `coordinate + target - source`,
+/// rounded once to binary64 with ties to even. The other axis stays unchanged.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct ArrangementTranslationView {
+    pub axis: ArrangementAxis,
+    pub source: f64,
+    pub target: f64,
+}
+
 /// One outermost selected unit, including stationary units, in the domain planner's order.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ArrangementUnitView {
     pub object: String,
     pub bounds: ArrangementBounds,
+    /// Nominal displacement for reporting; use `translation` to reconstruct geometry.
     pub delta: PositionView,
+    /// None leaves every coordinate untouched, including stationary endpoints.
+    pub translation: Option<ArrangementTranslationView>,
     pub scope: EffectiveSelectionScope,
 }
 
@@ -89,6 +110,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     x: unit.delta.dx,
                     y: unit.delta.dy,
                 },
+                translation: unit
+                    .translation
+                    .map(|translation| ArrangementTranslationView {
+                        axis: match translation.axis {
+                            DistributionAxis::Horizontal => ArrangementAxis::Horizontal,
+                            DistributionAxis::Vertical => ArrangementAxis::Vertical,
+                        },
+                        source: translation.source,
+                        target: translation.target,
+                    }),
                 scope: EffectiveSelectionScope::from(&unit.scope),
             })
             .collect();

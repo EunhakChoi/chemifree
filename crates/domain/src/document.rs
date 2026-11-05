@@ -1334,6 +1334,7 @@ impl Content {
                 object,
                 bounds,
                 delta: Vector { dx: 0.0, dy: 0.0 },
+                translation: None,
                 scope,
             });
         }
@@ -1342,14 +1343,18 @@ impl Content {
         // actual geometry point rather than just an approximate rendered rectangle.
         for unit in &plan.units {
             for key in &unit.scope.positions {
-                self.positions
-                    .get(key)
-                    .ok_or(EditError::MissingPosition(key.instance))?
-                    .translated(unit.delta)?;
+                unit.translated(
+                    *self
+                        .positions
+                        .get(key)
+                        .ok_or(EditError::MissingPosition(key.instance))?,
+                )?;
             }
             for graphic in &unit.scope.graphics {
                 if let SceneObject::Graphic(graphic) = self.scene.get(*graphic)? {
-                    graphic.translated(unit.delta)?;
+                    for point in graphic.points {
+                        unit.translated(point)?;
+                    }
                 }
             }
         }
@@ -2176,7 +2181,23 @@ impl Draft {
                 let objects: BTreeSet<ObjectId> = objects.iter().copied().collect();
                 let plan = self.content.object_arrangement(&objects, *arrangement)?;
                 for unit in plan.units {
-                    self.translate_scope(&unit.scope, unit.delta)?;
+                    for key in &unit.scope.positions {
+                        let point = self
+                            .content
+                            .positions
+                            .get_mut(key)
+                            .ok_or(EditError::MissingPosition(key.instance))?;
+                        *point = unit.translated(*point)?;
+                    }
+                    for id in &unit.scope.graphics {
+                        if let Some(SceneObject::Graphic(graphic)) =
+                            self.content.scene.objects.get_mut(id)
+                        {
+                            for point in &mut graphic.points {
+                                *point = unit.translated(*point)?;
+                            }
+                        }
+                    }
                 }
             }
             Command::TransformSelection {
