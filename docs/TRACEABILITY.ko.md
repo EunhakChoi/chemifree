@@ -31,7 +31,7 @@ P29g는 [형식별 표](CONTRACT.md#stereo-interchange-evidence-p29g)와 [codec 
 
 P32a는 읽기 전용 `document.selection_scope`와 원자적 `move_selection`만 연결한다. 그룹 subtree·원자·결합 끝점의 안정된 union, 참조를 따라가지 않음, 다른 배치 보존, 중복 이동 한 번, no-op 뒤 redo 보존과 전체 rollback을 새 conformance 두 사례로 검사한다. OPS-01.selection-scope는 최종 검증 전 unverified이고 P32는 in_progress다. 박스·웹 복합 선택·정렬/분배 UI·회전·반사·snapping은 완료 범위가 아니다.
 
-P32b는 `document.arrangement_plan`과 `arrange_objects`로 outermost scene 단위의 geometry-only 정렬 6종·동일 간격 분배 2종을 연결한다. union 경계, 끝 단위 고정, 그룹 강체 이동, 음수 간격 거절과 no-op/원자적 rollback을 검사한다. P32a의 101개 사례는 유지하며 새 후보 두 사례는 실행 보고서 갱신 전이다. OPS-01.object-arrangement는 unverified/P32 후속이며 웹 제어·부분 원자 배치·회전·반사·snapping은 미구현이다.
+P32b는 `document.arrangement_plan`과 `arrange_objects`로 outermost scene 단위의 geometry-only 정렬 6종·동일 간격 분배 2종을 연결한다. union 경계, 끝 단위 고정, 그룹 강체 이동, 음수 간격 거절과 no-op/원자적 rollback을 검사한다. 미리보기의 translation 앵커는 실제 좌표 재구성(`좌표 + target - source`의 정확한 합을 binary64로 한 번 반올림)을 정의하며 delta는 보고용 근삿값이다. P32a의 101개 사례는 유지하며 새 후보 두 사례는 실행 보고서 갱신 전이다. OPS-01.object-arrangement는 unverified/P32 후속이며 웹 제어·부분 원자 배치·회전·반사·snapping은 미구현이다.
 
 현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 100개(implemented 51, partial 12, unverified 4, not_implemented 33) · conformance 사례 103개(passed 103: accept 76·reject 27, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 

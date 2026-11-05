@@ -54,7 +54,10 @@ use crate::properties::{
 };
 use crate::{Application, CapabilityCatalog, DocumentRepository};
 use arrangement::ArrangementParameters;
-pub use arrangement::{ArrangementBounds, ArrangementPlanResult, ArrangementUnitView};
+pub use arrangement::{
+    ArrangementAxis, ArrangementBounds, ArrangementPlanResult, ArrangementTranslationView,
+    ArrangementUnitView,
+};
 use cip::CipParameters;
 pub use cip::{
     AtomLabel, BondLabel, CipResult, EndLabel, Priority, REASONS as CIP_REASONS, reason_sentence,

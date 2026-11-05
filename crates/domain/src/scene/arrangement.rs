@@ -70,13 +70,58 @@ impl Bounds {
     }
 }
 
-/// An outermost selected object with its original bounds, rigid displacement and exact scope.
+/// A translation evaluated from its anchors, avoiding cancellation in a rounded displacement.
+/// Each changed coordinate is the nearest binary64 value of `coordinate + target - source`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArrangementTranslation {
+    pub axis: DistributionAxis,
+    pub source: f64,
+    pub target: f64,
+}
+
+/// An outermost selected object with its original bounds, nominal displacement and exact scope.
+/// `delta` is rounded for reporting; `translation` defines coordinate materialization.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArrangementUnit {
     pub object: ObjectId,
     pub bounds: Bounds,
     pub delta: Vector,
+    pub translation: Option<ArrangementTranslation>,
     pub scope: SelectionScope,
+}
+
+impl ArrangementUnit {
+    /// Applies the checked anchor translation with one final coordinate rounding.
+    pub(crate) fn translated(&self, point: Point) -> Result<Point, EditError> {
+        let Some(translation) = self.translation else {
+            return Ok(point);
+        };
+        let coordinate = match translation.axis {
+            DistributionAxis::Horizontal => point.x(),
+            DistributionAxis::Vertical => point.y(),
+        };
+        let mut sum = ExactSum::default();
+        sum.add(coordinate);
+        sum.add(translation.target);
+        sum.add(-translation.source);
+        let coordinate = sum.nearest();
+        match translation.axis {
+            DistributionAxis::Horizontal => Point::new(coordinate, point.y()),
+            DistributionAxis::Vertical => Point::new(point.x(), coordinate),
+        }
+    }
+
+    fn set_translation(&mut self, axis: DistributionAxis, source: f64, target: f64, delta: f64) {
+        self.delta = match axis {
+            DistributionAxis::Horizontal => Vector { dx: delta, dy: 0.0 },
+            DistributionAxis::Vertical => Vector { dx: 0.0, dy: delta },
+        };
+        self.translation = (delta != 0.0).then_some(ArrangementTranslation {
+            axis,
+            source,
+            target,
+        });
+    }
 }
 
 /// A checked arrangement, including stationary units. Units stay in identifier order for
@@ -172,6 +217,34 @@ impl ExactSum {
     fn is_negative(&self) -> bool {
         self.parts.last().is_some_and(|part| *part < 0.0)
     }
+    // Collapse the nonoverlapping expansion from largest to smallest. A remaining
+    // same-sign tail resolves a halfway case without double rounding (ties to even).
+    fn nearest(&self) -> f64 {
+        let mut parts = self.parts.iter().rev();
+        let Some(&first) = parts.next() else {
+            return 0.0;
+        };
+        let mut high = first;
+        while let Some(&part) = parts.next() {
+            let sum = high + part;
+            let residual = part - (sum - high);
+            high = sum;
+            if residual != 0.0 {
+                if parts
+                    .next()
+                    .is_some_and(|next| (*next > 0.0) == (residual > 0.0))
+                {
+                    let doubled = residual * 2.0;
+                    let corrected = high + doubled;
+                    if corrected - high == doubled {
+                        high = corrected;
+                    }
+                }
+                break;
+            }
+        }
+        high
+    }
     fn rounded(&self) -> Rounded {
         let mut parts = self.parts.iter();
         let Some(first) = parts.next() else {
@@ -213,36 +286,53 @@ pub(crate) fn plan(
                 bounds.bottom = bounds.bottom.max(unit.bounds.bottom);
             }
             for unit in &mut units {
-                unit.delta = match mode {
-                    AlignMode::Left => Vector {
-                        dx: bounds.left - unit.bounds.left,
-                        dy: 0.0,
-                    },
-                    AlignMode::HorizontalCenter => Vector {
-                        dx: center(bounds.left, bounds.right)
-                            .subtract(center(unit.bounds.left, unit.bounds.right))
-                            .displacement(),
-                        dy: 0.0,
-                    },
-                    AlignMode::Right => Vector {
-                        dx: bounds.right - unit.bounds.right,
-                        dy: 0.0,
-                    },
-                    AlignMode::Top => Vector {
-                        dx: 0.0,
-                        dy: bounds.top - unit.bounds.top,
-                    },
-                    AlignMode::VerticalCenter => Vector {
-                        dx: 0.0,
-                        dy: center(bounds.top, bounds.bottom)
-                            .subtract(center(unit.bounds.top, unit.bounds.bottom))
-                            .displacement(),
-                    },
-                    AlignMode::Bottom => Vector {
-                        dx: 0.0,
-                        dy: bounds.bottom - unit.bounds.bottom,
-                    },
+                let (axis, source, target, delta) = match mode {
+                    AlignMode::Left => (
+                        DistributionAxis::Horizontal,
+                        unit.bounds.left,
+                        bounds.left,
+                        bounds.left - unit.bounds.left,
+                    ),
+                    AlignMode::HorizontalCenter => {
+                        let target = center(bounds.left, bounds.right);
+                        let source = center(unit.bounds.left, unit.bounds.right);
+                        (
+                            DistributionAxis::Horizontal,
+                            source.value,
+                            target.value,
+                            target.subtract(source).displacement(),
+                        )
+                    }
+                    AlignMode::Right => (
+                        DistributionAxis::Horizontal,
+                        unit.bounds.right,
+                        bounds.right,
+                        bounds.right - unit.bounds.right,
+                    ),
+                    AlignMode::Top => (
+                        DistributionAxis::Vertical,
+                        unit.bounds.top,
+                        bounds.top,
+                        bounds.top - unit.bounds.top,
+                    ),
+                    AlignMode::VerticalCenter => {
+                        let target = center(bounds.top, bounds.bottom);
+                        let source = center(unit.bounds.top, unit.bounds.bottom);
+                        (
+                            DistributionAxis::Vertical,
+                            source.value,
+                            target.value,
+                            target.subtract(source).displacement(),
+                        )
+                    }
+                    AlignMode::Bottom => (
+                        DistributionAxis::Vertical,
+                        unit.bounds.bottom,
+                        bounds.bottom,
+                        bounds.bottom - unit.bounds.bottom,
+                    ),
                 };
+                unit.set_translation(axis, source, target, delta);
             }
         }
         ObjectArrangement::Distribute(axis) => {
@@ -281,16 +371,8 @@ pub(crate) fn plan(
                 let displacement = target
                     .subtract(Rounded::exact(units[index].bounds.leading(axis)))
                     .displacement();
-                units[index].delta = match axis {
-                    DistributionAxis::Horizontal => Vector {
-                        dx: displacement,
-                        dy: 0.0,
-                    },
-                    DistributionAxis::Vertical => Vector {
-                        dx: 0.0,
-                        dy: displacement,
-                    },
-                };
+                let source = units[index].bounds.leading(axis);
+                units[index].set_translation(axis, source, target.value, displacement);
             }
         }
     }

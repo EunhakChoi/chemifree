@@ -14,7 +14,8 @@ mod arrangement;
 
 pub(crate) use arrangement::plan as plan_arrangement;
 pub use arrangement::{
-    AlignMode, ArrangementPlan, ArrangementUnit, Bounds, DistributionAxis, ObjectArrangement,
+    AlignMode, ArrangementPlan, ArrangementTranslation, ArrangementUnit, Bounds, DistributionAxis,
+    ObjectArrangement,
 };
 
 use std::collections::{BTreeMap, BTreeSet};

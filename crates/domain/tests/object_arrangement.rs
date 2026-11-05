@@ -686,3 +686,119 @@ fn truly_negative_space_is_refused_even_when_naive_large_gap_subtractions_cancel
         );
     }
 }
+
+#[test]
+fn edge_alignment_cancellation_lands_on_exact_anchor_and_repeating_preserves_redo() {
+    for (mode, vertical, upper) in [
+        (AlignMode::Left, false, false),
+        (AlignMode::Right, false, true),
+        (AlignMode::Top, true, false),
+        (AlignMode::Bottom, true, true),
+    ] {
+        let (target, source) = if upper {
+            (90718.90246803382, -70813.75800974434)
+        } else {
+            (-90718.90246803382, 70813.75800974434)
+        };
+        let endpoints = |anchor: f64| {
+            let other = if upper { anchor - 4.0 } else { anchor + 4.0 };
+            if vertical {
+                (0.0, anchor, 2.0, other)
+            } else {
+                (anchor, 0.0, other, 2.0)
+            }
+        };
+        let mut document = drawings(&[endpoints(target), endpoints(source)]);
+        let expected = bounds(&document, 2);
+        let arrangement = ObjectArrangement::Align(mode);
+        assert_eq!(
+            document.apply(&[arrange(&[2, 3], arrangement)]).unwrap(),
+            Outcome::Changed
+        );
+        assert_eq!(
+            bounds(&document, 3),
+            expected,
+            "{mode:?}: one rounded translation must place both endpoints at the exact target"
+        );
+        let mut document = with_redo(document);
+        let before = document.clone();
+        let plan = document
+            .object_arrangement(&ids(&[2, 3]), arrangement)
+            .unwrap();
+        assert_eq!(
+            plan.units
+                .iter()
+                .map(|unit| unit.translation)
+                .collect::<Vec<_>>(),
+            vec![None, None],
+            "{mode:?}"
+        );
+        assert_eq!(
+            document.apply(&[arrange(&[2, 3], arrangement)]).unwrap(),
+            Outcome::Unchanged
+        );
+        assert_eq!(
+            document, before,
+            "{mode:?}: repeated alignment must retain revision, selection, history and redo"
+        );
+    }
+}
+
+#[test]
+fn edge_alignment_keeps_real_one_ulp_displacements_on_both_axes() {
+    for (mode, vertical, upper) in [
+        (AlignMode::Left, false, false),
+        (AlignMode::Right, false, true),
+        (AlignMode::Top, true, false),
+        (AlignMode::Bottom, true, true),
+    ] {
+        let target = -90718.90246803382_f64;
+        let source = if upper {
+            target.next_down()
+        } else {
+            target.next_up()
+        };
+        let endpoints = |anchor| {
+            if vertical {
+                (0.0, anchor, 0.0, anchor)
+            } else {
+                (anchor, 0.0, anchor, 0.0)
+            }
+        };
+        let mut document = drawings(&[endpoints(target), endpoints(source)]);
+        let expected = bounds(&document, 2);
+        let arrangement = ObjectArrangement::Align(mode);
+        assert_eq!(
+            document.apply(&[arrange(&[2, 3], arrangement)]).unwrap(),
+            Outcome::Changed,
+            "{mode:?}: representable movement must not be hidden by a tolerance"
+        );
+        assert_eq!(bounds(&document, 3), expected, "{mode:?}");
+    }
+}
+
+#[test]
+fn anchored_translation_rounds_once_when_residual_decides_a_halfway_case() {
+    // The last endpoint's exact result is 1 - 2^-54 - 2^-110, just below the
+    // midpoint between 1 and its predecessor. Rounding the delta first loses
+    // 2^-110 and incorrectly chooses the even value 1.
+    let target = -2.0_f64.powi(-54);
+    let source = 2.0_f64.powi(-110);
+    let mut document = drawings(&[(target, 0.0, target, 0.0), (source, 0.0, 1.0, 0.0)]);
+    assert_eq!(
+        document
+            .apply(&[arrange(&[2, 3], ObjectArrangement::Align(AlignMode::Left))])
+            .unwrap(),
+        Outcome::Changed
+    );
+    assert_eq!(
+        bounds(&document, 3),
+        Bounds {
+            left: target,
+            top: 0.0,
+            right: 1.0_f64.next_down(),
+            bottom: 0.0,
+        },
+        "the residual must choose the correctly rounded endpoint, not a twice-rounded delta"
+    );
+}

@@ -109,18 +109,18 @@ pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
-    AromaticityResult, AromaticitySystem, ArrangementBounds, ArrangementPlanResult,
-    ArrangementUnitView, AtomDrawnView, AtomInspection, AtomLabel, AtomPair, BondDrawnView,
-    BondInspection, BondLabel, BondPair, CIP_REASONS, CipResult, ClosedResult, Diagnostic,
-    DocumentResult, EffectiveSelectionScope, EndLabel, Envelope, FoldedHydrogen,
-    IdentityComparison, IdentityResult, IdentityStereo, IdentityView, InchiResult,
-    InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
-    Loss, LossConsent, LossDisposition, MATCH_CODES, MAX_ENTRIES, MappingView, MatchCodeRow,
-    OPERATION_CONTRACT, OperationCatalog, OperationResponse, OperationResult, Outcome, Priority,
-    ProfileSupport, ScopePosition, SelectionScopeResult, SemanticImpact, Severity,
-    SmilesExportResult, SmilesPreviewAtom, SmilesPreviewBond, SmilesPreviewResult, SpanView,
-    StereoResult, SubstructureLimits, SubstructureResult, SubstructureStereo, Support,
-    reason_sentence,
+    AromaticityResult, AromaticitySystem, ArrangementAxis, ArrangementBounds,
+    ArrangementPlanResult, ArrangementTranslationView, ArrangementUnitView, AtomDrawnView,
+    AtomInspection, AtomLabel, AtomPair, BondDrawnView, BondInspection, BondLabel, BondPair,
+    CIP_REASONS, CipResult, ClosedResult, Diagnostic, DocumentResult, EffectiveSelectionScope,
+    EndLabel, Envelope, FoldedHydrogen, IdentityComparison, IdentityResult, IdentityStereo,
+    IdentityView, InchiResult, InterchangeExportResult, InterchangeMapping,
+    InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent, LossDisposition,
+    MATCH_CODES, MAX_ENTRIES, MappingView, MatchCodeRow, OPERATION_CONTRACT, OperationCatalog,
+    OperationResponse, OperationResult, Outcome, Priority, ProfileSupport, ScopePosition,
+    SelectionScopeResult, SemanticImpact, Severity, SmilesExportResult, SmilesPreviewAtom,
+    SmilesPreviewBond, SmilesPreviewResult, SpanView, StereoResult, SubstructureLimits,
+    SubstructureResult, SubstructureStereo, Support, reason_sentence,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,

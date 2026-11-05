@@ -93,11 +93,32 @@ fn all_six_align_modes_preview_exact_deltas_and_commit_the_same_rigid_motion() {
         assert_eq!(planned["outcome"], "ok", "{mode}: {planned}");
         assert_eq!(planned["result"]["snapshot"], before);
         assert_eq!(planned["result"]["mode"], mode);
+        let anchors = match mode {
+            "align_left" => [None, Some(("horizontal", 30.0, 0.0))],
+            "align_horizontal_center" => [
+                Some(("horizontal", 5.0, 25.0)),
+                Some(("horizontal", 40.0, 25.0)),
+            ],
+            "align_right" => [Some(("horizontal", 10.0, 50.0)), None],
+            "align_top" => [None, Some(("vertical", 40.0, 0.0))],
+            "align_vertical_center" => [
+                Some(("vertical", 10.0, 30.0)),
+                Some(("vertical", 50.0, 30.0)),
+            ],
+            "align_bottom" => [Some(("vertical", 20.0, 60.0)), None],
+            _ => unreachable!("the table contains only the six documented alignments"),
+        };
+        let translations = anchors.map(|anchor| {
+            anchor.map_or(
+                Value::Null,
+                |(axis, source, target)| json!({"axis":axis,"source":source,"target":target}),
+            )
+        });
         assert_eq!(
             planned["result"]["units"],
             json!([
-                {"object":"s2","bounds":{"left":0.0,"top":0.0,"right":10.0,"bottom":20.0},"delta":{"x":deltas[0].0,"y":deltas[0].1},"scope":{"objects":["s2"],"positions":[],"graphics":["s2"]}},
-                {"object":"s3","bounds":{"left":30.0,"top":40.0,"right":50.0,"bottom":60.0},"delta":{"x":deltas[1].0,"y":deltas[1].1},"scope":{"objects":["s3"],"positions":[],"graphics":["s3"]}}
+                {"object":"s2","bounds":{"left":0.0,"top":0.0,"right":10.0,"bottom":20.0},"delta":{"x":deltas[0].0,"y":deltas[0].1},"translation":translations[0],"scope":{"objects":["s2"],"positions":[],"graphics":["s2"]}},
+                {"object":"s3","bounds":{"left":30.0,"top":40.0,"right":50.0,"bottom":60.0},"delta":{"x":deltas[1].0,"y":deltas[1].1},"translation":translations[1],"scope":{"objects":["s3"],"positions":[],"graphics":["s3"]}}
             ]),
             "{mode}"
         );
@@ -162,6 +183,17 @@ fn both_distributions_report_stationary_endpoints_and_order_units_by_geometry() 
         assert_eq!(units[0]["delta"], json!({"x":0.0,"y":0.0}));
         assert_eq!(units[1]["delta"], delta);
         assert_eq!(units[2]["delta"], json!({"x":0.0,"y":0.0}));
+        assert_eq!(units[0]["translation"], Value::Null);
+        assert_eq!(units[2]["translation"], Value::Null);
+        let axis = match mode {
+            "distribute_horizontal" => "horizontal",
+            "distribute_vertical" => "vertical",
+            _ => unreachable!("the table contains only the two distribution modes"),
+        };
+        assert_eq!(
+            units[1]["translation"],
+            json!({"axis":axis,"source":30.0,"target":40.0})
+        );
         assert_eq!(
             planned["result"]["scope"]["graphics"],
             json!(["s2", "s3", "s4"])
@@ -338,4 +370,41 @@ fn a_noop_arrangement_preserves_revision_history_selection_and_redo() {
     assert_eq!(no_op["document_revision"], 3, "{no_op}");
     assert_eq!(no_op["result"], before);
     assert_eq!(snapshot(&app, &id), before);
+}
+
+#[test]
+fn preview_anchors_reconstruct_committed_geometry_when_nominal_delta_loses_precision() {
+    let (app, _directory, id) = setup(&[(0.1, 0.0, 0.1, 0.0), (99_999.9, 1.0, 99_999.9, 1.0)]);
+    let planned = preview(&app, &id, &["s2", "s3"], "align_left");
+    assert_eq!(planned["outcome"], "ok", "{planned}");
+    let unit = &planned["result"]["units"][1];
+    assert_eq!(
+        unit["translation"],
+        json!({"axis":"horizontal","source":99_999.9,"target":0.1})
+    );
+    let nominal = unit["delta"]["x"].as_f64().unwrap();
+    assert_ne!(
+        99_999.9 + nominal,
+        0.1,
+        "the fixture must expose cancellation from adding the nominal delta"
+    );
+    let committed = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,
+            "commands":[{"op":"arrange_objects","objects":["s2","s3"],"mode":"align_left"}]}),
+    );
+    assert_eq!(committed["outcome"], "ok", "{committed}");
+    assert_eq!(
+        graphic(&committed["result"], "s3")["points"],
+        json!([{"x":0.1,"y":1.0},{"x":0.1,"y":1.0}]),
+        "source cancels exactly before the final coordinate rounding"
+    );
+    let repeated = preview(&app, &id, &["s2", "s3"], "align_left");
+    assert_eq!(repeated["outcome"], "ok", "{repeated}");
+    assert_eq!(repeated["result"]["units"][1]["translation"], Value::Null);
+    assert_eq!(
+        repeated["result"]["units"][1]["delta"],
+        json!({"x":0.0,"y":0.0})
+    );
 }
