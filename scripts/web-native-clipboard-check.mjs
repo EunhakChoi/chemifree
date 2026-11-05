@@ -8,6 +8,24 @@ import { chromium } from 'playwright-core'
 import { keepRequestInterception } from './lib/request-interception.mjs'
 
 const root = fileURLToPath(new URL('../apps/web', import.meta.url))
+
+/** Keep clipping strict and include enough CSS/geometry evidence to diagnose CI failures. */
+async function assertDialogFits(page, message) {
+  const geometry = await page.getByRole('dialog').evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    return {
+      left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+      width: rect.width, height: rect.height, viewportWidth: innerWidth, viewportHeight: innerHeight,
+      maxHeight: style.maxHeight, transitionProperty: style.transitionProperty,
+      transitionDuration: style.transitionDuration, animationName: style.animationName,
+      animationDuration: style.animationDuration,
+    }
+  })
+  assert.ok(geometry.left >= 0 && geometry.top >= 0 && geometry.right <= geometry.viewportWidth && geometry.bottom <= geometry.viewportHeight,
+    `${message}: ${JSON.stringify(geometry)}`)
+}
+
 const fixture = `
 import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -275,13 +293,12 @@ try {
   // A narrow, short viewport must contain the dialog even with long pasted text and
   // validation messages. The body scrolls while its header Close stays reachable.
   await page.setViewportSize({ width: 360, height: 480 })
+  await assertDialogFits(page, 'the paste dialog must fit immediately after narrowing the viewport')
   await page.getByRole('textbox', { name: 'Native fragment text' }).fill('native fragment text\n'.repeat(2000))
   await page.getByRole('textbox', { name: 'Offset y (pt)' }).fill('')
   await page.getByRole('textbox', { name: 'Offset y (pt)' }).press('Tab')
   assert.equal(await page.getByRole('button', { name: 'Read clipboard', exact: true }).evaluate((element) => element === document.activeElement), true)
-  const narrowPaste = await page.getByRole('dialog').boundingBox()
-  assert.ok(narrowPaste && narrowPaste.x >= 0 && narrowPaste.y >= 0 && narrowPaste.x + narrowPaste.width <= 360 && narrowPaste.y + narrowPaste.height <= 480,
-    'the paste dialog must fit inside the narrow viewport')
+  await assertDialogFits(page, 'the paste dialog must fit inside the narrow viewport')
   const narrowText = await page.getByRole('textbox', { name: 'Native fragment text' }).boundingBox()
   assert.ok(narrowText && narrowText.height <= 192, 'long clipboard text must scroll within a bounded textarea')
   const focusedRead = await page.getByRole('button', { name: 'Read clipboard', exact: true }).boundingBox()
@@ -297,8 +314,7 @@ try {
   assert.equal(await page.getByRole('textbox', { name: 'Native fragment text' }).evaluate((element) => element === document.activeElement), true)
   assert.deepEqual(await page.getByRole('textbox', { name: 'Native fragment text' }).evaluate((element) => [element.selectionStart, element.selectionEnd]), [0, payload.length])
   assert.equal(await page.evaluate(() => window.clipboardAdapter.writes.length), 2, 'manual selection must not write the clipboard')
-  const narrowCopy = await page.getByRole('dialog').boundingBox()
-  assert.ok(narrowCopy && narrowCopy.y >= 0 && narrowCopy.y + narrowCopy.height <= 480, 'the copy dialog must fit the same narrow viewport')
+  await assertDialogFits(page, 'the copy dialog must fit the same narrow viewport')
   await page.getByRole('button', { name: 'Close', exact: true }).click()
   await page.setViewportSize({ width: 1280, height: 720 })
 
