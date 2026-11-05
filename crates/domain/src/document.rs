@@ -650,6 +650,8 @@ pub enum EditError {
     ArrangementEmptyGeometry(ObjectId),
     /// Fixed endpoints cannot contain all unit extents without overlapping equal gaps.
     ArrangementNegativeGap,
+    /// Rounded center alignment would not settle after this single materialization.
+    ArrangementCenterUnstable,
     /// A rotation angle is not finite, even for an empty selection.
     TransformInvalidAngle,
     /// This selected rectangle cannot be represented after an arbitrary-angle rotation.
@@ -693,6 +695,7 @@ impl EditError {
             Self::ArrangementTooFewUnits { .. } => SceneError::ArrangementTooFewUnits,
             Self::ArrangementEmptyGeometry(_) => SceneError::ArrangementEmptyGeometry,
             Self::ArrangementNegativeGap => SceneError::ArrangementNegativeGap,
+            Self::ArrangementCenterUnstable => SceneError::ArrangementCenterUnstable,
             Self::TransformInvalidAngle => SceneError::TransformInvalidAngle,
             Self::TransformRectangleUnsupported(_) => SceneError::TransformRectangleUnsupported,
             _ => return None,
@@ -829,6 +832,9 @@ impl fmt::Display for EditError {
             }
             Self::ArrangementNegativeGap => formatter.write_str(
                 "fixed endpoint units leave insufficient space for nonoverlapping equal gaps",
+            ),
+            Self::ArrangementCenterUnstable => formatter.write_str(
+                "rounded center alignment would change again on repetition; no geometry was applied",
             ),
             Self::TransformInvalidAngle => formatter.write_str("rotation degrees must be finite"),
             Self::TransformRectangleUnsupported(object) => write!(
