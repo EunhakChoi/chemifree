@@ -2287,9 +2287,11 @@ step = 'after scene_group_and_queued_delete_selection'
   await page.mouse.click(at.x, at.y)
   await page.getByRole('heading', { name: 'Atom a1', exact: true }).waitFor()
   await toggle('s5').click()
-  assert.equal(await action('Rotate 90° clockwise').isDisabled(), true)
-  assert.equal(await action('Reflect across vertical axis').isDisabled(), true)
-  await page.getByText('Choose scene objects to arrange or transform. Atom and bond selection is not supported by these controls yet.', { exact: true }).waitFor()
+  assert.equal(await action('Rotate 90° clockwise').isDisabled(), false, 'mixed targets can rotate in the explicit graph movement placement')
+  assert.equal(await action('Reflect across vertical axis').isDisabled(), false)
+  assert.equal(await action('Align left').isDisabled(), true, 'alignment remains scene-object-only')
+  assert.equal(await action('Distribute horizontal gaps').isDisabled(), true)
+  await page.getByText('Alignment and distribution need scene objects only. Atom and bond targets can still be rotated or reflected.', { exact: true }).waitFor()
   results.scene_geometry_controls = true
 }
 step = 'after scene_geometry_controls'
@@ -2350,7 +2352,7 @@ step = 'after scene_geometry_controls'
   await choosePlacement('s1')
   assert.equal(await page.getByRole('heading', { name: 'Atom a1', exact: true }).count(), 0, 'placement change clears explicit graph targets')
   assert.equal(await toggle('s3').getAttribute('aria-pressed'), 'true', 'placement change preserves independent scene selection')
-  assert.equal(await page.getByRole('button', { name: 'Rotate 90° clockwise', exact: true }).isDisabled(), false, 'clearing the graph targets re-enables scene geometry actions')
+  assert.equal(await page.getByRole('button', { name: 'Rotate 90° clockwise', exact: true }).isDisabled(), false, 'scene-only transforms remain enabled after clearing graph targets')
   await choosePlacement('s2')
 
   await dragPoint({ x: 90, y: 90 }, { x: 220, y: 230 })
@@ -2419,6 +2421,136 @@ step = 'after scene_geometry_controls'
   results.mixed_marquee_placement_and_group_drag = true
 }
 step = 'after mixed_marquee_placement_and_group_drag'
+
+
+// Mixed transforms retain their press-time movement placement and stored chemical
+// state, while the pivot is rebuilt from the geometry reached by the edit queue.
+{
+  step = 'mixed transform coordinates history and queued placement capture'
+  await closeShown()
+  const created = await apiWrite('/api/v1/documents', { request_id: 'mixed-transform-create', title: 'Mixed transform gestures' })
+  docId = created.body.document.id
+  const id = docId
+  const seeded = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'mixed-transform-fixture', expected_revision: 0, commands: [
+      { op: 'add_atom', element: 'C', isotope: 13, position: { x: 100, y: 100 } },
+      { op: 'add_atom', element: 'F', position: { x: 130, y: 100 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_atom', element: 'Cl', position: { x: 100, y: 130 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_atom', element: 'Br', position: { x: 70, y: 100 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_atom', element: 'I', position: { x: 100, y: 70 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'set_bond_mark', bond: 'b1', mark: { kind: 'wedge', narrow: 'begin' } },
+      { op: 'set_atom_configuration', atom: 'a1', configuration: { kind: 'tetrahedral', neighbors: ['a2', 'a3', 'a4', 'a5'], turn: 'clockwise' } },
+      { op: 'create_stereo_group', kind: 'absolute', atoms: ['a1'], number: null },
+      { op: 'add_instance', source: 's1', offset: { x: 0, y: 120 } },
+      { op: 'add_graphic', shape: 'line', points: [{ x: 180, y: 220 }, { x: 210, y: 220 }] },
+    ],
+  })
+  assert.equal(seeded.status, 200, JSON.stringify(seeded.body))
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open', exact: true }).click()
+  await page.getByLabel('Revision 1').waitFor()
+  await tool('Select and move')
+  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+  const action = (name) => page.getByRole('button', { name, exact: true })
+  const clickPoint = async (point) => {
+    const at = await screen(point)
+    await page.mouse.click(at.x, at.y)
+  }
+  await clickPoint({ x: 100, y: 220 })
+  await page.keyboard.down('Shift')
+  await clickPoint({ x: 115, y: 220 })
+  await page.keyboard.up('Shift')
+  await action('Select scene object s3').click()
+  assert.equal(await action('Rotate 90° clockwise').isDisabled(), false)
+  assert.equal(await action('Reflect across horizontal axis').isDisabled(), false)
+  assert.equal(await action('Align left').isDisabled(), true)
+  assert.equal(await action('Distribute horizontal gaps').isDisabled(), true)
+  const original = (await openDoc()).document
+  const geometry = (document) => ({
+    secondary: document.scene.instances.find((instance) => instance.id === 's2').positions,
+    line: document.scene.objects.find((object) => object.id === 's3').points,
+  })
+  const expectedRotation = {
+    secondary: [
+      { atom: 'a1', x: 155, y: 165 }, { atom: 'a2', x: 155, y: 195 },
+      { atom: 'a3', x: 100, y: 250 }, { atom: 'a4', x: 70, y: 220 }, { atom: 'a5', x: 100, y: 190 },
+    ],
+    line: [{ x: 155, y: 245 }, { x: 155, y: 275 }],
+  }
+  const rotatedResponse = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST')
+  await action('Rotate 90° clockwise').click()
+  const rotated = await rotatedResponse
+  assert.equal(rotated.status(), 200)
+  assert.deepEqual((await rotated.json()).notes, [], 'geometry-only rotation clears no stored chemical state')
+  await waitIdle()
+  assert.deepEqual(rotated.request().postDataJSON().commands, [{
+    op: 'transform_selection', selection: { objects: ['s3'], atoms: ['a1'], bonds: ['b1'] },
+    instance: 's2', pivot: { x: 155, y: 220 }, transform: { type: 'rotate', degrees: 90 },
+  }])
+  let transformed = (await openDoc()).document
+  assert.deepEqual(geometry(transformed), expectedRotation, 'atom and overlapping bond endpoint rotate once in s2 with the graphic')
+  assert.deepEqual(transformed.scene.instances[0], original.scene.instances[0], 'the primary placement stays')
+  assert.deepEqual([transformed.atoms, transformed.bonds, transformed.stereo], [original.atoms, original.bonds, original.stereo], 'recorded atom state, wedge, stored configuration and stereo group are retained')
+  await clickFor(action('Undo'), '/undo')
+  assert.deepEqual(geometry((await openDoc()).document), geometry(original))
+  await clickFor(action('Redo'), '/redo')
+  assert.deepEqual(geometry((await openDoc()).document), expectedRotation)
+  await clickFor(action('Reflect across horizontal axis'), '/transactions')
+  transformed = (await openDoc()).document
+  assert.deepEqual(geometry(transformed), {
+    secondary: [
+      { atom: 'a1', x: 155, y: 275 }, { atom: 'a2', x: 155, y: 245 },
+      { atom: 'a3', x: 100, y: 250 }, { atom: 'a4', x: 70, y: 220 }, { atom: 'a5', x: 100, y: 190 },
+    ],
+    line: [{ x: 155, y: 195 }, { x: 155, y: 165 }],
+  })
+  assert.deepEqual([transformed.atoms, transformed.bonds, transformed.stereo], [original.atoms, original.bonds, original.stereo], 'reflection changes drawing coordinates without inverting the stored statement or wedge')
+  await clickFor(action('Undo'), '/undo')
+  await clickFor(action('Undo'), '/undo')
+  assert.deepEqual(geometry((await openDoc()).document), geometry(original))
+
+  let releaseNudge
+  let nudgeReceived
+  const nudgeGate = new Promise((resolve) => { releaseNudge = resolve })
+  const nudgeStarted = new Promise((resolve) => { nudgeReceived = resolve })
+  const holdNudge = async (route) => {
+    if (!route.request().postDataJSON().commands.some((command) => command.op === 'move_objects')) return route.fallback()
+    const response = await route.fetch()
+    assert.equal(response.status(), 200)
+    nudgeReceived()
+    await nudgeGate
+    await route.fulfill({ response })
+  }
+  await page.route('**/transactions', holdNudge)
+  await action('Move selected scene objects right').click()
+  await nudgeStarted
+  const queuedRotation = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST' &&
+    response.request().postDataJSON().commands.some((command) => command.op === 'transform_selection'))
+  await action('Rotate 90° clockwise').click()
+  await page.getByRole('combobox', { name: 'Atom and bond movement placement', exact: true }).click()
+  await page.getByRole('option', { name: 's1', exact: true }).click()
+  releaseNudge()
+  const queued = await queuedRotation
+  assert.equal(queued.status(), 200)
+  await waitIdle()
+  await page.unroute('**/transactions', holdNudge)
+  assert.deepEqual(queued.request().postDataJSON().commands, [{
+    op: 'transform_selection', selection: { objects: ['s3'], atoms: ['a1'], bonds: ['b1'] },
+    instance: 's2', pivot: { x: 160, y: 220 }, transform: { type: 'rotate', degrees: 90 },
+  }], 'the queued press retains s2 and raw IDs while the pivot includes the preceding graphic nudge')
+  transformed = (await openDoc()).document
+  assert.deepEqual(geometry(transformed), {
+    secondary: [
+      { atom: 'a1', x: 160, y: 160 }, { atom: 'a2', x: 160, y: 190 },
+      { atom: 'a3', x: 100, y: 250 }, { atom: 'a4', x: 70, y: 220 }, { atom: 'a5', x: 100, y: 190 },
+    ],
+    line: [{ x: 160, y: 250 }, { x: 160, y: 280 }],
+  })
+  assert.deepEqual(transformed.scene.instances[0], original.scene.instances[0])
+  assert.deepEqual([transformed.atoms, transformed.bonds, transformed.stereo], [original.atoms, original.bonds, original.stereo])
+  results.mixed_transform_scope_history_and_queue = true
+}
+step = 'after mixed_transform_scope_history_and_queue'
 
 // Document style and preferences: a document's style is changed in its Document style dialog (two quick
 // presses while the first request is held both count), the canvas follows it (measured from the

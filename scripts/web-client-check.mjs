@@ -15,7 +15,7 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { groupableSceneObjects, mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { sceneGeometry, sceneGeometryCommands } = await import('../apps/web/src/editor/scene-geometry.ts')
-const { marqueeSelection, sceneOnlySelection, selectionGeometry, selectionMove } = await import('../apps/web/src/editor/selection-geometry.ts')
+const { marqueeSelection, sceneOnlySelection, selectionGeometry, selectionMove, selectionTransform } = await import('../apps/web/src/editor/selection-geometry.ts')
 const {
   CT_FALLBACK_REASONS, CT_REFUSAL_SENTENCES, CTAB_OPTIONS, LOSS_SENTENCES, afterDownloadFailure, afterExportFailure, ctRefusalSentence, ctabParameters,
   lossHeading, parseCtabChoice, writtenDialectMatches,
@@ -5308,4 +5308,60 @@ test('a placement-only service retains the existing move_atoms entry adapter', (
   assert.deepEqual(selectionMove(drawing, new Set(['a1', 'b1']), 's4', { x: 2, y: 3 }), [{
     op: 'move_atoms', atoms: ['a1', 'a2'], instance: 's4', delta: { x: 2, y: 3 },
   }])
+})
+
+
+test('mixed transforms forward overlapping raw targets and one explicit graph placement about their union center', () => {
+  const drawing = geometryDrawing()
+  const before = structuredClone(drawing)
+  const selected = new Set(['s3', 's1', 's2', 'a1', 'b1'])
+  assert.deepEqual(selectionTransform(drawing, selected, 's4', { type: 'rotate', degrees: 90 }), [{
+    op: 'transform_selection',
+    selection: { objects: ['s1', 's2', 's3'], atoms: ['a1'], bonds: ['b1'] },
+    instance: 's4', pivot: { x: 55, y: 110 }, transform: { type: 'rotate', degrees: 90 },
+  }], 'a group and its descendants retain their raw scope while graph targets contribute s4 coordinates')
+  assert.deepEqual(drawing, before, 'transform planning changes neither coordinates nor recorded state')
+})
+
+test('mixed transform pivot comes from latest selected geometry rather than graph compatibility positions', () => {
+  const drawing = geometryDrawing()
+  drawing.scene.instances[1].positions = [{ atom: 'a1', x: 200, y: 400 }, { atom: 'a2', x: 210, y: 420 }]
+  assert.deepEqual(selectionTransform(drawing, new Set(['s5', 'b1']), 's4', { type: 'reflect_horizontal' }), [{
+    op: 'transform_selection', selection: { objects: ['s5'], atoms: [], bonds: ['b1'] },
+    instance: 's4', pivot: { x: 130, y: 205 }, transform: { type: 'reflect_horizontal' },
+  }], 'latest active-placement bond endpoints and graphic corners determine the explicit pivot')
+})
+
+test('scene-only transforms omit graph placement context even when the UI active placement expired', () => {
+  const drawing = geometryDrawing()
+  assert.deepEqual(selectionTransform(drawing, new Set(['s3', 's1']), 's999', { type: 'reflect_vertical' }), [{
+    op: 'transform_selection', selection: { objects: ['s1', 's3'], atoms: [], bonds: [] },
+    pivot: { x: 15, y: 10 }, transform: { type: 'reflect_vertical' },
+  }])
+  assert.deepEqual(selectionTransform(drawing, new Set(['s4']), null, { type: 'rotate', degrees: -90 }), [{
+    op: 'transform_selection', selection: { objects: ['s4'], atoms: [], bonds: [] },
+    pivot: { x: 105, y: 210 }, transform: { type: 'rotate', degrees: -90 },
+  }], 'a selected scene placement names its own geometry without raw graph context')
+})
+
+test('mixed transforms lapse as a whole for missing captured targets, missing graph context and empty geometry', () => {
+  const drawing = geometryDrawing()
+  const transform = { type: 'rotate', degrees: 90 }
+  assert.equal(selectionTransform(drawing, new Set(['s5', 'a999']), 's4', transform), null)
+  assert.equal(selectionTransform(drawing, new Set(['s5', 'b999']), 's4', transform), null)
+  assert.equal(selectionTransform(drawing, new Set(['s5', 's999']), 's4', transform), null)
+  assert.equal(selectionTransform(drawing, new Set(['s5', 'a1']), null, transform), null)
+  assert.equal(selectionTransform(drawing, new Set(['s5', 'b1']), 's999', transform), null)
+  assert.equal(selectionTransform(drawing, new Set(['s6']), null, transform), null)
+  assert.equal(selectionTransform(drawing, new Set(), 's4', transform), null)
+  drawing.scene.instances = [drawing.scene.instances[0]]
+  assert.equal(selectionTransform(drawing, new Set(['a1']), null, transform), null, 'one surviving placement does not silently supply a lost graph context')
+})
+
+test('transform controls require a scene tree while legacy atom movement remains separate', () => {
+  const drawing = geometryDrawing()
+  delete drawing.scene.objects
+  assert.equal(selectionTransform(drawing, new Set(['a1']), 's4', { type: 'reflect_horizontal' }), null)
+  delete drawing.scene
+  assert.equal(selectionTransform(drawing, new Set(['a1']), null, { type: 'reflect_horizontal' }), null)
 })

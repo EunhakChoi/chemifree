@@ -1,4 +1,4 @@
-import type { Command, DocumentView, Position } from '@/lib/document-contract'
+import type { Command, DocumentView, Position, SelectionTransform } from '@/lib/document-contract'
 import { selectionSnapshot } from '@/editor/scene-selection'
 
 /** Unique scene and per-placement geometry targeted by a selection. */
@@ -90,4 +90,40 @@ export function selectionMove(document: DocumentView, selected: ReadonlySet<stri
     return [{ op: 'move_atoms', atoms: [...(scope.positions.get(instance) ?? [])], delta, ...(instance === null ? {} : { instance }) }]
   }
   return [{ op: 'move_selection', selection, delta, ...(instance === null ? {} : { instance }) }]
+}
+
+
+/** Transform a captured mixed union about its current geometry-bounds center. */
+export function selectionTransform(document: DocumentView, selected: ReadonlySet<string>, instance: string | null, transform: SelectionTransform): Command[] | null {
+  if (!document.scene?.objects) return null
+  const selection = selectionSnapshot(new Set(selected), document)
+  const hasGraphTargets = selection.atoms.length > 0 || selection.bonds.length > 0
+  const context = hasGraphTargets ? instance : null
+  const scope = selectionGeometry(document, selected, context)
+  if (!scope) return null
+  const points: Position[] = []
+  for (const placement of document.scene.instances) {
+    const atoms = scope.positions.get(placement.id)
+    if (atoms) points.push(...placement.positions.filter((position) => atoms.has(position.atom)))
+  }
+  for (const object of document.scene.objects) {
+    if (object.kind === 'graphic' && scope.graphics.has(object.id)) points.push(...object.points)
+  }
+  const first = points[0]
+  if (!first) return null
+  let left = first.x
+  let right = first.x
+  let top = first.y
+  let bottom = first.y
+  for (const point of points) {
+    left = Math.min(left, point.x)
+    right = Math.max(right, point.x)
+    top = Math.min(top, point.y)
+    bottom = Math.max(bottom, point.y)
+  }
+  return [{
+    op: 'transform_selection', selection, transform,
+    pivot: { x: (left + right) / 2, y: (top + bottom) / 2 },
+    ...(context === null ? {} : { instance: context }),
+  }]
 }

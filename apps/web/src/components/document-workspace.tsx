@@ -76,6 +76,7 @@ import { queryDescription, queryLabel } from '@/editor/label'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
 import { sceneGeometry, sceneGeometryCommands, type SceneGeometryAction } from '@/editor/scene-geometry'
 import { groupableSceneObjects } from '@/editor/scene-selection'
+import { selectionTransform } from '@/editor/selection-geometry'
 import { StructureCanvas, type DrawnKind, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
 import { MarkGlyph } from '@/editor/stroke-shapes'
 import { buildMark, inspectorWhere, setMark } from '@/editor/mark-gestures'
@@ -564,6 +565,13 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [element, setElement] = useState('C')
   const [bondKind, setBondKind] = useState<DrawnKind>('single')
   const [dragging, setDragging] = useState(false)
+  const firstPlacement = document.scene?.instances[0]?.id ?? null
+  const [movementContext, setMovementContext] = useState(() => ({ document: document.id, instance: firstPlacement }))
+  // Reset only placement context when another document is shown; tool/view policies keep their existing lifecycle.
+  if (movementContext.document !== document.id) setMovementContext({ document: document.id, instance: firstPlacement })
+  const requestedPlacement = movementContext.document === document.id ? movementContext.instance : firstPlacement
+  const activePlacement = document.scene?.instances.some((instance) => instance.id === requestedPlacement) ? requestedPlacement : null
+
   const [automatic, setAutomatic] = useState(true)
   // Label switches mirror the public ShowAtomStereo / ShowBondStereo settings: off by default and, like the
   // automatic check, not persisted. While both are off the page sends no chem.cip request.
@@ -783,6 +791,8 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             bondKind={bondKind}
             selection={selected}
             onSelectionChange={setSelection}
+            activePlacement={activePlacement}
+            onActivePlacementChange={(instance) => setMovementContext({ document: document.id, instance })}
             onCommands={(commands, before) => void editor.apply(
               (latest) => latest.id === document.id ? stillApplicable(commands, latest) : null,
               before === undefined ? undefined : { kind: 'gesture', before },
@@ -825,7 +835,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <AromaticityPanel document={document} editor={editor} />
           <IdentityPanel document={document} editor={editor} />
           <SubstructurePanel document={document} editor={editor} />
-          <SceneControls document={document} editor={editor} />
+          <SceneControls document={document} editor={editor} activePlacement={activePlacement} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>
       </div>
@@ -1226,13 +1236,14 @@ const SCENE_GEOMETRY_ACTIONS: { label: string; action: SceneGeometryAction; mini
 ]
 
 /** Scene selection stays interactive while an edit is in flight. */
-function SceneControls({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
+function SceneControls({ document, editor, activePlacement }: { document: DocumentView; editor: DocumentEditor; activePlacement: string | null }) {
   const objects = document.scene?.objects
   const roots = document.scene?.roots
   const references = document.scene?.references
   if (!objects || !roots || !references) return null
   const chosen = objects.filter((object) => editor.selection.has(object.id))
   const geometry = sceneGeometry(document, editor.selection)
+  const transformable = selectionTransform(document, editor.selection, activePlacement, { type: 'rotate', degrees: 90 }) !== null
   const groupable = groupableSceneObjects(document, editor.selection)
   const one = chosen.length === 1 ? chosen[0] : undefined
   const siblings = one?.parent === null ? roots : objects.find((object) => object.id === one?.parent && object.kind === 'group')
@@ -1335,21 +1346,27 @@ function SceneControls({ document, editor }: { document: DocumentView; editor: D
         <Button size="sm" variant="outline" disabled={!one || index < 0 || index === siblingsOfOne.length - 1} onClick={() => one && reorder(one.id, 1)}>Later</Button>
       </div>
       <div className="flex flex-col gap-2" role="group" aria-labelledby="scene-geometry-heading" aria-describedby="scene-geometry-help">
-        <h4 id="scene-geometry-heading" className="text-sm font-medium">Arrange and transform scene objects</h4>
+        <h4 id="scene-geometry-heading" className="text-sm font-medium">Arrange objects and transform selection</h4>
         <p id="scene-geometry-help" className="text-xs text-muted-foreground">
-          Select scene objects above. Groups count once. Align at least two objects against their combined geometry bounds;
+          Select scene objects above to align or distribute; groups count once. Align at least two objects against their combined geometry bounds;
           distribute at least three with equal edge gaps and fixed endpoints. Bounds exclude labels and stroke widths.
-          Rotations and reflections use the selected geometry center. Horizontal reflection swaps above and below that center; vertical reflection swaps left and right.
+          Rotations and reflections include selected atoms and bond endpoints in the active movement placement, around the entire selected geometry center. Horizontal reflection swaps above and below that center; vertical reflection swaps left and right.
         </p>
-        {geometry.hasGraphTargets && <p className="text-xs text-muted-foreground">Choose scene objects to arrange or transform. Atom and bond selection is not supported by these controls yet.</p>}
+        {geometry.hasGraphTargets && <p className="text-xs text-muted-foreground">Alignment and distribution need scene objects only. Atom and bond targets can still be rotated or reflected.</p>}
         {geometry.hasEmptyUnits && <p className="text-xs text-muted-foreground">An empty scene unit cannot be aligned or distributed. Transforms need some selected geometry.</p>}
         <div className="flex flex-wrap gap-1">
           {SCENE_GEOMETRY_ACTIONS.map(({ label, action, minimum }) => (
             <Button key={label} size="sm" variant="outline"
-              disabled={geometry.hasGraphTargets || geometry.hasMissingTargets || geometry.bounds === null || geometry.objects.length < minimum || (action.kind === 'arrange' && geometry.hasEmptyUnits)}
+              disabled={action.kind === 'transform' ? !transformable : geometry.hasGraphTargets || geometry.hasMissingTargets || geometry.bounds === null || geometry.objects.length < minimum || geometry.hasEmptyUnits}
               onClick={() => {
                 const pressed = editor.selectionAtPress()
-                void editor.apply((latest) => latest.id === document.id ? sceneGeometryCommands(latest, pressed, action) : null)
+                const placementAtPress = activePlacement
+                void editor.apply((latest) => {
+                  if (latest.id !== document.id) return null
+                  return action.kind === 'transform'
+                    ? selectionTransform(latest, pressed, placementAtPress, action.transform)
+                    : sceneGeometryCommands(latest, pressed, action)
+                }, { kind: 'gesture', before: pressed })
               }}>
               {label}
             </Button>

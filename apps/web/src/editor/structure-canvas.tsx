@@ -120,6 +120,8 @@ interface StructureCanvasProps {
   /** Selected scene objects, atoms and bonds; graph movement uses the active placement. */
   selection: ReadonlySet<string>
   onSelectionChange: (selection: Set<string>) => void
+  activePlacement: string | null
+  onActivePlacementChange: (instance: string | null) => void
   onCommands: (commands: Command[], selectionBefore?: ReadonlySet<string>) => void
   /** A stereo-mark gesture, built from the document on screen; the parent sends it to the latest. */
   onMark: (intent: MarkIntent) => void
@@ -149,6 +151,8 @@ export function StructureCanvas({
   bondKind,
   selection,
   onSelectionChange,
+  activePlacement,
+  onActivePlacementChange,
   onCommands,
   onMark,
   rings = [],
@@ -165,14 +169,12 @@ export function StructureCanvas({
   const [interacting, setInteracting] = useState(false)
   const [preview, setPreview] = useState<Preview>(null)
   const [hover, setHover] = useState<Located | null>(null)
-  const [requestedPlacement, setRequestedPlacement] = useState<string | null>(() => document.scene?.instances[0]?.id ?? null)
-  const activePlacement = document.scene?.instances.some((instance) => instance.id === requestedPlacement) ? requestedPlacement : null
   const selectedGeometry = selectionGeometry(document, selection, activePlacement)
 
   function switchPlacement(instance: string) {
     cancelPointer()
     if (instance !== activePlacement) onSelectionChange(sceneOnlySelection(document, selection))
-    setRequestedPlacement(instance)
+    onActivePlacementChange(instance)
   }
 
 
@@ -374,7 +376,7 @@ export function StructureCanvas({
   function selectTarget(id: string, kind: 'atom' | 'bond' | 'graphic', instance: string | null, point: Position, additive: boolean) {
     const changingPlacement = kind !== 'graphic' && instance !== activePlacement
     const current = changingPlacement ? sceneOnlySelection(document, selection) : new Set(selection)
-    if (kind !== 'graphic') setRequestedPlacement(instance)
+    if (kind !== 'graphic') onActivePlacementChange(instance)
     const scope = selectionGeometry(document, current, instance)
     const positions = scope?.positions.get(instance)
     const bond = kind === 'bond' ? document.bonds.find((bond) => bond.id === id) : undefined
