@@ -75,6 +75,7 @@ import { stillApplicable } from '@/editor/commands'
 import { queryDescription, queryLabel } from '@/editor/label'
 import { deletePlacement, duplicatePlacement, movePlacement } from '@/editor/placement'
 import { sceneGeometry, sceneGeometryCommands, type SceneGeometryAction } from '@/editor/scene-geometry'
+import { groupableSceneObjects } from '@/editor/scene-selection'
 import { StructureCanvas, type DrawnKind, type DrawnOrder, type Tool } from '@/editor/structure-canvas'
 import { MarkGlyph } from '@/editor/stroke-shapes'
 import { buildMark, inspectorWhere, setMark } from '@/editor/mark-gestures'
@@ -1229,7 +1230,7 @@ function SceneControls({ document, editor }: { document: DocumentView; editor: D
   if (!objects || !roots || !references) return null
   const chosen = objects.filter((object) => editor.selection.has(object.id))
   const geometry = sceneGeometry(document, editor.selection)
-  const groupable = !geometry.hasGraphTargets && chosen.length >= 2 && chosen.every((object) => object.parent === chosen[0].parent)
+  const groupable = groupableSceneObjects(document, editor.selection)
   const one = chosen.length === 1 ? chosen[0] : undefined
   const siblings = one?.parent === null ? roots : objects.find((object) => object.id === one?.parent && object.kind === 'group')
   const siblingsOfOne = Array.isArray(siblings) ? siblings : siblings?.kind === 'group' ? siblings.children : []
@@ -1317,12 +1318,11 @@ function SceneControls({ document, editor }: { document: DocumentView; editor: D
       )}
       <div className="flex flex-wrap gap-1">
         <Button size="sm" variant="outline" disabled={!groupable} onClick={() => {
-          const ids = chosen.map((object) => object.id)
+          if (!groupable) return
+          const ids = groupable
           void editor.apply((latest) => {
-            const selected = latest.scene?.objects?.filter((object) => ids.includes(object.id)) ?? []
-            return selected.length === ids.length && selected.every((object) => object.parent === selected[0].parent)
-              ? [{ op: 'group', objects: ids }]
-              : null
+            const selected = groupableSceneObjects(latest, new Set(ids))
+            return selected?.length === ids.length ? [{ op: 'group', objects: ids }] : null
           }, { kind: 'group', objects: ids })
         }}>Group</Button>
         <Button size="sm" variant="outline" disabled={one?.kind !== 'group'} onClick={() => {

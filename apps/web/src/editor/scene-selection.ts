@@ -14,6 +14,13 @@ export function selectionIds(selection: SelectionView | undefined): Set<string> 
   return new Set(selection ? [...selection.objects, ...selection.atoms, ...selection.bonds] : [])
 }
 
+/** Group the selected sibling scene objects; atom and bond selections stay independent. */
+export function groupableSceneObjects(document: DocumentView, selection: ReadonlySet<string>): string[] | null {
+  const objects = document.scene?.objects?.filter((object) => selection.has(object.id)) ?? []
+  if (objects.length < 2 || !objects.every((object) => object.parent === objects[0].parent)) return null
+  return objects.map((object) => object.id)
+}
+
 /** A grouped selection replaces its members with the group created by command zero. */
 export function selectionAfterGroup(before: SelectionView, grouped: readonly string[]): SelectionView {
   const members = new Set(grouped)

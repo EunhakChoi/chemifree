@@ -13,7 +13,7 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
   '../apps/web/src/editor/placement.ts'
 )
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
-const { mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
+const { groupableSceneObjects, mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { sceneGeometry, sceneGeometryCommands } = await import('../apps/web/src/editor/scene-geometry.ts')
 const {
   CT_FALLBACK_REASONS, CT_REFUSAL_SENTENCES, CTAB_OPTIONS, LOSS_SENTENCES, afterDownloadFailure, afterExportFailure, ctRefusalSentence, ctabParameters,
@@ -5184,4 +5184,17 @@ test('geometry command applicability checks selected objects, graph endpoints an
   assert.equal(stillApplicable([{ ...move, instance: 's999' }], drawing), null)
   assert.equal(stillApplicable([{ ...move, selection: { objects: [], atoms: ['a999'], bonds: [] } }], drawing), null)
   assert.equal(stillApplicable([{ ...move, selection: { objects: [], atoms: [], bonds: ['b999'] } }], drawing), null)
+})
+
+
+test('mixed graph selection keeps sibling grouping enabled while geometry actions remain disabled', () => {
+  const drawing = geometryDrawing()
+  const pressed = new Set(['s3', 's5', 'a1', 'b1'])
+  assert.deepEqual(groupableSceneObjects(drawing, pressed), ['s3', 's5'])
+  assert.deepEqual(selectionAfterGroup(selectionSnapshot(pressed, drawing), ['s3', 's5']), {
+    objects: ['$0'], atoms: ['a1'], bonds: ['b1'],
+  }, 'grouping changes scene membership and retains the independent graph selection')
+  assert.equal(sceneGeometryCommands(drawing, pressed, { kind: 'arrange', mode: 'align_left' }), null)
+  assert.equal(sceneGeometryCommands(drawing, pressed, { kind: 'transform', transform: { type: 'rotate', degrees: 90 } }), null)
+  assert.equal(groupableSceneObjects(drawing, new Set(['s2', 's5', 'a1'])), null, 'different scene parents still cannot be grouped')
 })
