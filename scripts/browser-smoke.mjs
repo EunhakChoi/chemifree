@@ -1553,14 +1553,22 @@ if (runningAsRoot) {
   await relistedAfterCopy
   await crashApi()
   docId = after.document.id
-  const edited = page.waitForResponse(
-    (r) => r.request().method() === 'POST' && r.url().endsWith(`/${docId}/transactions`) && r.status() === 200,
-  )
-  await drawPair()
-  await edited
+  const restartedTitle = 'After restart edited'
+  const isRename = (response) => response.request().method() === 'POST' &&
+    response.url().endsWith(`/${docId}/transactions`) &&
+    response.request().postDataJSON().commands.some((command) => command.op === 'rename' && command.title === restartedTitle)
+  const unauthorized = page.waitForResponse((response) => isRename(response) && response.status() === 401)
+  const edited = page.waitForResponse((response) => isRename(response) && response.status() === 200)
+  // A fixed canvas click can cycle an existing bond instead of creating atoms.
+  // Rename makes this lifecycle probe independent of the current drawing and viewport.
+  await retitle(restartedTitle)
+  await unauthorized
+  const committed = await (await edited).json()
+  assert.equal(committed.document.title, restartedTitle, 'the explicit edit was retried after the old session was refused')
+  assert.equal(committed.document.revision, after.document.revision + 1, 'the restart edit commits exactly once')
   await notice.waitFor({ state: 'detached' })
   const restartedCopy = await openDoc()
-  assert.ok(restartedCopy.document.atoms.length > after.document.atoms.length, 'the edit was retried on the restarted service')
+  assert.deepEqual(restartedCopy.document, committed.document, 'the restarted service retains the committed edit')
   results.copy_notice_ends_when_the_service_restarts = true
   step = 'after copy_notice_ends_when_the_service_restarts'
 }
@@ -1956,8 +1964,8 @@ step = 'after placements_move_independently'
   await waitIdle()
 
   /** Problems with the drawing, measured on the rendered SVG. */
-  const drawingProblems = () =>
-    page.evaluate(async () => {
+  const drawingProblems = ({ fitted = true } = {}) =>
+    page.evaluate(async ({ fitted }) => {
       await document.fonts.ready
       const svg = document.querySelector('svg[data-structure-canvas]')
       const view = svg.viewBox.baseVal
@@ -1967,14 +1975,27 @@ step = 'after placements_move_independently'
         return { x, y, width, height }
       }
       // Within, beyond rounding.
-      const within = (inner, outer) =>
-        inner.x >= outer.x - 0.05 &&
-        inner.y >= outer.y - 0.05 &&
-        inner.x + inner.width <= outer.x + outer.width + 0.05 &&
-        inner.y + inner.height <= outer.y + outer.height + 0.05
+      const within = (inner, outer, extraX = 0, extraY = 0) =>
+        inner.x >= outer.x - 0.05 - extraX &&
+        inner.y >= outer.y - 0.05 - extraY &&
+        inner.x + inner.width <= outer.x + outer.width + 0.05 + extraX &&
+        inner.y + inner.height <= outer.y + outer.height + 0.05 + extraY
+      const matrix = svg.getScreenCTM()
+      const scaleX = Math.hypot(matrix.a, matrix.b)
+      const scaleY = Math.hypot(matrix.c, matrix.d)
+      if (!(scaleX > 0 && scaleY > 0 && Number.isFinite(scaleX) && Number.isFinite(scaleY))) throw new Error('Invalid canvas scale')
+      // Chromium quantizes small SVG text bounds in CSS pixels. Position and extent
+      // rounding can each contribute half a pixel to the measured far edge. At fitted
+      // zoom only, allow their combined one-pixel budget for text, converted through
+      // the actual SVG scale. Model boxes, dots, strokes and view containment stay strict.
+      // A separate 100% probe below checks the text with no pixel allowance.
+      const textExtraX = fitted ? 1 / scaleX : 0
+      const textExtraY = fitted ? 1 / scaleY : 0
+      const describeBox = ({ x, y, width, height }) =>
+        [x, y, width, height].map((value) => Number(value.toFixed(4))).join(',')
       const inView = (box) => within(box, view)
       if (svg.querySelector('[textLength], [lengthAdjust]')) problems.push('text is drawn at a forced length')
-      for (const part of svg.querySelectorAll('[data-frame], [data-frame-id]')) {
+      for (const part of fitted ? svg.querySelectorAll('[data-frame], [data-frame-id]') : []) {
         const name = part.getAttribute('data-frame') ?? `${part.getAttribute('data-frame-id')} ID`
         if (!inView(part.getBBox())) problems.push(`frame ${name} outside the view box`)
       }
@@ -1996,6 +2017,8 @@ step = 'after placements_move_independently'
             name: part.getAttribute('data-chunk') ?? part.getAttribute('data-mark'),
             box: part.getBBox(),
             reserved: part.hasAttribute('data-box') ? boxOf(part) : boxOf(label),
+            font: getComputedStyle(part).fontFamily,
+            text: part.tagName === 'text',
           })),
           // Where each run of the label's text (not its marks) is drawn, left and right, in
           // reading order: from its first character's cell to its last's.
@@ -2023,10 +2046,10 @@ step = 'after placements_move_independently'
             if (gap > 2 || gap < -1) problems.push(`${where} ${id}: ${gap.toFixed(1)} pt between ${before.part} and ${after.part}`)
           }
           if (drawn.width === 0 || drawn.height === 0) problems.push(`${where} ${id}: empty label`)
-          if (!inView(box)) problems.push(`${where} ${id}: label outside the view box`)
+          if (fitted && !inView(box)) problems.push(`${where} ${id}: label outside the view box`)
           for (const part of parts) {
-            if (!within(part.box, part.reserved) || !within(part.reserved, box)) {
-              problems.push(`${where} ${id}: ${part.name} drawn outside the box reserved for it`)
+            if (!within(part.box, part.reserved, part.text ? textExtraX : 0, part.text ? textExtraY : 0) || !within(part.reserved, box)) {
+              problems.push(`${where} ${id}: ${part.name} drawn outside the box reserved for it; actual=[${describeBox(part.box)}] reserved=[${describeBox(part.reserved)}] label=[${describeBox(box)}] scale=${svg.getAttribute('data-viewport-scale')} font=${part.font}`)
             }
           }
         }
@@ -2049,7 +2072,21 @@ step = 'after placements_move_independently'
         }
       }
       return problems
+    }, { fitted })
+  const assertDrawingContainment = async () => {
+    await page.getByRole('button', { name: 'Reset zoom (100%)', exact: true }).click()
+    await page.waitForFunction(() => {
+      const scale = Number(document.querySelector('svg[data-structure-canvas]')?.getAttribute('data-viewport-scale'))
+      // Reset multiplies the previous scale by its reciprocal; binary64 may leave
+      // the result a few ulps from one. This only tolerates numerical reset noise.
+      return Number.isFinite(scale) && Math.abs(scale - 1) <= 1e-12
     })
+    // At 100% the complete drawing may extend beyond the viewport. Check all label
+    // geometry without viewport containment, then restore Fit and check that as well.
+    assert.deepEqual(await drawingProblems({ fitted: false }), [], 'strict label containment at 100%')
+    await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+    assert.deepEqual(await drawingProblems(), [], 'fitted drawing containment')
+  }
   /** The states as drawn in the first placement and named for assistive technology. */
   const drawnStates = async () => {
     const first = page.locator('g[data-instance="s1"]')
@@ -2088,8 +2125,7 @@ step = 'after placements_move_independently'
     b1Name: 'Bond b1 in s1: aromatic bond between a1 and a2',
   }
   assert.deepEqual(await drawnStates(), expected, 'drawn as recorded; the inferred nitrogen shows no count')
-  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
-  assert.deepEqual(await drawingProblems(), [])
+  await assertDrawingContainment()
   await page.screenshot({ path: join(outDir, 'editor-states.png') })
   const recorded = await statesDoc()
 
@@ -2098,14 +2134,12 @@ step = 'after placements_move_independently'
   await alphaItem.getByRole('button', { name: 'Open' }).click()
   await page.getByLabel('Document title').waitFor()
   assert.deepEqual(await drawnStates(), expected, 'after a page reload')
-  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
-  assert.deepEqual(await drawingProblems(), [])
+  await assertDrawingContainment()
   await closeShown()
   await alphaItem.getByRole('button', { name: 'Open' }).click()
   await page.getByLabel('Document title').waitFor()
   assert.deepEqual(await drawnStates(), expected, 'reopened from storage')
-  await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
-  assert.deepEqual(await drawingProblems(), [])
+  await assertDrawingContainment()
   const reopened = await statesDoc()
   assert.deepEqual([reopened.atoms, reopened.bonds], [recorded.atoms, recorded.bonds])
 }
@@ -2285,6 +2319,174 @@ step = 'after scene_group_and_queued_delete_selection'
   results.scene_geometry_controls = true
 }
 step = 'after scene_geometry_controls'
+
+
+// Mixed selection has one explicit graph movement placement. A marquee spanning
+// several drawings takes graph targets only from that placement, and group/atom/
+// bond/instance overlap contributes each geometry point just once to the drag.
+{
+  step = 'mixed marquee and group drag in one movement placement'
+  await closeShown()
+  const created = await apiWrite('/api/v1/documents', { request_id: 'mixed-selection-create', title: 'Mixed selection gestures' })
+  docId = created.body.document.id
+  const id = docId
+  const seeded = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+    request_id: 'mixed-selection-fixture', expected_revision: 0, commands: [
+      { op: 'add_atom', element: 'C', position: { x: 100, y: 100 } },
+      { op: 'add_atom', element: 'O', position: { x: 130, y: 100 }, bond_to: { atom: '$0', order: 'single' } },
+      { op: 'add_instance', source: 's1', offset: { x: 0, y: 120 } },
+      { op: 'add_graphic', shape: 'line', points: [{ x: 180, y: 220 }, { x: 210, y: 220 }] },
+      { op: 'group', objects: ['s2', 's3'] },
+    ],
+  })
+  assert.equal(seeded.status, 200, JSON.stringify(seeded.body))
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open', exact: true }).click()
+  await page.getByLabel('Revision 1').waitFor()
+  await tool('Select and move')
+  const canvas = page.locator('svg[data-structure-canvas]')
+  const controls = page.getByRole('toolbar', { name: 'Canvas view' })
+  await controls.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+  const toggle = (object) => page.getByRole('button', { name: `Select scene object ${object}`, exact: true })
+  const placement = page.getByRole('combobox', { name: 'Atom and bond movement placement', exact: true })
+  const assertPlacementReachable = async () => {
+    await placement.scrollIntoViewIfNeeded()
+    const reachable = await placement.evaluate((trigger) => {
+      const canvasRoot = trigger.closest('[data-slot="field"]')?.parentElement
+      if (!canvasRoot) throw new Error('The movement field has no canvas container.')
+      const container = canvasRoot.getBoundingClientRect()
+      const box = trigger.getBoundingClientRect()
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+      return {
+        fitsCanvas: box.left >= container.left - 1 && box.right <= container.right + 1,
+        receivesPointer: hit !== null && trigger.contains(hit),
+      }
+    })
+    assert.deepEqual(reachable, { fitsCanvas: true, receivesPointer: true }, 'the movement selector stays inside the canvas column and receives its own pointer input')
+  }
+  const choosePlacement = async (instance) => {
+    await assertPlacementReachable()
+    await placement.click()
+    await page.getByRole('option', { name: instance, exact: true }).click()
+  }
+  const gesturePoint = async (point) => {
+    // Scene-list toggles may scroll the long inspector below the canvas. Raw
+    // mouse coordinates do not scroll automatically like locator clicks do.
+    await canvas.scrollIntoViewIfNeeded()
+    const at = await screen(point)
+    const reachable = await canvas.evaluate((svg, pointer) => {
+      const box = svg.getBoundingClientRect()
+      const hit = document.elementFromPoint(pointer.x, pointer.y)
+      return pointer.x >= box.left && pointer.x <= box.right && pointer.y >= box.top && pointer.y <= box.bottom &&
+        pointer.x >= 0 && pointer.x < window.innerWidth && pointer.y >= 0 && pointer.y < window.innerHeight &&
+        hit !== null && svg.contains(hit)
+    }, at)
+    assert.equal(reachable, true, `gesture point (${point.x}, ${point.y}) must receive pointer input in the visible canvas`)
+    return at
+  }
+  const clickPoint = async (point) => {
+    const at = await gesturePoint(point)
+    await page.mouse.click(at.x, at.y)
+  }
+  const dragPoint = async (from, to) => {
+    const start = await gesturePoint(from)
+    const end = await gesturePoint(to)
+    await page.mouse.move(start.x, start.y)
+    await page.mouse.down()
+    await page.mouse.move(end.x, end.y, { steps: 5 })
+    await page.mouse.up()
+  }
+  const moveGeometry = (document) => ({
+    instances: document.scene.instances.map((instance) => ({ id: instance.id, positions: instance.positions })),
+    line: document.scene.objects.find((object) => object.id === 's3').points,
+  })
+  const original = (await openDoc()).document
+  await clickPoint({ x: 100, y: 220 })
+  await page.getByRole('heading', { name: 'Atom a1', exact: true }).waitFor()
+  await toggle('s3').click()
+  await choosePlacement('s1')
+  assert.equal(await page.getByRole('heading', { name: 'Atom a1', exact: true }).count(), 0, 'placement change clears explicit graph targets')
+  assert.equal(await toggle('s3').getAttribute('aria-pressed'), 'true', 'placement change preserves independent scene selection')
+  assert.equal(await page.getByRole('button', { name: 'Rotate 90° clockwise', exact: true }).isDisabled(), false, 'clearing the graph targets re-enables scene geometry actions')
+  await choosePlacement('s2')
+  await page.setViewportSize({ width: 320, height: 800 })
+  await assertPlacementReachable()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await controls.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+
+  await dragPoint({ x: 90, y: 90 }, { x: 220, y: 230 })
+  assert.equal(await toggle('s3').getAttribute('aria-pressed'), 'true', 'complete graphic geometry is enclosed')
+  assert.equal(await toggle('s1').getAttribute('aria-pressed'), 'false', 'marquee does not promote graph atoms to a placement')
+  assert.equal(await toggle('s2').getAttribute('aria-pressed'), 'false')
+  assert.equal(await toggle('s4').getAttribute('aria-pressed'), 'false', 'marquee does not promote contained objects to a group')
+  assert.equal((await openDoc()).document.revision, 1, 'selection changes make no edit')
+  const firstMove = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST')
+  await dragPoint({ x: 100, y: 220 }, { x: 110, y: 235 })
+  const firstResponse = await firstMove
+  assert.equal(firstResponse.status(), 200)
+  await page.getByLabel('Revision 2').waitFor()
+  assert.deepEqual(firstResponse.request().postDataJSON().commands, [{
+    op: 'move_selection', selection: { objects: ['s3'], atoms: ['a1', 'a2'], bonds: [] }, instance: 's2', delta: { x: 10, y: 15 },
+  }], 'marquee captures active-placement atoms and full graphics in one transaction command')
+  const expectedMoved = {
+    instances: [
+      { id: 's1', positions: [{ atom: 'a1', x: 100, y: 100 }, { atom: 'a2', x: 130, y: 100 }] },
+      { id: 's2', positions: [{ atom: 'a1', x: 110, y: 235 }, { atom: 'a2', x: 140, y: 235 }] },
+    ],
+    line: [{ x: 190, y: 235 }, { x: 220, y: 235 }],
+  }
+  assert.deepEqual(moveGeometry((await openDoc()).document), expectedMoved)
+  await clickFor(page.getByRole('button', { name: 'Undo', exact: true }), '/undo')
+  assert.deepEqual(moveGeometry((await openDoc()).document), moveGeometry(original))
+
+  await canvas.focus()
+  await page.keyboard.press('Escape')
+  await clickPoint({ x: 100, y: 220 })
+  await page.keyboard.down('Shift')
+  await clickPoint({ x: 115, y: 220 })
+  await page.keyboard.up('Shift')
+  await toggle('s4').click()
+  await toggle('s2').click()
+  const groupMove = page.waitForResponse((response) => response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST')
+  await dragPoint({ x: 195, y: 220 }, { x: 205, y: 235 })
+  const groupResponse = await groupMove
+  assert.equal(groupResponse.status(), 200)
+  await waitIdle()
+  const groupCommands = groupResponse.request().postDataJSON().commands
+  // Request selection arrays are sets; scene.objects is in drawing order, so
+  // a parent precedes its selected child even when its identifier is larger.
+  assert.deepEqual(groupCommands.map((command) => ({
+    ...command,
+    selection: { ...command.selection, objects: [...command.selection.objects].sort() },
+  })), [{
+    op: 'move_selection', selection: { objects: ['s2', 's4'], atoms: ['a1'], bonds: ['b1'] }, instance: 's2', delta: { x: 10, y: 15 },
+  }], 'dragging an effectively selected graphic preserves its selected parent instead of replacing selection')
+  assert.deepEqual(moveGeometry((await openDoc()).document), expectedMoved, 'group, instance, atom and bond overlap moves every target once')
+
+  const beforeCancel = (await openDoc()).document
+  let writes = 0
+  const countWrite = (request) => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === `/api/v1/documents/${id}/transactions`) writes += 1
+  }
+  page.on('request', countWrite)
+  const lineAt = await screen({ x: 205, y: 235 })
+  await page.mouse.move(lineAt.x, lineAt.y)
+  await page.mouse.down()
+  await page.mouse.move(lineAt.x + 1, lineAt.y + 1)
+  await page.mouse.up()
+  await canvas.evaluate((svg) => svg.addEventListener('pointerdown', (event) => { svg.dataset.smokePointer = String(event.pointerId) }, { once: true }))
+  await page.mouse.move(lineAt.x, lineAt.y)
+  await page.mouse.down()
+  await page.mouse.move(lineAt.x + 35, lineAt.y + 10, { steps: 4 })
+  await canvas.dispatchEvent('pointercancel', { pointerId: Number(await canvas.getAttribute('data-smoke-pointer')), pointerType: 'mouse', isPrimary: true })
+  await page.mouse.up()
+  await controls.getByRole('button', { name: 'Zoom in', exact: true }).click()
+  assert.equal(writes, 0, 'subthreshold graphic presses and cancelled mixed drags make no transaction')
+  assert.deepEqual((await openDoc()).document, beforeCancel)
+  page.off('request', countWrite)
+  results.mixed_marquee_placement_and_group_drag = true
+}
+step = 'after mixed_marquee_placement_and_group_drag'
 
 // Document style and preferences: a document's style is changed in its Document style dialog (two quick
 // presses while the first request is held both count), the canvas follows it (measured from the
@@ -4819,7 +5021,7 @@ step = 'after short_wide_bond_is_selectable'
   assert.deepEqual(edited.atoms.find((atom) => atom.id === 'a2').position, { x: 130, y: 100 })
   const movedResponse = page.waitForResponse((response) =>
     response.url().endsWith(`/documents/${id}/transactions`) && response.request().method() === 'POST' &&
-    response.request().postDataJSON().commands.some((command) => command.op === 'move_atoms'))
+    response.request().postDataJSON().commands.some((command) => command.op === 'move_selection'))
   await page.mouse.move(oxygenStart.x, oxygenStart.y)
   await page.mouse.down()
   await page.mouse.move(oxygenStart.x + 40, oxygenStart.y - 20, { steps: 5 })
@@ -4829,6 +5031,8 @@ step = 'after short_wide_bond_is_selectable'
   await page.getByLabel('Revision 3').waitFor()
   const moveRequest = committedMove.request().postDataJSON()
   assert.deepEqual(moveRequest.selection_before.atoms, ['a2'], 'the drag acts on the selected oxygen')
+  assert.deepEqual(moveRequest.commands[0].selection, { objects: [], atoms: ['a2'], bonds: [] })
+  assert.equal(moveRequest.commands[0].instance, 's1', 'P31 world-coordinate motion retains its explicit graph placement')
   const moved = (await api(`/api/v1/documents/${id}`)).document
   const expectedPosition = { x: 130 + 40 / 1.5625, y: 100 - 20 / 1.5625 }
   const movedOxygen = moved.atoms.find((atom) => atom.id === 'a2')
