@@ -186,9 +186,7 @@
    ],
    "depends_on": [],
    "delivered": {
-    "prs": [
-     13
-    ],
+    "prs": [13],
     "merge_commit": "4a8f02e",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40637230234"
    }
@@ -218,9 +216,7 @@
    ],
    "depends_on": [],
    "delivered": {
-    "prs": [
-     9
-    ],
+    "prs": [9],
     "merge_commit": "db09dbf",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40618915865"
    }
@@ -250,9 +246,7 @@
    ],
    "depends_on": [],
    "delivered": {
-    "prs": [
-     12
-    ],
+    "prs": [12],
     "merge_commit": "e76bef3",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40624016359"
    }
@@ -286,9 +280,7 @@
     "P03"
    ],
    "delivered": {
-    "prs": [
-     17
-    ],
+    "prs": [17],
     "merge_commit": "b029e23",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40643116016"
    }
@@ -356,9 +348,7 @@
     "P05"
    ],
    "delivered": {
-    "prs": [
-     21
-    ],
+    "prs": [21],
     "merge_commit": "0cc92ea",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40660586352"
    }
@@ -389,9 +379,7 @@
     "P05"
    ],
    "delivered": {
-    "prs": [
-     22
-    ],
+    "prs": [22],
     "merge_commit": "5aaf6c6",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40666694453"
    }
@@ -419,9 +407,7 @@
     "P07"
    ],
    "delivered": {
-    "prs": [
-     23
-    ],
+    "prs": [23],
     "merge_commit": "530aa16",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40739733773"
    }
@@ -520,9 +506,7 @@
     "P13"
    ],
    "delivered": {
-    "prs": [
-     30
-    ],
+    "prs": [30],
     "merge_commit": "1a518cd",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40796524510"
    }
@@ -552,9 +536,7 @@
     "P09"
    ],
    "delivered": {
-    "prs": [
-     32
-    ],
+    "prs": [32],
     "merge_commit": "b1ccdfb222043cf5d6e69aaa6d5720f2ba4b5654",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40820386893"
    }
@@ -620,9 +602,7 @@
     "P11"
    ],
    "delivered": {
-    "prs": [
-     36
-    ],
+    "prs": [36],
     "merge_commit": "a8c254db579e9e6108cd18fd0f8ecf13dc646044",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41095602815"
    }
@@ -653,9 +633,7 @@
     "P08"
    ],
    "delivered": {
-    "prs": [
-     29
-    ],
+    "prs": [29],
     "merge_commit": "85d4788",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40784845386"
    }
@@ -1189,7 +1167,7 @@
     "P21",
     "P23"
    ],
-   "note": "첫 납품 P29a는 코드 이동뿐이었다. P29b(가져오기만, 진행 중이며 P29 완료가 아니다)는 CDXML·CDX 가져오기에서 공개 근거가 확인하는 입체만 읽는다: 결합 `Display`·`Display2`(Solid·Dash·Hash·WedgedHashBegin/End·Bold·WedgeBegin/End·Wavy·HollowWedgeBegin/End·WavyWedgeBegin/End·Dot·DashDot, 이중결합의 Wavy는 crossed; Begin은 B 원자, End는 E 원자가 뾰족한 끝이고 목록 밖 값은 거절), 원자 `Geometry`·`BondOrdering`·`AS`(저장하지 않고 손실로만 알림, CIP 라벨은 배치로 저장하지 않음), `EnhancedStereoType`·`EnhancedStereoGroupNum`(int32 그대로, 생략=0, Or 1과 And 1은 별개 그룹, CDX 0447은 부호 없는 16비트로 읽어 128·258이 그대로임)을 읽고, 표시와 위치에서 배치를 MOL과 같은 중립 투영으로 유도하며, 그룹 멤버가 유도된 사면체 중심이 아니면 파일 전체를 거절한다. 이중결합 E/Z는 유도하지 않는다. 바이너리 CDX의 결합 Display `0x0601`은 공개 Bond_Display 페이지(INT16 0–14)대로 CDXML과 같은 표로 읽고 Display2·DoublePosition 태그는 공개 근거에 없어 거절을 유지한다. P29c(SMILES·CXSMILES **읽기만**, 진행 중이며 P29 완료가 아니다)는 괄호 원자의 사면체 표 `@`·`@@`를 표 없이 저장 배치로 읽고(이웃 순서는 OpenSMILES: 앞 원자, 괄호 수소, 고리 번호를 쓴 순서, 가지·사슬), CXSMILES `a:`·`o<n>:`·`&<n>:`를 향상된 입체 그룹으로 읽는다. 고립 전자쌍을 넷째 자리로 갖는 표, 방향족 원자, 다른 이웃 수, `@TH`·`@AL`·`@SP`·`@TB`·`@OH` 부류, 방향 결합 `/`·`\\`, 다른 CX 필드는 거절한다(이중결합 `/`·`\\` 읽기는 후속). P29d는 기록형 SMILES 사면체와 CX 그룹 쓰기·되읽기 검증을 더한다. canonical은 입체 손실을 보고한다. CDXML·CDX 도면 내보내기와 방향 결합 읽기·쓰기는 남는다."
+   "note": "첫 납품 P29a는 코드 이동뿐이었다. P29b(가져오기만, 진행 중이며 P29 완료가 아니다)는 CDXML·CDX 가져오기에서 공개 근거가 확인하는 입체만 읽는다: 결합 `Display`·`Display2`(Solid·Dash·Hash·WedgedHashBegin/End·Bold·WedgeBegin/End·Wavy·HollowWedgeBegin/End·WavyWedgeBegin/End·Dot·DashDot, 이중결합의 Wavy는 crossed; Begin은 B 원자, End는 E 원자가 뾰족한 끝이고 목록 밖 값은 거절), 원자 `Geometry`·`BondOrdering`·`AS`(저장하지 않고 손실로만 알림, CIP 라벨은 배치로 저장하지 않음), `EnhancedStereoType`·`EnhancedStereoGroupNum`(int32 그대로, 생략=0, Or 1과 And 1은 별개 그룹, CDX 0447은 부호 없는 16비트로 읽어 128·258이 그대로임)을 읽고, 표시와 위치에서 배치를 MOL과 같은 중립 투영으로 유도하며, 그룹 멤버가 유도된 사면체 중심이 아니면 파일 전체를 거절한다. 이중결합 E/Z는 유도하지 않는다. 바이너리 CDX의 결합 Display `0x0601`은 공개 Bond_Display 페이지(INT16 0–14)대로 CDXML과 같은 표로 읽고 Display2·DoublePosition 태그는 공개 근거에 없어 거절을 유지한다. P29c(SMILES·CXSMILES **읽기만**, 진행 중이며 P29 완료가 아니다)는 괄호 원자의 사면체 표 `@`·`@@`를 표 없이 저장 배치로 읽고(이웃 순서는 OpenSMILES: 앞 원자, 괄호 수소, 고리 번호를 쓴 순서, 가지·사슬), CXSMILES `a:`·`o<n>:`·`&<n>:`를 향상된 입체 그룹으로 읽는다. 고립 전자쌍을 넷째 자리로 갖는 표, 방향족 원자, 다른 이웃 수, `@TH`·`@AL`·`@SP`·`@TB`·`@OH` 부류, 방향 결합 `/`·`\\`, 다른 CX 필드는 거절한다(이중결합 `/`·`\\` 읽기는 후속). P29d는 기록형 SMILES 사면체와 CX 그룹 쓰기·되읽기 검증을 더한다. canonical은 입체 손실을 보고한다. P29e는 확인된 typed carrier 네 개와 CDXML·CDX 도면 내보내기를 더한다: 첫 배치의 표시를 쓰고 출력 좌표에서 모든 구성원의 저장 사면체 배치를 유도할 수 있는 그룹만 쓴다. 번호 1–127 밖은 종류별 빈 양수로 정규화하며, 미보존 배치·그룹은 정확한 출력 바이트에 묶인 손실 동의가 필요하다. 알려지지 않은 확장 보존 규칙은 유지하고 표시·CIP를 지어내지 않는다. 웹 내보내기 UI와 방향 결합 읽기·쓰기는 남으며 P29는 in_progress다."
   },
   {
    "phase": "stereo",

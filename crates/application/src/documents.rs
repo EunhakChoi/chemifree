@@ -802,6 +802,21 @@ impl<R: DocumentRepository> Documents<R> {
         ))
     }
 
+    /// Captures the rich export's graph, stereo and scene together with its response snapshot.
+    /// Neither capture includes undo or redo history.
+    pub(crate) fn interchange_export_snapshot(
+        &self,
+        id: &str,
+    ) -> Result<(DocumentResponse, crate::interchange_export::ExportSnapshot), ApplicationError>
+    {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        Ok((
+            self.respond(session),
+            crate::interchange_export::ExportSnapshot::capture(&session.document),
+        ))
+    }
+
     /// Captures the graph and enhanced stereo groups at the same revision without cloning the
     /// document's undo and redo histories.
     pub(crate) fn graph_and_groups_snapshot(

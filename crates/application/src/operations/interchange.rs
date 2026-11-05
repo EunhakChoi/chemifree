@@ -56,6 +56,16 @@ struct ExportParameters {
     accepted_losses: Option<String>,
 }
 
+/// The drawing branch cannot also submit a rich tree or an opaque source baseline.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DrawingExportParameters {
+    format: String,
+    document_id: String,
+    #[serde(default)]
+    accepted_losses: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct InterchangeReadResult {
     document: InterchangeDocumentDto,
@@ -72,6 +82,8 @@ pub struct InterchangePreviewResult {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct InterchangeExportResult {
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    snapshot: Option<DocumentResult>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -621,6 +633,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         known: &Known,
         value: Value,
     ) -> OperationResponse {
+        if value.get("document_id").is_some() {
+            return self.drawing_interchange_export(known, value);
+        }
         let parameters: ExportParameters = match parameters(value) {
             Ok(value) => value,
             Err(error) => return known.invalid(error),
@@ -714,8 +729,78 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         };
         response(
             known,
-            OperationResult::InterchangeExport(Box::new(InterchangeExportResult { content })),
+            OperationResult::InterchangeExport(Box::new(InterchangeExportResult {
+                content,
+                snapshot: None,
+            })),
             None,
+            losses,
+        )
+    }
+
+    fn drawing_interchange_export(&self, known: &Known, value: Value) -> OperationResponse {
+        let parameters: DrawingExportParameters = match parameters(value) {
+            Ok(value) => value,
+            Err(error) => return known.invalid(error),
+        };
+        let Some(codec) = &self.interchange_codec else {
+            return known.not_running();
+        };
+        let format = match format(&parameters.format) {
+            Ok(format) => format,
+            Err(error) => return known.invalid(issue(error)),
+        };
+        let (snapshot, captured) = match self
+            .documents
+            .interchange_export_snapshot(&parameters.document_id)
+        {
+            Ok(captured) => captured,
+            Err(error) => {
+                return known.reply(
+                    Outcome::Error,
+                    error.current_revision,
+                    None,
+                    vec![failure(&error)],
+                );
+            }
+        };
+        let projection = match crate::interchange_export::project(&captured, format) {
+            Ok(projection) => projection,
+            Err(error) => return known.invalid(issue(error)),
+        };
+        let output = match codec.write(format, &projection.document, None, false) {
+            Ok(output) => output,
+            Err(error) => return known.invalid(issue(error)),
+        };
+        let mut losses = projection.losses;
+        losses.extend(output.loss_report);
+        if let Some(refusal) = export_consent_refusal(
+            &losses,
+            &output.bytes,
+            parameters.accepted_losses.as_deref(),
+        ) {
+            return known.invalid(refusal);
+        }
+        let content = match format {
+            InterchangeFormat::Cdxml => match String::from_utf8(output.bytes) {
+                Ok(content) => content,
+                Err(_) => {
+                    return known.invalid(refused(
+                        "invalid_output",
+                        "The provider returned non-UTF-8 CDXML.",
+                    ));
+                }
+            },
+            InterchangeFormat::Cdx => transport_base64::encode(&output.bytes),
+        };
+        let revision = snapshot.document.revision;
+        response(
+            known,
+            OperationResult::InterchangeExport(Box::new(InterchangeExportResult {
+                content,
+                snapshot: Some(snapshot.into()),
+            })),
+            Some(revision),
             losses,
         )
     }

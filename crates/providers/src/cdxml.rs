@@ -608,8 +608,42 @@ fn parse_property(
         }),
         value: V::Text(value.to_owned()),
     };
-    if namespace.is_some() {
+    if namespace.is_some() || kind.is_opaque() {
         return Ok(unknown());
+    }
+    let stereo_kind = match (kind, name) {
+        (O::Bond, "Display") => Some(K::BondDisplay),
+        (O::Node, "EnhancedStereoType") => Some(K::EnhancedStereoType),
+        (O::Node, "EnhancedStereoGroupNum") => Some(K::EnhancedStereoGroupNum),
+        (O::Node, "ShowAtomEnhancedStereo") => Some(K::ShowAtomEnhancedStereo),
+        _ => None,
+    };
+    if let Some(stereo_kind) = stereo_kind {
+        use chemifree_domain::interchange::{BOND_DISPLAY_NAMES, ENHANCED_STEREO_TYPE_NAMES};
+        let decoded = match stereo_kind {
+            K::BondDisplay => BOND_DISPLAY_NAMES
+                .iter()
+                .position(|name| *name == value)
+                .map(|index| index as i64),
+            K::EnhancedStereoType => ENHANCED_STEREO_TYPE_NAMES
+                .iter()
+                .position(|name| *name == value)
+                .map(|index| index as i64),
+            K::EnhancedStereoGroupNum => value.trim().parse::<i32>().ok().map(i64::from),
+            K::ShowAtomEnhancedStereo => match value {
+                "yes" => Some(1),
+                "no" => Some(0),
+                _ => None,
+            },
+            _ => None,
+        };
+        return Ok(match decoded {
+            Some(number) => Property {
+                kind: stereo_kind,
+                value: V::Integer(number),
+            },
+            None => unknown(),
+        });
     }
     let property = match (kind, name) {
         (O::Document | O::Page | O::Group | O::Fragment | O::Text | O::Graphic, "BoundingBox") => {
@@ -829,6 +863,10 @@ fn property_name(object: &ObjectKind, kind: &PropertyKind) -> Option<&'static st
         PropertyKind::Isotope => "Isotope",
         PropertyKind::Radical => "Radical",
         PropertyKind::BondOrder => "Order",
+        PropertyKind::BondDisplay => "Display",
+        PropertyKind::EnhancedStereoType => "EnhancedStereoType",
+        PropertyKind::EnhancedStereoGroupNum => "EnhancedStereoGroupNum",
+        PropertyKind::ShowAtomEnhancedStereo => "ShowAtomEnhancedStereo",
         PropertyKind::BondBegin => "B",
         PropertyKind::BondEnd => "E",
         PropertyKind::GraphicType => "GraphicType",
@@ -918,6 +956,34 @@ fn property_text(property: &Property) -> Result<String, CdxmlError> {
         }
         .into(),
         (K::BondOrder, V::Integer(value)) => order_text(*value)?,
+        (K::BondDisplay, V::Integer(value)) => chemifree_domain::interchange::BOND_DISPLAY_NAMES
+            .get(*value as usize)
+            .ok_or_else(|| error("invalid_stereo_attribute", "Invalid bond display.", None))?
+            .to_string(),
+        (K::EnhancedStereoType, V::Integer(value)) => {
+            chemifree_domain::interchange::ENHANCED_STEREO_TYPE_NAMES
+                .get(*value as usize)
+                .ok_or_else(|| {
+                    error(
+                        "invalid_stereo_attribute",
+                        "Invalid enhanced stereo type.",
+                        None,
+                    )
+                })?
+                .to_string()
+        }
+        (K::ShowAtomEnhancedStereo, V::Integer(value)) => match value {
+            0 => "no",
+            1 => "yes",
+            _ => {
+                return Err(error(
+                    "invalid_stereo_attribute",
+                    "Invalid display boolean.",
+                    None,
+                ));
+            }
+        }
+        .into(),
         (_, V::Integer(value)) => value.to_string(),
         (_, V::Float(value)) => value.to_string(),
         (_, V::Point { x, y }) => format!("{x} {y}"),

@@ -17,6 +17,7 @@ mod error;
 mod format_text;
 pub mod interchange_codec;
 pub mod interchange_contract;
+mod interchange_export;
 mod interchange_projection;
 pub mod json;
 pub mod layout_data_binding;
