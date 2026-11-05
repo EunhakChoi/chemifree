@@ -311,7 +311,7 @@ try {
   await page.getByRole('textbox', { name: 'Offset y (pt)' }).fill('-7')
   pasteFails = 2
   await page.getByRole('button', { name: 'Paste fragment', exact: true }).click()
-  await page.getByRole('button', { name: 'Check paste outcome', exact: true }).waitFor()
+  await page.getByRole('dialog').getByRole('button', { name: 'Check paste outcome', exact: true }).waitFor()
   const firstAttempts = operations.filter((item) => item.operation === 'document.clipboard_paste')
   assert.equal(firstAttempts.length, 2)
   assert.equal(documents.beta.document.atoms.length, 3, 'the first paste committed before its reply was lost')
@@ -320,7 +320,12 @@ try {
   assert.deepEqual(firstAttempts[0].parameters.offset, { x: 5, y: -7 })
   assert.equal(await page.getByRole('button', { name: 'Paste fragment', exact: true }).isDisabled(), true)
   await page.getByRole('button', { name: 'Close', exact: true }).click()
-  const checking = page.getByRole('button', { name: 'Check paste outcome', exact: true })
+  // Closing moves recovery to the panel. The exiting popup must not keep a duplicate
+  // recovery action mounted, and its overlay must leave before the panel is interactive.
+  assert.equal(await page.getByRole('button', { name: 'Check paste outcome', exact: true, includeHidden: true }).count(), 1)
+  await page.getByRole('dialog').waitFor({ state: 'detached' })
+  const checking = page.getByRole('region', { name: 'Native fragment clipboard', exact: true })
+    .getByRole('button', { name: 'Check paste outcome', exact: true })
   assert.equal(await checking.isEnabled(), true, 'the unresolved gate must not disable checking its original request')
   await checking.click()
   await page.waitForFunction(() => !document.body.textContent.includes('Check paste outcome'))
@@ -339,18 +344,18 @@ try {
   pasteFails = 2
   pasteConflict = true
   await page.getByRole('button', { name: 'Paste fragment', exact: true }).click()
-  await page.getByRole('button', { name: 'Check paste outcome', exact: true }).waitFor()
+  await page.getByRole('dialog').getByRole('button', { name: 'Check paste outcome', exact: true }).waitFor()
   await page.evaluate(() => window.clipboardHarness.editor.apply([{ op: 'rename', title: 'Must remain blocked' }]))
   assert.equal(transactionsReceived, 1, 'an unresolved attempt must block programmatic queued edits too')
-  await page.getByRole('button', { name: 'Check paste outcome', exact: true }).click()
-  await page.getByRole('button', { name: 'Reload document to reconcile', exact: true }).waitFor()
+  await page.getByRole('dialog').getByRole('button', { name: 'Check paste outcome', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Reload document to reconcile', exact: true }).waitFor()
   assert.match(await page.getByRole('dialog').innerText(), /may already be present/)
   const beforeReconcile = operations.filter((item) => item.operation === 'document.clipboard_paste')
   assert.equal(beforeReconcile.length, 6)
   assert.deepEqual(beforeReconcile[3], beforeReconcile[4])
   assert.deepEqual(beforeReconcile[4], beforeReconcile[5])
   const beforeReads = readsReceived
-  await page.getByRole('button', { name: 'Reload document to reconcile', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Reload document to reconcile', exact: true }).click()
   await page.waitForFunction(() => !document.body.textContent.includes('Reload document to reconcile'))
   assert.equal(readsReceived, beforeReads + 1)
   assert.equal(operations.filter((item) => item.operation === 'document.clipboard_paste').length, 6)
@@ -376,7 +381,7 @@ try {
     .then(() => 'unexpected success', (error) => error.code)), 'service_restarted')
   await page.waitForFunction(() => window.clipboardHarness.editor.serviceGeneration === 1)
   await heldPaste()
-  await page.getByRole('button', { name: 'Reload document to reconcile', exact: true }).waitFor()
+  await page.getByRole('dialog').getByRole('button', { name: 'Reload document to reconcile', exact: true }).waitFor()
   assert.deepEqual(await page.evaluate(() => ({
     atoms: window.clipboardHarness.editor.current.document.atoms.map((item) => item.id),
     revision: window.clipboardHarness.editor.current.document.revision,
@@ -386,7 +391,7 @@ try {
   })), { atoms: ['a1', 'a2', 'a3'], revision: 4, selection: ['a3'], pending: true, needsReload: true })
   const pasteCountBeforeRestartReconcile = operations.filter((item) => item.operation === 'document.clipboard_paste').length
   assert.equal(pasteCountBeforeRestartReconcile, 7)
-  await page.getByRole('button', { name: 'Reload document to reconcile', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Reload document to reconcile', exact: true }).click()
   await page.waitForFunction(() => !window.clipboardHarness.editor.clipboardPending)
   assert.equal(await page.evaluate(() => window.clipboardHarness.editor.current.document.title), 'Restarted drawing')
   assert.equal(operations.filter((item) => item.operation === 'document.clipboard_paste').length, pasteCountBeforeRestartReconcile)

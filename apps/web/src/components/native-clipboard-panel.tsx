@@ -232,7 +232,7 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
             <Button variant="outline" disabled={busy || !currentOffer} onClick={() => void writeClipboard()}>Copy to clipboard</Button>
           </DialogFooter>
         </> : <>
-          {unresolved}
+          {mode === 'paste' && unresolved}
           {!singleDestination && <p>Paste requires a document with exactly one placement.</p>}
           <p>Offsets in points are added to the source coordinates. Pasted content may overlap existing content; it is not positioned from the viewport.</p>
           <FieldGroup>
