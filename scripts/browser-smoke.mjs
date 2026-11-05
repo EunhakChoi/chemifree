@@ -3328,6 +3328,13 @@ step = 'after short_wide_bond_is_selectable'
   await source.fill('CC')
   await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
   await panel.getByTestId('smiles-preview-summary').waitFor()
+  // The successful import above schedules a recovery draft. Let that request finish
+  // before deliberately killing the service so its unrelated response is not cut off.
+  const metalRevision = (await api(`/api/v1/documents/${metalId}`)).document.revision
+  await page.waitForFunction(
+    (revision) => document.querySelector('[data-testid="draft-state"]')?.textContent?.includes(`(revision ${revision})`),
+    metalRevision,
+  )
   await crashApi()
   await panel.getByRole('button', { name: 'Import SMILES' }).click()
   await panel.getByRole('alert').getByText(/The local service restarted/).waitFor()
