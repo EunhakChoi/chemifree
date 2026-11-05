@@ -39,7 +39,11 @@ function referencedIds(command: Command): string[] {
     case 'group':
     case 'delete_objects':
     case 'move_objects':
+    case 'arrange_objects':
       return command.objects
+    case 'move_selection':
+    case 'transform_selection':
+      return [...command.selection.objects, ...command.selection.atoms, ...command.selection.bonds, ...(command.instance === undefined ? [] : [command.instance])]
     case 'ungroup':
       return [command.group]
     case 'reorder':

@@ -14,6 +14,7 @@ const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, ne
 )
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
+const { sceneGeometry, sceneGeometryCommands } = await import('../apps/web/src/editor/scene-geometry.ts')
 const {
   CT_FALLBACK_REASONS, CT_REFUSAL_SENTENCES, CTAB_OPTIONS, LOSS_SENTENCES, afterDownloadFailure, afterExportFailure, ctRefusalSentence, ctabParameters,
   lossHeading, parseCtabChoice, writtenDialectMatches,
@@ -5082,3 +5083,105 @@ await import('./web-interchange-export-check.mjs')
 
 // Viewport transformations and CSS-pixel picking tolerances.
 await import('./web-viewport-check.mjs')
+
+function geometryDrawing() {
+  return {
+    id: 'geometry-controls', title: 'Geometry controls', revision: 1,
+    atoms: [
+      { id: 'a1', element: 'C', charge: 0, isotope: null, position: { x: 0, y: 0 } },
+      { id: 'a2', element: 'C', charge: 0, isotope: null, position: { x: 10, y: 20 } },
+    ],
+    bonds: [{ id: 'b1', begin: 'a1', end: 'a2', order: 'single' }],
+    molecule: { id: 'm1' },
+    scene: {
+      page: { id: 'p1' }, roots: ['s3', 's4', 's5', 's6'],
+      instances: [
+        { id: 's1', page: 'p1', molecule: 'm1', positions: [{ atom: 'a1', x: 0, y: 0 }, { atom: 'a2', x: 10, y: 20 }] },
+        { id: 's4', page: 'p1', molecule: 'm1', positions: [{ atom: 'a1', x: 100, y: 200 }, { atom: 'a2', x: 110, y: 220 }] },
+      ],
+      objects: [
+        { kind: 'instance', id: 's1', parent: 's3', molecule: 'm1' },
+        { kind: 'graphic', id: 's2', parent: 's3', shape: 'line', points: [{ x: 20, y: 5 }, { x: 30, y: 15 }] },
+        { kind: 'group', id: 's3', parent: null, children: ['s1', 's2'] },
+        { kind: 'instance', id: 's4', parent: null, molecule: 'm1' },
+        { kind: 'graphic', id: 's5', parent: null, shape: 'rectangle', points: [{ x: 50, y: -10 }, { x: 70, y: 0 }] },
+        { kind: 'group', id: 's6', parent: null, children: [] },
+      ],
+      references: [{ source: 's3', target: { kind: 'object', id: 's5' } }],
+    },
+  }
+}
+
+test('scene geometry collapses selected descendants and follows containment without following references', () => {
+  const drawing = geometryDrawing()
+  const before = structuredClone(drawing)
+  const geometry = sceneGeometry(drawing, new Set(['s3', 's1', 's2']))
+  assert.deepEqual(geometry, {
+    objects: ['s3'], bounds: { left: 0, top: 0, right: 30, bottom: 20 },
+    hasGraphTargets: false, hasEmptyUnits: false, hasMissingTargets: false,
+  })
+  assert.deepEqual(drawing, before, 'inspection must not change the snapshot')
+})
+
+test('scene geometry reads the selected placement coordinates instead of graph compatibility positions', () => {
+  const geometry = sceneGeometry(geometryDrawing(), new Set(['s4']))
+  assert.deepEqual(geometry.bounds, { left: 100, top: 200, right: 110, bottom: 220 })
+  assert.deepEqual(geometry.objects, ['s4'])
+})
+
+test('scene transforms use explicit scene-only scope and the current geometry center', () => {
+  const drawing = geometryDrawing()
+  const selected = new Set(['s3', 's1', 's2'])
+  assert.deepEqual(sceneGeometryCommands(drawing, selected, { kind: 'transform', transform: { type: 'rotate', degrees: 90 } }), [{
+    op: 'transform_selection', selection: { objects: ['s3'], atoms: [], bonds: [] },
+    pivot: { x: 15, y: 10 }, transform: { type: 'rotate', degrees: 90 },
+  }])
+  const latest = geometryDrawing()
+  latest.scene.instances[1].positions = [{ atom: 'a1', x: 200, y: 400 }, { atom: 'a2', x: 210, y: 420 }]
+  assert.deepEqual(sceneGeometryCommands(latest, new Set(['s4']), { kind: 'transform', transform: { type: 'reflect_vertical' } }), [{
+    op: 'transform_selection', selection: { objects: ['s4'], atoms: [], bonds: [] },
+    pivot: { x: 205, y: 410 }, transform: { type: 'reflect_vertical' },
+  }], 'a queued press must use the geometry when that press is executed')
+})
+
+test('scene arrangement counts outermost units and emits the chosen alignment and distribution', () => {
+  const drawing = geometryDrawing()
+  assert.equal(sceneGeometryCommands(drawing, new Set(['s3', 's1']), { kind: 'arrange', mode: 'align_left' }), null)
+  assert.deepEqual(sceneGeometryCommands(drawing, new Set(['s3', 's5']), { kind: 'arrange', mode: 'align_bottom' }), [
+    { op: 'arrange_objects', objects: ['s3', 's5'], mode: 'align_bottom' },
+  ])
+  assert.equal(sceneGeometryCommands(drawing, new Set(['s3', 's5']), { kind: 'arrange', mode: 'distribute_horizontal' }), null)
+  assert.deepEqual(sceneGeometryCommands(drawing, new Set(['s3', 's4', 's5']), { kind: 'arrange', mode: 'distribute_vertical' }), [
+    { op: 'arrange_objects', objects: ['s3', 's4', 's5'], mode: 'distribute_vertical' },
+  ])
+})
+
+test('scene controls refuse mixed graph targets, empty geometry and targets removed before execution', () => {
+  const drawing = geometryDrawing()
+  const transform = { kind: 'transform', transform: { type: 'rotate', degrees: -90 } }
+  assert.equal(sceneGeometry(drawing, new Set(['s3', 'a1'])).hasGraphTargets, true)
+  assert.equal(sceneGeometry(drawing, new Set(['s3', 'b1'])).hasGraphTargets, true)
+  assert.equal(sceneGeometryCommands(drawing, new Set(['s3', 'a1']), transform), null)
+  assert.equal(sceneGeometryCommands(drawing, new Set(['s3', 'b1']), transform), null)
+  assert.equal(sceneGeometryCommands(drawing, new Set(['s999']), transform), null)
+  assert.equal(sceneGeometryCommands(drawing, new Set(['s3', 's999']), transform), null, 'do not silently apply a captured press to only the targets that survived')
+  assert.equal(sceneGeometryCommands(drawing, new Set(), transform), null)
+  assert.deepEqual(sceneGeometry(drawing, new Set(['s6'])), {
+    objects: ['s6'], bounds: null, hasGraphTargets: false, hasEmptyUnits: true, hasMissingTargets: false,
+  })
+  assert.equal(sceneGeometryCommands(drawing, new Set(['s6']), transform), null)
+  assert.equal(sceneGeometryCommands(drawing, new Set(['s3', 's6']), { kind: 'arrange', mode: 'align_left' }), null)
+})
+
+test('geometry command applicability checks selected objects, graph endpoints and an explicit placement', () => {
+  const drawing = geometryDrawing()
+  const transform = { op: 'transform_selection', selection: { objects: ['s3'], atoms: [], bonds: [] }, pivot: { x: 15, y: 10 }, transform: { type: 'rotate', degrees: 90 } }
+  const arrange = { op: 'arrange_objects', objects: ['s3', 's5'], mode: 'align_left' }
+  const move = { op: 'move_selection', selection: { objects: ['s5'], atoms: ['a1'], bonds: ['b1'] }, instance: 's4', delta: { x: 2, y: 3 } }
+  assert.deepEqual(stillApplicable([transform, arrange, move], drawing), [transform, arrange, move])
+  assert.equal(stillApplicable([{ ...transform, selection: { objects: ['s999'], atoms: [], bonds: [] } }], drawing), null)
+  assert.equal(stillApplicable([{ ...arrange, objects: ['s3', 's999'] }], drawing), null)
+  assert.equal(stillApplicable([{ ...move, instance: 's999' }], drawing), null)
+  assert.equal(stillApplicable([{ ...move, selection: { objects: [], atoms: ['a999'], bonds: [] } }], drawing), null)
+  assert.equal(stillApplicable([{ ...move, selection: { objects: [], atoms: [], bonds: ['b999'] } }], drawing), null)
+})
