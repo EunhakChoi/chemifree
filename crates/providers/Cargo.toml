@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 chemifree-domain.workspace = true
+chemifree-inchi-native.workspace = true
 chemifree-application.workspace = true
 getrandom.workspace = true
 roxmltree = "0.21.1"

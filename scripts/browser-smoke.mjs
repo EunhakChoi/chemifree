@@ -1687,7 +1687,7 @@ step = 'after trash_and_restore'
 // The capabilities card shows per-operation support from the operation catalog, with
 // representation apart from execution; the layout checks below run with it open.
 const operations = page.locator('#capabilities')
-await operations.getByTestId('operation-summary').filter({ hasText: '18 of 27 operations run' }).waitFor()
+await operations.getByTestId('operation-summary').filter({ hasText: '18 of 28 operations run' }).waitFor()
 await operations.getByRole('button', { name: 'Operations' }).click()
 const operationRow = (id) => operations.locator(`[data-operation="${id}"]`)
 await operationRow('document.transaction').getByText('Runs', { exact: true }).waitFor()
@@ -3328,6 +3328,13 @@ step = 'after short_wide_bond_is_selectable'
   await source.fill('CC')
   await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
   await panel.getByTestId('smiles-preview-summary').waitFor()
+  // The successful import above schedules a recovery draft. Let that request finish
+  // before deliberately killing the service so its unrelated response is not cut off.
+  const metalRevision = (await api(`/api/v1/documents/${metalId}`)).document.revision
+  await page.waitForFunction(
+    (revision) => document.querySelector('[data-testid="draft-state"]')?.textContent?.includes(`(revision ${revision})`),
+    metalRevision,
+  )
   await crashApi()
   await panel.getByRole('button', { name: 'Import SMILES' }).click()
   await panel.getByRole('alert').getByText(/The local service restarted/).waitFor()

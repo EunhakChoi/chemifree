@@ -1,5 +1,6 @@
 //! Infrastructure implementations of application-owned ports.
-//! No chemistry engines are included. User documents and preferences are local JSON files;
+//! The optional native InChI adapter requires an explicit checked library registration.
+//! User documents and preferences are local JSON files;
 //! explicitly selected external data is checked through an application-owned registry.
 
 pub mod cdx;
@@ -8,6 +9,7 @@ mod ctfile;
 mod data_directory;
 mod file_format;
 mod file_store;
+mod inchi;
 pub mod interchange_codec;
 mod opaque_policy;
 mod preference_store;
@@ -21,6 +23,7 @@ pub use data_directory::{
     DirectoryDataSource, configure_selected_registry, load_selected_registry,
 };
 pub use file_store::{FileDocumentRepository, MAX_DOCUMENT_BYTES, default_data_dir};
+pub use inchi::{InchiRegistration, RegisteredInchiProvider};
 pub use preference_store::FilePreferenceStore;
 pub use smiles::{MAX_BRANCH_DEPTH, MAX_INPUT_BYTES, MAX_RING_LABEL, OpenSmilesCodec};
 

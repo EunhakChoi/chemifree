@@ -3,6 +3,7 @@ members = [
     "apps/api",
     "apps/cli",
     "crates/domain",
+    "crates/inchi-native",
     "crates/numerics",
     "crates/application",
     "crates/providers",
@@ -19,6 +20,7 @@ repository = "https://github.com/EunhakChoi/chemifree"
 
 [workspace.dependencies]
 chemifree-domain = { path = "crates/domain" }
+chemifree-inchi-native = { path = "crates/inchi-native" }
 chemifree-numerics = { path = "crates/numerics" }
 chemifree-application = { path = "crates/application" }
 chemifree-providers = { path = "crates/providers" }

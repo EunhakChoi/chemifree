@@ -15,6 +15,7 @@
 
 mod cip;
 mod import;
+mod inchi;
 mod interchange;
 mod smiles;
 mod stereo;
@@ -55,6 +56,8 @@ pub use cip::{
     AtomLabel, BondLabel, CipResult, EndLabel, Priority, REASONS as CIP_REASONS, reason_sentence,
 };
 use import::{ImportFormat, ImportRequest, Staged};
+use inchi::InchiParameters;
+pub use inchi::InchiResult;
 use smiles::{SmilesExportParameters, SmilesImportParameters};
 use stereo::StereoParameters;
 pub use stereo::{
@@ -234,6 +237,8 @@ pub enum OperationResult {
     Stereo(Box<StereoResult>),
     /// `chem.cip`: CIP descriptors of the stored configurations, per center and double bond.
     Cip(Box<CipResult>),
+    /// `chem.inchi`: Standard identifiers from an explicitly configured optional provider.
+    Inchi(Box<InchiResult>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -868,6 +873,17 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             runs(
                 id, "", // the note is built from the active labeler: `cip::catalog_note`
             ),
+            &[],
+        ),
+        Op::ChemInchi => (
+            Entry {
+                representation: Representation::Supported,
+                ..missing(
+                    id,
+                    "P30",
+                    "The optional native InChI provider is unavailable. This read-only operation requires an explicitly configured provider and returns no identifier without one.",
+                )
+            },
             &[],
         ),
         Op::ChemProperties => (
@@ -1711,6 +1727,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     /// codecs connected to this application. The catalog reports it and the dispatcher runs
     /// exactly what it marks executable.
     fn row(&self, operation: OperationId) -> Row<'_> {
+        if operation == OperationId::ChemInchi && self.inchi_provider.is_some() {
+            return Row {
+                entry: runs(
+                    "chem.inchi",
+                    "Read-only bounded Standard InChI/InChIKey generation with checked provider version, build, effective options, exact snapshot, explicit losses and consent. Unsupported chemistry and AND/OR groups are refused. Stored configurations are used; drawn marks are not substituted.",
+                ),
+                parts: &[],
+                note: None,
+            };
+        }
         if let Some(text) = &self.format_text {
             let note = match operation {
                 OperationId::DocumentImport => Some(text.import_note.as_str()),
@@ -1895,6 +1921,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     } else {
                         row.entry.view(row.note, row.parts)
                     };
+                    if operation == OperationId::ChemInchi {
+                        if let Some(provider) = &self.inchi_provider {
+                            let identity = provider.identity();
+                            support.note = format!("{} Registered provider: {}; version: {}; build: {}; effective options: {:?}. {}", support.note, identity.name, identity.version, identity.build, identity.options, crate::inchi::STANDARD_SEMANTICS).into();
+                        } else if let Some(error) = &self.inchi_provider_error {
+                            support.note = format!("{} Registration failure {}: {}", support.note, error.code, error.message).into();
+                        }
+                    }
                     if operation == OperationId::ChemProperties {
                         for part in &mut support.sub_operations {
                             let available = match part.id {
@@ -2209,7 +2243,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 details,
             ));
         }
-        if self.row(known.operation).entry.execution != Execution::Executable {
+        if known.operation != Op::ChemInchi
+            && self.row(known.operation).entry.execution != Execution::Executable
+        {
             return known.not_running();
         }
         let request_id = Some(known.request_id.as_str());
@@ -2381,6 +2417,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Op::ChemStereo => match parameters::<StereoParameters>(parameters_value) {
                 Ok(p) => self.stereo(known, p),
                 Err(invalid) => known.invalid(invalid),
+            },
+            Op::ChemInchi => match parameters::<InchiParameters>(parameters_value) {
+                Ok(parameters) => self.generate_inchi(known, parameters),
+                Err(error) => known.invalid(error),
             },
             Op::ChemCip => match parameters::<CipParameters>(parameters_value) {
                 Ok(p) => self.cip(known, p, cancel),

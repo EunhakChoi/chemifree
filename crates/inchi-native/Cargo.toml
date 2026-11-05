@@ -1,0 +1,26 @@
+[package]
+name = "chemifree-inchi-native"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+chemifree-domain.workspace = true
+sha2.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1.5", features = ["fs"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+# Unsafe is confined to the audited SDK/loader boundary in platform.rs. Other crates
+# retain the workspace's unsafe_code=forbid policy.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
