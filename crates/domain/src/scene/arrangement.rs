@@ -310,6 +310,36 @@ fn center_displacement(low: f64, high: f64, source: f64, target: f64) -> f64 {
     }
 }
 
+fn check_center_stability(units: &[ArrangementUnit], axis: DistributionAxis) -> Result<(), EditError> {
+    let mut ranges = Vec::with_capacity(units.len());
+    let mut union_low = f64::INFINITY;
+    let mut union_high = f64::NEG_INFINITY;
+    for unit in units {
+        // Coordinate rounding is monotone, so transformed extrema bound exactly
+        // the same geometry as transforming every atom/graphic point in the unit.
+        let first = unit.translated(Point::new(unit.bounds.left, unit.bounds.top)?)?;
+        let last = unit.translated(Point::new(unit.bounds.right, unit.bounds.bottom)?)?;
+        let (low, high) = match axis {
+            DistributionAxis::Horizontal => (first.x(), last.x()),
+            DistributionAxis::Vertical => (first.y(), last.y()),
+        };
+        union_low = union_low.min(low);
+        union_high = union_high.max(high);
+        ranges.push((low, high));
+    }
+    let target = center(union_low, union_high).value;
+    for (low, high) in ranges {
+        let source = center(low, high).value;
+        if center_displacement(low, high, source, target) != 0.0 {
+            // A rounding-induced union shift would make an identical second edit
+            // change geometry again. Refuse before applying anything; do not hide
+            // repeated materializations or claim a converged center alignment.
+            return Err(EditError::ArrangementCenterUnstable);
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn plan(
     mut units: Vec<ArrangementUnit>,
     arrangement: ObjectArrangement,
@@ -391,6 +421,15 @@ pub(crate) fn plan(
                     ),
                 };
                 unit.set_translation(axis, source, target, delta);
+            }
+            match mode {
+                AlignMode::HorizontalCenter => {
+                    check_center_stability(&units, DistributionAxis::Horizontal)?;
+                }
+                AlignMode::VerticalCenter => {
+                    check_center_stability(&units, DistributionAxis::Vertical)?;
+                }
+                _ => {}
             }
         }
         ObjectArrangement::Distribute(axis) => {
