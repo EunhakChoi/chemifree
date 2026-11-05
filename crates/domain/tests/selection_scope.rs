@@ -97,7 +97,9 @@ fn drawing() -> Document {
     document
 }
 
-fn geometry(document: &Document) -> (Vec<(PositionKey, Point)>, Vec<(ObjectId, Graphic)>) {
+type GeometrySnapshot = (Vec<(PositionKey, Point)>, Vec<(ObjectId, Graphic)>);
+
+fn geometry(document: &Document) -> GeometrySnapshot {
     let mut positions = Vec::new();
     let mut graphics = Vec::new();
     for instance in document.instances() {
