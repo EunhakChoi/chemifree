@@ -60,7 +60,7 @@ The records below combine GitHub review timelines with independent local-review 
 
 ## Traceability and delivery boundary
 
-OPS-01.scene-controls, OPS-01.canvas-selection and OPS-01.mixed-selection-transform are implemented with valid check:test:client evidence, supported by the actual browser run recorded above. There are 104 portions: 57 implemented, 12 partial, 2 unverified and 33 not implemented. Broader OPS-01/OPS-02 remain partial; catch-all followups no longer assign work outside the bounded scope to completed P32.
+OPS-01.scene-controls, OPS-01.canvas-selection and OPS-01.mixed-selection-transform are implemented with valid check:test:client evidence, supported by the actual browser run recorded above. At P32 completion there were 104 portions: 57 implemented, 12 partial, 2 unverified and 33 not implemented; later feature slices update the current aggregate in HANDOFF and TRACEABILITY. Broader OPS-01/OPS-02 remain partial; catch-all followups no longer assign work outside the bounded scope to completed P32.
 
 README, HANDOFF, TRACEABILITY, requirement evidence and roadmap JSON/embedded HTML record this bounded implementation completion. The implementation merge and main CI are confirmed; the completion documentation PR itself still needs review and CI. No scientific completeness, full rendering equivalence or support for the excluded controls is claimed.
 

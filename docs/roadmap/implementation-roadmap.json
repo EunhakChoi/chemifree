@@ -1342,7 +1342,7 @@
    "acceptance": "문서 간 paste 후 원본은 유지되고 undo 시 상태가 복원된다. 브라우저 권한 실패와 표현 손실을 표시하며 Windows OLE는 별도 PR로 둔다.",
    "kind": "core",
    "id": "P33",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1353,7 +1353,8 @@
     "P22",
     "P20",
     "P21"
-   ]
+   ],
+   "note": "P33a는 shared Application의 document.clipboard_copy/paste로 제한된 native graph 복사/붙여넣기 backend를 구현한다. 명시 source instance의 선택 원자·결합 끝점과 induced 내부 결합을 복사하며 crossing bond를 보고한다. 상태·mark·self-contained 0D stereo는 보존하고 scene 선택·enhanced group 멤버·입체 경계는 거절한다. 엄격한 format/version header 뒤 version1 data-only JSON(64 KiB)을 검증하며 명령 import는 없다. 목적지는 한 배치·동일 settings만 받고 fresh ID mapping·전체 원자성·선택·Undo/Redo·replay를 유지한다. p33a-final-targeted.log의 domain10/10·native_clipboard10/10·operations11/11와 scoped clippy는 통과했으며 전체 check/browser/CI 완료가 아니다. clean isolated suite29는 107/107 passed(accept78·reject29, failed0·not_run0)이며 native clipboard accept/reject 두 사례도 통과해 OPS-01.native-clipboard의 case 근거에 연결했다. 기록은 docs/verification/conformance-report.json이며 전체 check/browser/CI 완료를 뜻하지 않는다. OS/browser clipboard·웹 UI·cut·scene/group/reference clone·외부 화학 clipboard 형식은 후속이며 P33은 in_progress다."
   },
   {
    "phase": "editor",

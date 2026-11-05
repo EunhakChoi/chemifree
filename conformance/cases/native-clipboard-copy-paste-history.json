@@ -1,0 +1,710 @@
+{
+  "id": "native-clipboard-copy-paste-history",
+  "title": "Copy an induced native graph from a secondary placement and paste fresh IDs atomically through history, replay and reopen",
+  "requirements": [
+    "OPS-01",
+    "OPS-02",
+    "MODEL-01",
+    "API-01"
+  ],
+  "axis": "graph",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "source",
+      "title": "Clipboard source"
+    },
+    {
+      "call": "transact",
+      "document": "source",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "O",
+          "position": {
+            "x": 10,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$0",
+            "order": "single"
+          }
+        },
+        {
+          "op": "add_atom",
+          "element": "N",
+          "position": {
+            "x": 20,
+            "y": 0
+          },
+          "bond_to": {
+            "atom": "$1",
+            "order": "single"
+          }
+        },
+        {
+          "op": "update_atom",
+          "atom": "a1",
+          "isotope": 13
+        },
+        {
+          "op": "set_bond_mark",
+          "bond": "b1",
+          "mark": {
+            "kind": "wedge",
+            "narrow": "begin"
+          }
+        },
+        {
+          "op": "add_instance",
+          "source": "s1",
+          "offset": {
+            "x": 100,
+            "y": 200
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "isotope": 13
+            },
+            {
+              "id": "a2",
+              "element": "O",
+              "position": {
+                "x": 10,
+                "y": 0
+              }
+            },
+            {
+              "id": "a3",
+              "element": "N",
+              "position": {
+                "x": 20,
+                "y": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "source",
+      "request": {
+        "contract": 1,
+        "request_id": "copy-secondary",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_copy",
+        "parameters": {
+          "selection": {
+            "atoms": [
+              "a1"
+            ],
+            "bonds": [
+              "b1"
+            ]
+          },
+          "instance": "s2"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "loss_report": [],
+        "result": {
+          "instance": "s2",
+          "copied": {
+            "objects": [],
+            "atoms": [
+              "a1",
+              "a2"
+            ],
+            "bonds": [
+              "b1"
+            ]
+          },
+          "boundary_bonds": [
+            "b2"
+          ],
+          "snapshot": {
+            "document": {
+              "revision": 1,
+              "atoms": [
+                {
+                  "id": "a1",
+                  "element": "C",
+                  "position": {
+                    "x": 0,
+                    "y": 0
+                  },
+                  "isotope": 13
+                },
+                {
+                  "id": "a2",
+                  "element": "O",
+                  "position": {
+                    "x": 10,
+                    "y": 0
+                  }
+                },
+                {
+                  "id": "a3",
+                  "element": "N",
+                  "position": {
+                    "x": 20,
+                    "y": 0
+                  }
+                }
+              ]
+            },
+            "session": {
+              "undo_depth": 1
+            }
+          }
+        }
+      },
+      "capture": {
+        "native": "/result/payload"
+      }
+    },
+    {
+      "call": "get",
+      "document": "source",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "isotope": 13
+            },
+            {
+              "id": "a2",
+              "element": "O",
+              "position": {
+                "x": 10,
+                "y": 0
+              }
+            },
+            {
+              "id": "a3",
+              "element": "N",
+              "position": {
+                "x": 20,
+                "y": 0
+              }
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "create",
+      "bind": "target",
+      "title": "Clipboard destination"
+    },
+    {
+      "call": "transact",
+      "document": "target",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "He",
+          "position": {
+            "x": -50,
+            "y": -50
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "paste-once",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_paste",
+        "parameters": {
+          "expected_revision": 1,
+          "payload": "",
+          "offset": {
+            "x": 20,
+            "y": 30
+          },
+          "selection_before": {
+            "objects": [],
+            "atoms": [
+              "a1"
+            ],
+            "bonds": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 2,
+        "loss_report": [],
+        "result": {
+          "mapping": {
+            "atoms": [
+              {
+                "source": "a1",
+                "target": "a2"
+              },
+              {
+                "source": "a2",
+                "target": "a3"
+              }
+            ],
+            "bonds": [
+              {
+                "source": "b1",
+                "target": "b1"
+              }
+            ]
+          },
+          "snapshot": {
+            "notes": [],
+            "document": {
+              "revision": 2,
+              "atoms": [
+                {
+                  "id": "a1",
+                  "element": "He",
+                  "position": {
+                    "x": -50,
+                    "y": -50
+                  }
+                },
+                {
+                  "id": "a2",
+                  "element": "C",
+                  "position": {
+                    "x": 120,
+                    "y": 230
+                  },
+                  "isotope": 13
+                },
+                {
+                  "id": "a3",
+                  "element": "O",
+                  "position": {
+                    "x": 130,
+                    "y": 230
+                  }
+                }
+              ],
+              "bonds": [
+                {
+                  "id": "b1",
+                  "begin": "a2",
+                  "end": "a3",
+                  "order": "single",
+                  "mark": {
+                    "kind": "wedge",
+                    "narrow": "begin"
+                  }
+                }
+              ],
+              "selection": {
+                "objects": [],
+                "atoms": [
+                  "a2",
+                  "a3"
+                ],
+                "bonds": [
+                  "b1"
+                ]
+              }
+            },
+            "session": {
+              "undo_depth": 2,
+              "redo_depth": 0
+            }
+          }
+        }
+      },
+      "substitute": {
+        "/parameters/payload": "native"
+      }
+    },
+    {
+      "call": "undo",
+      "document": "target",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "He",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            }
+          ],
+          "bonds": [],
+          "selection": {
+            "objects": [],
+            "atoms": [
+              "a1"
+            ],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "target",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "revision": 4,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "He",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            },
+            {
+              "id": "a2",
+              "element": "C",
+              "position": {
+                "x": 120,
+                "y": 230
+              },
+              "isotope": 13
+            },
+            {
+              "id": "a3",
+              "element": "O",
+              "position": {
+                "x": 130,
+                "y": 230
+              }
+            }
+          ],
+          "selection": {
+            "objects": [],
+            "atoms": [
+              "a2",
+              "a3"
+            ],
+            "bonds": [
+              "b1"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "paste-once",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_paste",
+        "parameters": {
+          "expected_revision": 1,
+          "payload": "",
+          "offset": {
+            "x": 20,
+            "y": 30
+          },
+          "selection_before": {
+            "objects": [],
+            "atoms": [
+              "a1"
+            ],
+            "bonds": []
+          }
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 2,
+        "loss_report": [],
+        "result": {
+          "mapping": {
+            "atoms": [
+              {
+                "source": "a1",
+                "target": "a2"
+              },
+              {
+                "source": "a2",
+                "target": "a3"
+              }
+            ],
+            "bonds": [
+              {
+                "source": "b1",
+                "target": "b1"
+              }
+            ]
+          },
+          "snapshot": {
+            "notes": [],
+            "document": {
+              "revision": 2,
+              "atoms": [
+                {
+                  "id": "a1",
+                  "element": "He",
+                  "position": {
+                    "x": -50,
+                    "y": -50
+                  }
+                },
+                {
+                  "id": "a2",
+                  "element": "C",
+                  "position": {
+                    "x": 120,
+                    "y": 230
+                  },
+                  "isotope": 13
+                },
+                {
+                  "id": "a3",
+                  "element": "O",
+                  "position": {
+                    "x": 130,
+                    "y": 230
+                  }
+                }
+              ],
+              "bonds": [
+                {
+                  "id": "b1",
+                  "begin": "a2",
+                  "end": "a3",
+                  "order": "single",
+                  "mark": {
+                    "kind": "wedge",
+                    "narrow": "begin"
+                  }
+                }
+              ],
+              "selection": {
+                "objects": [],
+                "atoms": [
+                  "a2",
+                  "a3"
+                ],
+                "bonds": [
+                  "b1"
+                ]
+              }
+            },
+            "session": {
+              "undo_depth": 2,
+              "redo_depth": 0
+            }
+          }
+        }
+      },
+      "substitute": {
+        "/parameters/payload": "native"
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 4,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "He",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            },
+            {
+              "id": "a2",
+              "element": "C",
+              "position": {
+                "x": 120,
+                "y": 230
+              },
+              "isotope": 13
+            },
+            {
+              "id": "a3",
+              "element": "O",
+              "position": {
+                "x": 130,
+                "y": 230
+              }
+            }
+          ],
+          "selection": {
+            "objects": [],
+            "atoms": [
+              "a2",
+              "a3"
+            ],
+            "bonds": [
+              "b1"
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 2
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "target",
+      "expected_revision": 4,
+      "expect": {
+        "document": {
+          "revision": 4
+        }
+      }
+    },
+    {
+      "call": "close",
+      "document": "target",
+      "expect": {
+        "discarded_changes": false
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 4,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "He",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            },
+            {
+              "id": "a2",
+              "element": "C",
+              "position": {
+                "x": 120,
+                "y": 230
+              },
+              "isotope": 13
+            },
+            {
+              "id": "a3",
+              "element": "O",
+              "position": {
+                "x": 130,
+                "y": 230
+              }
+            }
+          ],
+          "selection": {
+            "objects": [],
+            "atoms": [
+              "a2",
+              "a3"
+            ],
+            "bonds": [
+              "b1"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "source",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "isotope": 13
+            },
+            {
+              "id": "a2",
+              "element": "O",
+              "position": {
+                "x": 10,
+                "y": 0
+              }
+            },
+            {
+              "id": "a3",
+              "element": "N",
+              "position": {
+                "x": 20,
+                "y": 0
+              }
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    }
+  ]
+}

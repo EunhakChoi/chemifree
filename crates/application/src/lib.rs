@@ -3,6 +3,7 @@
 mod active_data;
 mod active_registry;
 pub mod cip;
+mod clipboard;
 mod contract;
 mod ct_projection;
 pub mod ctfile;
@@ -107,12 +108,13 @@ pub use documents::{
 };
 pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
-pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
+pub use error::{ApplicationError, ClipboardRefusal, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
     AromaticityResult, AromaticitySystem, ArrangementAxis, ArrangementBounds,
     ArrangementPlanResult, ArrangementTranslationView, ArrangementUnitView, AtomDrawnView,
     AtomInspection, AtomLabel, AtomPair, BondDrawnView, BondInspection, BondLabel, BondPair,
-    CIP_REASONS, CipResult, ClosedResult, Diagnostic, DocumentResult, EffectiveSelectionScope,
+    CIP_REASONS, CipResult, ClipboardCopyResult, ClipboardIdMapping, ClipboardMapping,
+    ClipboardPasteResult, ClosedResult, Diagnostic, DocumentResult, EffectiveSelectionScope,
     EndLabel, Envelope, FoldedHydrogen, IdentityComparison, IdentityResult, IdentityStereo,
     IdentityView, InchiResult, InterchangeExportResult, InterchangeMapping,
     InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent, LossDisposition,

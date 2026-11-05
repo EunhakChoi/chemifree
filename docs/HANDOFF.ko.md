@@ -45,6 +45,16 @@
 - 네 quarter-turn/축 반사 버튼은 captured Scene/atom/bond union과 graph 대상의 active placement를 잡는다. 큐의 최신 snapshot에서 전체 재검증·중복 제거 후 atom/graphic geometry 경계 중심을 explicit pivot으로 보낸다. 문서 전환·대상/배치 소실·기하 없음은 전체 lapse하고 live 선택/배치 변경으로 요청을 바꾸지 않는다. 반복 유효 누름은 최신 기하에 합성된다.
 - 현재 카탈로그는 연산31(기본 실행21), transaction46(명령35·capability11), scene_tree11개다. conformance105개(accept77·reject28)는 P32a/b/c 전용6개를 포함한다. 세 웹 부분은 실제 client/browser 실행 근거로 implemented이며 전체 P32의 bounded 납품은 위 완료 기록을 따른다.
 
+## P33a 제한된 backend native graph copy/paste 진행 인계
+
+- `document.clipboard_copy`와 `document.clipboard_paste`를 공통 Application 경계에 연결했다. copy는 scene object 선택을 거절하고 원자 선택·선택 결합 끝점과 그 원자 사이의 induced 내부 결합을 담으며 crossing 결합 ID를 별도 보고한다. source instance는 하나뿐이어도 명시해야 하고 copy는 읽기 전용이다.
+- payload는 `format: "chemifree.clipboard"`, `version: 1`의 data-only JSON 문자열이다. UTF-8 64 KiB, projected command 500개와 기존 domain 한도를 적용하며 미상 필드·중복 JSON 키·ID·끊긴 참조·부정합 상태를 거절한다. nullable isotope/query/mark도 키는 필수이며 null 값도 생략하지 않고 명시한다. 임의 명령을 실행하는 형식이 아니다.
+- 기록된 원자/결합 상태·mark와 완전한 저장 0D 입체는 보존한다. 이웃이 빠진 저장 입체와 선택 원자가 속한 enhanced stereo group은 전체 거절한다. paste는 단일 destination placement와 source/destination settings의 정확한 일치를 요구하고 명시한 offset을 적용하며 fresh atom/bond ID mapping을 돌려준다. 붙인 대상을 selection_after로 둔 한 원자적 transaction으로 Undo/Redo·revision·request replay 규칙을 따른다.
+- 카탈로그는 연산 33개(기본 실행 23개)다. `p33a-final-targeted.log`에 기록된 제한 실행은 domain `native_fragment` 10/10, application `native_clipboard` 10/10, `operations` 11/11과 scoped clippy 통과다. 격리 sandbox exit 0, peak real(anon) 1,244 MiB, cap 6,144 MiB·swap 0으로 끝났다. 이 결과는 전체 check·브라우저·CI나 새 conformance 실행 근거가 아니다.
+- P33은 `in_progress`다. OS/browser clipboard transport·웹 copy/paste 제어·cut·scene hierarchy 복사·외부 clipboard 형식은 미구현이며, 이번 backend 부분을 전체 clipboard 완료로 보고하지 않는다. 상세 wire·거절·범위는 CONTRACT.md의 Native graph-fragment copy and paste 절을 따른다.
+
+- clean isolated suite29 실제 실행은 107/107 passed(accept 78·reject 29, failed 0·not_run 0)이며 `native-clipboard-copy-paste-history`와 `native-clipboard-refusals-atomic` 두 사례도 통과했다. [실행 기록](verification/conformance-report.json)을 갱신했고 OPS-01.native-clipboard의 case 근거에 연결한다. 이 결과는 전체 check·브라우저·CI 완료나 P33 전체 완료를 뜻하지 않는다.
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.
@@ -212,7 +222,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 104개(implemented 57, partial 12, unverified 2, not_implemented 33) · conformance 사례 105개(passed 105: accept 77·reject 28, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 105개(implemented 58, partial 12, unverified 2, not_implemented 33) · conformance 사례 107개(passed 107: accept 78·reject 29, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

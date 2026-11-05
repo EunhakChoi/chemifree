@@ -1,0 +1,460 @@
+{
+  "id": "native-clipboard-refusals-atomic",
+  "title": "Native clipboard command injection, future versions, overflow, multiple placements and style mismatch cannot change existing content or redo",
+  "requirements": [
+    "OPS-01",
+    "OPS-02",
+    "API-01"
+  ],
+  "axis": "graph",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "source"
+    },
+    {
+      "call": "transact",
+      "document": "source",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "source",
+      "request": {
+        "contract": 1,
+        "request_id": "copy-one",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_copy",
+        "parameters": {
+          "selection": {
+            "atoms": [
+              "a1"
+            ]
+          },
+          "instance": "s1"
+        }
+      },
+      "expect": {
+        "outcome": "ok"
+      },
+      "capture": {
+        "native": "/result/payload"
+      }
+    },
+    {
+      "call": "create",
+      "bind": "target",
+      "title": "Clipboard unchanged"
+    },
+    {
+      "call": "transact",
+      "document": "target",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "target",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Temporary"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "target",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Clipboard unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": []
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "reject-command",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_paste",
+        "parameters": {
+          "expected_revision": 3,
+          "payload": "{\"format\":\"chemifree.clipboard\",\"version\":1,\"settings\":{\"bond_length_pt\":30.0,\"line_width_pt\":1.2,\"label_font\":\"sans-serif\",\"label_size_pt\":12.0,\"carbon_labels\":\"default\",\"display_unit\":\"pt\"},\"atoms\":[{\"id\":\"a1\",\"kind\":{\"type\":\"element\",\"symbol\":\"C\"},\"charge\":0,\"isotope\":null,\"hydrogens\":{\"mode\":\"inferred\"},\"radical\":\"none\",\"attachment_points\":[],\"position\":{\"x\":0,\"y\":0}}],\"bonds\":[],\"stereo\":[],\"commands\":[{\"op\":\"rename\",\"title\":\"Injected\"}]}",
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_fragment_invalid"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Clipboard unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": []
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "reject-version",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_paste",
+        "parameters": {
+          "expected_revision": 3,
+          "payload": "{\"format\": \"chemifree.clipboard\", \"version\": 2, \"future\": true}",
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_format_unsupported"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Clipboard unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": []
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "reject-overflow",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_paste",
+        "parameters": {
+          "expected_revision": 3,
+          "payload": "",
+          "offset": {
+            "x": 100001,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_fragment_invalid"
+            }
+          }
+        ]
+      },
+      "substitute": {
+        "/parameters/payload": "native"
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Clipboard unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": []
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "target",
+      "expected_revision": 3,
+      "commands": [
+        {
+          "op": "add_instance",
+          "source": "s1",
+          "offset": {
+            "x": 20,
+            "y": 20
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 4
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "reject-multiple-placements",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_paste",
+        "parameters": {
+          "expected_revision": 4,
+          "payload": "",
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_destination_instances"
+            }
+          }
+        ]
+      },
+      "substitute": {
+        "/parameters/payload": "native"
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 4,
+          "title": "Clipboard unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ]
+        },
+        "session": {
+          "undo_depth": 2,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "target",
+      "expected_revision": 4,
+      "expect": {
+        "document": {
+          "revision": 5
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "target",
+      "expected_revision": 5,
+      "commands": [
+        {
+          "op": "update_settings",
+          "line_width_pt": 2
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 6
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "reject-style-mismatch",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_paste",
+        "parameters": {
+          "expected_revision": 6,
+          "payload": "",
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_style_mismatch"
+            }
+          }
+        ]
+      },
+      "substitute": {
+        "/parameters/payload": "native"
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 6,
+          "title": "Clipboard unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": [],
+          "settings": {
+            "line_width_pt": 2
+          }
+        },
+        "session": {
+          "undo_depth": 2,
+          "redo_depth": 0
+        }
+      }
+    }
+  ]
+}

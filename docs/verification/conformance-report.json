@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 28,
+  "suite_version": 29,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -1423,21 +1423,52 @@
       "pending": null,
       "failure": null,
       "case_sha256": "3a91b79fda80d4106fd4fef84c4d3697115a426b9625499f025f3e27e8b982c1"
+    },
+    {
+      "id": "native-clipboard-copy-paste-history",
+      "title": "Copy an induced native graph from a secondary placement and paste fresh IDs atomically through history, replay and reopen",
+      "requirements": [
+        "OPS-01",
+        "OPS-02",
+        "MODEL-01",
+        "API-01"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "5e09b86509c9efdc49be3a82ab09d0b571a232907d1ddc20497ebda83ec8aff7"
+    },
+    {
+      "id": "native-clipboard-refusals-atomic",
+      "title": "Native clipboard command injection, future versions, overflow, multiple placements and style mismatch cannot change existing content or redo",
+      "requirements": [
+        "OPS-01",
+        "OPS-02",
+        "API-01"
+      ],
+      "axis": "graph",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "88eb5fbfe32b779bd6bf5645728d38e6cd28c41ea35af51a861bbd3a45a28f07"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 77,
+      "passed": 78,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 28,
+      "passed": 29,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 105,
+      "passed": 107,
       "failed": 0,
       "not_run": 0
     }

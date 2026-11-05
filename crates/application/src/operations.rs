@@ -15,6 +15,7 @@
 
 mod arrangement;
 mod cip;
+mod clipboard;
 mod import;
 mod inchi;
 mod interchange;
@@ -63,6 +64,10 @@ use cip::CipParameters;
 pub use cip::{
     AtomLabel, BondLabel, CipResult, EndLabel, Priority, REASONS as CIP_REASONS, reason_sentence,
 };
+pub use clipboard::{
+    ClipboardCopyResult, ClipboardIdMapping, ClipboardMapping, ClipboardPasteResult,
+};
+use clipboard::{CopyParameters, PasteParameters};
 use import::{ImportFormat, ImportRequest, Staged};
 use inchi::InchiParameters;
 pub use inchi::InchiResult;
@@ -232,6 +237,8 @@ pub enum OperationResult {
     ArrangementPlan(Box<ArrangementPlanResult>),
     /// `document.transform_plan`: checked geometry-only rotation/reflection at an exact snapshot.
     TransformPlan(Box<TransformPlanResult>),
+    ClipboardCopy(Box<ClipboardCopyResult>),
+    ClipboardPaste(Box<ClipboardPasteResult>),
     /// `document.close`.
     Closed(ClosedResult),
     InterchangeRead(Box<InterchangeReadResult>),
@@ -844,6 +851,20 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             runs(
                 id,
                 "Read-only checked rotation/reflection geometry for an explicit selected union and pivot. Reports before/after positions/graphics, exact snapshot/scope and an advisory for changed graph geometry; never re-derives or alters stored stereo.",
+            ),
+            &[],
+        ),
+        Op::DocumentClipboardCopy => (
+            runs(
+                id,
+                "Copies a bounded native induced graph fragment from an explicit placement, without editing. Scene objects, enhanced groups and stereo boundary loss are refused.",
+            ),
+            &[],
+        ),
+        Op::DocumentClipboardPaste => (
+            runs(
+                id,
+                "Atomically appends validated native graph data with fresh IDs into a single matching-style placement. No arbitrary command or external-format clipboard import.",
             ),
             &[],
         ),
@@ -2328,6 +2349,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::DocumentTransformPlan => match parameters::<TransformParameters>(parameters_value) {
                 Ok(parameters) => self.resolve_transform_plan(known, parameters),
+                Err(error) => known.invalid(error),
+            },
+            Op::DocumentClipboardCopy => match parameters::<CopyParameters>(parameters_value) {
+                Ok(parameters) => self.resolve_clipboard_copy(known, parameters),
+                Err(error) => known.invalid(error),
+            },
+            Op::DocumentClipboardPaste => match parameters::<PasteParameters>(parameters_value) {
+                Ok(parameters) => self.resolve_clipboard_paste(known, parameters),
                 Err(error) => known.invalid(error),
             },
             Op::ChemValidate => match parameters::<SnapshotParameters>(parameters_value) {

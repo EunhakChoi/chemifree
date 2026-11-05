@@ -1411,7 +1411,7 @@ fn atom_kind(symbol: Option<&str>, query: Option<&QueryDto>) -> Result<Option<At
 }
 
 /// The domain checks the list's size and repeats.
-fn query_atom(query: &QueryDto) -> Result<QueryAtom, String> {
+pub(crate) fn query_atom(query: &QueryDto) -> Result<QueryAtom, String> {
     Ok(match query {
         QueryDto::Any {} => QueryAtom::Any,
         QueryDto::AnyHeavy {} => QueryAtom::AnyHeavy,
@@ -1429,7 +1429,10 @@ fn query_atom(query: &QueryDto) -> Result<QueryAtom, String> {
 
 /// A bond order with its query, which `query` and only `query` carries. The domain checks the
 /// query's list.
-fn bond_order(order: BondOrderDto, query: Option<&BondQueryDto>) -> Result<BondOrder, StateError> {
+pub(crate) fn bond_order(
+    order: BondOrderDto,
+    query: Option<&BondQueryDto>,
+) -> Result<BondOrder, StateError> {
     Ok(match (order, query) {
         (BondOrderDto::Query, Some(BondQueryDto::Any {})) => BondOrder::Query(BondQuery::Any),
         (BondOrderDto::Query, Some(BondQueryDto::List { orders })) => BondOrder::Query(
@@ -1447,7 +1450,7 @@ fn bond_order(order: BondOrderDto, query: Option<&BondQueryDto>) -> Result<BondO
 }
 
 /// The domain checks the stated count's range; this only narrows the wire integer.
-fn to_hydrogens(hydrogens: HydrogensDto) -> Result<Hydrogens, StateError> {
+pub(crate) fn to_hydrogens(hydrogens: HydrogensDto) -> Result<Hydrogens, StateError> {
     Ok(match hydrogens {
         HydrogensDto::Inferred {} => Hydrogens::Inferred,
         HydrogensDto::Unknown {} => Hydrogens::Unknown,
@@ -1457,7 +1460,7 @@ fn to_hydrogens(hydrogens: HydrogensDto) -> Result<Hydrogens, StateError> {
     })
 }
 
-fn attachment_points(values: &[u64]) -> Result<AttachmentPoints, StateError> {
+pub(crate) fn attachment_points(values: &[u64]) -> Result<AttachmentPoints, StateError> {
     let narrowed = values
         .iter()
         .map(|value| u8::try_from(*value))

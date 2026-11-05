@@ -35,7 +35,11 @@ P32a–f의 bounded 선택·기하 납품을 완료했다. 공유 scope/move uni
 
 세 웹 부분은 check:test:client 실행 근거로 implemented로 승격했다. 정렬/분배는 outermost whole-object, marquee는 active-placement atom 중심·graphic 두 점 포함, 명시 graph 대상은 단일 active placement다. 웹 변환은 geometry-center quarter turn/축 반사이며 rectangle은 정확한 quarter turn만 받는다. lasso/교차 선택·여러 배치 raw graph 선택·partial-atom arrangement·custom-angle/pivot 웹 UI·대각선 반사·snapping·cleanup은 범위 밖이다. 전체 OPS-01/OPS-02는 partial을 유지한다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 104개(implemented 57, partial 12, unverified 2, not_implemented 33) · conformance 사례 105개(passed 105: accept 77·reject 28, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+P33a는 backend `document.clipboard_copy`·`document.clipboard_paste`로 제한된 native graph fragment를 연결한다. source instance를 명시하고 선택 원자·결합 끝점의 induced 내부 결합과 crossing 결합 보고를 제공하며 기록 상태·mark·완전한 저장 0D 입체를 보존한다. 빠진 stereo 이웃과 selected enhanced-group member는 거절한다. 단일 destination placement·동일 settings를 요구하고 명시 offset·fresh ID mapping·selection_after를 한 원자적 transaction/replay/Undo·Redo 경계에 둔다. strict data-only `chemifree.clipboard` version 1 payload는 UTF-8 64 KiB·projected command 500개 및 domain 한도 안에서만 받는다. 연산은 33개(기본 실행 23개)이며 P33은 `in_progress`다. OS/browser clipboard·웹 제어·cut·scene hierarchy·외부 clipboard 형식은 미구현이다.
+
+P33a의 `p33a-final-targeted.log`에는 domain `native_fragment` 10/10, application `native_clipboard` 10/10, `operations` 11/11 및 scoped clippy 통과가 기록됐다(sandbox exit 0, peak real(anon) 1,244 MiB, cap 6,144 MiB·swap 0). 이 targeted 실행과 별도로 clean isolated suite29 실제 실행에서 107/107 passed(accept 78·reject 29, failed 0·not_run 0)를 확인했다. `native-clipboard-copy-paste-history`와 `native-clipboard-refusals-atomic` 두 사례도 통과했으며 [커밋된 실행 기록](verification/conformance-report.json)에 따라 OPS-01.native-clipboard의 case 근거로 연결한다. 아래 집계는 이 suite29 기록을 가리킨다. 전체 check·브라우저·CI 완료나 상위 P33 완료를 주장하지 않는다.
+
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 105개(implemented 58, partial 12, unverified 2, not_implemented 33) · conformance 사례 107개(passed 107: accept 78·reject 29, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
