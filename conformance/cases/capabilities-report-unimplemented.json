@@ -44,6 +44,18 @@
               "status": "available"
             }
           ]
+        },
+        "operation_catalog": {
+          "operations": {
+            "$contains": [
+              {
+                "id": "chem.inchi",
+                "representation": "supported",
+                "execution": "not_implemented",
+                "followup": "P30"
+              }
+            ]
+          }
         }
       }
     }

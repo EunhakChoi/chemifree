@@ -400,7 +400,7 @@ fn the_catalog_says_exactly_which_operations_run() {
     let id = created(&app);
     let catalog = serde_json::to_value(app.operation_catalog()).unwrap();
     let operations = catalog["operations"].as_array().unwrap();
-    assert_eq!(operations.len(), 27);
+    assert_eq!(operations.len(), 28);
     let minimal = |operation: &str| match operation {
         "capabilities.inspect" => json!({}),
         "document.create" => json!({}),
@@ -408,7 +408,7 @@ fn the_catalog_says_exactly_which_operations_run() {
         "chem.identity" => json!({"document_id": id, "mode": "recorded"}),
         "chem.substructure" => json!({"query_document_id": id, "target_document_id": id}),
         "document.snapshot" | "document.close" | "chem.validate" | "chem.aromaticity"
-        | "chem.stereo" | "chem.cip" => {
+        | "chem.stereo" | "chem.cip" | "chem.inchi" => {
             json!({"document_id": id})
         }
         "chem.aromaticity_convert" => {
@@ -445,17 +445,23 @@ fn the_catalog_says_exactly_which_operations_run() {
                     Value::Null,
                     "{operation}: no made-up result"
                 );
-                let code = if operation == "prediction.evaluate" {
+                let code = if operation == "chem.inchi" {
+                    "inchi_unavailable"
+                } else if operation == "prediction.evaluate" {
                     "model_unavailable"
                 } else {
                     "operation_not_implemented"
                 };
                 assert_eq!(reply["diagnostics"][0]["code"], code, "{operation}");
-                assert_eq!(
-                    reply["diagnostics"][0]["details"]["followup"], entry["followup"],
-                    "{operation}"
-                );
-                assert_eq!(entry["representation"], "not_supported", "{operation}");
+                if operation == "chem.inchi" {
+                    assert_eq!(entry["representation"], "supported");
+                } else {
+                    assert_eq!(
+                        reply["diagnostics"][0]["details"]["followup"], entry["followup"],
+                        "{operation}"
+                    );
+                    assert_eq!(entry["representation"], "not_supported", "{operation}");
+                }
             }
         }
     }

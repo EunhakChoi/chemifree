@@ -15,6 +15,7 @@ mod draft_schedule;
 mod draft_writer;
 mod error;
 mod format_text;
+pub mod inchi;
 pub mod interchange_codec;
 pub mod interchange_contract;
 mod interchange_export;
@@ -110,13 +111,13 @@ pub use operations::{
     AromaticityResult, AromaticitySystem, AtomDrawnView, AtomInspection, AtomLabel, AtomPair,
     BondDrawnView, BondInspection, BondLabel, BondPair, CIP_REASONS, CipResult, ClosedResult,
     Diagnostic, DocumentResult, EndLabel, Envelope, FoldedHydrogen, IdentityComparison,
-    IdentityResult, IdentityStereo, IdentityView, InterchangeExportResult, InterchangeMapping,
-    InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent, LossDisposition,
-    MATCH_CODES, MAX_ENTRIES, MappingView, MatchCodeRow, OPERATION_CONTRACT, OperationCatalog,
-    OperationResponse, OperationResult, Outcome, Priority, ProfileSupport, SemanticImpact,
-    Severity, SmilesExportResult, SmilesPreviewAtom, SmilesPreviewBond, SmilesPreviewResult,
-    SpanView, StereoResult, SubstructureLimits, SubstructureResult, SubstructureStereo, Support,
-    reason_sentence,
+    IdentityResult, IdentityStereo, IdentityView, InchiResult, InterchangeExportResult,
+    InterchangeMapping, InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent,
+    LossDisposition, MATCH_CODES, MAX_ENTRIES, MappingView, MatchCodeRow, OPERATION_CONTRACT,
+    OperationCatalog, OperationResponse, OperationResult, Outcome, Priority, ProfileSupport,
+    SemanticImpact, Severity, SmilesExportResult, SmilesPreviewAtom, SmilesPreviewBond,
+    SmilesPreviewResult, SpanView, StereoResult, SubstructureLimits, SubstructureResult,
+    SubstructureStereo, Support, reason_sentence,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,
@@ -156,6 +157,8 @@ pub struct Application<C, R> {
     interchange_generation: Option<[u8; 16]>,
     ctfile_codec: Option<Arc<dyn ctfile::CtCodec>>,
     smiles_codec: Option<Arc<dyn smiles::SmilesCodec>>,
+    inchi_provider: Option<Arc<dyn inchi::InchiProvider>>,
+    inchi_provider_error: Option<inchi::InchiError>,
     /// The labeler behind `chem.cip`; the built-in one unless replaced.
     cip_labeler: Arc<dyn cip::CipLabeler>,
     /// A process-local binding for the previews of text imports (MOL/SDF and SMILES). If entropy
@@ -239,6 +242,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 getrandom::fill(&mut generation).ok().map(|()| generation)
             },
             smiles_codec: None,
+            inchi_provider: None,
+            inchi_provider_error: None,
             cip_labeler: Arc::new(cip::BuiltinCip),
             property_data_readiness: properties::DataReadiness::default(),
             compute_limits: ComputeLimits::default(),
@@ -279,6 +284,26 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             ..self
         }
         .with_format_text()
+    }
+
+    /// Connects an explicitly configured Standard InChI provider for every entry adapter.
+    #[must_use]
+    pub fn with_inchi_provider(self, provider: impl inchi::InchiProvider + 'static) -> Self {
+        Self {
+            inchi_provider: Some(Arc::new(provider)),
+            inchi_provider_error: None,
+            ..self
+        }
+    }
+
+    /// Reports a failed optional registration without disabling other application features.
+    #[must_use]
+    pub fn with_inchi_provider_error(self, error: inchi::InchiError) -> Self {
+        Self {
+            inchi_provider: None,
+            inchi_provider_error: Some(error),
+            ..self
+        }
     }
 
     /// Replaces the labeler behind `chem.cip`. The operation always has one (the built-in

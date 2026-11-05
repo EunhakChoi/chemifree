@@ -1189,7 +1189,7 @@
    ],
    "kind": "core",
    "id": "P30",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1199,7 +1199,8 @@
     "P26",
     "P29",
     "P13"
-   ]
+   ],
+   "note": "선택적 Linux 공개 InChI 1.07.5 native provider와 chem.inchi를 연결했다. 버전은 등록값이며 SHA 확인·유한 협조적 timeout·저장 입체·손실 동의·unavailable을 보고한다. Native 경계 9/9, 공식 배포본의 별도 실행 파일과 direct native 6개 및 Application/provider 4개 InChI/Key 정확 비교 통과(독립 엔진 비교 아님). 동의 회귀 6/6, CLI 설정 통합 7/7, API/CLI 설정 모듈 각 4/4 통과. 전체 게이트와 두 리뷰는 확인 전이므로 완료 아님. InChI import와 전용 웹 패널은 미구현."
   },
   {
    "phase": "editor",

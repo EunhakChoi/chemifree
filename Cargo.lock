@@ -208,6 +208,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "chemifree-inchi-native"
+version = "0.1.0"
+dependencies = [
+ "chemifree-domain",
+ "rustix",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "chemifree-numerics"
 version = "0.1.0"
 dependencies = [

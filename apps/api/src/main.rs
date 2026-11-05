@@ -1,3 +1,5 @@
+mod inchi_config;
+
 use std::error::Error;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -22,6 +24,9 @@ struct Args {
     /// Directory for saved documents. Defaults to the platform user-data directory.
     #[arg(long, env = "CHEMIFREE_DATA_DIR")]
     data_dir: Option<PathBuf>,
+    /// Optional native InChI registration; absent or rejected registration leaves the host usable.
+    #[command(flatten)]
+    inchi: inchi_config::InchiArgs,
     /// Separately selected directory containing authorized local DATA.
     #[arg(long, env = "CHEMIFREE_MODEL_DATA_ROOT")]
     model_data_root: Option<PathBuf>,
@@ -61,6 +66,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_smiles_codec(OpenSmilesCodec)
         .with_preferences(preferences)
         .with_data_registry(registry);
+    let application = args.inchi.configure(application);
 
     let mut token = [0_u8; 32];
     getrandom::fill(&mut token).map_err(|error| format!("no system randomness: {error}"))?;
