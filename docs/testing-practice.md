@@ -15,20 +15,28 @@ These mutation checks are run by hand. They do not use build caches: a stale cac
 ## 2. Determinism
 
 - Tests supply their own boundaries. The contract smoke starts the API on an ephemeral loopback port with a temporary data directory; the web client check runs against a scripted service rather than a live one (`npm run test:contracts`, `npm run test:client`).
-- Sleeps are not synchronization. Wait on an observable condition (a response, a file, a process exit), not on elapsed time.
+- The practice is that sleeps are not synchronization. Wait on an observable condition (a response, a file, a process exit), not on elapsed time.
 - A timing flake is a finding. Find the race and fix it; do not retry it away. CI runs the browser checks once, without retries, and the Playwright race behind issue #8 has its own check (`npm run test:browser:routes`).
 
 ## 3. Hostile but legal inputs and boundaries
 
-Test the edges of what the contract accepts: documented limits, empty input, the maximum, and input that is malformed but still parseable. The format readers refuse what they cannot read and report losses, so tests assert both the refusal code and that a refusal leaves the document unchanged (same revision, same content). A refusal that mutates state is a defect even when the error message is right.
+Test the edges of what the contract accepts: documented limits, empty input, the maximum, and input that is malformed but still parseable. The format readers refuse what they cannot read and report losses, so tests should assert both the refusal code and that a refusal leaves the document unchanged (same revision, same content). A refusal that mutates state is a defect even when the error message is right.
 
 ## 4. Independent oracles
 
-Where a result is chemistry, a test written from the same understanding as the code proves consistency, not correctness. Compare against an independent reference where one exists. The `scripts/verify-*-rdkit.py` scripts and `scripts/aromaticity_corpus.py` compare Chemifree with an RDKit Python, and each states an expected outcome per fixture so nothing passes silently. Record whether a comparison is run by hand or automated: these RDKit scripts are run by hand (they need that RDKit and a built binary), and no equivalence is claimed beyond the fixtures compared. See the README for the specific scripts and their usage.
+Where a result is chemistry, a test written from the same understanding as the code proves consistency, not correctness. Compare against an independent reference where one exists, and record whether the comparison is hand-run or automated. Each script's own header states its usage and what it compares; read that, not this page.
 
-## 5. Heavy commands run isolated
+- Scripts that compare Chemifree output with RDKit 2022.03.2 (some also need a built binary or example, named in the header): `verify-cdxml-rdkit.py`, `verify-cip-rdkit.py`, `verify-query-rdkit.py`, `verify-smiles-rdkit.py`, `verify-smiles-stereo-rdkit.py`, `verify-stereo-rdkit.py`, `verify-v2000-rdkit.py`, `verify-v3000-rdkit.py`. Their headers describe fixtures with stated expected outcomes, so nothing passes silently. Several headers say they are hand-run and not part of `npm run check`; the README says so for the substructure comparison. None is run by CI, and a header that does not say "hand-run" is not evidence that the script is automated.
+- Independent readers without RDKit: `verify-cdx-semantics.py` (a separate CDX parser) and `verify-cdxml-xml.py` (Python's standard-library XML reader), each over one bounded fixture.
+- `aromaticity_corpus.py` only generates an RDKit-derived aromaticity corpus (needs RDKit); it does not run Chemifree. The Rust side consumes the generated corpus (`crates/providers/tests/aromaticity_corpus_example.rs`), and `aromaticity_corpus_diff.py` compares two runs of that example. See `docs/verification/p21a-aromaticity-changes.md`.
 
-Full builds, the whole test suite, mutation runs and external-tool scripts run in an isolated, resource-capped environment:
+A comparison supports only the fixtures it covers; no wider equivalence is claimed.
+
+## 5. Heavy commands run isolated (local practice)
+
+This is the practice for local development and review runs. CI is different: `.github/workflows/ci.yml` runs `npm run check`, `npm run test:browser:routes` and `npm run test:browser` directly on the hosted runner, under that runner's own limits, with network for installing dependencies.
+
+Locally, full builds, the whole test suite, mutation runs and external-tool scripts run in an isolated, resource-capped environment:
 
 - no network unless a step declares it needs one;
 - a private temporary directory and home;
@@ -38,7 +46,7 @@ Full builds, the whole test suite, mutation runs and external-tool scripts run i
 - peak memory is reported with the result;
 - no scratch directories, logs or processes are left behind.
 
-The concrete limits and the wrapper script are machine-local. They are kept out of this repository and are not documented here.
+The concrete limits and the wrapper script are machine-local. They are kept out of this repository and are not documented here; nothing in the repository enforces them.
 
 ## 6. Gates
 
