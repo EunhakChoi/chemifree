@@ -12,6 +12,7 @@ import {
   FilePlus2Icon,
   FolderOpenIcon,
   HexagonIcon,
+  HandIcon,
   MinusIcon,
   MousePointer2Icon,
   PencilIcon,
@@ -123,6 +124,7 @@ const TOOLS: { value: Tool; label: string; key: string; icon: ReactNode }[] = [
   { value: 'atom', label: 'Atom', key: 'A', icon: <AtomIcon /> },
   { value: 'bond', label: 'Bond', key: 'B', icon: <SlashIcon /> },
   { value: 'erase', label: 'Erase', key: 'E', icon: <EraserIcon /> },
+  { value: 'pan', label: 'Pan view', key: 'H', icon: <HandIcon /> },
 ]
 /** The bond tool records the selected kind without converting other bonds. */
 const DRAWN_ORDERS: { value: DrawnOrder; label: string; glyph: string }[] = [
@@ -770,8 +772,9 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
       </div>
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-        <div className="aspect-[5/3] min-w-0">
+        <div className="aspect-[5/3] min-h-80 min-w-0">
           <StructureCanvas
+            key={document.id}
             document={document}
             tool={tool}
             element={element}
@@ -825,6 +828,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         Bond tool: click an atom to grow a chain, drag to bond, click a bond to cycle its order. With a wedge, hashed wedge or wavy bond chosen, click a bond to mark it, again to move the narrow end, again to clear. Atom tool: click empty space
         to place, click an atom to change its element. Select: drag atoms to move, drag empty space to box-select. Each
         placement draws the same atoms and bonds; edits to atoms and bonds apply to all, moves to the placement you drag in.
+        Pan view (H) moves only the view, with mouse or touch; zoom and fit controls leave the drawing and undo history unchanged.
       </p>
     </div>
   )

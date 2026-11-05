@@ -181,6 +181,12 @@ All JSON responses include `api_version: "v1"`. Shared Rust DTOs live in `crates
 
 The API binds IPv4 loopback and sets no CORS permissions. Writes require an allowed `Host`, a same-site or allowed `Origin`, a per-process session token from `GET /api/v1/session`, a JSON body, and at most 256 KiB. This blocks other websites and DNS rebinding; it is not user authentication and does not separate users of the same machine. A remote or multiuser service still requires a separately implemented access-control boundary.
 
+## Canvas navigation (P31)
+
+The web canvas has Zoom in/out, Fit drawing, Reset zoom (100%), and Pan view (`H`). Ctrl/⌘ + wheel zooms at the pointer; ordinary wheel scrolling remains available. With the canvas focused, `+`/`−` zoom, `F` fits, `0` resets scale, and arrow keys pan. Hold Space while dragging, middle-drag, or use Pan view with one mouse/touch pointer. Pinch and other multi-touch gestures are not implemented.
+
+The viewport belongs only to the current browser tab/canvas. View changes send no document commands, create no undo entry, and do not change saved coordinates or dirty state. Opening another document or reloading starts fitted; edits and resizing keep the current center and scale. Fit uses the full geometry bounds, including the empty drawing frame; 100% means one CSS pixel per document point and keeps the current center. Scale is bounded to 1/4096–32 CSS pixels per point. Selection tolerances and the click/drag threshold use screen pixels. P31 remains `in_progress`; its final checks and reviews are pending. See [the viewport contract](docs/CONTRACT.md#browser-canvas-viewport-p31).
+
 ## UI components and lint
 
 The starter uses official **@shadcn** registry components with **Base UI / Nova**, Tailwind CSS 4, semantic tokens, Lucide icons, and a locally bundled Geist font. Installed: Alert, Alert Dialog, Badge, Button, Card, Dialog, Empty, Field (with Label and Separator), Input, Kbd, Select, Skeleton, Spinner, Toggle Group (with Toggle), and Tooltip. `components.json` records aliases and the theme CSS path. Generated source has been reviewed; upstream notices are preserved in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

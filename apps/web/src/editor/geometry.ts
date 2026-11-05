@@ -2,7 +2,7 @@
  * Drawing geometry for the structure canvas. Coordinates are document points (pt) with y
  * growing downward, the same space the API stores. Nothing here perceives chemistry.
  */
-import type { AtomView, BondOrder, BondView, DocumentView, Position } from '@/lib/document-contract'
+import { settingsOf, type AtomView, type BondOrder, type BondView, type DocumentView, type Position } from '@/lib/document-contract'
 import { placed, textWidth, union, type AtomLabel, type Box } from '@/editor/label'
 import { markName, type StereoMark } from '@/lib/stereo-contract'
 
@@ -30,6 +30,57 @@ function distanceToSegment(p: Position, a: Position, b: Position) {
   return distance(p, { x: a.x + t * dx, y: a.y + t * dy })
 }
 
+/** The filled polygon or stroked path, in document units; wave flattening is below 0.05px. */
+function distanceToStroke(point: Position, stroke: Stroke, unitsPerPixel: number): number {
+  const segment = (a: Position, b: Position) => distanceToSegment(point, a, b)
+  if (stroke.shape === 'line') return segment({ x: stroke.x1, y: stroke.y1 }, { x: stroke.x2, y: stroke.y2 })
+  if (stroke.shape === 'stripes') {
+    return Math.min(...stroke.segments.map(([a, b]) => segment(a, b)))
+  }
+  if (stroke.shape === 'polygon' || stroke.shape === 'polyline') {
+    let nearest = Infinity
+    let inside = false
+    for (let index = 0; index < stroke.points.length; index += 1) {
+      const a = stroke.points[index]
+      const b = stroke.points[(index + 1) % stroke.points.length]
+      if (stroke.shape === 'polygon' || index + 1 < stroke.points.length) nearest = Math.min(nearest, segment(a, b))
+      if (stroke.shape === 'polygon' && (a.y > point.y) !== (b.y > point.y) && point.x < a.x + (b.x - a.x) * (point.y - a.y) / (b.y - a.y)) inside = !inside
+    }
+    return inside ? 0 : nearest
+  }
+  const length = distance(stroke.from, stroke.to)
+  if (length === 0) return distance(point, stroke.from)
+  const nx = -(stroke.to.y - stroke.from.y) / length
+  const ny = (stroke.to.x - stroke.from.x) / length
+  const node = (index: number) => ({
+    x: round(stroke.from.x + (stroke.to.x - stroke.from.x) * index / stroke.halfWaves),
+    y: round(stroke.from.y + (stroke.to.y - stroke.from.y) * index / stroke.halfWaves),
+  })
+  let control = {
+    x: round((node(0).x + node(1).x) / 2 + 2 * stroke.amplitude * nx),
+    y: round((node(0).y + node(1).y) / 2 + 2 * stroke.amplitude * ny),
+  }
+  const steps = Math.max(4, Math.ceil(Math.sqrt(2 * stroke.amplitude / (0.05 * unitsPerPixel))))
+  let nearest = Infinity
+  for (let part = 0; part < stroke.halfWaves; part += 1) {
+    const a = node(part)
+    const b = node(part + 1)
+    let previous = a
+    for (let index = 1; index <= steps; index += 1) {
+      const t = index / steps
+      const next = {
+        x: (1 - t) ** 2 * a.x + 2 * (1 - t) * t * control.x + t * t * b.x,
+        y: (1 - t) ** 2 * a.y + 2 * (1 - t) * t * control.y + t * t * b.y,
+      }
+      nearest = Math.min(nearest, segment(previous, next))
+      previous = next
+    }
+    // SVG's T command reflects the previous quadratic control about the shared endpoint.
+    control = { x: 2 * b.x - control.x, y: 2 * b.y - control.y }
+  }
+  return nearest
+}
+
 export function atomIndex(document: DocumentView) {
   return new Map(document.atoms.map((atom) => [atom.id, atom]))
 }
@@ -45,6 +96,8 @@ export function hitTest(
   ignore: ReadonlySet<string> = new Set(),
   atoms: ReadonlyMap<string, AtomView> = atomIndex(document),
   labels: ReadonlyMap<string, AtomLabel | null> = new Map(),
+  unitsPerPixel = 1,
+  strokes?: ReadonlyMap<string, readonly Stroke[]>,
 ): Hit {
   let best: Hit = null
   let bestDistance = Infinity
@@ -56,13 +109,13 @@ export function hitTest(
     const end = atoms.get(bond.end)
     if (!begin || !end) continue
     const share = ATOM_HIT_SHARE * distance(begin.position, end.position)
-    for (const id of [bond.begin, bond.end]) radius.set(id, Math.min(radius.get(id) ?? ATOM_HIT_RADIUS, share))
+    for (const id of [bond.begin, bond.end]) radius.set(id, Math.min(radius.get(id) ?? ATOM_HIT_RADIUS * unitsPerPixel, share))
   }
   for (const atom of document.atoms) {
     if (ignore.has(atom.id)) continue
     const d = distance(point, atom.position)
     const label = labels.get(atom.id)
-    if (d <= (radius.get(atom.id) ?? ATOM_HIT_RADIUS) && d < bestDistance) {
+    if (d <= (radius.get(atom.id) ?? ATOM_HIT_RADIUS * unitsPerPixel) && d < bestDistance) {
       best = { kind: 'atom', id: atom.id }
       bestDistance = d
     }
@@ -72,12 +125,29 @@ export function hitTest(
     }
   }
   if (best) return best
-  bestDistance = BOND_HIT_DISTANCE
+  const lineWidth = settingsOf(document).line_width_pt
+  bestDistance = Math.max(BOND_HIT_DISTANCE * unitsPerPixel, lineWidth / 2)
+  const spacing = bondSpacing(lineWidth)
+  let sides: Map<string, 1 | -1> | undefined
   for (const bond of document.bonds) {
     const begin = atoms.get(bond.begin)
     const end = atoms.get(bond.end)
     if (!begin || !end) continue
-    const d = distanceToSegment(point, begin.position, end.position)
+    let d = distanceToSegment(point, begin.position, end.position)
+    // Retain the historical axis band while also picking the actual parallel lines,
+    // tapered marks, curves and arrowheads. Cached canvas strokes include label trimming.
+    if (d <= strokeReach(lineWidth, spacing) + bestDistance) {
+      if (!strokes && bond.order === 'aromatic') sides ??= bondSides(document, atoms)
+      const beginLabel = labels.get(bond.begin)
+      const endLabel = labels.get(bond.end)
+      const drawn = strokes?.get(bond.id) ?? bondStrokes(bond, begin.position, end.position,
+        beginLabel ? placed(beginLabel.box, begin.position) : null,
+        endLabel ? placed(endLabel.box, end.position) : null,
+        sides?.get(bond.id), spacing, lineWidth)
+      for (const stroke of drawn) {
+        d = Math.min(d, distanceToStroke(point, stroke, unitsPerPixel))
+      }
+    }
     if (d <= bestDistance) {
       best = { kind: 'bond', id: bond.id }
       bestDistance = d
@@ -90,7 +160,7 @@ export function hitTest(
     if (begin && end) {
       const length = distance(begin, end)
       const along = length === 0 ? 0 : ((point.x - begin.x) * (end.x - begin.x) + (point.y - begin.y) * (end.y - begin.y)) / (length * length)
-      if (length < 2 * ATOM_HIT_RADIUS && along >= ATOM_HIT_SHARE && along <= 1 - ATOM_HIT_SHARE && bestDistance <= length * 0.2) {
+      if (length < 2 * ATOM_HIT_RADIUS * unitsPerPixel && along >= ATOM_HIT_SHARE && along <= 1 - ATOM_HIT_SHARE && distanceToSegment(point, begin, end) <= length * 0.2) {
         return best
       }
     }
@@ -465,14 +535,19 @@ export function strokeReach(lineWidth: number, spacing: number) {
   return Math.max(WIDEST_OFFSET * spacing, ARROWHEAD_HALF_WIDTH, ZIGZAG_HALF_WIDTH) + lineWidth / 2
 }
 
-/** The width of the stroke underlaying a selected or hovered bond: it shows beyond its outermost line. */
-export function bondUnderlay(order: BondOrder, lineWidth: number, spacing: number) {
-  return Math.max(SELECTION_STROKE, 2 * bondReach(order, lineWidth, spacing) + 6)
+/** The bond's ink plus a 3 CSS-pixel halo on each side, with an 8-pixel minimum width. */
+export function bondUnderlay(order: BondOrder, lineWidth: number, spacing: number, unitsPerPixel = 1, mark?: StereoMark | null) {
+  let reach = bondReach(order, lineWidth, spacing)
+  if (mark && markFits(mark.kind, order)) {
+    if (mark.kind === 'wedge' || mark.kind === 'hash') reach = Math.max(MARK_STYLE.wedgeWidth, lineWidth) / 2
+    else if (mark.kind === 'wavy') reach = MARK_STYLE.waveAmplitude + lineWidth / 2
+  }
+  return Math.max(SELECTION_STROKE * unitsPerPixel, 2 * reach + 6 * unitsPerPixel)
 }
 
-/** The width of the stroke underlaying a selected graphic drawn `lineWidth` wide. */
-export function graphicUnderlay(lineWidth: number) {
-  return Math.max(SELECTION_STROKE, lineWidth + 6)
+/** The graphic's ink plus a 3 CSS-pixel halo on each side, with an 8-pixel minimum width. */
+export function graphicUnderlay(lineWidth: number, unitsPerPixel = 1) {
+  return Math.max(SELECTION_STROKE * unitsPerPixel, lineWidth + 6 * unitsPerPixel)
 }
 
 /** Whether a bond of `order` can carry `mark`: wedge, hashed wedge and wavy a single bond, crossed a double bond. */
