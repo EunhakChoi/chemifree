@@ -31,7 +31,7 @@
 ## P32d 웹 Scene 제어 후보 인계
 
 - 웹 **Scene → Arrange and transform scene objects**에 align_left/horizontal_center/right/top/vertical_center/bottom 여섯 제어, 수평/수직 equal-gap distribute, 시계/반시계 90° 회전, 수평/수직 축 반사 제어를 연결한 후보 구현이다. Scene 목록에서 고른 whole scene object/group 단위만 다룬다. 선택한 조상이 있으면 자손은 별도 단위로 세지 않고, 경계는 원자 위치·graphic 두 점만 사용하여 label/stroke는 제외한다.
-- 회전/반사는 누르는 시점의 Scene 선택을 잡아 두고, 큐에서 적용할 최신 도면의 선택 geometry 경계 중심을 다시 계산해 명시 pivot으로 보낸다. 수평 축 반사는 중심 위/아래를, 수직 축 반사는 좌/우를 뒤집는다. 원자/결합 선택이 섞인 geometry 제어는 비활성화한다. 미상 대상은 전체 요청을 보내지 않고 lapse하며, 기하 없음·단위 부족·빈 arrangement 단위는 클라이언트에서 막고 음수 간격·좌표·rectangle 등 최종 규칙은 서버의 기존 원자적 검증을 따른다. frontend bounds/pivot은 요청 구성용이며 서버 계획/좌표 검증을 대체하지 않는다.
+- 회전/반사는 누르는 시점의 Scene 선택을 잡아 두고, 큐에서 적용할 최신 도면의 선택 geometry 경계 중심을 다시 계산해 명시 pivot으로 보낸다. 수평 축 반사는 중심 위/아래를, 수직 축 반사는 좌/우를 뒤집는다. 원자/결합 혼합 선택의 정렬/분배는 비활성화하며 회전/반사는 P32f가 확장한다. 미상 대상은 전체 요청을 보내지 않고 lapse하며, 기하 없음·단위 부족·빈 arrangement 단위는 클라이언트에서 막고 음수 간격·좌표·rectangle 등 최종 규칙은 서버의 기존 원자적 검증을 따른다. frontend bounds/pivot은 요청 구성용이며 서버 계획/좌표 검증을 대체하지 않는다.
 - sibling Group은 Scene 객체만 묶고 독립된 atom/bond 선택은 유지한다. 성공 뒤 잡아 둔 grouped member 선택을 새 group으로 대체하면서 대기 중 다른 live 선택은 보존하도록 선택 병합을 둔다. Transform은 stored stereo/mark/group을 바꾸지 않으며 그림이 stored 입체와 어긋날 수 있다는 안내와 기존 stereo inspection을 이용한다. Undo/Redo·no-op·revision·request replay는 기존 transaction 경로를 사용한다.
 - 현재 P32d client/browser 검사는 진행 중이며 이 문단은 통과·리뷰·CI 완료를 주장하지 않는다. `OPS-01.scene-controls`는 `unverified`, evidence는 비어 있다. 기존 suite28의105/105(accept77·reject28)는 서버 primitive 근거이고 새 웹 제어 검증으로 재사용하지 않는다. 카탈로그/명령/적합성 사례 수는 P32c와 같고 P32는 계속 `in_progress`다. 임의 각도·사용자 지정 pivot·대각선 반사 UI, P32d 자체에는 Scene box/복합 canvas gesture가 없고 P32e가 제한된 선택·이동 후보를 더한다. snapping·cleanup은 미구현이다.
 
@@ -40,8 +40,15 @@
 - Select 도구에서 atom/bond/graphic을 Shift-click으로 toggle하고 빈 canvas drag로 marquee를 만든다. box 경계는 포함(≥/≤)이며 active placement의 atom 중심과 graphic의 두 정의 점이 모두 들어온 대상만 고른다. Shift-drag는 기존 선택에 더하고 일반 marquee는 선택을 바꾼다. box 자체가 bond ID·group·whole placement를 암묵적으로 고르지는 않는다. 전체 group/placement는 기존 Scene 목록에서 선택한다. label·stroke·arrowhead나 선의 단순 교차는 box 포함 기준이 아니다.
 - 선택했거나 선택 subtree가 덮는 atom/bond/graphic을 drag하면 누른 시점의 scene/atom/bond union 전체를 preview하고 scene-aware 응답에서는 기존 `move_selection` 한 명령으로 보낸다. scene 정보가 없는 구형 응답은 제한된 `move_atoms` 호환 경로를 유지한다. 로컬 drag preview는 서버 계획/동의 토큰이 아니며 실제 범위와 최종 좌표는 transaction 시점의 서버 검증을 따른다. 조상/자손·atom/bond 끝점 중복은 per-instance atom/graphic 단위로 한 번만 이동한다. 그래프 ID는 하나지만 explicit atom/bond 이동은 active placement에 한정하고, 선택한 Scene instance/group은 자기 배치의 위치를 포함한다. CSS px drag threshold·inverse SVG 좌표·pan/zoom은 기존 viewport 규칙을 유지한다.
 - canvas에 **Atom and bond movement placement** 선택/상태를 둔다. 다른 배치 atom/bond 클릭이나 selector 변경은 graph 선택을 지우고 독립 scene 선택을 유지한다. active placement가 없어지면—even 남은 배치가 하나여도—자동 대체하지 않고 다시 선택해야 graph 이동을 보낸다. scene-only 선택 이동은 active graph placement가 없어도 가능하다. 큐에서 잡아 둔 대상/배치가 사라지면 일부만 재해석하지 않고 전체 동작을 lapse한다. gesture의 selection-before와 진행 중 live 선택은 기존 transaction/history 경로로 전달한다.
-- 서버/operation/catalog/명령 한도/과학 규칙은 바꾸지 않는다. 기존 원자적 범위·좌표 검증·stored stereo/marks/groups 보존·revision·Undo/Redo·no-op 규칙을 따른다. P32d 정렬/분배/회전/반사 버튼은 여전히 whole Scene object 전용이며 atom/bond 혼합 선택에서는 비활성화한다. 이 후보는 mixed graph arrangement/rotation, lasso, edge-intersection 선택, 여러 배치에 걸친 graph 선택, snapping·cleanup을 더하지 않는다.
+- 서버/operation/catalog/명령 한도/과학 규칙은 바꾸지 않는다. 기존 원자적 범위·좌표 검증·stored stereo/marks/groups 보존·revision·Undo/Redo·no-op 규칙을 따른다. 정렬/분배 버튼은 whole Scene object 전용이며 atom/bond 혼합 선택에서는 비활성화한다. P32f가 제한된 혼합 회전/반사를 더한다. mixed graph arrangement, lasso, edge-intersection 선택, 여러 배치에 걸친 graph 선택, snapping·cleanup은 미구현이다.
 - client/browser 검증·리뷰는 확인 전이며 `OPS-01.canvas-selection`은 `unverified`/evidence[]다. P32d의 기존 unverified 상태도 바꾸지 않고, 기존 서버 suite28 105/105(accept77·reject28)를 새 웹 동작 실행 근거로 세지 않는다. 연산 31개·transaction 46개(명령35·capability11)·scene_tree11개와 적합성 사례 수는 그대로이고 P32는 계속 `in_progress`다. 이 문단은 미실행 검사의 통과·CI·완료 주장이 아니다.
+
+## P32f 제한된 혼합 선택 회전·반사 후보 인계
+
+- 기존 ±90° 회전·수평/수직 축 반사 네 버튼을 Scene subtree·명시 atom·bond 끝점의 혼합 union에 연결한다. graph 대상은 누른 시점의 active placement를 명시 instance로 잡고 Scene placement는 자기 위치 집합을 유지한다. 조상/자손·object/atom·atom/bond 중복은 배치별 한 번만 변환하며 reference·연결 성분을 따라가지 않는다. 정렬/분배는 여전히 whole Scene object 전용이다.
+- 누를 때 대상 ID·document ID·필요한 graph 배치를 잡고 큐 실행 시 최신 snapshot에서 전체 대상을 재검증한다. label/stroke/arrowhead를 제외한 atom 위치·graphic 두 점 union 경계 중심을 명시 pivot으로 계산해 기존 transform_selection 한 명령으로 보낸다. 대상/배치 소실·문서 전환·기하 없음은 전체 lapse하며 대기 중 live 선택/active placement 변경으로 재지정하지 않는다. 반복 누름은 큐의 최신 기하에 합성된다.
+- 좌표만 바꾸고 graph·mark·stored configuration·enhanced group·hierarchy·reference를 유지한다. 그림과 stored 입체가 어긋날 수 있으며 chem.stereo로 검사한다. 서버 명령·카탈로그·과학 규칙·원자성·Undo/Redo 경계는 바꾸지 않는다. 임의 각도/custom pivot/대각선 반사 UI·snapping·cleanup은 미구현이다.
+- P32f client/browser·최종 리뷰/CI 실행 근거는 아직 확인하지 않았으며 OPS-01.mixed-selection-transform은 unverified/evidence[]다. 기존 서버 suite28 105/105를 새 웹 동작 근거로 재사용하지 않는다. 연산31·transaction46·scene_tree11 및 적합성 사례 수는 그대로이며 P32는 in_progress다.
 
 ## 프로젝트와 현재 기준
 
