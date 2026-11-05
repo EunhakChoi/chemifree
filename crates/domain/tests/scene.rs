@@ -456,6 +456,7 @@ fn every_scene_reason_code_is_distinct_and_stable() {
             "arrangement_too_few_units",
             "arrangement_empty_geometry",
             "arrangement_negative_gap",
+            "arrangement_center_unstable",
             "transform_invalid_angle",
             "transform_rectangle_unsupported",
         ]

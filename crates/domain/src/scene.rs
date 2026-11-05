@@ -175,6 +175,8 @@ pub enum SceneError {
     ArrangementEmptyGeometry,
     /// Fixed endpoint units leave insufficient space for nonoverlapping equal gaps.
     ArrangementNegativeGap,
+    /// Rounded center alignment would change again on an identical second command.
+    ArrangementCenterUnstable,
     /// A rotation angle is not finite.
     TransformInvalidAngle,
     /// An arbitrary rotation cannot retain an axis-aligned rectangle's representation.
@@ -183,7 +185,7 @@ pub enum SceneError {
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::ObjectUnknown,
         Self::ObjectKindMismatch,
         Self::GroupMixedParents,
@@ -199,6 +201,7 @@ impl SceneError {
         Self::ArrangementTooFewUnits,
         Self::ArrangementEmptyGeometry,
         Self::ArrangementNegativeGap,
+        Self::ArrangementCenterUnstable,
         Self::TransformInvalidAngle,
         Self::TransformRectangleUnsupported,
     ];
@@ -221,6 +224,7 @@ impl SceneError {
             Self::ArrangementTooFewUnits => "arrangement_too_few_units",
             Self::ArrangementEmptyGeometry => "arrangement_empty_geometry",
             Self::ArrangementNegativeGap => "arrangement_negative_gap",
+            Self::ArrangementCenterUnstable => "arrangement_center_unstable",
             Self::TransformInvalidAngle => "transform_invalid_angle",
             Self::TransformRectangleUnsupported => "transform_rectangle_unsupported",
         }
