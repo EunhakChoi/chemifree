@@ -2075,7 +2075,12 @@ step = 'after placements_move_independently'
     }, { fitted })
   const assertDrawingContainment = async () => {
     await page.getByRole('button', { name: 'Reset zoom (100%)', exact: true }).click()
-    await page.waitForFunction(() => Number(document.querySelector('svg[data-structure-canvas]').getAttribute('data-viewport-scale')) === 1)
+    await page.waitForFunction(() => {
+      const scale = Number(document.querySelector('svg[data-structure-canvas]')?.getAttribute('data-viewport-scale'))
+      // Reset multiplies the previous scale by its reciprocal; binary64 may leave
+      // the result a few ulps from one. This only tolerates numerical reset noise.
+      return Number.isFinite(scale) && Math.abs(scale - 1) <= 1e-12
+    })
     // At 100% the complete drawing may extend beyond the viewport. Check all label
     // geometry without viewport containment, then restore Fit and check that as well.
     assert.deepEqual(await drawingProblems({ fitted: false }), [], 'strict label containment at 100%')
