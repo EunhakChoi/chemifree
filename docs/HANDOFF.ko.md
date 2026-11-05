@@ -12,8 +12,14 @@
 ## P32a 진행 중 인계
 
 - `document.selection_scope`가 `{ document_id, selection, instance? }`를 받아 정확한 snapshot과 `{ objects, positions: [{ instance, atom }], graphics }`를 읽기 전용으로 반환한다. `move_selection`은 같은 union을 한 트랜잭션에서 이동한다. 그룹 포함 트리·선택한 원자·선택한 결합 끝점을 합치고 중복은 한 번만 이동하며 참조·연결 성분은 따라가지 않는다. 원자/결합 이동은 복수 배치에서 instance를 명시한다.
-- 이동 대상 selection과 이력의 selection_before/after는 별개다. 좌표 초과·미상 대상은 앞선 명령까지 전체 rollback하며 빈 대상·0 delta는 검증 뒤 revision/history/redo를 바꾸지 않는다. P32는 `in_progress`이며 웹 복합 선택·박스 선택·정렬·분배·회전·반사·snapping은 미구현이다. 상세 계약은 CONTRACT.md의 Effective selection scope and movement 절이다.
+- 이동 대상 selection과 이력의 selection_before/after는 별개다. 좌표 초과·미상 대상은 앞선 명령까지 전체 rollback하며 빈 대상·0 delta는 검증 뒤 revision/history/redo를 바꾸지 않는다. P32는 `in_progress`이며 웹 복합 선택·박스 선택·정렬/분배 UI·회전·반사·snapping은 미구현이다. 상세 계약은 CONTRACT.md의 Effective selection scope and movement 절이다.
 - 카탈로그는 연산 29개(기본 실행 19개), transaction 44개(명령 33·capability 11), scene_tree 명령 9개다. 새 conformance 두 사례는 scope/중복 이동/undo·no-op·redo/원자적 거절을 고정한다. 최종 실행·리뷰·보고서 갱신 전이며 이 문단은 검사 통과 주장이 아니다.
+
+## P32b 진행 중 인계
+
+- 읽기 전용 `document.arrangement_plan`과 트랜잭션 명령 `arrange_objects`가 기존 scene object의 outermost 단위를 기하 경계 기준으로 정렬/분배한다. mode는 align_left/horizontal_center/right/top/vertical_center/bottom(실제 문자열은 각각 align_ 접두사)와 distribute_horizontal/vertical이다. 그룹은 강체 단위이며 부분 원자/결합은 받지 않는다. 경계는 원자 위치와 graphic 두 점만 쓰고 글자·stroke·화살촉은 제외한다.
+- 정렬은 전체 union 경계를 기준으로 2개 이상, 분배는 leading edge→ID 순서의 3개 이상이며 양끝을 고정하고 동일한 edge 간격을 만든다. 음수 간격·빈 기하·대상 부족·미상 객체·최종 좌표 초과는 전체 거절하고 이미 배치된 결과는 no-op이다. 미리보기는 snapshot과 단위별 원래 bounds/delta/scope를 보여 주며 commit token이 아니다.
+- 연산 30개(기본 실행 20), transaction 45개(명령 34·capability 11), scene_tree 명령 10개다. P32a suite26의 101개 사례는 유지하고 P32b 후보 두 사례를 더했다. 실행 보고서는 별도 갱신하며 이 문단은 최종 통과 주장이 아니다. P32는 계속 in_progress이고 웹 제어·박스 선택·회전·반사·snapping은 미구현이다.
 
 ## 프로젝트와 현재 기준
 
@@ -182,7 +188,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 99개(implemented 48, partial 12, unverified 6, not_implemented 33) · conformance 사례 101개(passed 101: accept 75·reject 26, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 100개(implemented 48, partial 12, unverified 7, not_implemented 33) · conformance 사례 103개(passed 103: accept 76·reject 27, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

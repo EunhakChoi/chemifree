@@ -1,5 +1,5 @@
 {
-  "suite_version": 26,
+  "suite_version": 27,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -101,6 +101,8 @@
     "cases/cdx-drawing-export-stereo-groups-round-trip.json",
     "cases/cdxml-cdx-drawing-export-stereo-loss-consent.json",
     "cases/selection-scope-union-move-history.json",
-    "cases/selection-scope-refusal-atomic.json"
+    "cases/selection-scope-refusal-atomic.json",
+    "cases/object-arrangement-plan-history.json",
+    "cases/object-arrangement-refusal-atomic.json"
   ]
 }

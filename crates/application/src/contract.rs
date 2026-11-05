@@ -11,8 +11,9 @@ use chemifree_domain::document::{
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
-    DeleteMode, Graphic, GraphicShape, ObjectRef, ReferenceTarget, SceneError, SceneObject,
-    SceneReference, Selection, SelectionRequest, TransactionSelection,
+    AlignMode, DeleteMode, DistributionAxis, Graphic, GraphicShape, ObjectArrangement, ObjectRef,
+    ReferenceTarget, SceneError, SceneObject, SceneReference, Selection, SelectionRequest,
+    TransactionSelection,
 };
 use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, Settings, SettingsEdit};
 use chemifree_domain::states::{
@@ -283,6 +284,37 @@ pub struct ReferenceDto {
     pub target: ReferenceTargetDto,
 }
 
+/// Geometry-only rigid arrangements of outermost selected scene objects.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArrangementModeDto {
+    AlignLeft,
+    AlignHorizontalCenter,
+    AlignRight,
+    AlignTop,
+    AlignVerticalCenter,
+    AlignBottom,
+    DistributeHorizontal,
+    DistributeVertical,
+}
+
+impl From<ArrangementModeDto> for ObjectArrangement {
+    fn from(mode: ArrangementModeDto) -> Self {
+        match mode {
+            ArrangementModeDto::AlignLeft => Self::Align(AlignMode::Left),
+            ArrangementModeDto::AlignHorizontalCenter => Self::Align(AlignMode::HorizontalCenter),
+            ArrangementModeDto::AlignRight => Self::Align(AlignMode::Right),
+            ArrangementModeDto::AlignTop => Self::Align(AlignMode::Top),
+            ArrangementModeDto::AlignVerticalCenter => Self::Align(AlignMode::VerticalCenter),
+            ArrangementModeDto::AlignBottom => Self::Align(AlignMode::Bottom),
+            ArrangementModeDto::DistributeHorizontal => {
+                Self::Distribute(DistributionAxis::Horizontal)
+            }
+            ArrangementModeDto::DistributeVertical => Self::Distribute(DistributionAxis::Vertical),
+        }
+    }
+}
+
 /// A bond's kind. `aromatic`, `dative`, `query`, and `unknown` were added within v1; a bond of
 /// order `query` carries its expression in `query`.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -442,6 +474,11 @@ pub enum CommandDto {
         delta: PointDto,
         #[serde(default)]
         instance: Option<String>,
+    },
+    /// Arranges existing outermost scene objects as rigid units; no partial atom/bond targets.
+    ArrangeObjects {
+        objects: Vec<String>,
+        mode: ArrangementModeDto,
     },
     /// `query` is required with order `query` and refused with any other.
     UpdateBond {
@@ -975,6 +1012,13 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             })?,
             instance: instance.as_deref().map(instance_id).transpose()?,
             delta: vector(*delta),
+        },
+        CommandDto::ArrangeObjects { objects, mode } => Command::ArrangeObjects {
+            objects: objects
+                .iter()
+                .map(|object| instance_id(object))
+                .collect::<Result<_, _>>()?,
+            arrangement: (*mode).into(),
         },
         CommandDto::UpdateBond { bond, order, query } => Command::UpdateBond {
             bond: bond_id(bond)?,

@@ -1014,6 +1014,21 @@
           ]
         },
         {
+          "id": "OPS-01.object-arrangement",
+          "summary": "P32b candidate geometry-only document.arrangement_plan and atomic arrange_objects: six union-bound alignments and horizontal/vertical equal-edge-gap distribution of outermost scene units. Descendants of selected ancestors are absorbed into rigid groups, leading-edge/ID order is deterministic, endpoints stay fixed, and too few units, empty geometry, negative gap or coordinate overflow refuse whole. No-op preserves history/redo; plans include original bounds/deltas/scopes and exact snapshot, not a commit token. Final checks/reviews pending; no web controls, partial atom targets, rotation/reflection or snapping.",
+          "status": "unverified",
+          "implementation": [
+            "crates/domain/src/scene/arrangement.rs",
+            "crates/domain/src/document.rs",
+            "crates/application/src/operations/arrangement.rs",
+            "crates/application/src/contract.rs"
+          ],
+          "evidence": [],
+          "followups": [
+            "P32"
+          ]
+        },
+        {
           "id": "OPS-01.rest",
           "summary": "Further selection scope, specialized objects, grouping and containment beyond the current scene tree.",
           "status": "not_implemented",

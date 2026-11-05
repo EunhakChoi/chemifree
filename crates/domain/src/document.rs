@@ -18,10 +18,12 @@ use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;
 
 use crate::element::Element;
+use crate::scene;
 use crate::scene::{
-    DeleteMode, Graphic, MAX_DEPTH, MAX_OBJECTS, MAX_REFERENCES, ObjectKind, ObjectRef,
-    ReferenceTarget, SceneError, SceneObject, SceneReference, SceneTree, Selection,
-    SelectionRequest, SelectionScope, TransactionSelection,
+    ArrangementPlan, ArrangementUnit, Bounds, DeleteMode, Graphic, MAX_DEPTH, MAX_OBJECTS,
+    MAX_REFERENCES, ObjectArrangement, ObjectKind, ObjectRef, ReferenceTarget, SceneError,
+    SceneObject, SceneReference, SceneTree, Selection, SelectionRequest, SelectionScope,
+    TransactionSelection,
 };
 use crate::settings::{Settings, SettingsEdit, SettingsError};
 use crate::states::{
@@ -451,6 +453,12 @@ pub enum Command {
         instance: Option<ObjectId>,
         delta: Vector,
     },
+    /// Rigidly aligns or distributes the outermost selected scene objects using only
+    /// atom positions and graphic points. Targets are recomputed at this command's turn.
+    ArrangeObjects {
+        objects: Vec<ObjectId>,
+        arrangement: ObjectArrangement,
+    },
     /// Adds or removes a directed scene reference without assigning chemical meaning to it.
     AddReference {
         reference: SceneReference,
@@ -624,6 +632,15 @@ pub enum EditError {
     /// A surviving owner still refers to a target being deleted.
     ReferenceInUse(SceneReference),
     ReferenceLimit,
+    /// Too few independent outermost units for the requested arrangement.
+    ArrangementTooFewUnits {
+        required: usize,
+        found: usize,
+    },
+    /// The object has no geometry to bound; no synthetic origin is assigned.
+    ArrangementEmptyGeometry(ObjectId),
+    /// Fixed endpoints cannot contain all unit extents without overlapping equal gaps.
+    ArrangementNegativeGap,
     /// A refused combination of recorded states, with its stable code.
     InvalidState(StateError),
     Settings(SettingsError),
@@ -660,6 +677,9 @@ impl EditError {
             Self::ReferenceUnknown(_) => SceneError::ReferenceUnknown,
             Self::ReferenceInUse(_) => SceneError::ReferenceInUse,
             Self::ReferenceLimit => SceneError::ReferenceLimit,
+            Self::ArrangementTooFewUnits { .. } => SceneError::ArrangementTooFewUnits,
+            Self::ArrangementEmptyGeometry(_) => SceneError::ArrangementEmptyGeometry,
+            Self::ArrangementNegativeGap => SceneError::ArrangementNegativeGap,
             _ => return None,
         })
     }
@@ -784,6 +804,16 @@ impl fmt::Display for EditError {
             Self::ReferenceLimit => write!(
                 formatter,
                 "a document holds at most {MAX_REFERENCES} references"
+            ),
+            Self::ArrangementTooFewUnits { required, found } => write!(
+                formatter,
+                "this arrangement needs at least {required} outermost units; found {found}"
+            ),
+            Self::ArrangementEmptyGeometry(object) => {
+                write!(formatter, "scene object {object} has no geometry to bound")
+            }
+            Self::ArrangementNegativeGap => formatter.write_str(
+                "fixed endpoint units leave insufficient space for nonoverlapping equal gaps",
             ),
             Self::SceneTreeInvalid(detail) => formatter.write_str(detail),
             Self::InvalidState(error) => error.fmt(formatter),
@@ -1249,6 +1279,63 @@ impl Content {
         Ok(scope)
     }
 
+    fn object_arrangement(
+        &self,
+        objects: &BTreeSet<ObjectId>,
+        arrangement: ObjectArrangement,
+    ) -> Result<ArrangementPlan, EditError> {
+        let roots = self.scene.outermost(objects)?;
+        let mut units = Vec::with_capacity(roots.len());
+        for object in roots {
+            let scope = self.selection_scope(
+                &Selection {
+                    objects: BTreeSet::from([object]),
+                    ..Selection::default()
+                },
+                None,
+            )?;
+            let mut points = Vec::new();
+            for key in &scope.positions {
+                points.push(
+                    *self
+                        .positions
+                        .get(key)
+                        .ok_or(EditError::MissingPosition(key.instance))?,
+                );
+            }
+            for graphic in &scope.graphics {
+                if let SceneObject::Graphic(graphic) = self.scene.get(*graphic)? {
+                    points.extend(graphic.points);
+                }
+            }
+            let bounds =
+                Bounds::from_points(points).ok_or(EditError::ArrangementEmptyGeometry(object))?;
+            units.push(ArrangementUnit {
+                object,
+                bounds,
+                delta: Vector { dx: 0.0, dy: 0.0 },
+                scope,
+            });
+        }
+        let plan = scene::plan_arrangement(units, arrangement)?;
+        // A preview and the mutation share the same preflight, including bounds on each
+        // actual geometry point rather than just an approximate rendered rectangle.
+        for unit in &plan.units {
+            for key in &unit.scope.positions {
+                self.positions
+                    .get(key)
+                    .ok_or(EditError::MissingPosition(key.instance))?
+                    .translated(unit.delta)?;
+            }
+            for graphic in &unit.scope.graphics {
+                if let SceneObject::Graphic(graphic) = self.scene.get(*graphic)? {
+                    graphic.translated(unit.delta)?;
+                }
+            }
+        }
+        Ok(plan)
+    }
+
     /// `selection` less what does not exist here.
     fn existing(&self, selection: &Selection) -> Selection {
         Selection {
@@ -1500,6 +1587,22 @@ impl Draft {
                     .collect()
             }
         }
+    }
+
+    fn translate_scope(&mut self, scope: &SelectionScope, delta: Vector) -> Result<(), EditError> {
+        if !delta.dx.is_finite() || !delta.dy.is_finite() {
+            return Err(EditError::CoordinateOutOfRange);
+        }
+        for key in &scope.positions {
+            self.translate(key.instance, [key.atom], delta)?;
+        }
+        for id in &scope.graphics {
+            self.content.scene.require(*id, ObjectKind::Graphic)?;
+            if let Some(SceneObject::Graphic(graphic)) = self.content.scene.objects.get_mut(id) {
+                *graphic = graphic.translated(delta)?;
+            }
+        }
+        Ok(())
     }
 
     /// Translates every listed atom's position in `instance` once.
@@ -1992,19 +2095,16 @@ impl Draft {
                 delta,
             } => {
                 let scope = self.content.selection_scope(selection, *instance)?;
-                if !delta.dx.is_finite() || !delta.dy.is_finite() {
-                    return Err(EditError::CoordinateOutOfRange);
-                }
-                for key in &scope.positions {
-                    self.translate(key.instance, [key.atom], *delta)?;
-                }
-                for id in &scope.graphics {
-                    self.content.scene.require(*id, ObjectKind::Graphic)?;
-                    if let Some(SceneObject::Graphic(graphic)) =
-                        self.content.scene.objects.get_mut(id)
-                    {
-                        *graphic = graphic.translated(*delta)?;
-                    }
+                self.translate_scope(&scope, *delta)?;
+            }
+            Command::ArrangeObjects {
+                objects,
+                arrangement,
+            } => {
+                let objects: BTreeSet<ObjectId> = objects.iter().copied().collect();
+                let plan = self.content.object_arrangement(&objects, *arrangement)?;
+                for unit in plan.units {
+                    self.translate_scope(&unit.scope, unit.delta)?;
                 }
             }
             Command::AddReference { reference } => {
@@ -2619,6 +2719,22 @@ impl Document {
         instance: Option<ObjectId>,
     ) -> Result<SelectionScope, EditError> {
         self.content.selection_scope(selection, instance)
+    }
+
+    /// Plans rigid geometry-only alignment or equal-gap distribution without changing state.
+    /// Selected descendants of another selected object collapse into that ancestor's unit.
+    /// Alignment uses the original union bounds; distribution keeps first/last units fixed,
+    /// ordered by leading bound then object ID. No labels, fonts or stroke extents are used.
+    ///
+    /// # Errors
+    /// Refuses unknown objects, geometry-empty units, too few outermost units, negative
+    /// distribution gaps or any translated point outside the document coordinate bounds.
+    pub fn object_arrangement(
+        &self,
+        objects: &BTreeSet<ObjectId>,
+        arrangement: ObjectArrangement,
+    ) -> Result<ArrangementPlan, EditError> {
+        self.content.object_arrangement(objects, arrangement)
     }
 
     /// Every atom's position in `instance`, by atom; empty for an unknown instance.

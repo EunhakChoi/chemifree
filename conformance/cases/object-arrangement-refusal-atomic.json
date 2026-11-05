@@ -1,0 +1,304 @@
+{
+  "id": "object-arrangement-refusal-atomic",
+  "title": "Preview and edit refuse negative distribution gaps, too few outermost units and empty geometry without partial edits",
+  "requirements": [
+    "OPS-01",
+    "OPS-02",
+    "API-01"
+  ],
+  "axis": "scene",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d",
+      "title": "Arrangement rollback"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_graphic",
+          "shape": "rectangle",
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 10,
+              "y": 10
+            }
+          ]
+        },
+        {
+          "op": "add_graphic",
+          "shape": "rectangle",
+          "points": [
+            {
+              "x": 1,
+              "y": 1
+            },
+            {
+              "x": 11,
+              "y": 11
+            }
+          ]
+        },
+        {
+          "op": "add_graphic",
+          "shape": "rectangle",
+          "points": [
+            {
+              "x": 2,
+              "y": 2
+            },
+            {
+              "x": 12,
+              "y": 12
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 1,
+                    "y": 1
+                  },
+                  {
+                    "x": 11,
+                    "y": 11
+                  }
+                ]
+              },
+              {
+                "id": "s4",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 2,
+                    "y": 2
+                  },
+                  {
+                    "x": 12,
+                    "y": 12
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "arrange-3",
+        "profile": "preserve-semantics",
+        "operation": "document.arrangement_plan",
+        "parameters": {
+          "objects": [
+            "s2",
+            "s3",
+            "s4"
+          ],
+          "mode": "distribute_horizontal"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "document_revision": 1,
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "arrangement_negative_gap"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Must roll back"
+        },
+        {
+          "op": "arrange_objects",
+          "objects": [
+            "s2",
+            "s3",
+            "s4"
+          ],
+          "mode": "distribute_horizontal"
+        }
+      ],
+      "expect_error": {
+        "code": "invalid_command",
+        "command_index": 1,
+        "reason": "arrangement_negative_gap"
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "arrange-4",
+        "profile": "preserve-semantics",
+        "operation": "document.arrangement_plan",
+        "parameters": {
+          "objects": [
+            "s2"
+          ],
+          "mode": "align_left"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "arrangement_too_few_units"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "arrange-5",
+        "profile": "preserve-semantics",
+        "operation": "document.arrangement_plan",
+        "parameters": {
+          "objects": [
+            "s1",
+            "s2"
+          ],
+          "mode": "align_top"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "arrangement_empty_geometry"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "title": "Arrangement rollback",
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 1,
+                    "y": 1
+                  },
+                  {
+                    "x": 11,
+                    "y": 11
+                  }
+                ]
+              },
+              {
+                "id": "s4",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 2,
+                    "y": 2
+                  },
+                  {
+                    "x": 12,
+                    "y": 12
+                  }
+                ]
+              }
+            ]
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    }
+  ]
+}

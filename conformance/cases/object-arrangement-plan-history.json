@@ -1,0 +1,945 @@
+{
+  "id": "object-arrangement-plan-history",
+  "title": "Preview rigid outermost alignment and equal-gap distribution, preserve shapes/endpoints and undo through no-op",
+  "requirements": [
+    "OPS-01",
+    "OPS-02",
+    "MODEL-01"
+  ],
+  "axis": "scene",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_graphic",
+          "shape": "rectangle",
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 10,
+              "y": 10
+            }
+          ]
+        },
+        {
+          "op": "add_graphic",
+          "shape": "rectangle",
+          "points": [
+            {
+              "x": 20,
+              "y": 10
+            },
+            {
+              "x": 30,
+              "y": 20
+            }
+          ]
+        },
+        {
+          "op": "add_graphic",
+          "shape": "rectangle",
+          "points": [
+            {
+              "x": 100,
+              "y": 20
+            },
+            {
+              "x": 120,
+              "y": 30
+            }
+          ]
+        },
+        {
+          "op": "add_graphic",
+          "shape": "rectangle",
+          "points": [
+            {
+              "x": 50,
+              "y": 50
+            },
+            {
+              "x": 60,
+              "y": 60
+            }
+          ]
+        },
+        {
+          "op": "group",
+          "objects": [
+            "s2",
+            "s3"
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s6",
+                "kind": "group",
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 10
+                  },
+                  {
+                    "x": 30,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "id": "s4",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 100,
+                    "y": 20
+                  },
+                  {
+                    "x": 120,
+                    "y": 30
+                  }
+                ]
+              },
+              {
+                "id": "s5",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 50,
+                    "y": 50
+                  },
+                  {
+                    "x": 60,
+                    "y": 60
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "arrange-1",
+        "profile": "preserve-semantics",
+        "operation": "document.arrangement_plan",
+        "parameters": {
+          "objects": [
+            "s6",
+            "s2",
+            "s4",
+            "s5",
+            "s6"
+          ],
+          "mode": "align_top"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 1,
+        "result": {
+          "mode": "align_top",
+          "units": [
+            {
+              "object": "s4",
+              "bounds": {
+                "left": 100,
+                "top": 20,
+                "right": 120,
+                "bottom": 30
+              },
+              "delta": {
+                "x": 0,
+                "y": -20
+              }
+            },
+            {
+              "object": "s5",
+              "bounds": {
+                "left": 50,
+                "top": 50,
+                "right": 60,
+                "bottom": 60
+              },
+              "delta": {
+                "x": 0,
+                "y": -50
+              }
+            },
+            {
+              "object": "s6",
+              "bounds": {
+                "left": 0,
+                "top": 0,
+                "right": 30,
+                "bottom": 20
+              },
+              "delta": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "scope": {
+            "objects": [
+              "s2",
+              "s3",
+              "s4",
+              "s5",
+              "s6"
+            ],
+            "positions": [],
+            "graphics": [
+              "s2",
+              "s3",
+              "s4",
+              "s5"
+            ]
+          },
+          "snapshot": {
+            "document": {
+              "revision": 1,
+              "scene": {
+                "objects": [
+                  {
+                    "id": "s1",
+                    "kind": "instance"
+                  },
+                  {
+                    "id": "s6",
+                    "kind": "group",
+                    "children": [
+                      "s2",
+                      "s3"
+                    ]
+                  },
+                  {
+                    "id": "s2",
+                    "kind": "graphic",
+                    "points": [
+                      {
+                        "x": 0,
+                        "y": 0
+                      },
+                      {
+                        "x": 10,
+                        "y": 10
+                      }
+                    ]
+                  },
+                  {
+                    "id": "s3",
+                    "kind": "graphic",
+                    "points": [
+                      {
+                        "x": 20,
+                        "y": 10
+                      },
+                      {
+                        "x": 30,
+                        "y": 20
+                      }
+                    ]
+                  },
+                  {
+                    "id": "s4",
+                    "kind": "graphic",
+                    "points": [
+                      {
+                        "x": 100,
+                        "y": 20
+                      },
+                      {
+                        "x": 120,
+                        "y": 30
+                      }
+                    ]
+                  },
+                  {
+                    "id": "s5",
+                    "kind": "graphic",
+                    "points": [
+                      {
+                        "x": 50,
+                        "y": 50
+                      },
+                      {
+                        "x": 60,
+                        "y": 60
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s6",
+                "kind": "group",
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 10
+                  },
+                  {
+                    "x": 30,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "id": "s4",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 100,
+                    "y": 20
+                  },
+                  {
+                    "x": 120,
+                    "y": 30
+                  }
+                ]
+              },
+              {
+                "id": "s5",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 50,
+                    "y": 50
+                  },
+                  {
+                    "x": 60,
+                    "y": 60
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "arrange_objects",
+          "objects": [
+            "s6",
+            "s2",
+            "s4",
+            "s5",
+            "s6"
+          ],
+          "mode": "align_top"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2,
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s6",
+                "kind": "group",
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 10
+                  },
+                  {
+                    "x": 30,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "id": "s4",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "x": 120,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s5",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 50,
+                    "y": 0
+                  },
+                  {
+                    "x": 60,
+                    "y": 10
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 2
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "arrange-2",
+        "profile": "preserve-semantics",
+        "operation": "document.arrangement_plan",
+        "parameters": {
+          "objects": [
+            "s6",
+            "s2",
+            "s4",
+            "s5",
+            "s6"
+          ],
+          "mode": "distribute_horizontal"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "document_revision": 2,
+        "result": {
+          "mode": "distribute_horizontal",
+          "scope": {
+            "objects": [
+              "s2",
+              "s3",
+              "s4",
+              "s5",
+              "s6"
+            ],
+            "positions": [],
+            "graphics": [
+              "s2",
+              "s3",
+              "s4",
+              "s5"
+            ]
+          },
+          "units": [
+            {
+              "object": "s6",
+              "delta": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "object": "s5",
+              "delta": {
+                "x": 10,
+                "y": 0
+              }
+            },
+            {
+              "object": "s4",
+              "delta": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 2,
+      "commands": [
+        {
+          "op": "arrange_objects",
+          "objects": [
+            "s6",
+            "s2",
+            "s4",
+            "s5",
+            "s6"
+          ],
+          "mode": "distribute_horizontal"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 3,
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s6",
+                "kind": "group",
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 10
+                  },
+                  {
+                    "x": 30,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "id": "s4",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "x": 120,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s5",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 60,
+                    "y": 0
+                  },
+                  {
+                    "x": 70,
+                    "y": 10
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 3
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "revision": 4,
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s6",
+                "kind": "group",
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 10
+                  },
+                  {
+                    "x": 30,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "id": "s4",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "x": 120,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s5",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 50,
+                    "y": 0
+                  },
+                  {
+                    "x": 60,
+                    "y": 10
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 2,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 4,
+      "commands": [
+        {
+          "op": "arrange_objects",
+          "objects": [
+            "s6",
+            "s2",
+            "s4",
+            "s5",
+            "s6"
+          ],
+          "mode": "align_top"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 4,
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s6",
+                "kind": "group",
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 10
+                  },
+                  {
+                    "x": 30,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "id": "s4",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "x": 120,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s5",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 50,
+                    "y": 0
+                  },
+                  {
+                    "x": 60,
+                    "y": 10
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 2,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "d",
+      "expected_revision": 4,
+      "expect": {
+        "document": {
+          "revision": 5,
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s6",
+                "kind": "group",
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "id": "s2",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s3",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 10
+                  },
+                  {
+                    "x": 30,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "id": "s4",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 100,
+                    "y": 0
+                  },
+                  {
+                    "x": 120,
+                    "y": 10
+                  }
+                ]
+              },
+              {
+                "id": "s5",
+                "kind": "graphic",
+                "points": [
+                  {
+                    "x": 60,
+                    "y": 0
+                  },
+                  {
+                    "x": 70,
+                    "y": 10
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 3,
+          "redo_depth": 0
+        }
+      }
+    }
+  ]
+}

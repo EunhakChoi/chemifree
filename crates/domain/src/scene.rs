@@ -10,6 +10,13 @@
 //! records the selection before and after its change, and undo and redo restore it with the
 //! content.
 
+mod arrangement;
+
+pub(crate) use arrangement::plan as plan_arrangement;
+pub use arrangement::{
+    AlignMode, ArrangementPlan, ArrangementUnit, Bounds, DistributionAxis, ObjectArrangement,
+};
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
@@ -158,11 +165,17 @@ pub enum SceneError {
     ReferenceInUse,
     /// The document would exceed the reference limit.
     ReferenceLimit,
+    /// Alignment needs two outermost units; distribution needs three.
+    ArrangementTooFewUnits,
+    /// A selected unit has no atom positions or graphic points to bound.
+    ArrangementEmptyGeometry,
+    /// Fixed endpoint units leave insufficient space for nonoverlapping equal gaps.
+    ArrangementNegativeGap,
 }
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 15] = [
         Self::ObjectUnknown,
         Self::ObjectKindMismatch,
         Self::GroupMixedParents,
@@ -175,6 +188,9 @@ impl SceneError {
         Self::ReferenceUnknown,
         Self::ReferenceInUse,
         Self::ReferenceLimit,
+        Self::ArrangementTooFewUnits,
+        Self::ArrangementEmptyGeometry,
+        Self::ArrangementNegativeGap,
     ];
 
     /// The stable machine-readable code.
@@ -192,6 +208,9 @@ impl SceneError {
             Self::ReferenceUnknown => "reference_unknown",
             Self::ReferenceInUse => "reference_in_use",
             Self::ReferenceLimit => "reference_limit",
+            Self::ArrangementTooFewUnits => "arrangement_too_few_units",
+            Self::ArrangementEmptyGeometry => "arrangement_empty_geometry",
+            Self::ArrangementNegativeGap => "arrangement_negative_gap",
         }
     }
 }
@@ -320,6 +339,33 @@ impl SceneTree {
     pub(crate) fn parent(&self, id: ObjectId) -> Result<Parent, EditError> {
         self.get(id)?;
         Ok(self.parents().get(&id).copied().flatten())
+    }
+
+    /// Selected objects with every object whose ancestor is also selected removed.
+    pub(crate) fn outermost(
+        &self,
+        ids: &BTreeSet<ObjectId>,
+    ) -> Result<BTreeSet<ObjectId>, EditError> {
+        for id in ids {
+            self.get(*id)?;
+        }
+        let parents = self.parents();
+        let mut roots = BTreeSet::new();
+        for id in ids {
+            let mut current = *id;
+            let mut covered = false;
+            while let Some(Some(parent)) = parents.get(&current) {
+                if ids.contains(parent) {
+                    covered = true;
+                    break;
+                }
+                current = *parent;
+            }
+            if !covered {
+                roots.insert(*id);
+            }
+        }
+        Ok(roots)
     }
 
     /// The depth of a child of `parent`: 1 under the page.

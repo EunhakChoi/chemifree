@@ -75,19 +75,20 @@ pub use active_registry::{
 
 pub use chemifree_domain::budget::{CancelFlag, Interrupt, Interrupted};
 pub use contract::{
-    AtomConfigurationDto, AtomKindView, AtomPositionView, AtomStereoView, AtomView,
-    BondConfigurationDto, BondEndDto, BondOrderDto, BondQueryDto, BondStereoView, BondToDto,
-    BondView, CarbonLabelsDto, CloseRequest, CloseResponse, CommandDto, CopyResponse, CopySource,
-    CreateDocumentRequest, DeleteModeDto, DeleteResponse, DisplayUnitDto, DocumentListResponse,
-    DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse, DraftFailureView,
-    DraftRequest, GraphicShapeDto, HydrogensDto, ImportSettingsRequest, InstanceView, LabelFontDto,
-    ListQuery, ListSort, MarkDto, MoleculeView, PageView, PointDto, PositionView,
-    QueryBondOrderDto, QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState, RecoveryView,
-    ReferenceDto, ReferenceTargetDto, RelationDto, RenameRequest, ResetSettingsRequest,
-    RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest, SceneObjectView, SceneView,
-    SelectionDto, SessionView, SettingsDto, SettingsEditDto, SettingsSource, StereoGroupKindDto,
-    StereoGroupView, StereoView, TransactionRequest, TransactionSelections, TrashListResponse,
-    TrashedSummary, TurnDto, UnreadableDocument, query_label,
+    ArrangementModeDto, AtomConfigurationDto, AtomKindView, AtomPositionView, AtomStereoView,
+    AtomView, BondConfigurationDto, BondEndDto, BondOrderDto, BondQueryDto, BondStereoView,
+    BondToDto, BondView, CarbonLabelsDto, CloseRequest, CloseResponse, CommandDto, CopyResponse,
+    CopySource, CreateDocumentRequest, DeleteModeDto, DeleteResponse, DisplayUnitDto,
+    DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse,
+    DraftFailureView, DraftRequest, GraphicShapeDto, HydrogensDto, ImportSettingsRequest,
+    InstanceView, LabelFontDto, ListQuery, ListSort, MarkDto, MoleculeView, PageView, PointDto,
+    PositionView, QueryBondOrderDto, QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState,
+    RecoveryView, ReferenceDto, ReferenceTargetDto, RelationDto, RenameRequest,
+    ResetSettingsRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest,
+    SceneObjectView, SceneView, SelectionDto, SessionView, SettingsDto, SettingsEditDto,
+    SettingsSource, StereoGroupKindDto, StereoGroupView, StereoView, TransactionRequest,
+    TransactionSelections, TrashListResponse, TrashedSummary, TurnDto, UnreadableDocument,
+    query_label,
 };
 pub use data::{
     BindingState, BindingStatus, CheckState, DataSnapshot, DataSource, DataStatus,
@@ -108,9 +109,10 @@ pub use draft_schedule::{DRAFT_MAX_WAIT, DRAFT_QUIET, DRAFT_RETRY};
 pub use draft_writer::DraftWriter;
 pub use error::{ApplicationError, ErrorCode, ErrorResponse, StorageReason};
 pub use operations::{
-    AromaticityResult, AromaticitySystem, AtomDrawnView, AtomInspection, AtomLabel, AtomPair,
-    BondDrawnView, BondInspection, BondLabel, BondPair, CIP_REASONS, CipResult, ClosedResult,
-    Diagnostic, DocumentResult, EffectiveSelectionScope, EndLabel, Envelope, FoldedHydrogen,
+    AromaticityResult, AromaticitySystem, ArrangementBounds, ArrangementPlanResult,
+    ArrangementUnitView, AtomDrawnView, AtomInspection, AtomLabel, AtomPair, BondDrawnView,
+    BondInspection, BondLabel, BondPair, CIP_REASONS, CipResult, ClosedResult, Diagnostic,
+    DocumentResult, EffectiveSelectionScope, EndLabel, Envelope, FoldedHydrogen,
     IdentityComparison, IdentityResult, IdentityStereo, IdentityView, InchiResult,
     InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
     Loss, LossConsent, LossDisposition, MATCH_CODES, MAX_ENTRIES, MappingView, MatchCodeRow,
