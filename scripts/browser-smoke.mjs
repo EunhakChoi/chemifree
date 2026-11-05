@@ -2501,7 +2501,7 @@ step = 'after mixed_marquee_placement_and_group_drag'
   const id = docId
   const seeded = await apiWrite(`/api/v1/documents/${id}/transactions`, {
     request_id: 'mixed-transform-fixture', expected_revision: 0, commands: [
-      { op: 'add_atom', element: 'C', isotope: 13, position: { x: 100, y: 100 } },
+      { op: 'add_atom', element: 'C', position: { x: 100, y: 100 } },
       { op: 'add_atom', element: 'F', position: { x: 130, y: 100 }, bond_to: { atom: '$0', order: 'single' } },
       { op: 'add_atom', element: 'Cl', position: { x: 100, y: 130 }, bond_to: { atom: '$0', order: 'single' } },
       { op: 'add_atom', element: 'Br', position: { x: 70, y: 100 }, bond_to: { atom: '$0', order: 'single' } },
@@ -2511,9 +2511,12 @@ step = 'after mixed_marquee_placement_and_group_drag'
       { op: 'create_stereo_group', kind: 'absolute', atoms: ['a1'], number: null },
       { op: 'add_instance', source: 's1', offset: { x: 0, y: 120 } },
       { op: 'add_graphic', shape: 'line', points: [{ x: 180, y: 220 }, { x: 210, y: 220 }] },
+      // Isotope is an update field; append it so prior command references keep their indexes.
+      { op: 'update_atom', atom: 'a1', isotope: 13 },
     ],
   })
   assert.equal(seeded.status, 200, JSON.stringify(seeded.body))
+  assert.equal(seeded.body.document.atoms.find((atom) => atom.id === 'a1').isotope, 13, 'the fixture retains a nondefault recorded atom state')
   await page.reload()
   await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open', exact: true }).click()
   await page.getByLabel('Revision 1').waitFor()
