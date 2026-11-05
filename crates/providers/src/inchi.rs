@@ -307,6 +307,14 @@ fn prepare(graph: &MoleculeGraph, groups: &StereoGroupTable) -> Result<Prepared,
                         ),
                     ));
                 };
+                if begin_ref == end_ref {
+                    return Err(unsupported(
+                        "inchi_double_stereo_unsupported",
+                        format!(
+                            "Bond {id} has a shared ring reference that this InChI profile cannot encode."
+                        ),
+                    ));
+                }
                 stereo.push(native::Stereo::DoubleBond {
                     neighbors: [
                         index_of(*begin_ref)?,
@@ -621,6 +629,47 @@ mod tests {
                 }]
             );
         }
+    }
+
+    #[test]
+    fn shared_ring_reference_is_reported_as_unsupported_before_native_conversion() {
+        let mut document = Document::new(DocumentId::parse("inchi-ring").unwrap(), "Ring").unwrap();
+        let mut commands = Vec::new();
+        for _ in 0..3 {
+            commands.push(Command::AddAtom {
+                atom: atom("C"),
+                positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+                bond_to: None,
+            });
+        }
+        for (begin, end, order) in [
+            (0, 1, BondOrder::Double),
+            (1, 2, BondOrder::Single),
+            (2, 0, BondOrder::Single),
+        ] {
+            commands.push(Command::AddBond {
+                begin: AtomRef::Created(begin),
+                end: AtomRef::Created(end),
+                order,
+            });
+        }
+        commands.push(Command::SetBondConfiguration {
+            bond: BondRef::Created(3),
+            configuration: Some(BondConfiguration::Relative {
+                begin_neighbor: SlotRef::Atom(AtomRef::Created(2)),
+                end_neighbor: SlotRef::Atom(AtomRef::Created(2)),
+                relation: Relation::SameSide,
+            }),
+        });
+        document.apply(&commands).unwrap();
+        let failure = prepare(
+            &MoleculeGraph::from_document(&document),
+            document.stereo_groups(),
+        )
+        .err()
+        .expect("a shared ring reference is not supported by the native profile");
+        assert_eq!(failure.kind, InchiErrorKind::Unsupported);
+        assert_eq!(failure.code, "inchi_double_stereo_unsupported");
     }
 
     #[test]
