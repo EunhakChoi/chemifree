@@ -85,10 +85,10 @@ pub use contract::{
     PositionView, QueryBondOrderDto, QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState,
     RecoveryView, ReferenceDto, ReferenceTargetDto, RelationDto, RenameRequest,
     ResetSettingsRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest,
-    SceneObjectView, SceneView, SelectionDto, SessionView, SettingsDto, SettingsEditDto,
-    SettingsSource, StereoGroupKindDto, StereoGroupView, StereoView, TransactionRequest,
-    TransactionSelections, TrashListResponse, TrashedSummary, TurnDto, UnreadableDocument,
-    query_label,
+    SceneObjectView, SceneView, SelectionDto, SelectionTransformDto, SessionView, SettingsDto,
+    SettingsEditDto, SettingsSource, StereoGroupKindDto, StereoGroupView, StereoView,
+    TransactionRequest, TransactionSelections, TrashListResponse, TrashedSummary, TurnDto,
+    UnreadableDocument, query_label,
 };
 pub use data::{
     BindingState, BindingStatus, CheckState, DataSnapshot, DataSource, DataStatus,
@@ -120,7 +120,8 @@ pub use operations::{
     OperationResponse, OperationResult, Outcome, Priority, ProfileSupport, ScopePosition,
     SelectionScopeResult, SemanticImpact, Severity, SmilesExportResult, SmilesPreviewAtom,
     SmilesPreviewBond, SmilesPreviewResult, SpanView, StereoResult, SubstructureLimits,
-    SubstructureResult, SubstructureStereo, Support, reason_sentence,
+    SubstructureResult, SubstructureStereo, Support, TransformPlanResult, TransformedGraphicView,
+    TransformedPositionView, reason_sentence,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,

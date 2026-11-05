@@ -186,7 +186,9 @@
    ],
    "depends_on": [],
    "delivered": {
-    "prs": [13],
+    "prs": [
+     13
+    ],
     "merge_commit": "4a8f02e",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40637230234"
    }
@@ -216,7 +218,9 @@
    ],
    "depends_on": [],
    "delivered": {
-    "prs": [9],
+    "prs": [
+     9
+    ],
     "merge_commit": "db09dbf",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40618915865"
    }
@@ -246,7 +250,9 @@
    ],
    "depends_on": [],
    "delivered": {
-    "prs": [12],
+    "prs": [
+     12
+    ],
     "merge_commit": "e76bef3",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40624016359"
    }
@@ -280,7 +286,9 @@
     "P03"
    ],
    "delivered": {
-    "prs": [17],
+    "prs": [
+     17
+    ],
     "merge_commit": "b029e23",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40643116016"
    }
@@ -348,7 +356,9 @@
     "P05"
    ],
    "delivered": {
-    "prs": [21],
+    "prs": [
+     21
+    ],
     "merge_commit": "0cc92ea",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40660586352"
    }
@@ -379,7 +389,9 @@
     "P05"
    ],
    "delivered": {
-    "prs": [22],
+    "prs": [
+     22
+    ],
     "merge_commit": "5aaf6c6",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40666694453"
    }
@@ -407,7 +419,9 @@
     "P07"
    ],
    "delivered": {
-    "prs": [23],
+    "prs": [
+     23
+    ],
     "merge_commit": "530aa16",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40739733773"
    }
@@ -506,7 +520,9 @@
     "P13"
    ],
    "delivered": {
-    "prs": [30],
+    "prs": [
+     30
+    ],
     "merge_commit": "1a518cd",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40796524510"
    }
@@ -536,7 +552,9 @@
     "P09"
    ],
    "delivered": {
-    "prs": [32],
+    "prs": [
+     32
+    ],
     "merge_commit": "b1ccdfb222043cf5d6e69aaa6d5720f2ba4b5654",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40820386893"
    }
@@ -602,7 +620,9 @@
     "P11"
    ],
    "delivered": {
-    "prs": [36],
+    "prs": [
+     36
+    ],
     "merge_commit": "a8c254db579e9e6108cd18fd0f8ecf13dc646044",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41095602815"
    }
@@ -633,7 +653,9 @@
     "P08"
    ],
    "delivered": {
-    "prs": [29],
+    "prs": [
+     29
+    ],
     "merge_commit": "85d4788",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/40784845386"
    }
@@ -770,7 +792,9 @@
     "P13"
    ],
    "delivered": {
-    "prs": [80],
+    "prs": [
+     80
+    ],
     "merge_commit": "fb61369aeb456d6e4f7940dc13dc46d86d1c061d",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41218250815"
    }
@@ -801,7 +825,9 @@
     "P16"
    ],
    "delivered": {
-    "prs": [82],
+    "prs": [
+     82
+    ],
     "merge_commit": "c4a8e44eafeb5f560743559d4797d0791c463eb2",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41225052724",
     "note": "제한된 방향족 모델과 원자적 변환의 부분 납품이다. 더 넓은 융합계와 상태는 후속 범위다."
@@ -862,7 +888,9 @@
     "P15"
    ],
    "delivered": {
-    "prs": [81],
+    "prs": [
+     81
+    ],
     "merge_commit": "3aa8686cc30c0c717bfbe02e94ffd2cc1a3c786d",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41223458088",
     "note": "분자식·질량 첫 범위의 부분 납품이다. 개인 질량 프로필 호환성과 일반 정밀도는 미완료다."
@@ -895,7 +923,9 @@
     "P13"
    ],
    "delivered": {
-    "prs": [83],
+    "prs": [
+     83
+    ],
     "merge_commit": "fe443007193bfef7af16f3771cb1dde3431646a0",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41227984583",
     "note": "V2000 MOL/SDF의 제한된 입출력 부분 납품이다. 고급 객체와 입체 해석은 후속 범위다."
@@ -1211,7 +1241,9 @@
    ],
    "note": "선택적 Linux 공개 InChI 1.07.5 native provider와 chem.inchi의 제한된 생성 프로필을 완료했다(#149). 버전은 등록값이며 SHA 확인·유한 협조적 timeout·저장 입체·손실 동의·unavailable을 보고한다. Native 경계 10/10, 같은 공식 배포본의 별도 실행 파일과 direct native 6개 및 Application/provider 4개 InChI/Key 정확 비교 통과(독립 화학 엔진 비교 아님, 로컬 opt-in 실행). 동의 회귀 6/6, CLI 설정 통합 7/7, API/CLI 설정 모듈 각 4/4와 전체 로컬 검사·브라우저 smoke 통과. Codex 공유 고리 참조 및 독립 subagent FIFO 지적은 회귀 검사와 함께 수정했다. 병합 후 main CI check·browser 통과. 일반 CI는 공식 native 비교를 실행하지 않으며 Linux·ordinary 결합·명시된 0D 입체 범위다. InChI import·전용 웹 패널·다른 플랫폼·더 넓은 화학·강제 중단은 미구현이며 전체 호환·출시 완료를 주장하지 않는다.",
    "delivered": {
-    "prs": [149],
+    "prs": [
+     149
+    ],
     "merge_commit": "853bb8c391b606028d70809d0f30ca76d68e0d62",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/42081222618"
    }
@@ -1242,7 +1274,9 @@
    ],
    "note": "제한된 웹 viewport 완료(#150). 탭 로컬 중심·배율(CSS px/point, 1/4096–32), 포인터 고정 zoom·pan·geometry.viewBox fit·100% reset, 역 SVG 좌표와 화면 px 기준 hit/drag를 제공한다. 편집·resize는 중심·배율을 유지하고 문서 전환·reload는 fit이다. 뷰는 모델 명령·revision·dirty·Undo·저장에 들어가지 않는다. 툴바, Pan view(H), Ctrl/⌘+wheel, 가운데 버튼/Space 드래그, 포커스 키와 한 포인터 터치를 지원한다. Pinch·다중 터치·회전·관성·뷰 영속화는 미구현이며 P32의 추가 선택·정렬·문서 변환은 후속 범위다. 최종 로컬 client 351개·conformance 99개·브라우저 스모크와 PR/main CI 통과. 두 리뷰의 지적 3건은 수정했다. 샌드박스 밖 data-page 진단은 격리 검증으로 세지 않는다. 상세: docs/verification/p31-viewport-completion.md.",
    "delivered": {
-    "prs": [150],
+    "prs": [
+     150
+    ],
     "merge_commit": "7fb7ae99a5dff9c8e70f16f0aecdd3f6e1ab1258",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/42084338264"
    }
@@ -1273,7 +1307,7 @@
     "P31",
     "P11"
    ],
-   "note": "첫 납품 P32a는 read-only document.selection_scope와 원자적 move_selection만 연결한다. 포함 subtree·원자·결합 끝점의 안정된 union과 중복 이동 방지, instance 범위, 참조 비추적, no-op·이력·전체 rollback을 검사한다. 새 conformance 두 사례와 최종 검사·리뷰는 확인 전이며 P32 완료가 아니다. 웹 복합/박스 선택·회전·반사·정렬/분배 UI·snapping은 미구현이다. P32b는 scene outermost 단위의 geometry-only align 6종·equal-gap distribute 2종, 읽기 전용 document.arrangement_plan과 원자적 arrange_objects를 더한다. 기하 없는 단위·대상 부족·음수 간격은 거절하며 snapshot 계획은 commit token이 아니다. translation 앵커로 좌표+target-source를 정확히 합산한 뒤 binary64로 한 번 반올림하며 delta는 보고용 근삿값이다. 웹 제어·부분 원자 배치·회전·반사·snapping은 미구현이고 최종 검사/리뷰 전이다."
+   "note": "첫 납품 P32a는 read-only document.selection_scope와 원자적 move_selection만 연결한다. 포함 subtree·원자·결합 끝점의 안정된 union과 중복 이동 방지, instance 범위, 참조 비추적, no-op·이력·전체 rollback을 검사한다. 전용 conformance 두 사례는 clean isolated suite28에서 통과했으며 제한된 부분의 implemented 근거다. P32 전체 완료나 최종 리뷰/CI 주장은 아니다. 웹 복합/박스 선택·정렬/분배 UI·snapping은 미구현이며 회전·반사 primitive는 아래 P32c가 더한다. P32b는 scene outermost 단위의 geometry-only align 6종·equal-gap distribute 2종, 읽기 전용 document.arrangement_plan과 원자적 arrange_objects를 더한다. 기하 없는 단위·대상 부족·음수 간격은 거절하며 snapshot 계획은 commit token이 아니다. translation 앵커로 좌표+target-source를 정확히 합산한 뒤 binary64로 한 번 반올림하며 delta는 보고용 근삿값이다. 정렬/분배 웹 제어·부분 원자 배치·snapping은 미구현이다. 전용 conformance 두 사례는 suite28에서 통과했으며 최종 리뷰/CI 완료와 구분한다. P32c는 read-only document.transform_plan과 원자적 transform_selection으로 기존 selection union의 원자 위치·graphic을 명시한 pivot 주위에서 기하적으로 회전/축 반사한다. 양의 회전은 page 좌표에서 시계 방향이며 modulo360 항등·직각은 trig 없이 처리한다. 임의 각도는 원자·line·arrow만, rectangle은 자손·퇴화 도형을 포함해 정확한 quarter turn만 허용한다. 수평/수직 pivot 축 반사는 지원하지만 대각선 반사·자동 pivot은 지원하지 않는다. scope와 before/after 좌표를 보고하고 stored stereo/mark/group·hierarchy·reference는 그대로 둔다. drawing_stereo_may_change는 실제 graph 위치 변경의 안내일 뿐 입체 판정·손실이 아니다. 빈 대상/항등 no-op·좌표/대상/rectangle 거절·Undo/Redo는 원자적이며 전용 conformance 두 사례가 clean isolated suite28에서 통과했다. 기록된 suite28은105/105 passed(accept77·reject28, failed0·not_run0)이고 P32a/b/c 전용 여섯 사례를 포함한다. 세 bounded OPS-01 부분은 case 근거로 implemented이며 최종 리뷰/브라우저/CI 완료 주장은 아니다. 웹 transform 제어·복합/박스 선택·snapping·cleanup이 남아 P32는 in_progress다."
   },
   {
    "phase": "editor",

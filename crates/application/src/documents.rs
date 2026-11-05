@@ -9,11 +9,12 @@ use std::{panic, thread};
 use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::document::{
     Applied, AtomId, Command, Document, DocumentId, EditError, HistoryError, MAX_COMMANDS,
-    MAX_TITLE_CHARS, Numbering, ObjectId, Outcome, RevisionsExhausted, TransactionError,
+    MAX_TITLE_CHARS, Numbering, ObjectId, Outcome, Point, RevisionsExhausted, TransactionError,
     validated_title,
 };
 use chemifree_domain::scene::{
-    ArrangementPlan, ObjectArrangement, Selection, SelectionScope, TransactionSelection,
+    ArrangementPlan, ObjectArrangement, Selection, SelectionScope, SelectionTransform,
+    TransactionSelection, TransformPlan,
 };
 use chemifree_domain::settings::Settings;
 use chemifree_domain::stereo::StereoKey;
@@ -812,6 +813,27 @@ impl<R: DocumentRepository> Documents<R> {
         let plan = session
             .document
             .object_arrangement(objects, arrangement)
+            .map_err(|error| ApplicationError {
+                current_revision: Some(session.document.revision()),
+                ..rejected_edit(TransactionError { index: None, error })
+            })?;
+        Ok((self.respond(session), plan))
+    }
+
+    /// Captures checked transformed geometry and its exact snapshot under one session lock.
+    pub(crate) fn transform_plan(
+        &self,
+        id: &str,
+        selection: &Selection,
+        instance: Option<ObjectId>,
+        pivot: Point,
+        transform: SelectionTransform,
+    ) -> Result<(DocumentResponse, TransformPlan), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        let plan = session
+            .document
+            .selection_transform(selection, instance, pivot, transform)
             .map_err(|error| ApplicationError {
                 current_revision: Some(session.document.revision()),
                 ..rejected_edit(TransactionError { index: None, error })

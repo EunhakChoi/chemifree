@@ -192,12 +192,12 @@ impl Rounded {
 // Keeping the residuals makes the sign exact for finite bounded input coordinates:
 // an actually negative available gap is never excused by a rounding tolerance.
 #[derive(Default)]
-struct ExactSum {
+pub(super) struct ExactSum {
     parts: Vec<f64>,
 }
 
 impl ExactSum {
-    fn add(&mut self, value: f64) {
+    pub(super) fn add(&mut self, value: f64) {
         let mut running = value;
         let mut parts = Vec::with_capacity(self.parts.len() + 1);
         for part in &self.parts {
@@ -219,7 +219,7 @@ impl ExactSum {
     }
     // Collapse the nonoverlapping expansion from largest to smallest. A remaining
     // same-sign tail resolves a halfway case without double rounding (ties to even).
-    fn nearest(&self) -> f64 {
+    pub(super) fn nearest(&self) -> f64 {
         let mut parts = self.parts.iter().rev();
         let Some(&first) = parts.next() else {
             return 0.0;

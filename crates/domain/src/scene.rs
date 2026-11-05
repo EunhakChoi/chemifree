@@ -11,12 +11,15 @@
 //! content.
 
 mod arrangement;
+mod transform;
 
 pub(crate) use arrangement::plan as plan_arrangement;
 pub use arrangement::{
     AlignMode, ArrangementPlan, ArrangementTranslation, ArrangementUnit, Bounds, DistributionAxis,
     ObjectArrangement,
 };
+pub(crate) use transform::PreparedTransform;
+pub use transform::{SelectionTransform, TransformPlan, TransformedGraphic, TransformedPosition};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -172,11 +175,15 @@ pub enum SceneError {
     ArrangementEmptyGeometry,
     /// Fixed endpoint units leave insufficient space for nonoverlapping equal gaps.
     ArrangementNegativeGap,
+    /// A rotation angle is not finite.
+    TransformInvalidAngle,
+    /// An arbitrary rotation cannot retain an axis-aligned rectangle's representation.
+    TransformRectangleUnsupported,
 }
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 17] = [
         Self::ObjectUnknown,
         Self::ObjectKindMismatch,
         Self::GroupMixedParents,
@@ -192,6 +199,8 @@ impl SceneError {
         Self::ArrangementTooFewUnits,
         Self::ArrangementEmptyGeometry,
         Self::ArrangementNegativeGap,
+        Self::TransformInvalidAngle,
+        Self::TransformRectangleUnsupported,
     ];
 
     /// The stable machine-readable code.
@@ -212,6 +221,8 @@ impl SceneError {
             Self::ArrangementTooFewUnits => "arrangement_too_few_units",
             Self::ArrangementEmptyGeometry => "arrangement_empty_geometry",
             Self::ArrangementNegativeGap => "arrangement_negative_gap",
+            Self::TransformInvalidAngle => "transform_invalid_angle",
+            Self::TransformRectangleUnsupported => "transform_rectangle_unsupported",
         }
     }
 }
