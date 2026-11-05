@@ -29,7 +29,9 @@ P29f는 기존 CODEC-01·CODEC-02의 제한된 도면 export에 웹 패널을 �
 
 P29g는 [형식별 표](CONTRACT.md#stereo-interchange-evidence-p29g)와 [codec corpus 검사](../crates/application/tests/stereo_codec_corpus.rs), 새 적합성 사례 세 개를 연결한다. suite 25는 99/99 통과(accept 74·reject 25)이며 corpus 두 테스트는 도면 경로 92개와 별도 선언한 그룹 경로 16개를 통과했다. 기존 23개 corpus는 그대로이고 그래프·배치·partition·표시를 따로 비교한다. 출력 `0445=true`는 도면이 저장하지 않는 가시성의 명시적 정규화(`enhanced_stereo_display`)이며 보존된 배치·그룹의 비교 축에 섞지 않는다. RDKit 2022.03.2 별도 대조는 도면 23개 0 problems·SMILES 24개 0 failures·지원 V3000 core/marks/partition 일치였으나 `STERAC-128` 번호는 RDKit이 건너뛰며 CDXML/CDX 출력은 독립 판독하지 않았다. 수동 RDKit 대조를 새 적합성 사례나 자동 추적 근거로 세지 않는다. P29는 이 문서화된 bounded 프로필을 `done`으로 기록한다. 방향 결합은 열린 P21에 연결한 미구현 후속 **P29c2**이며 SMILES의 lone-pair 넷째 자리 표는 계속 거절이다. CODEC/STEREO의 미구현 catch-all 상태는 유지하고 완료한 P29 대신 해당 열린 행에 후속을 연결한다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 96개(implemented 48, partial 12, unverified 3, not_implemented 33) · conformance 사례 99개(passed 99: accept 74·reject 25, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+P32a는 읽기 전용 `document.selection_scope`와 원자적 `move_selection`만 연결한다. 그룹 subtree·원자·결합 끝점의 안정된 union, 참조를 따라가지 않음, 다른 배치 보존, 중복 이동 한 번, no-op 뒤 redo 보존과 전체 rollback을 새 conformance 두 사례로 검사한다. OPS-01.selection-scope는 최종 검증 전 unverified이고 P32는 in_progress다. 박스·웹 복합 선택·정렬·분배·회전·반사·snapping은 완료 범위가 아니다.
+
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 99개(implemented 48, partial 12, unverified 6, not_implemented 33) · conformance 사례 101개(passed 101: accept 75·reject 26, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

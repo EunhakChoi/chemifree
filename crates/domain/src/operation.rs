@@ -12,6 +12,7 @@ pub enum OperationId {
     CapabilitiesInspect,
     DocumentCreate,
     DocumentSnapshot,
+    DocumentSelectionScope,
     DocumentTransaction,
     HistoryUndo,
     HistoryRedo,
@@ -41,10 +42,11 @@ pub enum OperationId {
 
 impl OperationId {
     /// Every operation, in catalog order.
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 29] = [
         Self::CapabilitiesInspect,
         Self::DocumentCreate,
         Self::DocumentSnapshot,
+        Self::DocumentSelectionScope,
         Self::DocumentTransaction,
         Self::HistoryUndo,
         Self::HistoryRedo,
@@ -77,6 +79,7 @@ impl OperationId {
             Self::CapabilitiesInspect => "capabilities.inspect",
             Self::DocumentCreate => "document.create",
             Self::DocumentSnapshot => "document.snapshot",
+            Self::DocumentSelectionScope => "document.selection_scope",
             Self::DocumentTransaction => "document.transaction",
             Self::HistoryUndo => "history.undo",
             Self::HistoryRedo => "history.redo",

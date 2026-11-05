@@ -13,7 +13,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use crate::document::{AtomId, BondId, EditError, ObjectId, Point, Vector};
+use crate::document::{AtomId, BondId, EditError, ObjectId, Point, PositionKey, Vector};
 
 /// Scene objects a document holds, of every kind together.
 pub const MAX_OBJECTS: usize = 1_000;
@@ -64,7 +64,7 @@ pub struct Graphic {
 }
 
 impl Graphic {
-    fn translated(&self, delta: Vector) -> Result<Self, EditError> {
+    pub(crate) fn translated(&self, delta: Vector) -> Result<Self, EditError> {
         let [first, second] = self.points;
         Ok(Self {
             shape: self.shape,
@@ -202,6 +202,17 @@ pub struct Selection {
     pub objects: BTreeSet<ObjectId>,
     pub atoms: BTreeSet<AtomId>,
     pub bonds: BTreeSet<BondId>,
+}
+
+/// Deterministic movement targets resolved from one selection and its graph placement.
+/// Scene objects include selected groups and their descendants. Positions are unique per
+/// instance and atom, including selected bond endpoints; graphics are unique geometry targets.
+/// Containment expands selected groups; directed scene references are never followed.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SelectionScope {
+    pub objects: BTreeSet<ObjectId>,
+    pub positions: BTreeSet<PositionKey>,
+    pub graphics: BTreeSet<ObjectId>,
 }
 
 /// A scene object named in a selection: an existing one, or one created earlier in the same
