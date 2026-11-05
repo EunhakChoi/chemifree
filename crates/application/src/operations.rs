@@ -19,6 +19,7 @@ mod clipboard;
 mod import;
 mod inchi;
 mod interchange;
+mod scene_clipboard;
 mod selection_scope;
 mod smiles;
 mod stereo;
@@ -71,6 +72,11 @@ use clipboard::{CopyParameters, PasteParameters};
 use import::{ImportFormat, ImportRequest, Staged};
 use inchi::InchiParameters;
 pub use inchi::InchiResult;
+pub(crate) use scene_clipboard::mapping as scene_clipboard_mapping;
+pub use scene_clipboard::{
+    ClipboardSceneCopyResult, ClipboardSceneMapping, ClipboardScenePasteResult,
+};
+use scene_clipboard::{SceneCopyParameters, ScenePasteParameters};
 use selection_scope::SelectionScopeParameters;
 pub use selection_scope::{EffectiveSelectionScope, ScopePosition, SelectionScopeResult};
 use smiles::{SmilesExportParameters, SmilesImportParameters};
@@ -239,6 +245,8 @@ pub enum OperationResult {
     TransformPlan(Box<TransformPlanResult>),
     ClipboardCopy(Box<ClipboardCopyResult>),
     ClipboardPaste(Box<ClipboardPasteResult>),
+    ClipboardSceneCopy(Box<ClipboardSceneCopyResult>),
+    ClipboardScenePaste(Box<ClipboardScenePasteResult>),
     /// `document.close`.
     Closed(ClosedResult),
     InterchangeRead(Box<InterchangeReadResult>),
@@ -865,6 +873,20 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             runs(
                 id,
                 "Atomically appends validated native graph data with fresh IDs into a single matching-style placement. No arbitrary command or external-format clipboard import.",
+            ),
+            &[],
+        ),
+        Op::DocumentClipboardSceneCopy => (
+            runs(
+                id,
+                "Copies an ordered graphic-only scene forest and its internal object references; refuses molecule instances, graph targets and outgoing references.",
+            ),
+            &[],
+        ),
+        Op::DocumentClipboardScenePaste => (
+            runs(
+                id,
+                "Atomically appends graphic-only roots with fresh object IDs and remapped internal references under exact settings; chemistry and placements stay unchanged.",
             ),
             &[],
         ),
@@ -2357,6 +2379,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::DocumentClipboardPaste => match parameters::<PasteParameters>(parameters_value) {
                 Ok(parameters) => self.resolve_clipboard_paste(known, parameters),
+                Err(error) => known.invalid(error),
+            },
+            Op::DocumentClipboardSceneCopy => match parameters::<SceneCopyParameters>(parameters_value) {
+                Ok(parameters) => self.resolve_clipboard_scene_copy(known, parameters),
+                Err(error) => known.invalid(error),
+            },
+            Op::DocumentClipboardScenePaste => match parameters::<ScenePasteParameters>(parameters_value) {
+                Ok(parameters) => self.resolve_clipboard_scene_paste(known, parameters),
                 Err(error) => known.invalid(error),
             },
             Op::ChemValidate => match parameters::<SnapshotParameters>(parameters_value) {

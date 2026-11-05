@@ -70,6 +70,12 @@ enum Mutation {
         offset: crate::contract::PointDto,
         selection_before: Option<crate::contract::SelectionDto>,
     },
+    ClipboardScenePaste {
+        expected_revision: u64,
+        payload: String,
+        offset: crate::contract::PointDto,
+        selection_before: Option<crate::contract::SelectionDto>,
+    },
     AromaticityConversion {
         expected_revision: u64,
         conversion: AromaticityConversion,
@@ -1156,6 +1162,95 @@ impl<R: DocumentRepository> Documents<R> {
                     },
                 );
                 edit_notes(&session.document, result)
+            },
+        )
+    }
+
+    /// Capture a graphic-only forest and its exact source snapshot under one lock.
+    pub(crate) fn clipboard_scene_copy(
+        &self,
+        id: &str,
+        selection: &Selection,
+    ) -> Result<
+        (
+            DocumentResponse,
+            chemifree_domain::scene_clipboard::Fragment,
+        ),
+        ApplicationError,
+    > {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        let fragment =
+            chemifree_domain::scene_clipboard::copy_fragment(&session.document, selection)
+                .map_err(|error| ApplicationError {
+                    current_revision: Some(session.document.revision()),
+                    ..crate::scene_clipboard::domain_refusal(error)
+                })?;
+        Ok((self.respond(session), fragment))
+    }
+
+    /// Preflight every object/reference and replay one immutable scene paste atomically.
+    pub(crate) fn clipboard_scene_paste(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        request: crate::scene_clipboard::Paste<'_>,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let selection = contract::to_selection(&TransactionSelections {
+            before: request.selection_before.clone(),
+            after: None,
+        })?;
+        let mutation = Mutation::ClipboardScenePaste {
+            expected_revision: request.expected_revision,
+            payload: request.payload.into(),
+            offset: request.offset,
+            selection_before: request.selection_before,
+        };
+        self.mutate(
+            id,
+            request_id,
+            request.expected_revision,
+            mutation,
+            |session| {
+                let plan = request
+                    .fragment
+                    .paste_commands(
+                        &session.document,
+                        chemifree_domain::document::Vector {
+                            dx: request.offset.x,
+                            dy: request.offset.y,
+                        },
+                    )
+                    .map_err(|error| ApplicationError {
+                        current_revision: Some(session.document.revision()),
+                        ..crate::scene_clipboard::domain_refusal(error)
+                    })?;
+                let mut candidate = session.document.clone();
+                let result = candidate.apply_reporting(
+                    &plan.commands,
+                    &TransactionSelection {
+                        before: selection.before,
+                        after: Some(plan.selection),
+                    },
+                );
+                let notes = edit_notes(&candidate, result)?;
+                let projected = DocumentResponse::new(
+                    &candidate,
+                    session.saved_revision,
+                    session.draft_revision,
+                );
+                let mapping = crate::operations::scene_clipboard_mapping(
+                    request.fragment,
+                    &projected.document,
+                )?;
+                if mapping != plan.objects || !notes.is_empty() {
+                    return Err(crate::clipboard::refusal(
+                        "clipboard_scene_mapping_invalid",
+                        "Scene paste must preserve the complete graphic forest without chemical changes",
+                    ));
+                }
+                session.document = candidate;
+                Ok(notes)
             },
         )
     }

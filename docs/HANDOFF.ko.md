@@ -69,6 +69,13 @@
 - OS clipboard와 document 삭제는 하나의 원자적 transaction이 아니다. write 뒤 거절이면 copy만 남고 Cut 삭제는 없으며 이전 clipboard 복원·자동 paste-back을 하지 않는다. document Undo/Redo만 기존 ID·selection을 복구하며 clipboard는 바꾸지 않는다. 미확정 삭제는 동일 request ID/body/process로만 확인하고 확인 중 clipboard를 다시 쓰지 않는다. service restart/terminal conflict는 명시 reload/reconcile, old-process held success는 generation guard를 따른다.
 - 기존 P33a/P33b 실행 근거를 새 Cut 검증으로 재사용하지 않는다. fb72ee9의 격리 targeted frontend lint/typecheck·client395개·web build와 dedicated clipboard browser가 통과했다. 전체 npm run check는 진행 중이며 full browser/CI 통과나 P33 완료는 주장하지 않는다. P33은 in_progress다. crossing boundary·여러 source placement·scene clone·외부 clipboard format·전역 Ctrl/Cmd+X는 미구현이다.
 
+## P33e graphic-only native scene forest backend 후보 인계
+
+- `document.clipboard_scene_copy/paste`를 별도 backend 연산으로 추가한다. object-only outermost 선택을 source paint order의 forest로 복사하고 group child order·graphic 두 점·내부 object reference를 보존한다. self/cyclic directed reference는 허용하고 containment cycle·공유 child는 거절한다. 외부 owner의 incoming ref는 source에만 남고 copied owner의 outgoing/graph ref는 전체 거절한다.
+- molecule instance(하위 포함)·명시 atom/bond·empty/unknown 선택·child 두 개 미만 group은 거절하며 flatten/dummy object/chemistry clone은 없다. 엄격한 version2 kind graphics data-only payload는 roots/children만 containment를 담고 모든 필드가 필수다. 64KiB·정확한 settings·finite offset·실제 object+reference 500-command와 기존 object/depth/reference/ID/좌표 한도를 검사한다.
+- paste는 source root 순서를 page 끝에 붙이고 fresh object IDs로 모든 내부 reference를 remap한다. selection-after는 새 roots이며 mixed selection-before·Undo/Redo를 보존한다. graph/stereo/instance/위치는 바꾸지 않아 여러 placement destination도 받는다. 전체 candidate와 mapping을 commit 전 확인하며 replay mapping은 현재 번호가 아닌 원래 응답의 roots/children에서 복구한다. 루트 painting order와 숫자 ID 순서는 다를 수 있다.
+- 카탈로그는 연산35개·기본 실행25개이며 transaction sub-operation46개(명령35/capability11)는 그대로다. 새 domain/application/codec 회귀는 작성했지만 이 작업에서 tests/build/browser/clippy는 실행하지 않았다. 기존 P33a/b/c/d 실행 근거를 새 backend 통과로 세지 않는다. 웹 scene clipboard·scene Cut·molecule instance clone·외부 scene format은 미구현이고 P33은 in_progress다.
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.

@@ -15,6 +15,7 @@ pub mod mass;
 pub mod operation;
 pub mod rings;
 pub mod scene;
+pub mod scene_clipboard;
 pub mod settings;
 pub mod states;
 pub mod stereo;
