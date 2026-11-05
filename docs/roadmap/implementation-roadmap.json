@@ -1297,7 +1297,7 @@
    "acceptance": "중복 이동·끊어진 참조·비선택 객체 손상을 막고 전체 조작을 Undo/Redo로 복원한다.",
    "kind": "core",
    "id": "P32",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "presentation",
     "logic",
@@ -1307,7 +1307,21 @@
     "P31",
     "P11"
    ],
-   "note": "P32a–f는 이 행의 bounded 선택/기하 구현을 연결한다. P32a document.selection_scope/move_selection은 Scene subtree·atom·bond 끝점 union과 배치별 중복 제거를, P32b document.arrangement_plan/arrange_objects는 outermost whole-object align6종·equal-gap distribute2종을, P32c document.transform_plan/transform_selection은 명시 pivot의 기하 회전/수평·수직 축 반사를 제공한다. P11의 group/ungroup·reference·history를 유지하고 P32d Scene 제어, P32e Shift-toggle/포함 marquee/명시 active-placement mixed drag, P32f captured mixed quarter-turn/축 반사 웹 제어를 연결한다. 큐의 최신 snapshot에서 captured 대상/배치를 전체 재검증하며 소실 시 전체 lapse한다. scope/before-after를 보고하고 references·비선택 위치·stored stereo/marks/groups를 보존하며 중복·오류·no-op·revision·Undo/Redo는 원자적이다. 기존 clean isolated suite28의105/105(accept77·reject28, failed0·not_run0)는 P32a/b/c 전용 여섯 사례를 포함한 기록된 서버 근거이고 새 웹 최종 실행 근거가 아니다. 세 웹 부분은 unverified/evidence[]이며 implementation commit a542abc의 격리 로컬 npm run check(373 client·105/105 conformance·traceability), strict routes(0/1000 stalled), no-skips browser(skipped_steps=[]·mixed selection/transform flags=true)는 확인됐다. shared lock/private copy·MemoryMax6G·swap0, peak anon1760MiB·cache74MiB다. 최종 통합 리뷰 기록·P32f PR/main CI·병합 근거와 추적 상태 승격은 아직 대기이며 P32는 in_progress다. docs/verification/p32-selection-completion.md에 기준별 구현/검사와 pending gate를 기록했으며 P32는 in_progress다. 구현 audit에서 이 roadmap 행의 추가 기능 누락은 확인하지 않았다. 정렬/분배는 whole-object, box는 active-placement atom 중심·완전 graphic 두 점, raw graph 대상은 한 active placement, 웹 transform은 geometry-center quarter turn/축 반사이며 rectangle은 정확한 quarter turn만 허용한다. label/stroke/arrowhead는 geometry bounds에 넣지 않는다. partial-atom arrangement·lasso/교차 선택·여러 배치 raw graph 선택·custom-angle/pivot 웹 UI·대각선 반사·snapping·cleanup은 공개 범위 밖이며 P32의 새 완료 필수 조건으로 삼지 않는다. 전체 OPS-01/OPS-02는 partial을 유지한다. 최종 근거 확인 뒤에만 상태/추적 집계를 갱신하고 done은 병합/main CI 근거와 함께 기록한다. P32-center #159(ab26cc1)은 late one-ULP suppression과 midpoint tie를 수정했고 isolated full check/browser·strict routes0/1000·no-skips(skipped_steps=[]·mixed flags=true) 및 mutation이 통과했다. peak anon1702/cache96MiB,6G swap0다. 병합545c09ddecc667b67d19049031428b70b1daa805의 mainCI42113776746은 확인 대기다. 이후 Codex post-union-center drift P2(discussion_r4486304783)가 발견되어 추가 수정/회귀 근거가 필요하며 P32는 in_progress다. 반복 정렬이 안정되지 않는 드문 중심값은 arrangement_center_unstable로 전체 거부한다."
+   "note": "P32a–f의 bounded 선택·기하 납품 완료(#152·154·155·156·157·158 및 수치 후속159·161). document.selection_scope/move_selection은 subtree·atom·bond endpoint union을 배치별 한 번 다루며 reference·연결 성분을 따라가지 않는다. document.arrangement_plan/arrange_objects는 outermost whole-object align6종·equal-gap distribute2종, document.transform_plan/transform_selection은 explicit pivot 회전/축 반사와 scope/before-after를 제공한다. Scene Group/Ungroup·제어와 canvas Shift-toggle/포함 marquee·active-placement captured mixed 이동/quarter-turn·반사를 연결했다. 큐의 최신 snapshot에서 captured 대상을 재검증하며 만료 시 전체 lapse한다. stored stereo/mark/group·hierarchy·reference·비선택 geometry를 보존하고 원자성·no-op·revision/history/Undo/Redo를 검사했다. late one-ULP suppression·midpoint tie는 #159에서 수정했다. post-union-center drift는 #161의 arrangement_center_unstable 사전 거절로 한 번에 안정되지 않는 중심 계획을 원자적으로 거절하며 hidden iteration을 하지 않는다. 최종 eeb6f7a 격리 npm run check(373 client·105/105 conformance·traceability), strict routes0/1000 stalled, no-skips browser skipped_steps=[]·두 mixed flags=true가 통과했다. shared lock/private copy·MemoryMax6G·swap0, peak anon1462/cache123MiB이며 guard 제거 mutation은 회귀 실패를 확인했다. #161 독립 리뷰는 지적 없음, Codex handoff 지적은 수정했고 PR CI42115749139 및 병합 mainCI42117006940이 성공했다. README/HANDOFF/TRACEABILITY와 완료 기록에 리뷰/수정·실패/성공 근거를 남겼다. 이 완료 문서 PR 자체 CI는 아직 대기다. 정렬/분배는 whole-object, box는 active-placement atom 중심·완전 graphic 두 점, raw graph는 한 active placement, 웹 변환은 center-pivot quarter turn/축 반사이며 rectangle은 정확한 quarter turn만 허용한다. label/stroke/arrowhead는 geometry bounds에서 제외한다. partial-atom arrangement·lasso/교차 선택·여러 배치 raw graph 선택·custom-angle/pivot 웹 UI·대각선 반사·snapping·cleanup은 범위 밖이며 전체 OPS-01/OPS-02는 partial이다. 상세: docs/verification/p32-selection-completion.md.",
+   "delivered": {
+    "prs": [
+     152,
+     154,
+     155,
+     156,
+     157,
+     158,
+     159,
+     161
+    ],
+    "merge_commit": "2c7a51847cd316b73a2324cb8a8152f95ee3ecc3",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/42117006940"
+   }
   },
   {
    "phase": "editor",
