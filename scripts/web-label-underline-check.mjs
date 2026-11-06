@@ -238,8 +238,38 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
       assert.ok(pickEvent?.insideCanvas,`the native pointer event reached the canvas: ${JSON.stringify({screen,pickEvent})}`)
       assert.ok(JSON.parse(await page.getByLabel('Weight selection', { exact:true }).textContent()).includes('a4'),
         `right edge of the measured label is pickable: ${JSON.stringify({beforeScroll,screen,pickEvent,label})}`)
-      const selectedBox = await page.locator('[data-instance="s1"] > g').first().locator('rect').evaluateAll((rects) => rects.map((rect) => ({x:Number(rect.getAttribute('x')),y:Number(rect.getAttribute('y')),width:Number(rect.getAttribute('width')),height:Number(rect.getAttribute('height'))})))
-      assert.ok(selectedBox.some((box) => ['x','y','width','height'].every((key) => Math.abs(box[key]-label.box[key]) < 0.05)), 'selection highlight uses the same measured label box')
+      await page.waitForFunction(() => {
+        const svg = document.querySelector('svg[data-structure-canvas]')
+        return svg.dataset.captionBoundsReady === 'true' && svg.dataset.captionMeasuredViewBox === svg.getAttribute('viewBox') && !svg.classList.contains('cursor-progress')
+      })
+      // Selection can trigger a render after scrolling and pointer hover. Compare
+      // the two mounted consumers in the same turn, not a pre-interaction box.
+      const selectedGeometry = await page.locator('svg[data-structure-canvas]').evaluate((svg) => {
+        const atom = svg.querySelector('[data-instance="s1"] [data-atom-label="a4"]')
+        const underlay = svg.querySelector('[data-instance="s1"] [data-atom-underlay="a4"]')
+        const values = atom?.getAttribute('data-box')?.split(' ').map(Number)
+        const box = values ? {x:values[0],y:values[1],width:values[2],height:values[3]} : null
+        const highlight = underlay ? Object.fromEntries(['x','y','width','height'].map((field)=>[field,Number(underlay.getAttribute(field))])) : null
+        const current = JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent)
+        return { box,highlight,selection:JSON.parse(document.querySelector('[aria-label="Weight selection"]').textContent),
+          documentId:current.document.id,revision:current.document.revision,settings:current.document.settings,
+          ready:svg.dataset.captionBoundsReady,measuredViewBox:svg.dataset.captionMeasuredViewBox,paintedViewBox:svg.getAttribute('viewBox'),
+          fonts:document.fonts.status,busy:svg.classList.contains('cursor-progress'),
+          atom:atom?.outerHTML,underlay:underlay?.outerHTML }
+      })
+      const selectionEvidence = JSON.stringify({stage,beforeScroll,screen,pickEvent,before:label,after:selectedGeometry})
+      assert.equal(selectedGeometry.ready,'true',selectionEvidence)
+      assert.equal(selectedGeometry.measuredViewBox,selectedGeometry.paintedViewBox,selectionEvidence)
+      assert.equal(selectedGeometry.fonts,'loaded',selectionEvidence)
+      assert.equal(selectedGeometry.busy,false,selectionEvidence)
+      assert.equal(selectedGeometry.revision,geometry.context.revision,selectionEvidence)
+      assert.deepEqual(selectedGeometry.settings,geometry.context.settings,selectionEvidence)
+      assert.ok(selectedGeometry.selection.includes('a4'), `the mounted selection still contains a4: ${selectionEvidence}`)
+      assert.ok(selectedGeometry.box && selectedGeometry.highlight && ['x','y','width','height'].every((key) => Math.abs(selectedGeometry.highlight[key]-selectedGeometry.box[key]) < 0.05),
+        `selection highlight uses the same mounted measured label box: ${selectionEvidence}`)
+      if (selectedGeometry.box && ['x','y','width','height'].some((key)=>Math.abs(selectedGeometry.box[key]-label.box[key])>=0.05)) {
+        console.log(`Label metrics changed between geometry and selection samples: ${selectionEvidence}`)
+      }
       const current = (await snapshot()).document
       for (const field of ['atoms','bonds','scene','stereo','abbreviations']) assert.deepEqual(current[field], original[field], `appearance keeps ${field}`)
     }

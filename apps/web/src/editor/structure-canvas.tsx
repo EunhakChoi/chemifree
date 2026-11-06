@@ -818,9 +818,9 @@ export function StructureCanvas({
             const p = position(drawing, atom.id)
             const label = labelBox(drawing.labels, atom.id, p)
             return label ? (
-              <rect key={atom.id} {...label} rx={3 * unitsPerPixel} strokeWidth={unitsPerPixel} />
+              <rect key={atom.id} data-atom-underlay={atom.id} {...label} rx={3 * unitsPerPixel} strokeWidth={unitsPerPixel} />
             ) : (
-              <circle key={atom.id} cx={p.x} cy={p.y} r={8 * unitsPerPixel} strokeWidth={unitsPerPixel} />
+              <circle key={atom.id} data-atom-underlay={atom.id} cx={p.x} cy={p.y} r={8 * unitsPerPixel} strokeWidth={unitsPerPixel} />
             )
           })}
       </g>

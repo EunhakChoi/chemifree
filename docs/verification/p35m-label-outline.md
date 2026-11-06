@@ -62,3 +62,29 @@ sample. No production behavior was changed without evidence.
 
 Validation of this follow-up: source review and `git diff --check` only. Tests,
 builds and browser execution remain delegated to the parent by task instruction.
+
+## Selection comparison after interaction
+
+The parent's subsequent isolated run passed the strict underline-count checks
+and failed the selection comparison at italic/bold/monospace/4 pt. That assertion
+compared a rectangle sampled after scrolling and pointer selection with a label
+box sampled before those interactions. Its failure log omitted both rectangles.
+Source establishes that the current atom underlay uses
+`labelBox(drawing.labels, atom.id, p)` and the painted label receives that same
+`drawing.labels` entry in the same render. The stored data-box rounds each value
+to 0.01 pt; this is within the existing 0.05 pt comparison tolerance. A persistent
+mismatch between those same mounted consumers is therefore still a regression;
+stability of an earlier measurement across intervening interaction is a separate
+claim the original assertion did not distinguish.
+
+Atom underlays now expose their atom identity, and both matrices select a4's
+underlay by that identity. After the existing pointer/selection check and the
+same bounds-readiness gate, one synchronous sample captures its currently mounted
+label and underlay together. The equality assertion retains its 0.05 pt tolerance;
+readiness, font, viewport provenance, unchanged revision/settings and the actual
+selection are also asserted. Failure evidence includes both full SVG elements,
+both rectangles, the original pre-interaction label, pointer events and viewBox
+and settings provenance. A changed pre/post measurement is logged explicitly so
+the parent can establish a stale earlier sample without inferring it from a pass.
+No geometry algorithm or scientific behavior was changed. Source inspection and
+`git diff --check` only; execution remains with the parent.
