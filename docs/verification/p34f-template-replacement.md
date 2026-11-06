@@ -88,3 +88,19 @@ P34f source/검사/40개 catalog와 main의 P34e 거절 reason·기존38개 cata
 통합 담당자는 rustfmt와 git diff --check만 실행했다. 테스트·빌드·브라우저·mutation·push,
 skill gates 및 통합 full/CI는 실행하지 않았으며 부모 검증 대기다. 과학 기능/배포 완료나
 P34 완료로 기록하지 않는다. PR Codex 리뷰도 부모 단계에서 pending이다.
+
+## 부모 첫 targeted의 compile 실패와 조회 API 정정
+
+- 부모가 통합 `f93b59b`의 첫 격리 targeted 검사를 시작했으나 Domain library compile에서
+  E0599로 중단됐다. `clipboard.rs:296`의 `destination.atom(target)`은 실제 Document에
+  없는 메서드다. 로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34f-targeted.log`다.
+  최초 정적 리뷰와 rustfmt는 이 타입 오류를 찾지 못했으며 컴파일 통과 근거가 아니다.
+- 실제 공개 API `Document::atoms()`는 `(AtomId, &Atom)` iterator를 준다. 존재 검사는
+  `atoms().any(...)`로 정정했다. 새 Rust source/tests의 단건 조회를 대조하면서 같은
+  잘못된 호출을 test assertion 한 곳에서도 찾아 `atoms().find(...).map(...)`으로 고쳤다.
+  assertions의 atom-state 기대값과 거절 경계는 그대로다. 새 단건 조회 API를 추가하지 않았다.
+- 새 코드에서 쓴 bond/position/numbering/first_instance 및 transaction/history 조회/수정
+  호출도 실제 Document 선언과 대조했다. 남은 `.atom(...)` 호출은 repository Rust 범위
+  검색으로 다시 확인한다. 이 수정 담당자는 rustfmt와 diff whitespace만 확인하며,
+  테스트·빌드·브라우저·push는 실행하지 않는다. 수정본 compile/targeted/full/CI는 부모
+  재검증 대기이며 정적 대조만으로 전체 compile 성공을 주장하지 않는다.

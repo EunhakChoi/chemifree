@@ -122,7 +122,12 @@ fn replacement_binds_a_nonfirst_source_anchor_and_preserves_the_outside_edge() {
     assert_eq!(dest.atoms().len(), 4);
     assert_eq!(dest.bonds().len(), 3);
     assert_eq!(dest.bond(bond(1)), Some(&before.bonds[0].1));
-    assert_eq!(dest.atom(atom(2)), Some(&Atom::from(Element::CARBON)));
+    assert_eq!(
+        dest.atoms()
+            .find(|(id, _)| *id == atom(2))
+            .map(|(_, state)| state),
+        Some(&Atom::from(Element::CARBON))
+    );
     assert_eq!(
         dest.position(dest.first_instance(), atom(2)),
         Some(point(40.0, 20.0))

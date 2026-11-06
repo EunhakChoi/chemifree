@@ -293,7 +293,7 @@ impl Fragment {
         if !self.atoms.iter().any(|atom| atom.id == source) {
             return Err(FragmentError::Invalid(EditError::UnknownAtom(source)));
         }
-        if destination.atom(target).is_none() {
+        if !destination.atoms().any(|(id, _)| id == target) {
             return Err(FragmentError::Invalid(EditError::UnknownAtom(target)));
         }
         self.plan_commands(destination, offset, Some((source, target)))
