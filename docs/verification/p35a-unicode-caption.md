@@ -1,5 +1,7 @@
 # P35a: independent Unicode caption candidate
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 Status: implemented candidate, execution verification pending. P35 remains `in_progress`.
 Branch: `feat/p35a-unicode-caption`, isolated at `chemifree-p35a`, started from
 `origin/main` `80e3204`. This record does not claim a merged delivery or successful CI.

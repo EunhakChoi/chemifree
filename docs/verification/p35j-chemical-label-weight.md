@@ -1,5 +1,7 @@
 # P35j chemical label weight
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 Base: origin/main f63f23a (#194). P35 remains in progress.
 
 Document `label_weight` is normal/bold. Normal preserves existing 400/500 runs,

@@ -1,5 +1,7 @@
 # P35e: caption run size
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 Status: implementation candidate; P35 remains `in_progress`. Base: `6bc2a15` (#189).
 Branch/worktree: `feat/p35e-caption-run-size`, isolated `chemifree-p35e`.
 

@@ -1,5 +1,7 @@
 # P35g caption run underline
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 P35 remains `in_progress`. Native v15 adds strict boolean underline in current and all history states; v8–14 migrate false without writing. The existing exact-byte document/draft archive protocol includes v14. Metadata increases from136 to154 bytes, within the160-byte reservation.
 
 SVG decoration is an explicit filled rect per run, using actual SVG character start/end positions. The renderer unions its bounds with glyph ink before fit/selection/hit; it does not assume text getBBox includes native decoration. Decoration top is baseline+rendered size/12 and thickness rendered size/16. No scientific behavior or atom/Et label change. External caption roundtrip remains unsupported and existing whole-caption export losses apply.

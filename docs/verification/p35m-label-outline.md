@@ -1,5 +1,7 @@
 # P35m chemical label outline
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 Status: implementation and checks authored; execution deferred by task instruction.
 P35 remains in_progress. No scientific compatibility claim.
 

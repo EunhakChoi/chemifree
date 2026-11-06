@@ -1,5 +1,7 @@
 # P35b: explicit caption run weight and style
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 Status: implemented candidate; execution verification and review pending. P35 remains in progress.
 Base: `ba95baa`; branch: `feat/p35b-caption-font` in isolated `chemifree-p35b`.
 

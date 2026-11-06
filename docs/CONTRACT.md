@@ -1,5 +1,8 @@
 # Chemifree local API v1
 
+Current P35 evidence: #184 and #187–199 are merged with passing check/browser CI; #185 supplies fixed graph-preserving Et display. P35 remains in progress: independent caption styling and document-wide chemical label typography do not establish general abbreviation label text/run editing. Later execution-pending statements describe their implementation sessions. The [completion audit](verification/p35-completion-audit.md) reconciles current evidence and boundaries; this documentation audit ran no product checks.
+
+
 Rust DTOs are shared by HTTP and the CLI in `crates/application/src/` (`lib.rs`, `contract.rs`, `error.rs`). The browser keeps a hand-maintained mirror with runtime validation in `apps/web/src/lib/contract.ts` and `apps/web/src/lib/document-contract.ts`. There is no generated SDK.
 
 Every JSON response includes `api_version: "v1"`; HTTP paths carry the same major version.

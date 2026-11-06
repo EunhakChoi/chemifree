@@ -1,5 +1,7 @@
 # P35n chemical label shadow implementation record
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 Scope: document `label_shadow` default false; P35i's Chemifree +1,+1 pt, opacity
 .35/no blur policy applies to chemical label glyphs and retained-graph Et only.
 One canvas-wide group composites shadow overlap before foreground. Underline
