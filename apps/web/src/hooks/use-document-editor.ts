@@ -10,6 +10,7 @@ import {
   type CopyResponse,
   type CtImport,
   type SmilesImport,
+  type SmilesClipboardImportAttempt,
   type SmilesStyle,
   type DocumentListResponse,
   type DocumentResponse,
@@ -106,7 +107,8 @@ type ClipboardMutation = {
   generation: number
   terminalConflict?: boolean
 } & ({ kind: 'paste'; attempt: NativeClipboardPasteAttempt } | { kind: 'cut'; attempt: NativeClipboardCutAttempt } |
-  { kind: 'mol_import'; attempt: NativeClipboardMolImportAttempt } | { kind: 'scene_paste'; attempt: NativeSceneClipboardPasteAttempt })
+  { kind: 'mol_import'; attempt: NativeClipboardMolImportAttempt } | { kind: 'scene_paste'; attempt: NativeSceneClipboardPasteAttempt } |
+  { kind: 'smiles_import'; attempt: SmilesClipboardImportAttempt })
 
 function requireCutEligible(copy: NativeClipboardCopy) {
   const source = copy.snapshot.document
@@ -197,7 +199,7 @@ export function useDocumentEditor() {
   const clipboardAttempt = useRef<ClipboardMutation | null>(null)
   const [clipboardPending, setClipboardPending] = useState(false)
   const [clipboardNeedsReload, setClipboardNeedsReload] = useState(false)
-  const [clipboardAction, setClipboardAction] = useState<'paste' | 'cut' | 'mol_import' | 'scene_paste' | null>(null)
+  const [clipboardAction, setClipboardAction] = useState<'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'smiles_import' | null>(null)
 
   const adoptSelection = useCallback((next: Set<string>) => {
     selectionRef.current = next
@@ -333,7 +335,7 @@ export function useDocumentEditor() {
       setClipboardAction(null)
       if (currentRef.current?.document.id === pendingPaste.documentId) {
         setCurrent(snapshot)
-        adoptSelection(pendingPaste.kind === 'mol_import'
+        adoptSelection(pendingPaste.kind === 'mol_import' || pendingPaste.kind === 'smiles_import'
           ? selectionIds(selectionSnapshot(selectionRef.current, snapshot.document))
           : selectionIds(snapshot.document.selection))
       }
@@ -644,7 +646,7 @@ export function useDocumentEditor() {
       setClipboardNeedsReload(false)
       setClipboardAction(null)
       if (currentRef.current?.document.id === unresolved.documentId) {
-        adoptSelection(unresolved.kind === 'mol_import'
+        adoptSelection(unresolved.kind === 'mol_import' || unresolved.kind === 'smiles_import'
           ? selectionIds(selectionSnapshot(selectionRef.current, fresh.document))
           : selectionIds(fresh.document.selection))
       }
@@ -719,14 +721,30 @@ export function useDocumentEditor() {
       client.previewSmiles(id, revision, source), []),
     exportSmiles: useCallback((id: string, style: SmilesStyle, acceptedLosses?: string) =>
       client.exportSmiles(id, style, acceptedLosses), []),
-    /** Like `importCt`, but a refusal is returned to the caller's panel, not shown on the page. */
+    /** Typed and clipboard SMILES share one immutable, process-bound import attempt. */
     importSmiles: useCallback(async (input: SmilesImport, snapshot: DocumentView, generation: number): Promise<ImportResult> => {
-      const own: { failure: ApiError | null } = { failure: null }
-      const committed = await importDocument(input, snapshot, generation, () => client.importSmiles(input), (failure) => {
-        own.failure = failure
-      })
-      return committed ? { committed: true } : { committed: false, failure: own.failure }
-    }, [importDocument]),
+      const frozen = { ...input }
+      try {
+        await clipboardTask(async () => {
+          const shown = currentRef.current?.document
+          if (frozen.documentId !== snapshot.id || frozen.revision !== snapshot.revision ||
+              !shown || generation !== serviceGenerationRef.current || !sameConversionSnapshot(shown, snapshot)) {
+            throw new ApiError('preview_changed', 'The drawing or service changed. Preview the SMILES text again before importing.', 0)
+          }
+          clipboardAttempt.current = {
+            kind: 'smiles_import',
+            attempt: client.createClipboardSmilesImport(frozen),
+            documentId: frozen.documentId,
+            generation,
+          }
+          setClipboardAction('smiles_import')
+          await finishClipboardMutation()
+        })
+        return { committed: true }
+      } catch (failure) {
+        return { committed: false, failure: asApiError(failure) }
+      }
+    }, [clipboardTask, finishClipboardMutation]),
     inspectAromaticity: useCallback((id: string) => client.inspectAromaticity(id), []),
     convertAromaticity: useCallback((to: 'aromatic' | 'kekule', inspected: DocumentView, generation: number) => {
       const pressed = new Set(selectionRef.current)

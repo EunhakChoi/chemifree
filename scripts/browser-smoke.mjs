@@ -3689,14 +3689,14 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByLabel('Written SMILES').waitFor()
   assert.equal(await panel.getByLabel('Written SMILES').inputValue(), '[Fe]')
 
-  // A commit that the service fails (503) leaves the panel usable: the error shows in the panel, the
+  // A definite precommit service refusal (503 busy) leaves the panel usable: the error shows in the panel, the
   // buttons work again, and a new preview and import go through.
   await source.fill('CC')
   await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
   await panel.getByTestId('smiles-preview-summary').waitFor()
   const failCommit = async (route) => {
     const request = route.request().postDataJSON()
-    if (request?.operation === 'document.import' && request?.parameters?.preview !== true) return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' })
+    if (request?.operation === 'document.import' && request?.parameters?.preview !== true) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ api_version: 'v1', code: 'busy', message: 'The import was refused before commit.' }) })
     return route.continue()
   }
   await page.route('**/api/v1/operations', failCommit)
@@ -3708,35 +3708,35 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByTestId('smiles-preview-summary').waitFor()
   await panel.getByRole('button', { name: 'Import SMILES' }).isEnabled()
 
-  // A commit whose reply is lost may have happened. The preview stays, and the same request
-  // is retried: the service answers with what it committed, so nothing is imported twice.
+  // A commit whose replies are lost may have happened. The hook retains its immutable
+  // attempt even when the source form changes; checking gets the original committed reply.
   // The panel is on the Metal document by now.
   const metalAtoms = async () => (await api(`/api/v1/documents/${metalId}`)).document.atoms.length
   const before = await metalAtoms()
+  const lostSmilesRequests = []
   const loseReply = async (route) => {
     const request = route.request().postDataJSON()
     if (request?.operation !== 'document.import' || request?.parameters?.preview === true) return route.continue()
+    lostSmilesRequests.push(request)
     await route.fetch()
     return route.abort('connectionreset')
   }
   await page.route('**/api/v1/operations', loseReply)
   await panel.getByRole('button', { name: 'Import SMILES' }).click()
-  await panel.getByRole('button', { name: 'Retry the same import' }).waitFor()
+  await panel.getByRole('button', { name: 'Check SMILES import outcome' }).waitFor()
   await page.unroute('**/api/v1/operations', loseReply)
   assert.equal(await metalAtoms(), before + 2, 'the first request did commit')
-  // The first commit went through, so a new preview names a stale revision and is refused. That
-  // must not take the retry away: it is the only way left to learn what the first request did.
-  const stalePreview = page.waitForResponse((response) => response.url().includes('/api/v1/operations') &&
-    response.request().postDataJSON()?.parameters?.preview === true)
-  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
-  await stalePreview
-  await panel.getByRole('button', { name: 'Preview SMILES import' }).isEnabled()
-  assert.equal(await panel.getByRole('button', { name: 'Retry the same import' }).count(), 1, 'a refused re-preview keeps the retry')
-  assert.equal(await metalAtoms(), before + 2, 'the refused preview imported nothing')
-  await panel.getByRole('button', { name: 'Retry the same import' }).click()
-  await panel.getByText(/Imported\./).waitFor()
+  assert.equal(lostSmilesRequests.length, 2, 'one immediate outcome check also lost its reply')
+  assert.deepEqual(lostSmilesRequests[0], lostSmilesRequests[1])
+  await source.fill('CCC')
+  assert.equal(await panel.getByRole('button', { name: 'Preview SMILES import' }).isDisabled(), true, 'an unresolved import blocks a new preview')
+  assert.equal(await panel.getByRole('button', { name: 'Check SMILES import outcome' }).count(), 1, 'editing text retains the original attempt')
+  const checkedImport = page.waitForRequest((request) => request.url().includes('/api/v1/operations') &&
+    request.postDataJSON()?.operation === 'document.import' && request.postDataJSON()?.parameters?.preview !== true)
+  await panel.getByRole('button', { name: 'Check SMILES import outcome' }).click()
+  assert.deepEqual((await checkedImport).postDataJSON(), lostSmilesRequests[0], 'the source edit must not change the retried body or request ID')
+  await panel.getByRole('button', { name: 'Check SMILES import outcome' }).waitFor({ state: 'hidden' })
   assert.equal(await metalAtoms(), before + 2, 'the retry was answered from the committed reply, not imported again')
-  await panel.getByRole('button', { name: 'Retry the same import' }).waitFor({ state: 'hidden' })
 
   // A restart between the preview and the import refuses the import in the panel.
   await source.fill('CC')
@@ -3751,8 +3751,10 @@ step = 'after short_wide_bond_is_selectable'
   )
   await crashApi()
   await panel.getByRole('button', { name: 'Import SMILES' }).click()
-  await panel.getByRole('alert').getByText(/The local service restarted/).waitFor()
+  await panel.getByRole('button', { name: 'Reload document to reconcile' }).waitFor()
   assert.equal(await panel.getByRole('button', { name: 'Import SMILES' }).count(), 0)
+  await panel.getByRole('button', { name: 'Reload document to reconcile' }).click()
+  await panel.getByRole('button', { name: 'Reload document to reconcile' }).waitFor({ state: 'hidden' })
   results.smiles_panel = true
 }
 

@@ -578,11 +578,50 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
     ))
     .unwrap();
     assert!(smoke.contains("results.smiles_panel = true"));
-    // What it says about the panel's retry is what the smoke checks.
+    // Recovery belongs to the immutable attempt, independently of edited source
+    // or a discarded preview. The cited browser checks compare actual requests
+    // and entity counts, rather than merely showing an outcome-check button.
+    for claim in [
+        "immutable attempt",
+        "Check SMILES import outcome",
+        "request ID/body",
+        "source를 바꿔도",
+        "reload/reconcile",
+    ] {
+        assert!(bullet.contains(claim), "missing recovery claim: {claim}");
+    }
     assert!(
-        bullet.contains("Retry the same import")
-            && smoke.contains("a refused re-preview keeps the retry")
+        !bullet.contains("Retry the same import"),
+        "the handoff must not describe the superseded preview-bound retry"
     );
+    for check in [
+        "assert.deepEqual(lostSmilesRequests[0], lostSmilesRequests[1])",
+        "editing text retains the original attempt",
+        "assert.deepEqual((await checkedImport).postDataJSON(), lostSmilesRequests[0]",
+        "the retry was answered from the committed reply, not imported again",
+        "Reload document to reconcile",
+    ] {
+        assert!(
+            smoke.contains(check),
+            "missing smoke recovery check: {check}"
+        );
+    }
+    let clipboard = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../scripts/web-smiles-clipboard-check.mjs"
+    ))
+    .unwrap();
+    for check in [
+        "assert.deepEqual(accepted[0], accepted[1])",
+        "assert.deepEqual(checked[2], accepted[0])",
+        "assert.equal(commits.size, 1)",
+        "explicit new consent is a new, distinct attempt",
+    ] {
+        assert!(
+            clipboard.contains(check),
+            "missing clipboard recovery check: {check}"
+        );
+    }
 }
 
 /// The "Stereo read" section names exactly the stereo refusal codes the codec has: a code the
