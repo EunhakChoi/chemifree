@@ -94,6 +94,8 @@ jobs:
         run: npm run test:browser:abbreviation
       - name: Chemical label weight, measured 700 ink and shared geometry
         run: npm run test:browser:label-weight
+      - name: Chemical label italic SVG geometry and font loading
+        run: npm run test:browser:label-style
       - name: Unicode caption form, canvas and native roundtrip
         run: npm run test:browser:caption
       - name: Independent ring insertion and uncertain outcome recovery

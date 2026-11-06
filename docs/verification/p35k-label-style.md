@@ -73,3 +73,12 @@ no other incomplete current whole-settings expectations. Remaining omissions in
 v5/v6 native fixtures are intentional migration input; partial preference and
 command literals intentionally name only the changed fields. No tests were run
 by this implementation agent. `cargo fmt --all` and `git diff --check` were run.
+
+## PR #196 Codex P2 disposition: browser CI registration
+
+The review found that the authored italic browser regression had no package
+script or browser CI step. Added `npm run test:browser:label-style`, which invokes
+`node scripts/web-label-style-check.mjs`, and registered it immediately after
+`test:browser:label-weight` in the browser job. This makes italic SVG/font/geometry
+coverage part of the established browser pipeline. The finding is fixed.
+Only `git diff --check` was run for this wiring change; no test or build was run.
