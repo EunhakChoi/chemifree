@@ -120,3 +120,14 @@ for (const font of ['Arial', 'inherit', '', 4, false, [], {}]) test(`caption gen
   value.document.scene.objects.at(-1).runs[0].font = font
   assert.equal(isDocumentResponse(value), false)
 })
+
+for (const size of [undefined, null, 4, 72, 12.5]) test(`caption size accepts ${String(size)}`, () => {
+  const value = source()
+  value.document.scene.objects.at(-1).runs[0].size_pt = size
+  assert.equal(isDocumentResponse(value), true)
+})
+for (const size of [3.999, 72.001, NaN, Infinity, -Infinity, '12', '', false, [], {}]) test(`caption size rejects ${String(size)}`, () => {
+  const value = source()
+  value.document.scene.objects.at(-1).runs[0].size_pt = size
+  assert.equal(isDocumentResponse(value), false)
+})

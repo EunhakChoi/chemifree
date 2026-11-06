@@ -1244,7 +1244,8 @@ mod tests {
                     anchor: Point::new(-99_999.999_999, 99_999.999_999).unwrap(),
                     runs: vec![
                         CaptionRun {
-                            font: None,
+                            size_pt: Some(4.000_000_000_000_001),
+                            font: Some(chemifree_domain::settings::LabelFont::SansSerif),
                             text: "\"".repeat(512),
                             script: CaptionScript::Superscript,
                             weight: Default::default(),

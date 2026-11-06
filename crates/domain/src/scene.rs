@@ -25,7 +25,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::document::{AtomId, BondId, EditError, ObjectId, Point, PositionKey, Vector};
-use crate::settings::LabelFont;
+use crate::settings::{LABEL_SIZE_RANGE, LabelFont};
 
 /// Scene objects a document holds, of every kind together.
 pub const MAX_OBJECTS: usize = 1_000;
@@ -119,8 +119,10 @@ pub enum CaptionStyle {
 }
 
 /// Text stored verbatim: no Unicode normalization or index-based edits.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CaptionRun {
+    /// None follows the document label size dynamically; overrides are finite 4–72 pt.
+    pub size_pt: Option<f64>,
     /// None follows the document label font; overrides use the same closed vocabulary.
     pub font: Option<LabelFont>,
     pub text: String,
@@ -141,14 +143,17 @@ impl Caption {
     /// Validate edits and every restored/history state without truncating input.
     ///
     /// # Errors
-    /// Returns `CaptionInvalid` for empty, over-limit, multiline or control-bearing text.
+    /// Returns `CaptionInvalid` for empty, over-limit, multiline or control-bearing text,
+    /// or a nonfinite/out-of-range run size.
     pub fn validate(&self) -> Result<(), EditError> {
         let bytes: usize = self.runs.iter().map(|run| run.text.len()).sum();
         if self.runs.is_empty()
             || self.runs.len() > 32
             || bytes > 16_384
             || self.runs.iter().any(|run| {
-                run.text.is_empty()
+                run.size_pt
+                    .is_some_and(|size| !size.is_finite() || !LABEL_SIZE_RANGE.contains(&size))
+                    || run.text.is_empty()
                     || run
                         .text
                         .chars()

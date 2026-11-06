@@ -9,7 +9,9 @@ use crate::stereo_group::StereoGroup;
 // Each reservation includes field/identifier overhead. Identifiers need at most 11 ASCII
 // bytes, floats at most 32; ID list entries reserve 16. Control-free text reserves twice its
 // UTF-8 length for quotes/backslashes, plus run metadata (including the longest script, weight and style).
-// A v12 run needs at most 86 metadata bytes, including font; the 96-byte reservation covers it.
+// A v13 run needs at most 116 metadata bytes: the v12 maximum of 86 plus
+// size_pt (up to 17-digit f64 scientific notation, including sign/exponent).
+// The 128-byte reservation covers every finite 4–72 pt override.
 // The caption-level 256-byte overhead also covers the bounded v11 alignment enum.
 const ATOM: usize = 512;
 const BOND: usize = 256;
@@ -35,7 +37,7 @@ fn object_weight(object: &SceneObject) -> usize {
         SceneObject::Group { children } => 128 + ids_weight(children.len()),
         SceneObject::Caption(caption) => caption.runs.iter().fold(256_usize, |total, run| {
             total
-                .saturating_add(96)
+                .saturating_add(128)
                 .saturating_add(run.text.len().saturating_mul(2))
         }),
     }

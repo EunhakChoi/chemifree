@@ -16,6 +16,7 @@ fn caption(text: &str) -> Caption {
         alignment: Default::default(),
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![CaptionRun {
+            size_pt: None,
             font: None,
             text: text.into(),
             script: CaptionScript::Baseline,
@@ -43,6 +44,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![
             CaptionRun {
+                size_pt: None,
                 font: None,
                 text: "한글 e\u{301} 👩‍🔬 H".into(),
                 script: CaptionScript::Baseline,
@@ -50,6 +52,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
                 style: Default::default(),
             },
             CaptionRun {
+                size_pt: None,
                 font: None,
                 text: "2".into(),
                 script: CaptionScript::Subscript,
@@ -57,6 +60,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
                 style: Default::default(),
             },
             CaptionRun {
+                size_pt: None,
                 font: None,
                 text: "+".into(),
                 script: CaptionScript::Superscript,
@@ -323,4 +327,64 @@ fn font_only_replacement_is_one_edit_and_preserves_mixed_runs_and_graph() {
         assert_eq!(doc.bonds().count(), 0);
         assert_eq!(doc.abbreviations().count(), 0);
     }
+}
+
+#[test]
+fn size_overrides_are_finite_bounded_and_undoable_without_capturing_document_defaults() {
+    let mut doc = document();
+    let mut value = caption(" inherited ");
+    let mut explicit = value.runs[0].clone();
+    explicit.text = "sized".into();
+    explicit.size_pt = Some(4.0);
+    explicit.script = CaptionScript::Superscript;
+    value.runs.push(explicit);
+    doc.apply(&[add(value.clone())]).unwrap();
+    let before = doc.clone();
+    for size in [
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        -0.0,
+        3.999,
+        72.001,
+    ] {
+        let mut invalid = value.clone();
+        invalid.runs[1].size_pt = Some(size);
+        let error = doc.apply(&[Command::UpdateCaption {
+            object: object(2),
+            caption: invalid,
+        }]);
+        assert_eq!(
+            error.unwrap_err().error,
+            EditError::CaptionInvalid,
+            "size {size}"
+        );
+        assert_eq!(
+            doc, before,
+            "a refused size must preserve the whole document"
+        );
+    }
+    value.runs[1].size_pt = Some(72.0);
+    doc.apply(&[Command::UpdateCaption {
+        object: object(2),
+        caption: value.clone(),
+    }])
+    .unwrap();
+    let sized = doc.clone();
+    doc.undo().unwrap();
+    assert_eq!(doc.scene_objects(), before.scene_objects());
+    doc.redo().unwrap();
+    assert_eq!(doc.scene_objects(), sized.scene_objects());
+    doc.apply(&[Command::UpdateSettings(
+        chemifree_domain::settings::SettingsEdit {
+            label_size_pt: Some(24.0),
+            ..Default::default()
+        },
+    )])
+    .unwrap();
+    assert_eq!(
+        doc.scene_objects(),
+        sized.scene_objects(),
+        "drawing size changes retain null inheritance and explicit overrides"
+    );
 }

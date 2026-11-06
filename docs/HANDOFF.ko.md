@@ -475,3 +475,14 @@ PR마다 Codex 리뷰 1회와 독립 subagent 리뷰 1회를 하고 지적을 �
 ~~~
 
 프로젝트 지침을 세션 시작 시 읽는 동작은 [공식 OpenAI 문서](https://learn.chatgpt.com/docs/agent-configuration/agents-md)에 설명되어 있다. 작업 재개에는 파일과 현재 Git 상태를 기준으로 사용하며, 과거 채팅 전체가 새 컨텍스트에 들어왔다고 가정하지 않는다.
+
+## P35e caption run 크기 후속
+
+독립 caption run의 `size_pt`는 null/생략이면 문서 label_size_pt를 동적으로 상속하고,
+명시하면 기존 LABEL_SIZE_RANGE의 유한 4–72 pt를 쓴다. sub/sup 크기와 baseline 이동은
+각 run의 유효 크기를 기준으로 한다. native v13은 current/history의 nullable size_pt가
+필수이며 v8–12는 상속으로 이동한다. 이전 header 안의 size_pt는 거절하며 원본 바이트
+보존 정책과 64 MiB 파일 한도는 유지한다. run metadata 예약은 96→128 byte다.
+P35는 in_progress이며 atom/Et·color·wrapping·clipboard는 이 변경 범위 밖이다.
+회귀 코드는 작성했으며 격리 실행 결과는 부모 검증 단계에서 기록한다.
+세부: [P35e 기록](verification/p35e-caption-run-size.md).

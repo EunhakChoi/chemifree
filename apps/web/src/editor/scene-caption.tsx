@@ -24,13 +24,16 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
         fontFamily={settings.label_font === 'sans-serif' ? undefined : settings.label_font}
         fontSize={size} data-caption-text={object.id} role="img"
         aria-label={`Caption ${object.id}: ${object.runs.map((run) => run.text).join('')}`}>
-        {object.runs.map((run, index) => (
-          <tspan key={index} data-caption-script={run.script}
-            className={run.font === 'sans-serif' ? 'font-sans' : undefined}
-            fontFamily={run.font === 'sans-serif' ? undefined : run.font ?? undefined} fontWeight={run.weight} fontStyle={run.style}
-            fontSize={run.script === 'baseline' ? size : size * 2 / 3}
-            y={object.anchor.y + (run.script === 'subscript' ? size / 3 : run.script === 'superscript' ? -size * 5 / 12 : 0)}>{run.text}</tspan>
-        ))}
+        {object.runs.map((run, index) => {
+          const runSize = run.size_pt ?? size
+          return (
+            <tspan key={index} data-caption-script={run.script}
+              className={run.font === 'sans-serif' ? 'font-sans' : undefined}
+              fontFamily={run.font === 'sans-serif' ? undefined : run.font ?? undefined} fontWeight={run.weight} fontStyle={run.style}
+              fontSize={run.script === 'baseline' ? runSize : runSize * 2 / 3}
+              y={object.anchor.y + (run.script === 'subscript' ? runSize / 3 : run.script === 'superscript' ? -runSize * 5 / 12 : 0)}>{run.text}</tspan>
+          )
+        })}
       </text>
     </g>
   )

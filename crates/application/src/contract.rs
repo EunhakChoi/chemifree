@@ -1931,6 +1931,9 @@ impl From<CaptionAlignment> for CaptionAlignmentDto {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CaptionRunDto {
+    /// Null or omission dynamically follows the document label size (finite 4–72 pt).
+    #[serde(default)]
+    pub size_pt: Option<f64>,
     /// Null or omission follows the document label font.
     #[serde(default)]
     pub font: Option<LabelFontDto>,
@@ -1969,6 +1972,7 @@ pub enum CaptionStyleDto {
 impl From<&CaptionRun> for CaptionRunDto {
     fn from(run: &CaptionRun) -> Self {
         Self {
+            size_pt: run.size_pt,
             font: run.font.map(font_view),
             text: run.text.clone(),
             style: match run.style {
@@ -2002,6 +2006,7 @@ fn caption(
         runs: runs
             .iter()
             .map(|run| CaptionRun {
+                size_pt: run.size_pt,
                 font: run.font.map(|font| match font {
                     LabelFontDto::SansSerif => LabelFont::SansSerif,
                     LabelFontDto::Serif => LabelFont::Serif,

@@ -33,6 +33,7 @@ fn caption() -> Command {
             anchor: Point::new(-0.0, 4.0).unwrap(),
             runs: vec![
                 CaptionRun {
+                    size_pt: None,
                     font: None,
                     text: "한글 👩‍🔬 e\u{301}".into(),
                     script: CaptionScript::Baseline,
@@ -40,6 +41,7 @@ fn caption() -> Command {
                     style: Default::default(),
                 },
                 CaptionRun {
+                    size_pt: None,
                     font: None,
                     text: "2".into(),
                     script: CaptionScript::Subscript,
@@ -61,7 +63,7 @@ fn old_document_bytes_and_history_survive_read_and_first_v9_save() {
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/caption-native.json");
     let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(stored["format_version"], 12);
+    assert_eq!(stored["format_version"], 13);
     strip_abbreviations(&mut stored);
     stored["format_version"] = json!(7);
     let original = serde_json::to_vec_pretty(&stored).unwrap();
@@ -155,7 +157,7 @@ fn old_draft_bytes_are_preserved_before_the_first_changed_v9_draft() {
         Some(edited.document.revision)
     );
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 12);
+    assert_eq!(rewritten["format_version"], 13);
     assert_eq!(rewritten["document"]["revision"], edited.document.revision);
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 7)).unwrap(),
@@ -232,6 +234,7 @@ fn repeated_maximal_caption_updates_save_reload_and_keep_the_latest_undo() {
         anchor: Point::new(0.0, 0.0).unwrap(),
         runs: vec![
             CaptionRun {
+                size_pt: Some(4.000_000_000_000_001),
                 font: None,
                 text: character.to_string().repeat(512),
                 script: CaptionScript::Superscript,
@@ -330,6 +333,7 @@ fn strip_caption_styles(value: &mut Value) {
                 object.remove("alignment");
             }
             if object.contains_key("script") && object.contains_key("text") {
+                object.remove("size_pt");
                 object.remove("font");
                 object.remove("weight");
                 object.remove("style");
@@ -359,6 +363,7 @@ fn v9_caption_current_history_and_draft_migrate_without_rewriting_and_archive_ex
             alignment: Default::default(),
             anchor: Point::new(7.0, 8.0).unwrap(),
             runs: vec![CaptionRun {
+                size_pt: None,
                 font: None,
                 text: "changed".into(),
                 script: CaptionScript::Superscript,
@@ -488,8 +493,8 @@ fn strip_caption_alignment(value: &mut Value) {
 }
 
 #[test]
-fn v8_to_v11_caption_migration_keeps_current_history_and_exact_document_and_draft_bytes() {
-    for version in [8, 9, 10, 11] {
+fn v8_to_v12_caption_migration_keeps_current_history_and_exact_document_and_draft_bytes() {
+    for version in [8, 9, 10, 11, 12] {
         for draft in [false, true] {
             // Document migration commits advance the saved revision; draft recovery needs
             // its own unchanged base document and matching saved stamp.
@@ -522,7 +527,10 @@ fn v8_to_v11_caption_migration_keeps_current_history_and_exact_document_and_draf
                 "documents/caption-native.json"
             });
             let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-            strip_caption_fonts(&mut stored);
+            strip_caption_sizes(&mut stored);
+            if version < 12 {
+                strip_caption_fonts(&mut stored);
+            }
             if version < 11 {
                 strip_caption_alignment(&mut stored);
             }
@@ -694,6 +702,7 @@ fn strip_caption_fonts(value: &mut Value) {
     match value {
         Value::Object(object) => {
             if object.contains_key("script") && object.contains_key("text") {
+                object.remove("size_pt");
                 object.remove("font");
             }
             for child in object.values_mut() {
@@ -724,7 +733,7 @@ fn font_fields_are_strict_in_current_and_history_in_documents_and_drafts() {
     repo.save(&doc, Some(doc.revision() - 1)).unwrap();
     let history_only: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     for history in [false, true] {
-        for version in [8, 9, 10, 11, 12] {
+        for version in [8, 9, 10, 11, 12, 13] {
             for font in [
                 None,
                 Some(json!(null)),
@@ -741,6 +750,9 @@ fn font_fields_are_strict_in_current_and_history_in_documents_and_drafts() {
                 } else {
                     current.clone()
                 };
+                if version < 13 {
+                    strip_caption_sizes(&mut stored);
+                }
                 if version < 12 {
                     strip_caption_fonts(&mut stored);
                 }
@@ -809,4 +821,178 @@ fn font_fields_are_strict_in_current_and_history_in_documents_and_drafts() {
             }
         }
     }
+}
+
+fn strip_caption_sizes(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if object.contains_key("script") && object.contains_key("text") {
+                object.remove("size_pt");
+            }
+            for child in object.values_mut() {
+                strip_caption_sizes(child);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                strip_caption_sizes(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn size_fields_are_strict_in_current_history_documents_and_drafts_and_never_rewrite_refusals() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = document();
+    doc.apply(&[caption()]).unwrap();
+    repo.save(&doc, None).unwrap();
+    let path = root.path().join("documents/caption-native.json");
+    let mut current: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    current["history"]["undo"] = json!([]);
+    current["history"]["redo"] = json!([]);
+    doc.undo().unwrap();
+    repo.save(&doc, Some(doc.revision() - 1)).unwrap();
+    let history_only: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for history in [false, true] {
+        for version in [8, 9, 10, 11, 12, 13] {
+            for size in [
+                None,
+                Some(json!(null)),
+                Some(json!(4)),
+                Some(json!(72)),
+                Some(json!(12.5)),
+                Some(json!(3.999)),
+                Some(json!(72.001)),
+                Some(json!("12")),
+                Some(json!(false)),
+                Some(json!([])),
+                Some(json!({})),
+            ] {
+                let mut stored = if history {
+                    history_only.clone()
+                } else {
+                    current.clone()
+                };
+                strip_caption_sizes(&mut stored);
+                if version < 12 {
+                    strip_caption_fonts(&mut stored);
+                }
+                if version < 11 {
+                    strip_caption_alignment(&mut stored);
+                }
+                if version < 10 {
+                    strip_caption_styles(&mut stored);
+                }
+                if version == 8 {
+                    strip_abbreviations(&mut stored);
+                }
+                stored["format_version"] = json!(version);
+                let state = if history {
+                    &mut stored["history"]["redo"][0]["objects"][0]["after"]
+                } else {
+                    &mut stored["document"]["objects"][1]["state"]
+                };
+                if let Some(size) = &size {
+                    state["runs"][0]["size_pt"] = size.clone();
+                }
+                // All runs in v13 need an explicit nullable size, including untargeted runs.
+                if version == 13 {
+                    state["runs"][1]["size_pt"] = Value::Null;
+                }
+                let valid = if version < 13 {
+                    size.is_none()
+                } else {
+                    matches!(size, Some(Value::Null))
+                        || size
+                            .as_ref()
+                            .and_then(Value::as_f64)
+                            .is_some_and(|size| (4.0..=72.0).contains(&size))
+                };
+                let bytes = serde_json::to_vec(&stored).unwrap();
+                fs::write(&path, &bytes).unwrap();
+                assert_eq!(
+                    repo.load(doc.id()).is_ok(),
+                    valid,
+                    "v{version} history={history} size={size:?}"
+                );
+                assert_eq!(fs::read(&path).unwrap(), bytes);
+                stored["format"] = json!("chemifree.draft");
+                stored["base_revision"] = json!(0);
+                stored["saved_at_ms"] = json!(42);
+                let draft_path = root.path().join("drafts/caption-native.json");
+                fs::create_dir_all(root.path().join("drafts")).unwrap();
+                let bytes = serde_json::to_vec(&stored).unwrap();
+                fs::write(&draft_path, &bytes).unwrap();
+                assert_eq!(
+                    repo.claim_draft(doc.id()).unwrap().unwrap().is_ok(),
+                    valid,
+                    "draft v{version} history={history} size={size:?}"
+                );
+                repo.release_draft(doc.id());
+                assert_eq!(fs::read(&draft_path).unwrap(), bytes);
+            }
+        }
+    }
+}
+
+#[test]
+fn v13_mixed_size_runs_save_reopen_and_recover_with_undo_history() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = document();
+    let Command::AddCaption { mut caption, .. } = caption() else {
+        unreachable!()
+    };
+    caption.runs[1].size_pt = Some(18.5);
+    caption.runs[1].font = Some(chemifree_domain::settings::LabelFont::Monospace);
+    caption.runs[1].weight = chemifree_domain::scene::CaptionWeight::Bold;
+    caption.runs[1].style = chemifree_domain::scene::CaptionStyle::Italic;
+    doc.apply(&[Command::AddCaption {
+        caption: caption.clone(),
+        parent: None,
+        index: None,
+    }])
+    .unwrap();
+    repo.save(&doc, None).unwrap();
+    assert_eq!(repo.load(doc.id()).unwrap(), Some(doc.clone()));
+    let base_revision = doc.revision();
+    caption.runs[1].size_pt = Some(72.0);
+    doc.apply(&[Command::UpdateCaption {
+        object: ObjectId::from_serial(2).unwrap(),
+        caption,
+    }])
+    .unwrap();
+    repo.write_draft(&Draft {
+        document: doc.clone(),
+        base_revision,
+        saved_at_ms: 42,
+    })
+    .unwrap();
+    repo.release_draft(doc.id());
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(root.path()));
+    let recovered = app
+        .recover(doc.id().as_str(), Some("recover-sized-caption"))
+        .unwrap();
+    let snapshot = serde_json::to_value(&recovered.document).unwrap();
+    assert_eq!(
+        snapshot["scene"]["objects"][1]["runs"][0]["size_pt"],
+        Value::Null
+    );
+    assert_eq!(snapshot["scene"]["objects"][1]["runs"][1]["size_pt"], 72.0);
+    let undone = app
+        .undo(
+            doc.id().as_str(),
+            Some("undo-sized-caption"),
+            recovered.document.revision,
+        )
+        .unwrap();
+    let snapshot = serde_json::to_value(undone.document).unwrap();
+    assert_eq!(snapshot["scene"]["objects"][1]["runs"][1]["size_pt"], 18.5);
+    assert_eq!(
+        snapshot["scene"]["objects"][1]["runs"][1]["font"],
+        "monospace"
+    );
 }
