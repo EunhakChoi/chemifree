@@ -313,3 +313,6 @@ Send `{"contract":1,"request_id":"inchi-1","profile":"preserve-semantics","opera
 Caption runs additionally support independent boolean underline (P35g, native v15), with explicit SVG decoration bounds. P35 remains in progress; external caption roundtrip is unsupported.
 
 Caption runs also support independent hollow glyph outlines (P35h, native v16), with run-color strokes and stroke-aware bounds; underlines retain filled decoration. P35 remains in progress.
+
+
+P35i: 독립 caption run `shadow` bool(생략 false), +1,+1 pt/opacity0.35/blur0 및 기존 outline·underline·효과색상 조합, actual viewport provenance를 따르는 ink bounds와 native v17 strict/v8–16 false migration을 구현한다. v16 admission은 유지하며 물리 metadata192-byte 예약의 전체 상한은61,421,978 bytes(<64MiB)다. P35는 in_progress이며 외부 caption 호환·legacy rendering equivalence는 주장하지 않는다. 구현 에이전트는 테스트·빌드·cargo check·browser·skill gate를 실행하지 않았고 부모 격리 검증과 리뷰는 대기다. [P35i 기록](docs/verification/p35i-caption-run-shadow.md).

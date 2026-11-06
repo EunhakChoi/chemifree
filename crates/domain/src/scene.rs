@@ -121,6 +121,8 @@ pub enum CaptionStyle {
 /// Text stored verbatim: no Unicode normalization or index-based edits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CaptionRun {
+    /// Offset translucent ink; independent of advance and chemical meaning.
+    pub shadow: bool,
     /// Hollow glyphs; independent of underline, text advance and chemical meaning.
     pub outline: bool,
     /// Independent decoration; does not change text advance or chemical meaning.

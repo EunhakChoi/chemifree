@@ -13,7 +13,7 @@ use crate::stereo_group::StereoGroup;
 // weight/style/font (sans-serif is longest), 29 for size_pt (bounded floats need
 // at most 18 characters), 18 for ,"color":"#RRGGBB", and
 // 18 for ,"underline":false, and 16 for ,"outline":false.
-// The 176-byte encoding reservation covers all run metadata and every finite 4–72 pt override.
+// v17 adds 15 bytes for ,"shadow":false. The 192-byte encoding reservation covers all run metadata and every finite 4–72 pt override.
 // The caption-level 256-byte overhead also covers the bounded v11 alignment enum.
 const ATOM: usize = 512;
 const BOND: usize = 256;
@@ -48,9 +48,15 @@ fn object_weight_with(object: &SceneObject, admission: bool) -> usize {
         SceneObject::Caption(caption) => caption.runs.iter().fold(256_usize, |total, run| {
             total
                 .saturating_add(if admission {
-                    if run.outline { 192 } else { 160 }
+                    if run.shadow {
+                        224
+                    } else if run.outline {
+                        192
+                    } else {
+                        160
+                    }
                 } else {
-                    176
+                    192
                 })
                 .saturating_add(run.text.len().saturating_mul(2))
         }),
@@ -74,12 +80,13 @@ fn changed_weight<K, T>(changes: &[(K, Change<Option<T>>)], weight: impl Fn(&T) 
     })
 }
 
-// Preserve v15 admission allowances for runs without the new effect, in both
-// current content and history. Encoding reserves 176 independently; admission
-// counts 160 (outline=false) or 192 (true). Every nonnegative encoding weight
-// is <=176/160 = 11/10 of its admission counterpart, including fixed envelopes,
-// identifiers and escaped text. Thus the complete file reserves no more than
-// (48+8)*11/10 = 61.6 MiB, safely below the 64 MiB native read limit.
+// Preserve v15/v16 admission weights when shadow=false, including existing histories.
+// v17 run metadata is at most 185 bytes (v16's 170 plus ,"shadow":false).
+// Reserve 192 bytes physically. History encoding <=192/160=6/5 of admission.
+// Current content has <=1,000 objects and <=32 runs each, so the extra physical
+// reservation over admission is <=32*32,000 =1,024,000 bytes (regardless of text).
+// Whole-file bound: 48 MiB +1,024,000 +8 MiB*6/5 =61,421,977.6 bytes <64 MiB,
+// leaving >5 MiB reserve; the 4 KiB envelope already covers document/draft metadata.
 pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) -> usize {
     sets.into_iter().fold(0_usize, |total, set| {
         total.saturating_add(set.history_admission_weight())
@@ -175,7 +182,8 @@ impl Document {
     /// Conservative persistence reservation for current content and both history stacks.
     /// This is neither memory usage nor an exact serialized size; providers must verify
     /// that their encoding fits it. Caption-bearing accepted states reserve at most
-    /// 61.6 MiB ((48 + 8) × 11/10), including fixed file/draft envelopes.
+    /// 61,421,978 bytes (48 MiB + 1,024,000 + 8 MiB × 6/5), below the 64 MiB
+    /// native limit, including fixed file/draft envelopes.
     #[must_use]
     pub fn persistence_weight(&self) -> usize {
         self.content

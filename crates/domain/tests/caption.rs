@@ -16,6 +16,7 @@ fn caption(text: &str) -> Caption {
         alignment: Default::default(),
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![CaptionRun {
+            shadow: false,
             outline: false,
             underline: false,
             color: None,
@@ -47,6 +48,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![
             CaptionRun {
+                shadow: false,
                 outline: false,
                 underline: false,
                 color: None,
@@ -58,6 +60,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
                 style: Default::default(),
             },
             CaptionRun {
+                shadow: false,
                 outline: false,
                 underline: false,
                 color: None,
@@ -69,6 +72,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
                 style: Default::default(),
             },
             CaptionRun {
+                shadow: false,
                 outline: false,
                 underline: false,
                 color: None,
@@ -478,6 +482,38 @@ fn outline_only_changes_appearance_and_preserves_all_other_fields_and_history() 
     doc.apply(&[add(value.clone())]).unwrap();
     let before = doc.clone();
     value.runs[0].outline = true;
+    assert_eq!(
+        doc.apply(&[Command::UpdateCaption {
+            object: object(2),
+            caption: value.clone(),
+        }])
+        .unwrap(),
+        Outcome::Changed
+    );
+    assert_eq!(doc.scene_objects()[1].2, &SceneObject::Caption(value));
+    assert_eq!(doc.atoms().count(), 0);
+    let after = doc.clone();
+    doc.undo().unwrap();
+    assert_eq!(doc.scene_objects(), before.scene_objects());
+    doc.redo().unwrap();
+    assert_eq!(doc.scene_objects(), after.scene_objects());
+}
+
+#[test]
+fn shadow_only_changes_appearance_and_preserves_all_other_fields_and_history() {
+    let mut doc = document();
+    let mut value = caption("  ffi e\u{301} 👩‍🔬 العربية אבג  ");
+    value.alignment = chemifree_domain::scene::CaptionAlignment::Right;
+    value.runs[0].underline = true;
+    value.runs[0].color = Some("#2A7BCD".into());
+    value.runs[0].font = Some(chemifree_domain::settings::LabelFont::Serif);
+    value.runs[0].size_pt = Some(72.0);
+    value.runs[0].script = CaptionScript::Superscript;
+    value.runs[0].style = CaptionStyle::Italic;
+    value.runs[0].weight = CaptionWeight::Bold;
+    doc.apply(&[add(value.clone())]).unwrap();
+    let before = doc.clone();
+    value.runs[0].shadow = true;
     assert_eq!(
         doc.apply(&[Command::UpdateCaption {
             object: object(2),

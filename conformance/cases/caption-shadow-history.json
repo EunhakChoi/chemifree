@@ -1,0 +1,151 @@
+{
+  "id": "caption-shadow-history",
+  "title": "Independent caption shadow retains all run fields through undo redo save and reopen",
+  "requirements": [
+    "MODEL-01",
+    "OPS-01",
+    "OPS-02",
+    "RENDER-01"
+  ],
+  "axis": "scene",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_caption",
+          "anchor": {
+            "x": 10,
+            "y": 20
+          },
+          "alignment": "right",
+          "runs": [
+            {
+              "text": "  é 👩‍🔬 العربية  ",
+              "script": "superscript",
+              "shadow": true,
+              "outline": true,
+              "underline": true,
+              "color": "#2A7BCD",
+              "font": "serif",
+              "size_pt": 24,
+              "weight": "bold",
+              "style": "italic"
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "caption",
+                "alignment": "right",
+                "anchor": {
+                  "x": 10,
+                  "y": 20
+                },
+                "runs": [
+                  {
+                    "text": "  é 👩‍🔬 العربية  ",
+                    "script": "superscript",
+                    "shadow": true,
+                    "outline": true,
+                    "underline": true,
+                    "color": "#2A7BCD",
+                    "font": "serif",
+                    "size_pt": 24,
+                    "weight": "bold",
+                    "style": "italic"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 1,
+      "expect": {
+        "document": {
+          "revision": 2,
+          "scene": {
+            "roots": [
+              "s1"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3,
+          "scene": {
+            "roots": [
+              "s1",
+              "s2"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "call": "save",
+      "document": "d",
+      "expected_revision": 3
+    },
+    {
+      "call": "close",
+      "document": "d"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "scene": {
+            "objects": [
+              {
+                "id": "s1",
+                "kind": "instance"
+              },
+              {
+                "id": "s2",
+                "kind": "caption",
+                "runs": [
+                  {
+                    "shadow": true,
+                    "outline": true,
+                    "underline": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

@@ -441,7 +441,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 109개(implemented 60, partial 13, unverified 3, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 109개(implemented 60, partial 13, unverified 3, not_implemented 33) · conformance 사례 110개(passed 110: accept 80·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
@@ -516,3 +516,6 @@ P35는 in_progress다. 구현 agent는 build/test/cargo check/browser를 실행�
 outline bool(생략 false)과 기존 run 속성/advance/anchor 보존, 효과 색상의 hollow SVG glyph stroke(실효 크기/16, round join)를 구현했다. 이 치수는 Chemifree 독립 정책이며 밑줄은 기존 filled rectangle이다. stroke를 제외하는 getBBox 대신 run별 bbox에 stroke/2를 합친 ink bounds를 fit/selection/hit에서 공유한다. native v16 strict current/history, v8–15 false migration와 exact-byte document/draft archive, metadata170≤176 물리 예약·false160/true192 admission 및8MiB outline106/107 경계를 반영했다. 최대999 caption content<48MiB 및64MiB 저장/초안 회귀를 작성했다. UI/HTTP/CLI/replay/undo/redo/save/draft 및 Unicode/RTL/ligature/emoji/공백/zero advance 실제 브라우저 회귀는 작성했으나 구현 에이전트는 테스트·빌드·cargo check·브라우저·skill gate를 실행하지 않았다. 부모의 격리 검증과 두 리뷰는 대기 중이다. P35는 in_progress, external caption roundtrip은 미지원이다. docs/verification/p35h-caption-run-outline.md 참조.
 
 P35h 리뷰 보완: 물리 encoding 예약176(실제최대170)과 admission(false160/true192)을 분리해 v15 최대109개 업데이트의 최신undo/redo와 기존current-content 허용을 보존한다. 48/8MiB는 admission이며 wrapper·ID·JSON escaping 포함 각 물리 항≤admission×11/10이므로 전체≤61.6MiB<64MiB다. 최악v15메타154의109개 undo/redo×document/draft·원본archive 회귀를 추가했고 중복assert 메시지 컴파일 오류를 수정했다. cargo fmt --all/check와 diff check만 실행하며 실행 검증은 부모 담당이다.
+
+
+P35i: 독립 caption run `shadow` bool(생략 false), +1,+1 pt/opacity0.35/blur0 및 기존 outline·underline·효과색상 조합, actual viewport provenance를 따르는 ink bounds와 native v17 strict/v8–16 false migration을 구현한다. v16 admission은 유지하며 물리 metadata192-byte 예약의 전체 상한은61,421,978 bytes(<64MiB)다. P35는 in_progress이며 외부 caption 호환·legacy rendering equivalence는 주장하지 않는다. 구현 에이전트는 테스트·빌드·cargo check·browser·skill gate를 실행하지 않았고 부모 격리 검증과 리뷰는 대기다. [P35i 기록](verification/p35i-caption-run-shadow.md).
