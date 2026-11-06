@@ -343,7 +343,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
     })
     observer.observe(canvas, { attributes: true, attributeFilter: ['viewBox', 'data-caption-bounds-ready', 'data-caption-measured-view-box'] })
   })
-  for (const sample of ['H', '   ffi office   ', '  العربية אבג  ', 'e\u0301 👩‍🔬 🧪', '   ', '\ufeff', '\u0301']) {
+  for (const sample of ['H', 'g j gj', '   ffi office   ', '  العربية אבג  ', 'e\u0301 👩‍🔬 🧪', '   ', '\ufeff', '\u0301']) {
     await button('Select caption').click()
     await button('Edit selected caption…').click()
     await page.getByLabel('Run 1 text', { exact: true }).fill(sample)
@@ -450,10 +450,47 @@ createRoot(document.getElementById('root')).render(<Harness />)
         right = Math.max(right, line.x + line.width + 1); bottom = Math.max(bottom, line.y + line.height + 1)
       }
       const shadow = text.parentElement.querySelector('[data-caption-shadow-text]'), hit = text.parentElement.querySelector('rect').getBBox(), view = text.ownerSVGElement.viewBox.baseVal
-      return { hit: [hit.x, hit.y, hit.width, hit.height], expected: [left - 2, top - 2, right - left + 4, bottom - top + 4], transform: shadow.getAttribute('transform'), opacity: shadow.getAttribute('opacity'),
+      return { hit: [hit.x, hit.y, hit.width, hit.height], expected: [left - 2, top - 2, right - left + 4, bottom - top + 4], transform: shadow.parentElement.getAttribute('transform'), opacity: shadow.parentElement.getAttribute('opacity'),
         colors: [...shadow.children].map((span) => getComputedStyle(span).stroke === 'none' ? getComputedStyle(span).fill : getComputedStyle(span).stroke),
         fits: view.x <= hit.x && view.y <= hit.y && view.x + view.width >= hit.x + hit.width && view.y + view.height >= hit.y + hit.height }
     })
+    const composition = await page.locator('[data-caption-text]').evaluate(async (text) => {
+      const layer = text.parentElement.querySelector('[data-caption-shadow-layer]')
+      const underline = text.parentElement.querySelector('[data-caption-underlines]')
+      const before = Boolean(layer.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING) && Boolean(layer.compareDocumentPosition(underline) & Node.DOCUMENT_POSITION_FOLLOWING)
+      const clone = layer.cloneNode(true)
+      const originals = [layer, ...layer.querySelectorAll('*')], copies = [clone, ...clone.querySelectorAll('*')]
+      // Render the component's actual shadow tree into a transparent browser canvas;
+      // freeze resolved theme/font styles so the detached SVG paints the same ink.
+      originals.forEach((original, index) => {
+        const style = getComputedStyle(original)
+        for (const property of ['fill', 'stroke', 'stroke-width', 'stroke-linejoin', 'font-family', 'font-size', 'font-weight', 'font-style', 'visibility', 'white-space', 'direction', 'unicode-bidi']) copies[index].style.setProperty(property, style.getPropertyValue(property))
+      })
+      const bounds = layer.getBBox(), svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      const width = Math.ceil(bounds.width + 8), height = Math.ceil(bounds.height + 8)
+      svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+      svg.setAttribute('width', String(width)); svg.setAttribute('height', String(height))
+      svg.setAttribute('viewBox', `${bounds.x - 3} ${bounds.y - 3} ${width} ${height}`)
+      svg.append(clone)
+      const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(svg)], { type: 'image/svg+xml' }))
+      try {
+        const image = new Image()
+        image.src = url
+        await image.decode()
+        const canvas = document.createElement('canvas')
+        canvas.width = width * 3; canvas.height = height * 3
+        const context = canvas.getContext('2d')
+        context.drawImage(image, 0, 0, canvas.width, canvas.height)
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data
+        let maximumAlpha = 0
+        for (let index = 3; index < pixels.length; index += 4) maximumAlpha = Math.max(maximumAlpha, pixels[index])
+        return { before, maximumAlpha }
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    })
+    assert.equal(composition.before, true, 'all shadow ink paints before every foreground glyph and underline')
+    assert.ok(composition.maximumAlpha >= 80 && composition.maximumAlpha <= 90, 'the complete shadow layer composites once at .35, including descender/underline overlap')
     assert.equal(evidence.transform, 'translate(1 1)'); assert.equal(evidence.opacity, '0.35')
     evidence.hit.forEach((value, index) => assert.ok(Math.abs(value - evidence.expected[index]) < 0.001, "shadow ink bounds: " + sample))
     assert.equal(evidence.fits, true)

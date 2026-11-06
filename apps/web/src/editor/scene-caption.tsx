@@ -14,12 +14,9 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
   onPointerDown: (event: PointerEvent<SVGGElement>) => void
 }) {
   const size = settings.label_size_pt
-  return (
-    <g data-scene-object={object.id} data-caption="" onPointerDown={onPointerDown}
-      transform={delta ? `translate(${delta.x} ${delta.y})` : undefined}>
-      {box && <rect {...box} className={selected ? 'fill-primary/10 stroke-primary' : 'fill-transparent'} strokeWidth={selected ? 0.8 : 0} />}
-      {[true, false].map((shadow) => <text key={String(shadow)} aria-hidden={shadow || undefined} pointerEvents={shadow ? 'none' : undefined}
-        opacity={shadow ? 0.35 : undefined} transform={shadow ? 'translate(1 1)' : undefined}
+  function renderText(shadow: boolean) {
+    return (
+      <text aria-hidden={shadow || undefined} pointerEvents={shadow ? 'none' : undefined}
         data-caption-shadow-text={shadow ? object.id : undefined} x={object.anchor.x} y={object.anchor.y} xmlSpace="preserve" style={{ whiteSpace: 'pre', direction: 'ltr', unicodeBidi: 'isolate' }}
         textAnchor="start" data-caption-alignment={object.alignment} data-caption-anchor-x={object.anchor.x}
         className={cn('fill-foreground stroke-foreground', settings.label_font === 'sans-serif' && 'font-sans')}
@@ -38,12 +35,22 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
               y={object.anchor.y + (run.script === 'subscript' ? runSize / 3 : run.script === 'superscript' ? -runSize * 5 / 12 : 0)}>{run.text}</tspan>
           )
         })}
-      </text>)}
+      </text>
+    )
+  }
+  return (
+    <g data-scene-object={object.id} data-caption="" onPointerDown={onPointerDown}
+      transform={delta ? `translate(${delta.x} ${delta.y})` : undefined}>
+      {box && <rect {...box} className={selected ? 'fill-primary/10 stroke-primary' : 'fill-transparent'} strokeWidth={selected ? 0.8 : 0} />}
+      <g data-caption-shadow-layer="" aria-hidden="true" pointerEvents="none" opacity={0.35} transform="translate(1 1)">
+        {renderText(true)}
+        <g className="fill-foreground">
+          {object.runs.map((run, index) => run.shadow && run.underline && <rect key={index} data-caption-underline-shadow={index} fill={run.color ?? undefined} />)}
+        </g>
+      </g>
+      {renderText(false)}
       <g aria-hidden="true" pointerEvents="none" className="fill-foreground" data-caption-underlines="">
-        {object.runs.map((run, index) => run.underline && <g key={index}>
-          {run.shadow && <rect data-caption-underline-shadow={index} transform="translate(1 1)" opacity={0.35} fill={run.color ?? undefined} />}
-          <rect data-caption-underline={index} fill={run.color ?? undefined} />
-        </g>)}
+        {object.runs.map((run, index) => run.underline && <rect key={index} data-caption-underline={index} fill={run.color ?? undefined} />)}
       </g>
     </g>
   )

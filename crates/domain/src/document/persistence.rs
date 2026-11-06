@@ -182,7 +182,8 @@ impl Document {
     /// Conservative persistence reservation for current content and both history stacks.
     /// This is neither memory usage nor an exact serialized size; providers must verify
     /// that their encoding fits it. Caption-bearing accepted states reserve at most
-    /// 61.6 MiB ((48 + 8) × 11/10), including fixed file/draft envelopes.
+    /// 61,421,978 bytes (48 MiB + 1,024,000 + 8 MiB × 6/5), below the 64 MiB
+    /// native limit, including fixed file/draft envelopes.
     #[must_use]
     pub fn persistence_weight(&self) -> usize {
         self.content
