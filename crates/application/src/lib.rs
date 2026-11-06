@@ -50,6 +50,7 @@ pub mod prepared_f32;
 pub mod prepared_xlogp;
 mod properties;
 mod repository;
+mod scene_clipboard;
 pub mod smiles;
 mod stereo_projection;
 pub mod transport_base64;
@@ -114,7 +115,8 @@ pub use operations::{
     ArrangementPlanResult, ArrangementTranslationView, ArrangementUnitView, AtomDrawnView,
     AtomInspection, AtomLabel, AtomPair, BondDrawnView, BondInspection, BondLabel, BondPair,
     CIP_REASONS, CipResult, ClipboardCopyResult, ClipboardIdMapping, ClipboardMapping,
-    ClipboardPasteResult, ClosedResult, Diagnostic, DocumentResult, EffectiveSelectionScope,
+    ClipboardPasteResult, ClipboardSceneCopyResult, ClipboardSceneMapping,
+    ClipboardScenePasteResult, ClosedResult, Diagnostic, DocumentResult, EffectiveSelectionScope,
     EndLabel, Envelope, FoldedHydrogen, IdentityComparison, IdentityResult, IdentityStereo,
     IdentityView, InchiResult, InterchangeExportResult, InterchangeMapping,
     InterchangePreviewResult, InterchangeReadResult, Loss, LossConsent, LossDisposition,
