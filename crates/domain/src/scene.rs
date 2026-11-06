@@ -248,7 +248,7 @@ pub enum SceneError {
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::CaptionInvalid,
         Self::CaptionPersistenceLimit,
         Self::CaptionUnsupported,

@@ -118,3 +118,19 @@ content to avoid restoring obsolete P35a candidates through the squash merge con
 Read-only inspection and formatting/whitespace checks only in this integration pass.
 Tests, builds, clippy, browser, mutations and push remain explicitly deferred to the parent
 verification task; neither the new assertions nor the integrated full suite have been run.
+
+### Integration compile correction
+
+The parent's isolated `npm run check` on `15c63ec` reached Rust compilation and failed
+with E0308 (`SceneError::ALL`, declared 21 entries versus 22 actual entries), recorded in
+`/tmp/chemifree-work/p34i-full.log`. The merge retained both `caption_persistence_limit`
+and `abbreviation_invalid` but missed their combined array length. Corrected the declaration
+to 22 without changing or weakening the existing exact reason-list regression.
+
+Statically counted related closed lists: scene reasons 22, top-level operations 40,
+stereo-group reasons 11, transaction rows 52 (41 commands / 11 capabilities), and compared
+those with their declarations and existing assertions. Corrected the caption contract's
+stale current transaction totals from 39/50 to 41/52. Provider migration constructors retain
+explicit empty abbreviation fields; test-only change sets use the default for new fields.
+No further mismatch was found by this inspection. Only formatting and diff whitespace checks
+ran for this correction; Rust compilation and all runtime verification remain with the parent.

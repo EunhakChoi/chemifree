@@ -1797,8 +1797,9 @@ CLI text output lists the caption ID, parent, anchor and each ordered `script("t
 Run text uses Rust ASCII escapes (including Unicode scalar escapes), so quotes, backslashes
 and directional/format characters cannot disguise terminal output. JSON output retains the
 original Unicode strings and script fields without that presentation escaping.
-The transaction catalog adds `add_caption` and `update_caption` (39 commands and 11
-capabilities, 50 sub-operation rows; no new top-level operation).
+The transaction catalog includes `add_caption` and `update_caption`; with the Et display
+commands it contains 41 commands and 11 capabilities, 52 sub-operation rows and no new
+top-level operation.
 
 - `add_caption`: required `anchor`, required `runs`, optional group `parent` and insertion
   `index`, with the same meaning as `add_graphic`. It can be selected as `$N` in
