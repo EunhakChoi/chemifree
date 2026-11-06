@@ -155,3 +155,24 @@ pending and verifies the latest caption fits on completion; the other pans/zooms
 are pending and pins the chosen viewBox after completion. No React/layout/viewport code is
 mocked. These review fixes do not trigger another review round. This agent has not executed
 tests, builds, browsers or push for them; only static source/diff inspection was performed.
+
+## Third parent-run targeted result and already-drafted recovery semantics
+
+For `20aa4c0`, the parent verifier's `p35a-targeted3.log` reports Domain 5/5, application
+4/4, provider caption format 2/3. The remaining provider failure expected a v8 rewrite after
+recovering a v7 draft and immediately autosaving it without any new edit; the file correctly
+remained v7. Source inspection shows `recovered_session` records the recovered revision as
+already drafted, and `DraftTask::for_session` returns no write for an already-drafted dirty
+session. `prepare_draft_for_recovery` archives the earlier exact bytes before adopting it;
+it does not eagerly replace the original file. Existing migration tests explicitly write a
+new draft when expecting a newer format. This is intended persistence behavior, not a
+missing caption migration.
+
+Renamed and corrected the test to verify both boundaries: unchanged autosave retains the
+original v7 bytes and current drafted revision, then an explicit caption edit advances the
+revision and the next autosave writes v8 while preserving the archive. After releasing the
+application, the real repository claims that v8 draft; assertions check the exact caption
+and Undo/Redo across both the new caption and the original v7 title history. CONTRACT now
+states the already-drafted no-rewrite behavior explicitly. No product code changed. This
+corrected regression has not been executed by this agent; only formatting/diff inspection
+was performed, with tests/build/browser/push still prohibited.

@@ -2,9 +2,11 @@
 
 use std::fs;
 
-use chemifree_application::{Application, DocumentRepository, Draft, RecoveryState, StorageError};
+use chemifree_application::{
+    Application, CommandDto, DocumentRepository, Draft, RecoveryState, StorageError,
+};
 use chemifree_domain::document::{Command, Document, DocumentId, Point};
-use chemifree_domain::scene::{Caption, CaptionRun, CaptionScript};
+use chemifree_domain::scene::{Caption, CaptionRun, CaptionScript, SceneObject};
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde_json::{Value, json};
 
@@ -70,7 +72,7 @@ fn old_document_bytes_and_history_survive_read_and_first_v8_save() {
 }
 
 #[test]
-fn old_draft_bytes_are_preserved_before_recovery_writes_v8() {
+fn old_draft_bytes_are_preserved_before_the_first_changed_v8_draft() {
     let root = tempfile::tempdir().unwrap();
     let repo = FileDocumentRepository::new(root.path());
     let mut doc = document();
@@ -110,9 +112,76 @@ fn old_draft_bytes_are_preserved_before_recovery_writes_v8() {
         fs::read(repo.migrated_draft_path(doc.id(), 7)).unwrap(),
         original
     );
-    app.autosave("caption-native", Some("draft-v8")).unwrap();
-    let rewritten: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    // Recovery already owns a complete durable draft. With no edit, autosave intentionally
+    // writes nothing; migrating in memory does not authorize a needless file replacement.
+    let unchanged = app
+        .autosave("caption-native", Some("already-drafted"))
+        .unwrap();
+    assert_eq!(
+        unchanged.session.draft_revision,
+        Some(recovered.document.revision)
+    );
+    assert_eq!(fs::read(&path).unwrap(), original);
+    let command: CommandDto = serde_json::from_value(json!({
+        "op":"add_caption","anchor":{"x":-0.0,"y":4.0},"runs":[
+            {"text":"한글 👩‍🔬 e\u{301}","script":"baseline"},
+            {"text":"2","script":"subscript"}
+        ]
+    }))
+    .unwrap();
+    let edited = app
+        .apply_transaction(
+            "caption-native",
+            Some("caption-after-recovery"),
+            recovered.document.revision,
+            vec![command],
+        )
+        .unwrap();
+    let drafted = app.autosave("caption-native", Some("draft-v8")).unwrap();
+    assert_eq!(
+        drafted.session.draft_revision,
+        Some(edited.document.revision)
+    );
+    let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     assert_eq!(rewritten["format_version"], 8);
+    assert_eq!(rewritten["document"]["revision"], edited.document.revision);
+    assert_eq!(
+        fs::read(repo.migrated_draft_path(doc.id(), 7)).unwrap(),
+        original
+    );
+    drop(app);
+    let mut restored = repo
+        .claim_draft(doc.id())
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .document;
+    let Command::AddCaption {
+        caption: expected, ..
+    } = caption()
+    else {
+        panic!("fixture must create a caption")
+    };
+    assert_eq!(
+        restored.scene_objects()[1].2,
+        &SceneObject::Caption(expected.clone())
+    );
+    restored.undo().unwrap();
+    assert_eq!(restored.scene_objects().len(), 1);
+    assert_eq!(restored.title(), "Draft only");
+    restored.undo().unwrap();
+    assert_eq!(
+        restored.title(),
+        "After",
+        "the old v7 draft history must remain usable"
+    );
+    restored.redo().unwrap();
+    assert_eq!(restored.title(), "Draft only");
+    restored.redo().unwrap();
+    assert_eq!(
+        restored.scene_objects()[1].2,
+        &SceneObject::Caption(expected)
+    );
 }
 
 #[test]
