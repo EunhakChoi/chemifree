@@ -285,7 +285,7 @@ mod tests {
     fn payload() -> Value {
         json!({
             "format":"chemifree.clipboard","version":2,"kind":"graphics",
-            "settings":{"bond_length_pt":30.0,"line_width_pt":1.2,"label_font":"sans-serif","label_weight":"normal",
+            "settings":{"bond_length_pt":30.0,"line_width_pt":1.2,"label_font":"sans-serif","label_weight":"normal","label_style":"normal",
                 "label_size_pt":12.0,"carbon_labels":"default","display_unit":"pt"},
             "roots":["s10","s3"],
             "objects":[
@@ -328,6 +328,29 @@ mod tests {
         let encoded = encode(&fragment).unwrap();
         assert_eq!(serde_json::from_str::<Value>(&encoded).unwrap(), expected);
         assert_eq!(decode(&encoded).unwrap(), fragment);
+    }
+
+    #[test]
+    fn older_omitted_style_and_weight_decode_as_normal_and_encode_complete_settings() {
+        let current = payload();
+        let expected = decode(&current.to_string()).unwrap();
+        for omitted in [
+            vec!["label_style"],
+            vec!["label_weight"],
+            vec!["label_style", "label_weight"],
+        ] {
+            let mut old = current.clone();
+            let settings = old["settings"].as_object_mut().unwrap();
+            for field in omitted {
+                settings.remove(field);
+            }
+            let decoded = decode(&old.to_string()).unwrap();
+            assert_eq!(decoded, expected);
+            assert_eq!(
+                serde_json::from_str::<Value>(&encode(&decoded).unwrap()).unwrap(),
+                current
+            );
+        }
     }
 
     #[test]
@@ -470,6 +493,11 @@ mod tests {
             ("/objects/1/points/0/y", json!(-100000.0001)),
             ("/settings/line_width_pt", json!(0.0)),
             ("/settings/bond_length_pt", json!(201.0)),
+            ("/settings/label_style", Value::Null),
+            ("/settings/label_style", json!("oblique")),
+            ("/settings/label_style", json!(500)),
+            ("/settings/label_style", json!([])),
+            ("/settings/label_style", json!({})),
         ] {
             let mut invalid = payload();
             *invalid.pointer_mut(pointer).unwrap() = value;

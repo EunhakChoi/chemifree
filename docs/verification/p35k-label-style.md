@@ -58,3 +58,18 @@ checks normal inheritance, italic destination mismatch and invalid explicit styl
 refusal. It also checks style edits/preferences, enum validation and unchanged
 400/500/700 weights and marks. The client runner imports this suite. No test or
 build was rerun by the implementation agent; only `git diff --check` was run.
+
+## Follow-up: Rust exact JSON fixture
+
+The parent's clean Rust run reported a scene clipboard roundtrip mismatch: the
+encoder correctly emitted `label_style: normal`, while the shared current-payload
+expected JSON omitted it. The current fixture now states the field. A separate
+codec regression deliberately omits style, weight or both and checks normal
+inheritance and complete re-encoding; invalid explicit style values are refused.
+Existing graph-template omission/mismatch tests remain independent and unchanged.
+
+A static sweep of Rust JSON literals containing label font/weight/settings found
+no other incomplete current whole-settings expectations. Remaining omissions in
+v5/v6 native fixtures are intentional migration input; partial preference and
+command literals intentionally name only the changed fields. No tests were run
+by this implementation agent. `cargo fmt --all` and `git diff --check` were run.
