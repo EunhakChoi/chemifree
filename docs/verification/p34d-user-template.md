@@ -63,3 +63,20 @@ TypeScript patterns/testing과 shadcn 스킬을 적용하고 공식 Base UI comp
 최신 main `af6c724` (P34c #177 squash)을 `9d855fb`에서 충돌 없이 합쳤다.
 동일 선행 source라 merge 자체의 추가 source 변경은 없다. `git diff --check`는 통과했으며
 이는 테스트·빌드·브라우저 성공을 뜻하지 않는다. PR Codex 리뷰·실행 검증은 부모가 이어간다.
+
+## 부모 격리 검증의 첫 실패와 fixture 수정
+
+- 부모가 `851937e`에서 lint/typecheck/client/web build를 통과시켰다. 로그는 로컬
+  `/tmp/chemifree-p29d-verify-j4KjPa/p34d-targeted.log`다. 새 real-backend browser는
+  첫 crossing-selection alert 대기(`scripts/web-user-template-check.mjs:202`)에서 실패했다.
+  전체 검사·browser 성공이 아니며 실패한 원래 기대값은 유지한다.
+- 정적 원인 대조: 새 Vite fixture는 임의 port를 썼지만 실제 API 기본 허용 web origin은
+  `127.0.0.1:5173`/`:4173`이다. 읽기/open 뒤 copy POST가 Origin guard에 거절되어
+  template-specific crossing 문구에 도달하지 못하는 fixture 구성이다. 기존 real-backend
+  native integration과 같이 `5173`/strictPort를 쓰도록 수정했다. API Origin 보호는 바꾸지 않는다.
+- source의 wedge는 fragment에 포함되지 않은 b1에서 제외되고 unknown configuration도
+  copied_bonds에 없는 b2여서 제외된다. copy는 a1 한 원자·boundary b1을 반환해야 한다.
+  이제 UI 문구 대기 전에 실제 HTTP200/outcome ok·copied selection·boundary list를
+  독립 기대값으로 검사한다. mixed 선택도 정확한 backend refusal reason을 먼저 검사한다.
+  따라서 Origin 403이나 더 이른 stereo 거절은 단순 alert timeout으로 감춰지지 않는다.
+- 이 수정 담당자는 테스트·빌드·브라우저·push를 실행하지 않았다. 부모의 재검증 대기다.

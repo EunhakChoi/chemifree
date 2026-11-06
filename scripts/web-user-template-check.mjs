@@ -141,7 +141,9 @@ try {
   server = await createServer({
     root,
     configFile: fileURLToPath(new URL('../apps/web/vite.config.ts', import.meta.url)),
-    server: { host: '127.0.0.1', port: 0, strictPort: false, proxy: { '/api': apiBase } },
+    // The API's default web-origin allowlist includes 5173. A random Vite port
+    // would make real browser POSTs fail the Origin guard before copy/paste.
+    server: { host: '127.0.0.1', port: 5173, strictPort: true, proxy: { '/api': apiBase } },
     plugins: [{ name: 'user-template-harness', configureServer(vite) {
       vite.middlewares.use('/user-template-check', async (_request, response) => {
         const html = await vite.transformIndexHtml('/user-template-check', '<!doctype html><html><head><title>User template check</title></head><body><div id="root"></div><script type="module" src="/user-template-harness.tsx"></script></body></html>')
@@ -193,17 +195,29 @@ try {
     await fileInput().setInputFiles({ name, mimeType: 'application/json', buffer: Buffer.from(bytes) })
     await page.getByRole('status').filter({ hasText: `Selected ${name}.` }).waitFor()
   }
+  async function operation(name, action, outcome = 'ok') {
+    const pending = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') && response.request().postDataJSON()?.operation === name)
+    await action()
+    const response = await pending
+    const body = await response.json()
+    assert.equal(response.status(), 200, `${name}: HTTP ${response.status()} ${JSON.stringify(body)}`)
+    assert.equal(body.outcome, outcome, `${name}: ${JSON.stringify(body)}`)
+    return body
+  }
   await page.goto(`http://127.0.0.1:${address.port}/user-template-check`)
   await page.waitForFunction((id) => document.querySelector('[aria-label="Current document"]')?.textContent === id, source)
 
   stage = 'crossing and mixed selections refuse template saving'
   await button('Select crossing source').click()
-  await button('Save template file…').click()
+  const crossingCopy = await operation('document.clipboard_copy', () => button('Save template file…').click())
+  assert.deepEqual(crossingCopy.result.copied, { objects: [], atoms: ['a1'], bonds: [] })
+  assert.deepEqual(crossingCopy.result.boundary_bonds, ['b1'], 'the template-specific crossing check follows a successful self-contained native copy')
   await page.getByRole('alert').filter({ hasText: 'Select complete graph components' }).waitFor()
   assert.equal(await button('Download template').isDisabled(), true)
   await button('Close').click()
   await button('Select mixed source').click()
-  await button('Save template file…').click()
+  const mixedCopy = await operation('document.clipboard_copy', () => button('Save template file…').click(), 'error')
+  assert.equal(mixedCopy.diagnostics[0].details.reason, 'clipboard_scene_selection_unsupported')
   await page.getByRole('alert').waitFor()
   assert.equal(await button('Download template').isDisabled(), true)
   await button('Close').click()
