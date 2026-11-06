@@ -160,12 +160,40 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
         }
       }
       const label = geometry.labels.find((item) => item.id === 'a4')
-      const screen = await page.locator('svg[data-structure-canvas]').evaluate((svg, box) => {
+      const pickInput = async () => page.locator('svg[data-structure-canvas]').evaluate((svg, box) => {
         const point=svg.createSVGPoint(); point.x=box.x+box.width-0.5; point.y=box.y+box.height/2
-        const screen=point.matrixTransform(svg.getScreenCTM()); return {x:screen.x,y:screen.y}
+        const screen=point.matrixTransform(svg.getScreenCTM()), target=document.elementFromPoint(screen.x, screen.y)
+        const roundtrip=screen.matrixTransform(svg.getScreenCTM().inverse())
+        return {x:screen.x,y:screen.y,world:{x:roundtrip.x,y:roundtrip.y},viewBox:svg.getAttribute('viewBox'),
+          viewport:{width:innerWidth,height:innerHeight},target:target?.outerHTML.slice(0,250),insideCanvas:target!==null&&svg.contains(target),
+          disabled:svg.classList.contains('cursor-progress')}
       }, label.box)
+      const beforeScroll = await pickInput()
+      if (!beforeScroll.insideCanvas) console.log('Label edge before scrolling:', JSON.stringify({stage,input:beforeScroll}))
+      // Snapshot outputs occupy real page height. A world point inside the SVG viewBox may
+      // still be below the browser viewport; raw mouse coordinates do not scroll it into view.
+      await page.locator('[data-atom-label="a4"]').scrollIntoViewIfNeeded()
+      const screen = await pickInput()
+      assert.ok(screen.insideCanvas && screen.x>=0 && screen.y>=0 && screen.x<screen.viewport.width && screen.y<screen.viewport.height,
+        `the exact label-edge mouse point must reach the canvas: ${JSON.stringify({beforeScroll,screen})}`)
+      assert.equal(screen.disabled,false,'picking starts only after the style edit is idle')
+      assert.ok(screen.world.x>=label.box.x && screen.world.x<=label.box.x+label.box.width && screen.world.y>=label.box.y && screen.world.y<=label.box.y+label.box.height,
+        `screen/world conversion preserves the measured-box point: ${JSON.stringify({screen,label})}`)
+      await page.evaluate(() => {
+        window.__weightPickEvent=null
+        document.addEventListener('pointerdown',(event)=>{
+          const svg=document.querySelector('svg[data-structure-canvas]'), point=svg.createSVGPoint()
+          point.x=event.clientX;point.y=event.clientY
+          const world=point.matrixTransform(svg.getScreenCTM().inverse())
+          window.__weightPickEvent={client:{x:event.clientX,y:event.clientY},world:{x:world.x,y:world.y},
+            target:event.target?.outerHTML.slice(0,250),insideCanvas:svg.contains(event.target),viewBox:svg.getAttribute('viewBox')}
+        },{once:true,capture:true})
+      })
       await page.mouse.click(screen.x, screen.y)
-      assert.ok(JSON.parse(await page.getByLabel('Weight selection', { exact:true }).textContent()).includes('a4'), 'right edge of the measured label is pickable')
+      const pickEvent=await page.evaluate(()=>window.__weightPickEvent)
+      assert.ok(pickEvent?.insideCanvas,`the native pointer event reached the canvas: ${JSON.stringify({screen,pickEvent})}`)
+      assert.ok(JSON.parse(await page.getByLabel('Weight selection', { exact:true }).textContent()).includes('a4'),
+        `right edge of the measured label is pickable: ${JSON.stringify({beforeScroll,screen,pickEvent,label})}`)
       const selectedBox = await page.locator('[data-instance="s1"] > g').first().locator('rect').evaluateAll((rects) => rects.map((rect) => ({x:Number(rect.getAttribute('x')),y:Number(rect.getAttribute('y')),width:Number(rect.getAttribute('width')),height:Number(rect.getAttribute('height'))})))
       assert.ok(selectedBox.some((box) => ['x','y','width','height'].every((key) => Math.abs(box[key]-label.box[key]) < 0.05)), 'selection highlight uses the same measured label box')
       const current = (await snapshot()).document
