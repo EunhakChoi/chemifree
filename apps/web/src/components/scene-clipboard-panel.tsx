@@ -6,22 +6,23 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import type { DocumentEditor } from '@/hooks/use-document-editor'
+import type { DocumentEditor, NativeSceneClipboardCutPlan } from '@/hooks/use-document-editor'
 import { MAX_NATIVE_CLIPBOARD_BYTES, settingsOf, type DocumentView, type NativeSceneClipboardCopy } from '@/lib/document-contract'
 
 interface SceneClipboardPanelProps {
   document: DocumentView
-  editor: Pick<DocumentEditor, 'busy' | 'serviceGeneration' | 'currentServiceGeneration' | 'copySceneGraphics' | 'pasteSceneGraphics' | 'clipboardAction' | 'clipboardPending' | 'checkClipboardPaste' | 'clipboardNeedsReload' | 'reconcileClipboardPaste'>
+  editor: Pick<DocumentEditor, 'busy' | 'serviceGeneration' | 'currentServiceGeneration' | 'copySceneGraphics' | 'prepareSceneCut' | 'cutSceneGraphics' | 'pasteSceneGraphics' | 'clipboardAction' | 'clipboardPending' | 'checkClipboardPaste' | 'clipboardNeedsReload' | 'reconcileClipboardPaste'>
 }
 
 interface CopyOffer {
   generation: number
   result: NativeSceneClipboardCopy
+  cut?: NativeSceneClipboardCutPlan
 }
 
 interface PendingAction {
   generation: number
-  action: 'copy' | 'read' | 'write' | 'paste' | 'check' | 'reconcile'
+  action: 'copy' | 'cut' | 'read' | 'write' | 'paste' | 'check' | 'reconcile'
 }
 
 function errorMessage(error: unknown): string {
@@ -30,7 +31,7 @@ function errorMessage(error: unknown): string {
 
 /** Explicit plain-text transport for the bounded graphic/group forest profile. */
 export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelProps) {
-  const [mode, setMode] = useState<'copy' | 'paste' | null>(null)
+  const [mode, setMode] = useState<'copy' | 'cut' | 'paste' | null>(null)
   const [offer, setOffer] = useState<CopyOffer | null>(null)
   const [text, setText] = useState('')
   const [offsetX, setOffsetX] = useState('')
@@ -76,18 +77,23 @@ export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelPro
     setPending(null)
   }
 
-  async function prepareCopy() {
+  async function prepareCopy(action: 'copy' | 'cut' = 'copy') {
     const sequence = ++request.current
     const generation = editor.serviceGeneration
-    setMode('copy')
+    setMode(action)
     setOffer(null)
     setError(null)
     setStatus(null)
     setPending({ generation, action: 'copy' })
     try {
       // Invoke immediately so the hook captures the complete press-time selection.
-      const result = await editor.copySceneGraphics(document.id)
-      if (current(sequence, generation)) setOffer({ generation, result })
+      if (action === 'cut') {
+        const cut = await editor.prepareSceneCut(document.id)
+        if (current(sequence, generation)) setOffer({ generation, result: cut.copy, cut })
+      } else {
+        const result = await editor.copySceneGraphics(document.id)
+        if (current(sequence, generation)) setOffer({ generation, result })
+      }
     } catch (cause: unknown) {
       if (current(sequence, generation)) setError(errorMessage(cause))
     } finally {
@@ -156,6 +162,34 @@ export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelPro
     }
   }
 
+  async function cutClipboard() {
+    if (!currentOffer || !offer?.cut || busy) return
+    const sequence = ++request.current
+    const generation = editor.serviceGeneration
+    setPending({ generation, action: 'cut' })
+    setError(null)
+    setStatus(null)
+    let writeFailed = false
+    try {
+      if (typeof navigator.clipboard?.writeText !== 'function') {
+        throw new Error('Browser clipboard writing is unavailable. The graphics were retained; copy the native text manually.')
+      }
+      // Invoke in the click; the hook owns the write-before-delete queue and frozen scope.
+      const write = navigator.clipboard.writeText(currentOffer.payload).catch((cause: unknown) => {
+        writeFailed = true
+        throw cause
+      })
+      await editor.cutSceneGraphics(offer.cut, write)
+      if (current(sequence, generation)) close()
+    } catch (cause: unknown) {
+      if (current(sequence, generation)) setError(writeFailed
+        ? 'Clipboard writing was denied or failed. The graphics were retained; copy the native text manually.'
+        : errorMessage(cause))
+    } finally {
+      if (current(sequence, generation)) setPending(null)
+    }
+  }
+
   async function paste() {
     if (busy || editor.clipboardPending || !text.trim() || !textFits || !validX || !validY) return
     const sequence = ++request.current
@@ -189,34 +223,37 @@ export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelPro
     }
   }
 
-  const unresolved = editor.clipboardPending && editor.clipboardAction === 'scene_paste' && <Alert>
+  const cutting = editor.clipboardAction === 'scene_cut'
+  const unresolved = editor.clipboardPending && (editor.clipboardAction === 'scene_paste' || cutting) && <Alert>
     <AlertDescription className="flex flex-col gap-2">
       <p>{editor.clipboardNeedsReload
-        ? 'The original graphics paste can no longer be confirmed by replay. It may already be present. Reload the document to reconcile its outcome.'
-        : 'The graphics paste outcome is not confirmed. Check the original attempt before making another change.'}</p>
+        ? `The original graphics ${cutting ? 'Cut' : 'paste'} can no longer be confirmed by replay. ${cutting ? 'The source may already have been removed.' : 'It may already be present.'} Reload the document to reconcile its outcome.`
+        : `The graphics ${cutting ? 'Cut' : 'paste'} outcome is not confirmed. Check the original attempt before making another change.`}</p>
       <Button size="sm" variant="outline" disabled={localBusy} onClick={() => void checkPaste(editor.clipboardNeedsReload)}>
-        {editor.clipboardNeedsReload ? 'Reload document to reconcile' : 'Check graphics paste outcome'}
+        {editor.clipboardNeedsReload ? 'Reload document to reconcile' : cutting ? 'Check graphics Cut outcome' : 'Check graphics paste outcome'}
       </Button>
     </AlertDescription>
   </Alert>
 
   return <section aria-label="Scene graphics clipboard" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
     <h3 className="text-sm font-medium">Scene graphics clipboard</h3>
-    <p className="text-xs text-muted-foreground">Copy selected lines, arrows, rectangles and groups with their internal object references. Mixed atom/bond selections, molecule placements, outgoing references outside the copied forest and groups with fewer than two children are refused. Paste requires matching document style. Scene Cut and external graphics formats are not available.</p>
+    <p className="text-xs text-muted-foreground">Copy or cut selected lines, arrows, rectangles and groups with their internal object references. Mixed atom/bond selections, molecule placements, outgoing references outside the forest and groups with fewer than two children are refused. Cut also refuses references from outside the forest. Paste requires matching document style. External graphics formats are not available.</p>
     <Dialog open={mode !== null} onOpenChange={(open) => { if (!open) close() }}>
       <div className="flex flex-wrap gap-2">
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy} />} onClick={() => void prepareCopy()}>Copy graphics…</DialogTrigger>
+        <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy} />} onClick={() => void prepareCopy('cut')}>Cut graphics…</DialogTrigger>
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy} />} onClick={() => openPaste()}>Paste graphics…</DialogTrigger>
       </div>
       <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden transition-none sm:max-w-lg">
         <DialogHeader className="shrink-0 pr-8">
-          <DialogTitle>{mode === 'copy' ? 'Copy native graphics' : 'Paste native graphics'}</DialogTitle>
+          <DialogTitle>{mode === 'cut' ? 'Cut native graphics' : mode === 'copy' ? 'Copy native graphics' : 'Paste native graphics'}</DialogTitle>
         </DialogHeader>
         <div className="-mx-4 flex min-h-0 flex-col gap-4 overflow-x-hidden overflow-y-auto px-4 pb-4">
-          <DialogDescription>{mode === 'copy'
-            ? 'This text contains the captured graphics and groups. Select it for manual copying if browser clipboard access is unavailable.'
+          <DialogDescription>{mode !== 'paste'
+            ? mode === 'cut' ? 'Cut to clipboard writes this captured forest first, then removes its roots only if the source drawing is unchanged. Clipboard writing and deletion are separate: a refused deletion leaves a copy. Manual copying never authorizes deletion. Undo changes the document only.' : 'This text contains the captured graphics and groups. Select it for manual copying if browser clipboard access is unavailable.'
             : 'Paste Chemifree native graphics text below. Reading the browser clipboard requires your click. Text is sent to the local service only when you press Paste graphics. Graph-fragment and external-format text are not accepted here.'}</DialogDescription>
-          {mode === 'copy' ? <>
+          {unresolved}
+          {mode !== 'paste' ? <>
             {currentOffer && <p role="status">{currentOffer.roots.length} roots, {currentOffer.copied.objects.length} objects, revision {currentOffer.snapshot.document.revision}.</p>}
             {(offer && !currentOffer || pending !== null && pending.generation !== editor.serviceGeneration) && <p>The service changed. Close this dialog and copy the graphics again.</p>}
             <FieldGroup><Field>
@@ -229,9 +266,9 @@ export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelPro
                 copyText.current?.select()
               }}>Select native graphics text</Button>
               <Button variant="outline" disabled={busy || !currentOffer} onClick={() => void writeClipboard()}>Copy to clipboard</Button>
+              {mode === 'cut' && <Button disabled={busy || !currentOffer || !offer?.cut} onClick={() => void cutClipboard()}>Cut to clipboard</Button>}
             </DialogFooter>
           </> : <>
-            {mode === 'paste' && unresolved}
             <p>Offsets in points are added to source coordinates. New roots append to the page, even when a group is selected. Graphics may overlap existing content; viewport position and molecule placement do not change the offset.</p>
             <FieldGroup>
               <Field data-invalid={!textFits || undefined}>
@@ -261,7 +298,7 @@ export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelPro
         </div>
       </DialogContent>
     </Dialog>
-    {(mode === null || mode === 'copy') && unresolved}
+    {mode === null && unresolved}
     {mode === null && error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
   </section>
 }
