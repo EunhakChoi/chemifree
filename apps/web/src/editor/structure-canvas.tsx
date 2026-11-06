@@ -1,3 +1,4 @@
+import type { RingSize } from '@/lib/document-contract'
 import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
 import { cn } from '@/lib/utils'
@@ -58,6 +59,7 @@ const DRAG_THRESHOLD = 3
  * service without scene instances.
  */
 type Drag =
+  | { kind: 'attach'; start: Position; atom: string; instance: string | null; size: RingSize }
   | { kind: 'move'; start: Position; selected: Set<string>; instance: string | null; scope: SelectionGeometry }
   | { kind: 'bond'; start: Position; fromAtom: string | null; instance: string | null }
   | { kind: 'marquee'; start: Position; additive: boolean; pressed: Set<string>; instance: string | null }
@@ -65,7 +67,7 @@ type Drag =
 
 type Preview =
   | { kind: 'move'; scope: SelectionGeometry; delta: Position }
-  | { kind: 'bond'; from: Position; to: Position }
+  | { kind: 'bond' | 'attach'; from: Position; to: Position }
   | { kind: 'marquee'; from: Position; to: Position }
   | null
 
@@ -127,6 +129,9 @@ interface StructureCanvasProps {
   onMark: (intent: MarkIntent) => void
   /** An explicit center click; the shared Rust command owns graph and geometry generation. */
   onRing?: (instance: string | null, center: Position) => void
+  ringMode?: 'independent' | 'attach'
+  ringSize?: RingSize
+  onAttachRing?: (instance: string | null, atom: string, direction: { dx: number; dy: number }, size: RingSize) => void
   /** Rings for the items whose stored configuration the drawing does not agree with; none while it is unknown. */
   rings?: readonly AgreementRing[]
   /** CIP labels to draw over the atoms and double bonds they are about; an overlay, never part of the document. */
@@ -156,6 +161,9 @@ export function StructureCanvas({
   activePlacement,
   onActivePlacementChange,
   onRing,
+  ringMode = 'independent',
+  ringSize = 6,
+  onAttachRing,
   onCommands,
   onMark,
   rings = [],
@@ -404,7 +412,10 @@ export function StructureCanvas({
     const point = toDocument(event)
     if (!point) return
     const { hit, instance } = locate(point)
-    if (tool === 'select') {
+    if (tool === 'ring' && ringMode === 'attach') {
+      const atom = hit?.kind === 'atom' ? drawingOf(instance).atoms.get(hit.id) : undefined
+      if (atom) setDrag({ kind: 'attach', start: atom.position, atom: atom.id, instance, size: ringSize })
+    } else if (tool === 'select') {
       if (!hit) {
         setDrag({ kind: 'marquee', start: point, additive: event.shiftKey, pressed: new Set(selection), instance: activePlacement })
         return
@@ -459,6 +470,12 @@ export function StructureCanvas({
     } else if (gesture.kind === 'bond') {
       const target = bondTarget(gesture, point)
       setPreview(target && { kind: 'bond', from: target.origin, to: target.position })
+    } else if (gesture.kind === 'attach') {
+      const dx = point.x - gesture.start.x
+      const dy = point.y - gesture.start.y
+      const length = Math.hypot(dx, dy)
+      setPreview(length === 0 ? null : { kind: 'attach', from: gesture.start,
+        to: { x: gesture.start.x + bondLength * dx / length, y: gesture.start.y + bondLength * dy / length } })
     } else if (gesture.kind === 'marquee') {
       setPreview({ kind: 'marquee', from: gesture.start, to: point })
     }
@@ -475,6 +492,10 @@ export function StructureCanvas({
     // document and drops them if what they name is gone.
     if (active.pan || !gesture || !point) return
     const dragged = distance({ x: event.clientX, y: event.clientY }, active.start) >= DRAG_THRESHOLD
+    if (gesture.kind === 'attach') {
+      if (dragged) onAttachRing?.(gesture.instance, gesture.atom, { dx: point.x - gesture.start.x, dy: point.y - gesture.start.y }, gesture.size)
+      return
+    }
     if (tool === 'ring') {
       if (!dragged) onRing?.(gesture.instance, gesture.start)
       return
@@ -515,6 +536,8 @@ export function StructureCanvas({
         onSelectionChange(marqueeSelection(document, gesture.instance, gesture.start, point, gesture.pressed, gesture.additive, dragged))
         return []
       }
+      case 'attach':
+        return []
       case 'bond':
         return bondCommands(gesture, point, dragged)
       case 'click':
@@ -738,7 +761,7 @@ export function StructureCanvas({
         <g className="fill-none stroke-primary" strokeWidth={settingsOf(document).line_width_pt} strokeLinejoin="round" data-bond-preview={bondKind}>
           <StrokeShapes strokes={previewStrokes(preview.from, preview.to, bondKind)} bond="preview" fill="fill-primary stroke-none" />
         </g>
-      ) : preview?.kind === 'bond' ? (
+      ) : preview?.kind === 'bond' || preview?.kind === 'attach' ? (
         <line
           x1={preview.from.x}
           y1={preview.from.y}

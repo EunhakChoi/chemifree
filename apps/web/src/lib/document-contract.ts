@@ -118,6 +118,8 @@ export interface SelectionView {
 
 export type RingSize = 5 | 6
 
+type RingPlacement = { kind: 'independent'; center: Position } | { kind: 'attach'; atom: string; direction: { dx: number; dy: number } }
+
 /** An immutable ring mutation whose send method checks the same request each time. */
 export interface RingInsertionAttempt {
   send(): Promise<DocumentResponse>
@@ -616,6 +618,7 @@ export type SelectionTransform =
 
 export type Command =
   | { op: 'insert_ring'; instance: string; center: Position; size?: RingSize }
+  | { op: 'attach_ring'; instance: string; atom: string; direction: { dx: number; dy: number }; size?: RingSize }
   /** Named by exactly one of `element` and `query`; a query atom carries no charge or isotope. */
   | ({ op: 'add_atom'; bond_to?: { atom: AtomRef } & BondKind } & ({ element: string } | { query: QueryAtom }) &
       NewAtomPlacement &
@@ -2010,17 +2013,50 @@ export class DocumentClient {
 
   /** Freeze a bounded ring insertion; outcome checks reuse its exact body and process. */
   createRingInsertion(destination: DocumentView, instance: string, center: Position, selectionBefore: SelectionView, size: RingSize = 6): RingInsertionAttempt {
+    return this.createRingAttempt(destination, instance, selectionBefore, size, { kind: 'independent', center })
+  }
+
+  /** Freeze the target, direction and size of a ring attached by an ordinary single bond. */
+  createRingAttachment(destination: DocumentView, instance: string, atom: string, direction: { dx: number; dy: number }, selectionBefore: SelectionView, size: RingSize = 6): RingInsertionAttempt {
+    return this.createRingAttempt(destination, instance, selectionBefore, size, { kind: 'attach', atom, direction })
+  }
+
+  private createRingAttempt(destination: DocumentView, instance: string, selectionBefore: SelectionView, size: RingSize, placement: RingPlacement): RingInsertionAttempt {
     const before = structuredClone(withDocumentStates(destination))
-    if (before.scene?.instances.length !== 1 || before.scene.instances[0].id !== instance ||
-        !Number.isFinite(center.x) || !Number.isFinite(center.y)) {
-      throw new ApiError('ring_destination_invalid', 'Ring insertion requires one existing placement and a finite center.', 0)
+    if (before.scene?.instances.length !== 1 || before.scene.instances[0].id !== instance) {
+      throw new ApiError('ring_destination_invalid', 'Ring insertion requires one existing placement.', 0)
     }
     if (size !== 5 && size !== 6) throw new ApiError('ring_size_invalid', 'Ring size must be 5 or 6.', 0)
-    const point = { x: center.x, y: center.y }
+    let point: Position
+    let unit: { dx: number; dy: number } | null = null
+    let target: string | null = null
+    let command: Command
+    if (placement.kind === 'independent') {
+      point = { ...placement.center }
+      if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+        throw new ApiError('ring_destination_invalid', 'Ring insertion requires a finite center.', 0)
+      }
+      command = { op: 'insert_ring', instance, center: point, ...(size === 6 ? {} : { size }) }
+    } else {
+      const source = before.atoms.find((atom) => atom.id === placement.atom)
+      if (!source) throw new ApiError('ring_destination_invalid', 'The attachment atom no longer exists.', 0)
+      target = source.id
+      point = { ...source.position }
+      const direction = { ...placement.direction }
+      const scale = Math.max(Math.abs(direction.dx), Math.abs(direction.dy))
+      if (!Number.isFinite(direction.dx) || !Number.isFinite(direction.dy) || scale === 0) {
+        throw new ApiError('ring_direction_invalid', 'Ring direction must be finite and nonzero.', 0)
+      }
+      const dx = direction.dx / scale
+      const dy = direction.dy / scale
+      const norm = Math.hypot(dx, dy)
+      unit = { dx: dx / norm, dy: dy / norm }
+      command = { op: 'attach_ring', instance, atom: source.id, direction, ...(size === 6 ? {} : { size }) }
+    }
     const selection = clipboardSelection(selectionBefore)
     return this.clipboardAttempt('ring', `${documentPath(before.id)}/transactions`, {
       expected_revision: before.revision,
-      commands: [{ op: 'insert_ring', instance, center: point, ...(size === 6 ? {} : { size }) }],
+      commands: [command],
       selection_before: selection,
     }, (value) => {
       const snapshot = DocumentClient.document(value)
@@ -2031,8 +2067,8 @@ export class DocumentClient {
       const bonds = after.bonds.filter((bond) => !oldBonds.has(bond.id))
       // Scene captures follow paint order; the service returns ID-ordered sets.
       const selected = after.selection
-      if (after.revision !== before.revision + 1 || atoms.length !== size || bonds.length !== size ||
-          snapshot.notes?.length || !selected || !sameClipboardIds(selected.objects, selection.objects) ||
+      if (after.revision !== before.revision + 1 || atoms.length !== size || bonds.length !== size + (target ? 1 : 0) ||
+          !selected || !sameClipboardIds(selected.objects, selection.objects) ||
           !sameClipboardIds(selected.atoms, selection.atoms) || !sameClipboardIds(selected.bonds, selection.bonds)) throw clipboardIncompatible()
       const length = settingsOf(before).bond_length_pt
       const height = length * (Math.sqrt(3) / 2)
@@ -2044,7 +2080,11 @@ export class DocumentClient {
           radius * Math.sin(index * 2 * Math.PI / 5)])
       for (const [index, atom] of atoms.entries()) {
         const [x, y] = offsets[index]
-        const expected = { x: point.x + x, y: point.y + y }
+        const ringRadius = offsets[0][0]
+        const axial = length + (ringRadius - x)
+        const expected = unit
+          ? { x: point.x + axial * unit.dx + y * unit.dy, y: point.y + axial * unit.dy - y * unit.dx }
+          : { x: point.x + x, y: point.y + y }
         const tolerance = 1e-10
         if (atom.element !== 'C' || atom.kind !== 'element' || atom.query !== null || atom.charge !== 0 ||
             atom.isotope !== null || atom.hydrogens.mode !== 'inferred' || atom.radical !== 'none' ||
@@ -2053,8 +2093,36 @@ export class DocumentClient {
             bonds[index].end !== atoms[(index + 1) % size].id || bonds[index].order !== 'single' ||
             bonds[index].query !== null || bonds[index].mark !== null) throw clipboardIncompatible()
       }
+      if (target) {
+        const link = bonds[size]
+        if (link.begin !== target || link.end !== atoms[0].id || link.order !== 'single' || link.query !== null || link.mark !== null) throw clipboardIncompatible()
+      }
+      const originalStereo = stereoOf(before)
+      const touchedBonds = new Set(before.bonds.filter((bond) => bond.begin === target || bond.end === target).map((bond) => bond.id))
+      const removedCenters = originalStereo.atoms.filter((record) => record.atom === target)
+      const removedBonds = originalStereo.bonds.filter((record) => touchedBonds.has(record.bond))
+      const groups = originalStereo.groups ?? []
+      const affectedGroup = groups.find((group) => group.members.includes(target ?? ''))
+      const expectedStereo = {
+        atoms: originalStereo.atoms.filter((record) => record.atom !== target),
+        bonds: originalStereo.bonds.filter((record) => !touchedBonds.has(record.bond)),
+        groups: groups.map((group) => ({ ...group, members: group.members.filter((atom) => atom !== target) }))
+          .filter((group) => group.members.length > 0),
+      }
+      if (!sameJson(stereoOf(after), expectedStereo)) throw clipboardIncompatible()
+      const expectedNotes = [
+        ...removedCenters.map((record) => `stereo_configuration:atoms[${record.atom}]`),
+        ...removedBonds.map((record) => `stereo_configuration:bonds[${record.bond}]`),
+        ...(affectedGroup ? [`stereo_group_member:atoms[${target}]`,
+          ...(affectedGroup.members.length === 1 ? [`stereo_group:groups[${affectedGroup.id}]`] : [])] : []),
+      ]
+      const notes = snapshot.notes ?? []
+      const noteKeys = notes.map((note) => `${note.feature}:${note.source_path}`)
+      if (notes.length !== expectedNotes.length || new Set(noteKeys).size !== noteKeys.length ||
+          notes.some((note) => note.disposition !== 'dropped' || note.semantic_impact !== 'stereo') ||
+          expectedNotes.some((key) => !noteKeys.includes(key))) throw clipboardIncompatible()
       const fresh = new Set(atoms.map((atom) => atom.id))
-      const retained = { ...after, revision: before.revision, selection: before.selection,
+      const retained = { ...after, revision: before.revision, selection: before.selection, stereo: before.stereo,
         atoms: after.atoms.filter((atom) => oldAtoms.has(atom.id)),
         bonds: after.bonds.filter((bond) => oldBonds.has(bond.id)),
         scene: after.scene && { ...after.scene, instances: after.scene.instances.map((placement) => ({

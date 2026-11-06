@@ -1085,6 +1085,25 @@ try {
       const redoFive = await both((id) => request('op-ring-five-redo', 'history.redo', { document_id: id, expected_revision: 5 }))
       assert.deepEqual(redoFive.result.document.atoms, five.result.document.atoms)
       assert.deepEqual(redoFive.result.document.bonds, five.result.document.bonds)
+      const attach = (id) => request('op-ring-attach', 'document.transaction', { document_id: id, expected_revision: 6,
+        commands: [{ op: 'attach_ring', instance: 's1', atom: 'a1', direction: { dx: 0, dy: -25 } }] })
+      const attached = await both(attach)
+      assert.equal(attached.outcome, 'ok')
+      assert.equal(attached.result.document.atoms.length, 17, 'omitted size attaches six fresh carbons')
+      assert.equal(attached.result.document.bonds.length, 18, 'six cycle edges and an exocyclic single bond')
+      assert.deepEqual(attached.result.document.atoms.slice(0, 11), five.result.document.atoms)
+      assert.deepEqual(attached.result.document.bonds.slice(0, 11), five.result.document.bonds)
+      assert.deepEqual(attached.result.notes, [])
+      assert.deepEqual(await both(attach), attached)
+      const zero = await both((id) => request('op-ring-attach-zero', 'document.transaction', { document_id: id, expected_revision: 7,
+        commands: [{ op: 'attach_ring', instance: 's1', atom: 'a1', direction: { dx: 0, dy: 0 } }] }))
+      assert.equal(zero.diagnostics[0].code, 'invalid_command')
+      const undoAttach = await both((id) => request('op-ring-attach-undo', 'history.undo', { document_id: id, expected_revision: 7 }))
+      assert.deepEqual(undoAttach.result.document.atoms, five.result.document.atoms)
+      assert.deepEqual(undoAttach.result.document.bonds, five.result.document.bonds)
+      const redoAttach = await both((id) => request('op-ring-attach-redo', 'history.redo', { document_id: id, expected_revision: 8 }))
+      assert.deepEqual(redoAttach.result.document.atoms, attached.result.document.atoms)
+      assert.deepEqual(redoAttach.result.document.bonds, attached.result.document.bonds)
       httpDoc = outerHttp
       cliDoc = outerCli
     }
@@ -1099,7 +1118,8 @@ try {
       const transaction = catalog.result.operations.find((operation) => operation.id === 'document.transaction')
       const commandRows = transaction.sub_operations.filter((part) => part.commands === undefined)
       const capabilityRows = transaction.sub_operations.filter((part) => part.commands !== undefined)
-      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [47, 36, 11])
+      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [48, 37, 11],
+        'attach_ring is a command row; the 11 capability rows are unchanged')
       for (const command of ['set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing',
         'create_stereo_group', 'delete_stereo_group', 'set_stereo_group_kind', 'set_stereo_group_number',
         'add_stereo_group_members', 'remove_stereo_group_members', 'merge_stereo_groups', 'split_stereo_group']) {

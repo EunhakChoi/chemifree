@@ -365,6 +365,39 @@ pub enum RingSize {
     Six,
 }
 
+// Fixed recipes start at the rightmost vertex, clockwise in y-down coordinates.
+// Keep the original six-ring arithmetic unchanged for compatibility.
+fn ring_offsets(length: f64, size: RingSize) -> Vec<(f64, f64)> {
+    match size {
+        RingSize::Six => {
+            let height = length * (3.0_f64.sqrt() / 2.0);
+            vec![
+                (length, 0.0),
+                (length / 2.0, height),
+                (-length / 2.0, height),
+                (-length, 0.0),
+                (-length / 2.0, -height),
+                (length / 2.0, -height),
+            ]
+        }
+        RingSize::Five => {
+            // sin(36°), cos(72°), cos(36°), sin(72°), from the golden ratio.
+            let root_five = 5.0_f64.sqrt();
+            let radius = 2.0 * length / (10.0 - 2.0 * root_five).sqrt();
+            let near_x = radius * (root_five - 1.0) / 4.0;
+            let far_x = -radius * (root_five + 1.0) / 4.0;
+            let high_y = radius * (10.0 + 2.0 * root_five).sqrt() / 4.0;
+            vec![
+                (radius, 0.0),
+                (near_x, high_y),
+                (far_x, length / 2.0),
+                (far_x, -length / 2.0),
+                (near_x, -high_y),
+            ]
+        }
+    }
+}
+
 /// One edit. A transaction applies an ordered list of commands all-or-nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
@@ -373,6 +406,14 @@ pub enum Command {
     InsertRing {
         instance: ObjectId,
         center: Point,
+        size: RingSize,
+    },
+    /// Connects a fresh regular carbon ring to an existing atom with one single bond.
+    /// Direction is finite and nonzero; its length is ignored. Stereo follows ordinary AddBond.
+    AttachRing {
+        instance: ObjectId,
+        atom: AtomId,
+        direction: Vector,
         size: RingSize,
     },
     /// Adds an atom with the given state, optionally bonded from another atom (`bond_to.atom`
@@ -613,6 +654,8 @@ pub enum EditError {
     BondLimit,
     InvalidTitle,
     CoordinateOutOfRange,
+    /// Ring attachment needs a finite nonzero direction.
+    RingDirectionInvalid,
     ChargeOutOfRange(i8),
     IsotopeOutOfRange(u16),
     IdentifierSpaceExhausted,
@@ -722,6 +765,7 @@ impl EditError {
     /// The stable code sent as `reason` with `invalid_command`, when the refusal has one.
     pub fn reason(&self) -> Option<&'static str> {
         match self {
+            Self::RingDirectionInvalid => Some("ring_direction_invalid"),
             Self::InvalidState(state) => Some(state.code()),
             Self::Settings(error) => Some(error.code()),
             Self::Stereo(error) => Some(error.code()),
@@ -774,6 +818,7 @@ impl fmt::Display for EditError {
                 formatter,
                 "a title needs 1-{MAX_TITLE_CHARS} characters without control characters"
             ),
+            Self::RingDirectionInvalid => formatter.write_str("ring direction must be finite and nonzero"),
             Self::CoordinateOutOfRange => write!(
                 formatter,
                 "coordinates must be finite and within ±{MAX_COORDINATE} pt"
@@ -1608,6 +1653,31 @@ impl Draft {
         Ok(id)
     }
 
+    /// Allocates one fixed recipe's carbon cycle; both callers supply five or six positions.
+    fn insert_carbon_ring(
+        &mut self,
+        instance: ObjectId,
+        positions: &[Point],
+    ) -> Result<AtomId, EditError> {
+        let mut atoms = Vec::with_capacity(positions.len());
+        for point in positions {
+            let atom = self.allocate_atom()?;
+            self.content.atoms.insert(atom, Atom::from(Element::CARBON));
+            self.content
+                .positions
+                .insert(PositionKey { instance, atom }, *point);
+            atoms.push(atom);
+        }
+        for index in 0..atoms.len() {
+            self.insert_bond(
+                atoms[index],
+                atoms[(index + 1) % atoms.len()],
+                BondOrder::Single,
+            )?;
+        }
+        Ok(atoms[0])
+    }
+
     fn insert_bond(
         &mut self,
         begin: AtomId,
@@ -1999,54 +2069,52 @@ impl Draft {
                     return Err(EditError::PositionsRequired { instances });
                 }
                 let length = self.content.settings.bond_length_pt;
-                // Fixed recipes start at the rightmost vertex, clockwise in y-down coordinates.
-                // Keep the original six-ring arithmetic unchanged for compatibility.
-                let offsets = match size {
-                    RingSize::Six => {
-                        let height = length * (3.0_f64.sqrt() / 2.0);
-                        vec![
-                            (length, 0.0),
-                            (length / 2.0, height),
-                            (-length / 2.0, height),
-                            (-length, 0.0),
-                            (-length / 2.0, -height),
-                            (length / 2.0, -height),
-                        ]
-                    }
-                    RingSize::Five => {
-                        // sin(36°), cos(72°), cos(36°), sin(72°), from the golden ratio.
-                        let root_five = 5.0_f64.sqrt();
-                        let radius = 2.0 * length / (10.0 - 2.0 * root_five).sqrt();
-                        let near_x = radius * (root_five - 1.0) / 4.0;
-                        let far_x = -radius * (root_five + 1.0) / 4.0;
-                        let high_y = radius * (10.0 + 2.0 * root_five).sqrt() / 4.0;
-                        vec![
-                            (radius, 0.0),
-                            (near_x, high_y),
-                            (far_x, length / 2.0),
-                            (far_x, -length / 2.0),
-                            (near_x, -high_y),
-                        ]
-                    }
-                };
-                let count = offsets.len();
-                let mut atoms = Vec::with_capacity(count);
-                for (x, y) in offsets {
-                    let point = Point::new(center.x() + x, center.y() + y)?;
-                    let atom = self.allocate_atom()?;
-                    self.content.atoms.insert(atom, Atom::from(Element::CARBON));
-                    self.content.positions.insert(
-                        PositionKey {
-                            instance: *instance,
-                            atom,
-                        },
-                        point,
-                    );
-                    atoms.push(atom);
+                let positions = ring_offsets(length, *size)
+                    .into_iter()
+                    .map(|(x, y)| Point::new(center.x() + x, center.y() + y))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.insert_carbon_ring(*instance, &positions)?;
+            }
+            Command::AttachRing {
+                instance,
+                atom,
+                direction,
+                size,
+            } => {
+                self.content.require_instance(*instance)?;
+                let instances = self.content.instance_count();
+                if instances != 1 {
+                    return Err(EditError::PositionsRequired { instances });
                 }
-                for index in 0..count {
-                    self.insert_bond(atoms[index], atoms[(index + 1) % count], BondOrder::Single)?;
+                self.content.require_atom(*atom)?;
+                let scale = direction.dx.abs().max(direction.dy.abs());
+                if !direction.dx.is_finite() || !direction.dy.is_finite() || scale == 0.0 {
+                    return Err(EditError::RingDirectionInvalid);
                 }
+                // Scale before hypot so even huge and subnormal finite directions normalize.
+                let dx = direction.dx / scale;
+                let dy = direction.dy / scale;
+                let norm = dx.hypot(dy);
+                let (ux, uy) = (dx / norm, dy / norm);
+                let origin = self.content.positions[&PositionKey {
+                    instance: *instance,
+                    atom: *atom,
+                }];
+                let length = self.content.settings.bond_length_pt;
+                let offsets = ring_offsets(length, *size);
+                let radius = offsets[0].0;
+                let positions = offsets
+                    .into_iter()
+                    .map(|(x, y)| {
+                        let axial = length + (radius - x);
+                        Point::new(
+                            origin.x() + axial * ux + y * uy,
+                            origin.y() + axial * uy - y * ux,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let first = self.insert_carbon_ring(*instance, &positions)?;
+                self.insert_bond(*atom, first, BondOrder::Single)?;
             }
             Command::AddAtom {
                 atom,

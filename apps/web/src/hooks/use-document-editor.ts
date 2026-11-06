@@ -794,6 +794,26 @@ export function useDocumentEditor() {
         await finishClipboardMutation()
       })
     }, [run, finishClipboardMutation]),
+    attachRing: useCallback((documentId: string, instance: string | null, atom: string, direction: { dx: number; dy: number }, size: RingSize = 6) => {
+      const pressed = new Set(selectionRef.current)
+      const generation = serviceGenerationRef.current
+      const vector = { ...direction }
+      return run(async () => {
+        const shown = currentRef.current?.document
+        if (!shown || shown.id !== documentId || generation !== serviceGenerationRef.current ||
+            !instance || shown.scene?.instances.length !== 1 || shown.scene.instances[0].id !== instance) {
+          throw new ApiError('ring_destination_invalid', 'Ring insertion requires the captured document and its only placement. Click again after choosing a supported drawing.', 0)
+        }
+        const before = selectionSnapshot(pressed, shown)
+        if (selectionIds(before).size !== pressed.size) {
+          throw new ApiError('ring_selection_changed', 'The captured selection no longer exists. Click again to insert the ring.', 0)
+        }
+        clipboardAttempt.current = { kind: 'ring', documentId, generation,
+          attempt: client.createRingAttachment(shown, instance, atom, vector, before, size) }
+        setClipboardAction('ring')
+        await finishClipboardMutation()
+      })
+    }, [run, finishClipboardMutation]),
     reconcileClipboardPaste: useCallback(() => clipboardTask(async () => {
       const unresolved = clipboardAttempt.current
       if (!unresolved) return

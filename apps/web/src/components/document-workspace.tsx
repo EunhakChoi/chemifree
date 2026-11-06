@@ -570,6 +570,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [element, setElement] = useState('C')
   const [bondKind, setBondKind] = useState<DrawnKind>('single')
   const [ringSize, setRingSize] = useState<RingSize>(6)
+  const [ringMode, setRingMode] = useState<'independent' | 'attach'>('independent')
   const [dragging, setDragging] = useState(false)
   const [ringRecoveryError, setRingRecoveryError] = useState<string | null>(null)
   const firstPlacement = document.scene?.instances[0]?.id ?? null
@@ -789,11 +790,24 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
       </div>
 
       {tool === 'ring' && <ToggleGroup
+        aria-label="Ring placement"
+        variant="outline"
+        size="sm"
+        value={[ringMode]}
+        disabled={editor.busy || dragging}
+        onValueChange={(values) => {
+          if (values[0] === 'independent' || values[0] === 'attach') setRingMode(values[0])
+        }}
+      >
+        <ToggleGroupItem value="independent">Independent</ToggleGroupItem>
+        <ToggleGroupItem value="attach">Attach to atom</ToggleGroupItem>
+      </ToggleGroup>}
+      {tool === 'ring' && <ToggleGroup
         aria-label="Ring size"
         variant="outline"
         size="sm"
         value={[String(ringSize)]}
-        disabled={editor.busy}
+        disabled={editor.busy || dragging}
         onValueChange={(values) => {
           if (values[0] === '5') setRingSize(5)
           if (values[0] === '6') setRingSize(6)
@@ -803,8 +817,9 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         <ToggleGroupItem value="6" aria-label="Six-member carbon ring">6</ToggleGroupItem>
       </ToggleGroup>}
       {tool === 'ring' && <p className="text-xs text-muted-foreground">
-        Click the ring center to add an independent {ringSize}-carbon single-bond ring using the current bond length.
-        One placement only. No attachment, fusion, collision avoidance or conformation calculation.
+        {ringMode === 'independent' ? `Click a center to add an independent ${ringSize}-carbon single-bond ring.`
+          : `Drag from an atom toward the new ${ringSize}-carbon ring. One single bond connects it; ordinary bond-addition stereo clearing applies.`}
+        {' '}Current bond length; one placement only. No fusion, collision avoidance or conformation calculation.
       </p>}
       {editor.clipboardPending && editor.clipboardAction === 'ring' && <Alert>
         <AlertDescription className="flex flex-col gap-2">
@@ -834,6 +849,9 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
               before === undefined ? undefined : { kind: 'gesture', before },
             )}
             onMark={(intent) => void editor.markBond((latest) => buildMark(latest, intent))}
+            ringMode={ringMode}
+            ringSize={ringSize}
+            onAttachRing={(instance, atom, direction, size) => void editor.attachRing(document.id, instance, atom, direction, size)}
             onRing={(instance, center) => void editor.insertRing(document.id, instance, center, ringSize)}
             rings={rings}
             cipLabels={labels}

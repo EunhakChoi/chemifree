@@ -10,11 +10,16 @@ P34a/P34b add the bounded **Ring** tool (R): choose 5 or 6 (initially 6), then c
 center to append an independent carbon single-bond regular ring at the current bond length,
 in a document with one placement. HTTP and CLI share `insert_ring`; optional `size` is 5 or 6
 and omission retains 6. One Undo removes the complete ring; Redo restores its IDs.
-Attachment, fusion, replacement, aromatic patterns, other sizes, substituents, user templates,
-abbreviations and molecular conformations remain unimplemented. P34 is in progress; P34b's
-checks are written but have not run in this implementation session. See the
-[contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a) and
-[P34b verification plan](docs/verification/p34b-five-ring.md).
+P34c adds explicit **Attach to atom** mode: drag from an existing atom toward a fresh 5/6-carbon
+ring connected by one single bond. HTTP/CLI use `attach_ring` with an explicit atom and nonzero
+direction. Ordinary bond-addition stereo clearing and group notes apply; Undo restores the statements.
+Recorded atom states are preserved; valence remains an inspection rather than a new edit gate.
+Fusion, spiro, replacement, aromatic patterns, other sizes, user templates, abbreviations and
+molecular conformations remain unimplemented. P34 is in progress; the new checks are written
+but have not run in this implementation session. See the
+[ring contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a),
+[attachment contract](docs/CONTRACT.md#attached-carbon-ring-p34c), and
+[P34c verification record](docs/verification/p34c-attached-ring.md).
 
 ## Run locally
 
