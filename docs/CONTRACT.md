@@ -1837,9 +1837,22 @@ Versions 8–15 migrate all outlines to false; any outline field behind an older
 is refused, including history-only states. Reads preserve original bytes; first-overwrite
 and pre-recovery archives now also include v15. The additional `,"outline":false` is
 16 bytes, giving 170 maximum compact JSON metadata bytes per run (154+16). The reservation
-increases to 192. The 48 MiB content, 8 MiB whole-history and 64 MiB file limits remain.
-Each maximal escaped 32-run before/after update reserves 78,400 bytes; with the 576-byte
-history envelope, 106 updates fit 8 MiB and 107 refuse atomically. The 1,000 scene-object
+is split from admission accounting. Physical encoding reserves 176 bytes per run,
+which bounds the 170-byte maximum. The 48 MiB content and 8 MiB history limits now
+mean admission budgets: outline=false retains the v15 160-byte run weight, while
+outline=true counts 192 bytes. All other weights, text escape reservations and fixed
+content/history envelopes are unchanged. This preserves every previously admitted v15
+content/history state, including 109 maximal before/after updates in undo or redo,
+without silently dropping an entry during migration. A wholly outlined maximal 32-run
+before/after update counts 78,400 admission bytes; with the 576-byte history envelope,
+106 updates fit 8 MiB and 107 refuse atomically. Outline=false retains the old 109/110
+boundary, even with the longest v15 font/style/size/color metadata.
+For every nonnegative term, physical reservation is at most admission × 176/160 = 11/10;
+outlined runs and unchanged non-run terms have smaller ratios. Both full envelopes and
+2× UTF-8 text reservations (covering JSON quotes/backslashes) are included. Thus current
+content plus both history stacks reserve at most (48+8)×11/10 = 61.6 MiB, below the
+unchanged 64 MiB read cap. `Document::persistence_weight` returns the physical encoding
+bound, which may exceed 56 MiB; it is never used as the history admission weight. The 1,000 scene-object
 ceiling (including the initial instance) limits a pure-caption population to 999; its
 content reservation is below 48 MiB, so a pure-caption exact 48 MiB boundary is unreachable.
 
@@ -2020,7 +2033,7 @@ conservative persistence reservation: current content at most 48 MiB and both hi
 at most 8 MiB combined, below the native 64 MiB file limit even with document/draft envelopes.
 The reservation accounts for all entity kinds, IDs, floats, roots, references, both selections
 and complete before/after states, including current Et displays and their history diffs. Caption/title strings reserve twice their UTF-8 bytes for
-JSON quote/backslash escaping; every run also reserves 192 metadata bytes, covering v16 outline, underline, color, size, font, weight/style and script; the 256-byte caption overhead covers alignment. It is an upper bound, not
+JSON quote/backslash escaping; every run also reserves 176 physical encoding metadata bytes, covering v16 outline, underline, color, size, font, weight/style and script (admission counts 160 for outline=false, 192 for true as above); the 256-byte caption overhead covers alignment. It is an upper bound, not
 an exact file/memory size. The existing 100-entry/100000-change limits also apply.
 Older undo entries are dropped first; restore then drops farthest redo entries when needed.
 A latest transaction whose own history cannot fit is refused atomically as `invalid_command`

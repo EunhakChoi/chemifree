@@ -12,7 +12,7 @@ fn widest(text: char) -> Caption {
         anchor: Point::new(0.0, 0.0).unwrap(),
         runs: vec![
             CaptionRun {
-                outline: false,
+                outline: true,
                 underline: false,
                 color: None,
                 size_pt: None,
@@ -205,7 +205,7 @@ fn maximum_caption_object_population_stays_inside_content_and_total_file_reserva
     let current_only = Document::restore(parts).unwrap();
     assert!(current_only.persistence_weight() < CAPTION_CONTENT_WEIGHT_LIMIT);
     assert!(
-        current_only.persistence_weight() > 37 * 1024 * 1024,
+        current_only.persistence_weight() > 36 * 1024 * 1024,
         "maximal population exercises the content reservation"
     );
     let before = doc.clone();

@@ -321,7 +321,8 @@ fn a_newer_format_version_is_refused_and_left_untouched() {
     let message = refused(repository.load(&id()).map(|_| ()));
     assert!(
         message.contains("version 17")
-            && message.contains("versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, and 16"),
+            && message
+                .contains("versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, and 16"),
         "the reason names the version: {message}"
     );
     refused(repository.stored_revision(&id()).map(|_| ()));

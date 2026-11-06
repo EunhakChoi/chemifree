@@ -240,7 +240,7 @@ fn repeated_maximal_caption_updates_save_reload_and_keep_the_latest_undo() {
         anchor: Point::new(0.0, 0.0).unwrap(),
         runs: vec![
             CaptionRun {
-                outline: false,
+                outline: true,
                 underline: false,
                 color: Some("#ABCDEF".into()),
                 size_pt: Some(4.000_000_000_000_003_6),
@@ -1284,7 +1284,7 @@ fn maximum_run_metadata_exceeds_the_old_reservation_and_fits_the_new_one() {
         "metadata excludes the single unescaped H byte"
     );
     assert!(
-        encoded.len() <= 192 + 2,
+        encoded.len() <= 176 + 2,
         "provider encoding fits the domain reservation"
     );
 }
@@ -1386,7 +1386,6 @@ fn underline_is_strict_in_current_and_history_for_documents_and_drafts() {
                 assert_eq!(
                     repo.load(doc.id()).is_ok(),
                     valid,
-                    "v{version} history={history} underline={outline:?}"
                     "v{version} history={history} underline={underline:?}"
                 );
                 assert_eq!(fs::read(&path).unwrap(), bytes);
@@ -1400,7 +1399,6 @@ fn underline_is_strict_in_current_and_history_for_documents_and_drafts() {
                 assert_eq!(
                     repo.claim_draft(doc.id()).unwrap().unwrap().is_ok(),
                     valid,
-                    "draft v{version} history={history} underline={outline:?}"
                     "draft v{version} history={history} underline={underline:?}"
                 );
                 repo.release_draft(doc.id());
@@ -1485,7 +1483,6 @@ fn outline_is_strict_in_current_and_history_for_documents_and_drafts() {
                     repo.load(doc.id()).is_ok(),
                     valid,
                     "v{version} history={history} outline={outline:?}"
-                    "v{version} history={history} outline={outline:?}"
                 );
                 assert_eq!(fs::read(&path).unwrap(), bytes);
                 stored["format"] = json!("chemifree.draft");
@@ -1498,7 +1495,6 @@ fn outline_is_strict_in_current_and_history_for_documents_and_drafts() {
                 assert_eq!(
                     repo.claim_draft(doc.id()).unwrap().unwrap().is_ok(),
                     valid,
-                    "draft v{version} history={history} outline={outline:?}"
                     "draft v{version} history={history} outline={outline:?}"
                 );
                 repo.release_draft(doc.id());
@@ -1524,5 +1520,144 @@ fn strip_caption_outlines(value: &mut Value) {
             }
         }
         _ => {}
+    }
+}
+
+#[test]
+fn v15_maximum_metadata_109_caption_edit_preserves_undo_redo_and_original_bytes() {
+    for undone in [false, true] {
+        for draft in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let repo = FileDocumentRepository::new(root.path());
+            let mut doc =
+                Document::new(DocumentId::parse("caption-v15-budget").unwrap(), "Budget").unwrap();
+            // All v15 metadata fields use their longest encoding, including the
+            // 18-character size float. v16 adds outline=false to these 154-byte runs.
+            let caption = |text: char| Caption {
+                alignment: chemifree_domain::scene::CaptionAlignment::Center,
+                anchor: Point::new(0.0, 0.0).unwrap(),
+                runs: vec![
+                    CaptionRun {
+                        outline: false,
+                        underline: false,
+                        color: Some("#ABCDEF".into()),
+                        size_pt: Some(4.000_000_000_000_003_6),
+                        font: Some(chemifree_domain::settings::LabelFont::SansSerif),
+                        text: text.to_string().repeat(512),
+                        script: CaptionScript::Superscript,
+                        weight: Default::default(),
+                        style: chemifree_domain::scene::CaptionStyle::Italic,
+                    };
+                    32
+                ],
+            };
+            let commands: Vec<_> = (0..109)
+                .map(|_| Command::AddCaption {
+                    caption: caption('"'),
+                    parent: None,
+                    index: None,
+                })
+                .collect();
+            doc.apply(&commands).unwrap();
+            let commands: Vec<_> = (2..111)
+                .map(|serial| Command::UpdateCaption {
+                    object: ObjectId::from_serial(serial).unwrap(),
+                    caption: caption('\\'),
+                })
+                .collect();
+            doc.apply(&commands).unwrap();
+            assert_eq!((doc.undo_depth(), doc.redo_depth()), (1, 0));
+            if undone {
+                doc.undo().unwrap();
+            }
+            repo.save(&doc, None).unwrap();
+            if draft {
+                repo.write_draft(&Draft {
+                    document: doc.clone(),
+                    base_revision: doc.revision(),
+                    saved_at_ms: 42,
+                })
+                .unwrap();
+                repo.release_draft(doc.id());
+            }
+            let path = root.path().join(if draft {
+                "drafts/caption-v15-budget.json"
+            } else {
+                "documents/caption-v15-budget.json"
+            });
+            let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            strip_caption_outlines(&mut stored);
+            stored["format_version"] = json!(15);
+            let original = serde_json::to_vec(&stored).unwrap();
+            fs::write(&path, &original).unwrap();
+            let mut loaded = if draft {
+                let claimed = repo.claim_draft(doc.id()).unwrap().unwrap().unwrap();
+                repo.prepare_draft_for_recovery(
+                    doc.id(),
+                    chemifree_application::DraftRecoveryTarget::Original {
+                        base_revision: claimed.base_revision,
+                    },
+                )
+                .unwrap();
+                claimed.document
+            } else {
+                repo.load(doc.id()).unwrap().unwrap()
+            };
+            assert_eq!(
+                loaded, doc,
+                "v15 undone={undone} draft={draft}: no history may be trimmed"
+            );
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                original,
+                "migration reads leave exact bytes untouched"
+            );
+            let expected = if undone { (0, 1) } else { (1, 0) };
+            assert_eq!((loaded.undo_depth(), loaded.redo_depth()), expected);
+            if undone {
+                loaded.redo().unwrap();
+            } else {
+                loaded.undo().unwrap();
+            }
+            assert_eq!(
+                loaded.scene_objects()[1].2,
+                &SceneObject::Caption(caption(if undone { '\\' } else { '"' }))
+            );
+            if undone {
+                loaded.undo().unwrap();
+            } else {
+                loaded.redo().unwrap();
+            }
+            assert_eq!(loaded.scene_objects(), doc.scene_objects());
+            // Actual v16 reservation is separate from the legacy admission allowance.
+            // All fixed envelopes and quote/backslash escaping are included in it.
+            let bound = (CAPTION_CONTENT_WEIGHT_LIMIT + CAPTION_HISTORY_WEIGHT_LIMIT) * 11 / 10;
+            assert!(loaded.persistence_weight() <= bound);
+            assert!(bound < MAX_DOCUMENT_BYTES as usize);
+            if draft {
+                let next = Draft {
+                    document: loaded.clone(),
+                    base_revision: doc.revision(),
+                    saved_at_ms: 43,
+                };
+                repo.write_draft(&next).unwrap();
+                assert_eq!(
+                    fs::read(repo.migrated_draft_path(doc.id(), 15)).unwrap(),
+                    original
+                );
+                assert!(fs::metadata(&path).unwrap().len() <= loaded.persistence_weight() as u64);
+                repo.release_draft(doc.id());
+                assert_eq!(repo.claim_draft(doc.id()).unwrap(), Some(Ok(next)));
+                repo.release_draft(doc.id());
+            } else {
+                repo.save(&loaded, Some(doc.revision())).unwrap();
+                assert_eq!(
+                    fs::read(repo.migrated_path(doc.id(), 15)).unwrap(),
+                    original
+                );
+                assert!(fs::metadata(&path).unwrap().len() <= loaded.persistence_weight() as u64);
+                assert_eq!(repo.load(doc.id()).unwrap(), Some(loaded));
+            }
+        }
     }
 }
