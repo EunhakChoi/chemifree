@@ -52,19 +52,27 @@ peak anon 1217 MiB·page cache 3110 MiB·cap 6144 MiB·swap 0을 기록한다.
 전용 browser는 scripted HTTP 경계의 canvas/hook/client 검사이며 실제 backend의
 canvas 통합이나 전체 browser smoke 통과를 뜻하지 않는다.
 
-전체 `npm run check`, Application ring 전용 테스트, HTTP=CLI 계약 smoke,
-전체 browser smoke·mutation 검증·PR/병합 CI는 아직 이 기록의 통과 근거가 없다.
-다음 남은 명령은 격리 실행 담당자가 확인하고 실제 결과를 추가해야 한다.
+최종 구현 `5a8c20e92f416f5f2309d7c270e4b2e2f9900c71`은 부모의 전체 격리
+검증을 통과했다. 로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34a-final-full.log`이며
+`sandbox-run: exit=0`, peak anon 1717 MiB·page cache 1444 MiB·cap 6144 MiB·swap 0이다.
 
-```sh
-cargo test --locked -p chemifree-application --test insert_ring
-npm run check
-npm run test:browser
-```
+- `npm run check`: frontend lint/typecheck·client 508 passed/0 failed·production build,
+  Rust fmt/clippy/workspace tests, HTTP=CLI 계약 smoke, conformance 109/109
+  (accept 79·reject 30, failed 0·not_run 0), traceability 및 검사 자체 시험 42/42 통과.
+- `npm run test:browser`: standard smoke 통과, `skipped_steps=[]`.
+- `npm run test:browser:clipboard`, `mol-clipboard`, `scene-clipboard`, `smiles-clipboard`,
+  `cdxml-clipboard`, `cdxml-import`, `scene-cut`, `clipboard-integration`, `ring` 모두 통과.
+  마지막 명령은 수정한 production Close/navigation/기존 clipboard 복구 회귀를 포함한다.
+  실제 API clipboard integration은 graph/graphic forest 문서 간 전송의 한정된 증거이며
+  ring 전용 browser의 HTTP 경계가 실제 backend로 바뀐 것은 아니다.
 
-실패 증명 계획: closing edge 제거는 adjacency/client graph 검사, 좌표 guard 제거는
+최종 구현에 대한 남은 PR 검증 항목은 **현재 PR CI pending**이다. 위 로컬 격리 성공을
+PR CI나 병합 완료로 기록하지 않으며, 전체 P34는 여전히 in_progress다.
+
+미실행 mutation 계획: closing edge 제거는 adjacency/client graph 검사, 좌표 guard 제거는
 late failure 검사, snapshot 보존 검사 제거는 client 응답 tamper 검사,
 request-ID 재생성·process guard 제거는 lost-response/restart 검사로 탐지해야 한다.
+이 계획 자체를 실행/통과 근거로 세지 않는다.
 
 ## 리뷰
 
@@ -85,9 +93,9 @@ request-ID 재생성·process guard 제거는 lost-response/restart 검사로 �
   미확정으로 잠겼다. objects/atoms/bonds를 기존 distinct-ID 집합 비교로 검사해
   멤버 보존·개수를 검증하고 순서 차이만 허용하도록 수정했다. 재정렬된 두 root의
   실제 `selectionSnapshot` 입력과 잃은 응답 재확인 성공·같은 request 유지 회귀,
-  선택 누락/추가/교체/중복 거절 회귀를 더했다. 이 수정과 추가 회귀는 공유 격리
-  검증 중인 이전 snapshot과 별개이며 아직 실행하지 않았다.
-  전체 검증과 PR/병합 CI는 pending이며 위 targeted 통과로 완료 처리하지 않는다.
+  선택 누락/추가/교체/중복 거절 회귀를 더했다. 작성 당시에는 미실행이었고,
+  이후 최종 `5a8c20e` 전체 격리 검증의 client 508개에 포함되어 통과했다.
+  현재 PR CI만 pending이며, 전체 P34 완료로 확대하지 않는다.
 - [추가 Codex 지적](https://github.com/EunhakChoi/chemifree/pull/174#discussion_r4488519609)은
   dispatch 전 두 ring 전송이 실패한 clean 문서에서 Close가 복구 UI를 없애는 경로를
   지적했다. 정적으로 확인한 기존 코드에서는 `close()`도 `run()`을 거치며,
@@ -104,8 +112,9 @@ request-ID 재생성·process guard 제거는 lost-response/restart 검사로 �
   성공 Open 뒤 stale Close의 대상 불변을 단정하도록 작성했다. UI disable을 제거하면
   production Close 단정, run gate를 제거하면 navigation HTTP 부재 단정,
   캡처한 ID 확인을 제거하면 새 문서 유지 단정이 실패해야 한다.
-  이번 수정에서는 테스트·빌드·브라우저·mutation을 실행하지 않았다. 부모가 보고한
-  이전 `78b5124` 전체 검사와 `bda7835` targeted 통과는 이 추가 수정의 실행 증거가 아니다.
+  작성 담당자는 테스트·빌드·브라우저·mutation을 직접 실행하지 않았다. 이전
+  `78b5124` 전체 검사와 `bda7835` targeted를 이 추가 수정의 증거로 세지 않았으며,
+  fixture 수정 뒤 부모의 최종 `5a8c20e` 전체 격리 browser 성공으로 현재 회귀를 확인했다.
 
 ### Close 보강 후 fixture 수정
 
@@ -118,7 +127,11 @@ attempt는 이미 유실된 결과를 이 오류만으로 확정하지 않고 `_
 응답 뒤 navigation이 계속 차단됨을 단정하고, 같은 request의 다음 확인에서 terminal
 `revision_conflict`를 받아 `_reconcile`로 전환한 뒤에만 명시 authoritative reread로
 잠금을 해소하고 clean Close한다. 네 번의 전송 모두 같은 body이며, 재조회한 문서의
-새 revision도 단정한다. fixture 수정 이후 테스트·빌드·브라우저를 재실행하지 않았다.
+새 revision도 단정한다. 작성 담당자는 fixture 수정 이후 검사를 직접 실행하지 않았다.
+부모가 같은 `5a8c20e`의 별도 `/tmp/chemifree-p29d-verify-j4KjPa/p34a-close-browser2.log`에서
+ring·native clipboard·scene clipboard browser를 통과시켰다(`exit=0`, peak anon 914 MiB·
+page cache 62 MiB·cap 6144 MiB·swap 0). 이어 위 최종 전체 격리 로그에서 다시 통과했다.
+`bdee128`의 실패는 수정 전 fixture 실패로 보존하며 최종 성공과 혼동하지 않는다.
 
 Rust/TypeScript patterns/testing skills를 적용했다. shadcn의 기존 Button/Alert/ToggleGroup
 구성을 재사용하며 새로운 UI primitive나 dependency는 추가하지 않았다.

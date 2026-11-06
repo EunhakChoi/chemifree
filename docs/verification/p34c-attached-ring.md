@@ -67,11 +67,39 @@ fusion/spiro/replace, 방향족, 추가 치환 패턴, 다른 크기, 사용자 
   HTTP는 scripted이며 실제 backend canvas 통합·과학·외부 앱 호환 증거는 아니다.
   test:client와 기존 CI browser job에 연결했다.
 
+## 선행 main 통합과 확인된 targeted 실행
+
+부모의 격리 실행 담당자가 구현 HEAD `798ce9deb85067f41f17f135569bcb797702ca67`를
+검증했다. `/tmp/chemifree-p29d-verify-j4KjPa/p34c-targeted.log`의 결과는 다음과 같다.
+이 작성자는 로그를 읽기만 했으며 명령을 재실행하지 않았다.
+
+- Domain attach_ring 4/4, Application attach_ring 2/2 통과.
+- npm run lint, npm run typecheck, npm run test:client 통과(client 532 passed,
+  0 failed, 0 skipped).
+- npm run build(웹 production build 및 Rust workspace build),
+  npm run test:browser:attach-ring 통과.
+- sandbox-run exit=0, peak anon 1238 MiB·page cache 2590 MiB,
+  cap 6144 MiB·swap 0. 전용 browser는 scripted HTTP 경계의 production
+  workspace/canvas/hook/client 검사이며 실제 backend 통합/과학/외부 앱 호환 근거가 아니다.
+
+이후 P34b #175가 main에 병합되어 `origin/main`의 `561be7b`를 P34c에 합쳤다.
+선행 P34a #174와 autosave/restart #176(`5be98a8`)도 포함한다. squash 병합 때문에
+발생한 겹침은 P34b 작성 HEAD `86c584c`를 공통 내용 기준으로 대조했다. 고리 연결의
+Domain/DTO/catalog/웹/회귀와 main의 process-generation·snapshot provenance·autosave
+오류/재시작 조정·브라우저 회귀를 모두 보존했다. package scripts와 CI의 충돌은
+attach-ring/autosave-restart 두 검사 모두 남겼고, P34a/P34b 실행 기록은 main의 최신
+버전을 유지했다. 새 실행 없이 정적으로 병합과 whitespace만 확인했다.
+
+위 targeted 통과는 병합 전 `798ce9d`에 대한 근거다. **현재 병합 결과의 final full
+검사·전체 browser·PR/병합 CI는 pending**이며 위 결과를 이 HEAD의 통과로 세지 않는다.
+
 ## 실행 대기
 
-부모의 공유 격리 지시에 따라 테스트·빌드·브라우저·lint/typecheck/clippy·mutation·push는
-실행하지 않았다. `cargo fmt --all` 및 `git diff --check`만 실행했다. 선행 slice의
-통과/CI를 이 변경의 근거로 삼지 않는다. 남은 검증 명령:
+작성자는 부모의 공유 격리 지시에 따라 테스트·빌드·브라우저·lint/typecheck/clippy·mutation·push를
+실행하지 않았다. 초기 구현에서 `cargo fmt --all` 및 `git diff --check`만 실행했고, 이번
+통합에서는 fetch/merge·정적 대조·whitespace 검사만 수행한다. 부모의 이전 targeted 통과는
+위에 분리 기록했다. 선행 slice의 통과/CI를 이 변경의 근거로 삼지 않는다. 현재 병합 HEAD의
+남은 검증 명령:
 
 ```sh
 cargo test --locked -p chemifree-domain --test attach_ring

@@ -209,12 +209,14 @@ export function useDocumentEditor() {
   const [error, setError] = useState<ApiError | null>(null)
   const [copyNotice, setCopyNotice] = useState<CopyNotice | null>(null)
   const [stereoStatus, setStereoStatus] = useState<StereoStatus | null>(null)
-  const [serviceGeneration, setServiceGeneration] = useState(0)
-  const serviceGenerationRef = useRef(0)
+  const [serviceGeneration, setServiceGeneration] = useState(client.serviceGeneration)
+  const serviceGenerationRef = useRef(client.serviceGeneration)
   const [selection, setSelectionState] = useState<Set<string>>(new Set())
   const selectionRef = useRef<Set<string>>(new Set())
   const selectionVersion = useRef(0)
   const currentRef = useRef<DocumentResponse | null>(null)
+  // A token learned by a failed edit must not rebind the drawing still on screen.
+  const shownGenerationRef = useRef(client.serviceGeneration)
   const queue = useRef<Promise<void>>(Promise.resolve())
   const failures = useRef(0)
   const [interchangeCreation, setInterchangeCreationState] = useState<InterchangeCreation | null>(null)
@@ -239,10 +241,14 @@ export function useDocumentEditor() {
   }, [adoptSelection])
 
   const setCurrent = useCallback((document: DocumentResponse | null) => {
+    if (document !== null && !client.isCurrentSnapshot(document)) {
+      throw new ApiError('service_restarted', 'The reply belongs to an earlier service process. The drawing remains on screen; reload to reconcile its current state.', 0)
+    }
     if (currentRef.current?.document.id !== document?.document.id) {
       adoptSelection(selectionIds(document?.document.selection))
     }
     currentRef.current = document
+    shownGenerationRef.current = serviceGenerationRef.current
     setCurrentState(document)
     // Showing anything but the copy ends the notice; returning later would show a stale one.
     setCopyNotice((notice) => (notice?.copyId === document?.document.id ? notice : null))
@@ -251,7 +257,7 @@ export function useDocumentEditor() {
   // A restarted service no longer holds the session the notice describes.
   useEffect(() => client.onRestart(() => {
     setCopyNotice(null)
-    serviceGenerationRef.current += 1
+    serviceGenerationRef.current = client.serviceGeneration
     setServiceGeneration(serviceGenerationRef.current)
   }), [])
 
@@ -282,26 +288,31 @@ export function useDocumentEditor() {
   /**
    * Queues a task behind earlier ones. A success clears an error the user had already seen
    * when this task was queued, never one from a request that failed while it waited. A task
-   * given `ownFailure` reports its failure there instead of to the page.
+   * given `ownFailure` reports its failure there instead of to the page. Background reads
+   * preserve the page's error on both success and failure.
    */
-  const run = useCallback((task: () => Promise<void>, ownFailure?: (failure: ApiError) => void, checkClipboard = false) => {
+  const run = useCallback((task: () => Promise<void>, options: {
+    ownFailure?: (failure: ApiError) => void
+    checkClipboard?: boolean
+    preserveError?: boolean
+  } = {}) => {
     setPending((count) => count + 1)
     const failuresSeen = failures.current
     const next = queue.current
       .then(async () => {
-        if (clipboardAttempt.current && !checkClipboard) {
+        if (clipboardAttempt.current && !options.checkClipboard) {
           throw new ApiError(`clipboard_${clipboardAttempt.current.kind}_unconfirmed`, 'Check the pending editor operation before making another change.', 0)
         }
         await task()
       })
       .then(
         () => {
-          if (failures.current === failuresSeen) setError(null)
+          if (!options.preserveError && failures.current === failuresSeen) setError(null)
         },
         (failure: unknown) => {
           // A caller with its own place to show the failure keeps it off the page's error.
-          if (ownFailure) {
-            ownFailure(asApiError(failure))
+          if (options.ownFailure) {
+            options.ownFailure(asApiError(failure))
             return
           }
           failures.current += 1
@@ -318,20 +329,32 @@ export function useDocumentEditor() {
       run(async () => {
         const document = currentRef.current
         if (!document) return
-        const request = call(document)
-        if (!request) return
-        let next: DocumentResponse
-        try {
-          next = await request
-        } catch (failure) {
-          // A restarted service lost its working copies. If it reopened exactly what this page
-          // shows, the edit still means the same thing; otherwise the page must reload.
-          if (!(failure instanceof ApiError && failure.code === 'service_restarted')) throw failure
+        const retryInCurrentProcess = async () => {
           const fresh = await client.get(document.document.id)
+          if (!client.isCurrentSnapshot(fresh)) {
+            throw new ApiError('service_restarted', 'The service changed while checking the drawing. Reload to reconcile its current state.', 0)
+          }
           const retry = sameContent(fresh.document, document.document) ? call(fresh, document) : null
-          if (!retry) throw failure
+          if (!retry) {
+            throw new ApiError('service_restarted', 'The drawing changed in the replacement service. Reload before editing again.', 0)
+          }
           setCurrent(fresh)
-          next = await retry
+          return retry
+        }
+        let next: DocumentResponse
+        // Another inspection may already have noticed the restart and learned its token.
+        // The same-content check is still required even when the next write would not get 401.
+        if (shownGenerationRef.current !== serviceGenerationRef.current) {
+          next = await retryInCurrentProcess()
+        } else {
+          const request = call(document)
+          if (!request) return
+          try {
+            next = await request
+          } catch (failure) {
+            if (!(failure instanceof ApiError && failure.code === 'service_restarted')) throw failure
+            next = await retryInCurrentProcess()
+          }
         }
         if (currentRef.current?.document.id === next.document.id) {
           setCurrent(next)
@@ -343,7 +366,7 @@ export function useDocumentEditor() {
 
   const clipboardTask = useCallback(<T,>(task: () => Promise<T>, checking = false): Promise<T> =>
     new Promise<T>((resolve, reject) => {
-      void run(async () => { resolve(await task()) }, reject, checking)
+      void run(async () => { resolve(await task()) }, { ownFailure: reject, checkClipboard: checking })
     }), [run])
 
   const finishClipboardMutation = useCallback(async () => {
@@ -440,6 +463,8 @@ export function useDocumentEditor() {
   }, [])
   const autosave = useAutosave(client, current, {
     shown: useCallback(() => currentRef.current, []),
+    processGeneration: useCallback(() => shownGenerationRef.current === serviceGenerationRef.current
+      ? shownGenerationRef.current : null, []),
     adopt: useCallback(
       (response: DocumentResponse) => {
         const shown = currentRef.current
@@ -452,18 +477,23 @@ export function useDocumentEditor() {
     // Queued with edits so an older read cannot replace a newer edit's view. Its failure goes
     // to autosave, which retries or stops, rather than to the page's error.
     refresh: useCallback(
-      (documentId: string) =>
-        new Promise<void>((resolve, reject) => {
+      (documentId: string) => {
+        const generation = shownGenerationRef.current
+        return new Promise<void>((resolve, reject) => {
           void run(async () => {
-            try {
-              const fresh = await client.reread(documentId)
-              if (currentRef.current?.document.id === documentId) setCurrent(viewAfterRead(currentRef.current, fresh))
+            const sameProcess = () => generation === serviceGenerationRef.current && shownGenerationRef.current === generation
+            // A preceding edit may already have reconciled a new process. This old read
+            // has no authority to stop or replace that newer snapshot.
+            if (!sameProcess()) {
               resolve()
-            } catch (failure) {
-              reject(failure)
+              return
             }
-          }, reject)
-        }),
+            const fresh = await client.reread(documentId)
+            if (sameProcess() && currentRef.current?.document.id === documentId) setCurrent(viewAfterRead(currentRef.current, fresh))
+            resolve()
+          }, { ownFailure: reject, preserveError: true })
+        })
+      },
       [run, setCurrent],
     ),
     onRestart: report,
@@ -473,11 +503,16 @@ export function useDocumentEditor() {
   /**
    * Shows another document. The one on screen is drafted first, so pending work it leaves
    * open in the service survives a crash; if that fails, the switch still happens and says so.
+   * A restarted process cannot retain undrafted work, so that case keeps the drawing shown.
    */
   const show = useCallback(
     async (next: () => Promise<DocumentResponse>) => {
       const left = currentRef.current?.document.title
       const unwritten = await flush()
+      if (unwritten !== null && shownGenerationRef.current !== serviceGenerationRef.current) {
+        throw new ApiError('service_restarted',
+          `Unsaved changes to “${left}” could not be autosaved (${unwritten}). The drawing remains on screen. Reload it before opening or creating another drawing.`, 0)
+      }
       setCurrent(await next())
       if (unwritten !== null) {
         throw new ApiError(
@@ -497,6 +532,9 @@ export function useDocumentEditor() {
       if (!shown) return Promise.resolve()
       return run(async () => {
         try {
+          if (shownGenerationRef.current !== serviceGenerationRef.current) {
+            throw new ApiError('service_restarted', 'Reload the drawing before copying it in the replacement service.', 0)
+          }
           const copied = await make(shown)
           let source: CopiedFrom = { kind: 'recovered' }
           if (!recovered) {
@@ -539,7 +577,7 @@ export function useDocumentEditor() {
       const response = await send()
       if (currentRef.current?.document.id === target.documentId) setCurrent(response)
       committed = true
-    }, ownFailure)
+    }, { ownFailure })
     return committed
   }, [run, setCurrent])
 
@@ -817,7 +855,7 @@ export function useDocumentEditor() {
       void run(async () => {
         reached()
         await released
-      }, refused)
+      }, { ownFailure: refused })
       return { ready, release }
     }, [run]),
     busy: pending > 0 || clipboardPending,
@@ -1179,11 +1217,31 @@ export function useDocumentEditor() {
         // The revision on screen when the user confirmed: a discard never drops edits that
         // another client made after it.
         const shown = currentRef.current?.document
+        const unsaved = currentRef.current?.session.unsaved_changes
         return run(async () => {
           // `run` also refuses unresolved mutations after earlier queued work settles.
           // A navigation queued first must not redirect Close to another document.
           if (!shown || currentRef.current?.document.id !== shown.id) return
+          if (shownGenerationRef.current !== serviceGenerationRef.current) {
+            const current = currentRef.current.document
+            if (shown.revision !== current.revision || !sameContent(shown, current)) {
+              throw new ApiError('revision_conflict', 'The displayed drawing changed before Close. Review it before closing again.', 0,
+                { currentRevision: current.revision })
+            }
+            if (unsaved && !discardUnsaved) {
+              throw new ApiError('service_restarted', 'The drawing still has unsaved changes. Reload to reconcile, or explicitly discard and close it.', 0)
+            }
+            // The original process has ended. Closing its clean view or explicitly
+            // discarding its page-held work must not close a replacement session/draft.
+            setCurrent(null)
+            refreshList()
+            return
+          }
+          const generation = serviceGenerationRef.current
           await client.close(shown.id, discardUnsaved, shown.revision)
+          if (generation !== serviceGenerationRef.current) {
+            throw new ApiError('service_restarted', 'The service changed before Close was confirmed. The drawing remains on screen; reload to reconcile its current state.', 0)
+          }
           setCurrent(null)
           refreshList()
         })
