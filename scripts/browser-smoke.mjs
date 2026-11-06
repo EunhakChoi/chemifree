@@ -2845,7 +2845,7 @@ step = 'after mixed_transform_scope_history_and_queue'
   await waitIdle()
   await choose('Display unit', 'Millimetres (mm)')
   assert.equal(await style.getByRole('textbox', { name: 'Bond length', exact: true }).inputValue(), '15.88', '45 pt shown in mm')
-  let edited = { bond_length_pt: 45, line_width_pt: 2.4, label_font: 'serif', label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_size_pt: 14, carbon_labels: 'all', display_unit: 'mm' }
+  let edited = { bond_length_pt: 45, line_width_pt: 2.4, label_font: 'serif', label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, label_size_pt: 14, carbon_labels: 'all', display_unit: 'mm' }
   assert.deepEqual((await styledDoc()).settings, edited)
   await style.getByRole('button', { name: 'Done' }).click()
   await style.waitFor({ state: 'hidden' })
@@ -2983,7 +2983,7 @@ step = 'after mixed_transform_scope_history_and_queue'
   await page.getByLabel('Document title').waitFor()
   assert.deepEqual(
     (await styledDoc(secondId)).settings,
-    { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'monospace', label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_size_pt: 12, carbon_labels: 'default', display_unit: 'pt' },
+    { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'monospace', label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, label_size_pt: 12, carbon_labels: 'default', display_unit: 'pt' },
     'the preferred font and nothing of the first document',
   )
   await closeShown()

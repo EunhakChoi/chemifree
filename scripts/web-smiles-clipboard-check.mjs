@@ -54,7 +54,7 @@ try {
   const page = await context.newPage()
   const errors = []
   page.on('pageerror', (error) => errors.push(error.message))
-  const settings = { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'sans-serif', label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_size_pt: 12, carbon_labels: 'default', display_unit: 'pt' }
+  const settings = { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'sans-serif', label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, label_size_pt: 12, carbon_labels: 'default', display_unit: 'pt' }
   const atom = (id, element, x, y = 0) => ({ id, element, kind: 'element', query: null, charge: 0, isotope: null,
     hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], position: { x, y } })
   let state = { api_version: 'v1', document: { id: 'drawing', title: 'SMILES clipboard drawing', revision: 3,

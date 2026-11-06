@@ -371,7 +371,7 @@ export function StructureCanvas({
   )
 
   const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
-  const measuredLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic' || settingsOf(document).label_underline || settingsOf(document).label_outline
+  const measuredLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic' || settingsOf(document).label_underline || settingsOf(document).label_outline || settingsOf(document).label_shadow
   const chemicalMeasurementComplete = !measuredLabels || drawings.every((drawing) =>
     [...drawing.labels.values()].every((label) => label === null || label.chunks.every((chunk) => chunk.measured)))
   const captionMeasurementComplete = chemicalMeasurementComplete && ((captionCount === 0 && !measuredLabels) || (captionMeasurement?.document === document &&
@@ -886,6 +886,22 @@ export function StructureCanvas({
       onLostPointerCapture={(event) => { if (pointer.current?.id === event.pointerId) cancelPointer() }}
       onPointerLeave={() => setHover(null)}
     >
+      {/* Group opacity composites every chemical shadow once before any foreground. */}
+      <g data-chemical-label-shadows="" opacity={0.35} transform="translate(1 1)" aria-hidden="true" pointerEvents="none">
+        {drawings.map((drawing) => (
+          <g key={drawing.id ?? 'atoms'} className={cn('fill-foreground', drawing.font === 'sans-serif' && 'font-sans')}
+            fontFamily={drawing.font === 'sans-serif' ? undefined : drawing.font}>
+            {drawing.view.atoms.map((atom) => {
+              const label = drawing.labels.get(atom.id)
+              return label?.shadow ? label.chunks.map((chunk, index) => (
+                <g key={`${atom.id}-${index}`} data-chemical-shadow-atom={atom.id}>
+                  <ChunkText chunk={chunk} at={position(drawing, atom.id)} shadow />
+                </g>
+              )) : null
+            })}
+          </g>
+        ))}
+      </g>
       {sceneObjects ? sceneObjects.map((object) => {
         if (object.kind === 'group') return null
         if (object.kind === 'caption') return (
@@ -1065,7 +1081,7 @@ const DrawingLayer = memo(function DrawingLayer({
 const boxAttribute = (box: Box) => `${round(box.x)} ${round(box.y)} ${round(box.width)} ${round(box.height)}`
 
 /** A chunk of label text flowing from its anchor; each run is drawn at its natural width. */
-function ChunkText({ chunk, at, ...rest }: { chunk: LabelChunk; at: Position; className?: string } & Record<`data-${string}`, string>) {
+function ChunkText({ chunk, at, shadow = false, ...rest }: { chunk: LabelChunk; at: Position; shadow?: boolean; className?: string } & Record<`data-${string}`, string>) {
   return (
     <>
       <text
@@ -1074,8 +1090,8 @@ function ChunkText({ chunk, at, ...rest }: { chunk: LabelChunk; at: Position; cl
         textAnchor={chunk.anchor}
         dominantBaseline="central"
         aria-hidden="true"
-        data-box={boxAttribute(placed(chunk.box, at))}
-        data-label-metric-key={chunk.metricKey}
+        data-box={shadow ? undefined : boxAttribute(placed(chunk.box, at))}
+        data-label-metric-key={shadow ? undefined : chunk.metricKey}
         {...rest}
       >
         {chunk.runs.map((run, index) => {
@@ -1100,7 +1116,7 @@ function ChunkText({ chunk, at, ...rest }: { chunk: LabelChunk; at: Position; cl
           )
         })}
       </text>
-      {chunk.underlines.map((line, index) => <rect key={index} data-label-underline={String(index)}
+      {chunk.underlines.map((line, index) => <rect key={index} data-label-underline={shadow ? undefined : String(index)}
         x={at.x + line.x} y={at.y + line.y} width={line.width} height={line.height}
         aria-hidden="true" pointerEvents="none" />)}
     </>

@@ -54,7 +54,7 @@ fn created(app: &App, title: &str) -> String {
 
 fn defaults() -> Value {
     json!({
-        "bond_length_pt": 30.0, "line_width_pt": 1.2, "label_font": "sans-serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false,
+        "bond_length_pt": 30.0, "line_width_pt": 1.2, "label_font": "sans-serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false, "label_shadow": false,
         "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"
     })
 }
@@ -93,7 +93,7 @@ fn update_settings_is_an_undoable_edit_and_refused_values_carry_their_reason() {
     assert_eq!(
         serde_json::to_value(&edited.document.settings).unwrap(),
         json!({
-            "bond_length_pt": 30.0, "line_width_pt": 2.5, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false,
+            "bond_length_pt": 30.0, "line_width_pt": 2.5, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false, "label_shadow": false,
             "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"
         })
     );
@@ -986,6 +986,67 @@ fn outline_preferences_copy_once_and_edit_replay_and_persistence_preserve_outlin
             )
             .is_err(),
             "outline must be a boolean"
+        );
+    }
+}
+
+#[test]
+fn shadow_preferences_copy_once_and_edit_replay_and_persistence_preserve_shadow() {
+    let (app, data) = application();
+    let earlier = created(&app, "Earlier normal document");
+    app.set_preferences(
+        None,
+        0,
+        change(json!({"ui":{"theme":"system"},"new_documents":{"label_shadow":true}})),
+    )
+    .unwrap();
+    let id = created(&app, "Italic from preferences");
+    assert_eq!(settings(&app, &earlier)["label_shadow"], false);
+    assert_eq!(settings(&app, &id)["label_shadow"], true);
+    let reset = app
+        .reset_settings(&id, Some("style-reset"), 0, SettingsSource::Defaults)
+        .unwrap();
+    assert!(!reset.document.settings.label_shadow);
+    assert_eq!(reset.session.undo_depth, 1);
+    assert_eq!(
+        app.reset_settings(&id, Some("style-reset"), 0, SettingsSource::Defaults)
+            .unwrap(),
+        reset
+    );
+    app.undo(&id, None, 1).unwrap();
+    assert_eq!(settings(&app, &id)["label_shadow"], true);
+    app.redo(&id, None, 2).unwrap();
+    assert_eq!(settings(&app, &id)["label_shadow"], false);
+    app.apply_transaction(
+        &id,
+        Some("style-italic"),
+        3,
+        commands(json!([{"op":"update_settings","label_shadow":true}])),
+    )
+    .unwrap();
+    app.save(&id, None, 4).unwrap();
+    drop(app);
+    let reopened = process(data.path());
+    let saved = reopened.document(&id).unwrap();
+    assert!(saved.document.settings.label_shadow);
+    reopened.undo(&id, None, 4).unwrap();
+    assert_eq!(settings(&reopened, &id)["label_shadow"], false);
+    reopened.redo(&id, None, 5).unwrap();
+    assert_eq!(settings(&reopened, &id)["label_shadow"], true);
+    assert!(
+        reopened
+            .preferences()
+            .unwrap()
+            .new_document_settings
+            .label_shadow
+    );
+    for value in [json!("true"), json!(700), json!([]), json!({})] {
+        assert!(
+            serde_json::from_value::<Vec<CommandDto>>(
+                json!([{"op":"update_settings","label_shadow":value}])
+            )
+            .is_err(),
+            "shadow must be a boolean"
         );
     }
 }

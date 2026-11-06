@@ -345,3 +345,13 @@ chemical glyphs and Et become hollow strokes; underlines stay filled and
 caption/state marks remain independent. Native v21 migrates v1–20 as false with
 exact byte archives. Browser coverage is registered in CI but was not run in
 this session. See the contract for bounded rendering and format rules.
+
+
+P35n implements document `label_shadow` (default false): the P35i +1,+1 pt,
+0.35 opacity/no blur policy for chemical glyphs and Et, in one composited shadow
+group before foreground. Actual SVG ink bounds include translated outline and
+underline; state marks/captions and graph/stereo remain independent. Native v22
+strictly checks current/history and migrates v1–21 to false with exact archives.
+P35 remains `in_progress`. New browser/client/native checks are authored and
+registered; tests, builds, cargo check and browser execution were intentionally
+not run in this implementation session. See [P35n record](docs/verification/p35n-label-shadow.md).

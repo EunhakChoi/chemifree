@@ -275,6 +275,7 @@ export interface DocumentSettings {
   label_weight: LabelWeight
   label_underline: boolean
   label_outline: boolean
+  label_shadow: boolean
   label_style: LabelStyle
   label_size_pt: number
   carbon_labels: CarbonLabels
@@ -293,6 +294,7 @@ export const DEFAULT_SETTINGS: Readonly<DocumentSettings> = Object.freeze({
   label_style: 'normal',
   label_underline: false,
   label_outline: false,
+  label_shadow: false,
   label_size_pt: 12,
   carbon_labels: 'default',
   display_unit: 'pt',
@@ -967,7 +969,7 @@ function withDocumentStates(document: DocumentView): DocumentView {
 
 const isCountOrNull = (value: unknown) => value === null || isCount(value)
 
-const SETTING_FIELDS = ['bond_length_pt', 'line_width_pt', 'label_font', 'label_weight', 'label_style', 'label_underline', 'label_outline', 'label_size_pt', 'carbon_labels', 'display_unit']
+const SETTING_FIELDS = ['bond_length_pt', 'line_width_pt', 'label_font', 'label_weight', 'label_style', 'label_underline', 'label_outline', 'label_shadow', 'label_size_pt', 'carbon_labels', 'display_unit']
 
 /** Whether `value` is a valid value of the setting `field`. */
 function isSettingValue(field: string, value: unknown): boolean {
@@ -975,6 +977,7 @@ function isSettingValue(field: string, value: unknown): boolean {
   if (range) return isFiniteNumber(value) && value >= range[0] && value <= range[1]
   switch (field) {
     case 'label_outline':
+    case 'label_shadow':
     case 'label_underline':
       return typeof value === 'boolean'
     case 'label_style':

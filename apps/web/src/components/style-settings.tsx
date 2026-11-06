@@ -265,6 +265,14 @@ function SettingsFields({
         onChange={(value) => void onSet({ label_outline: value === 'on' })}
       />
       <ChoiceSetting
+        id={`${idPrefix}-label-shadow`}
+        label="Shadow labels"
+        value={settings.label_shadow ? 'on' : 'off'}
+        options={['off', 'on']}
+        names={{ off: 'Off', on: 'On' }}
+        onChange={(value) => void onSet({ label_shadow: value === 'on' })}
+      />
+      <ChoiceSetting
         id={`${idPrefix}-label-style`}
         label="Label style"
         value={settings.label_style}

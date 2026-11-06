@@ -72,7 +72,7 @@ fn old_document_bytes_and_history_survive_read_and_first_v9_save() {
     let path = root.path().join("documents/caption-native.json");
     let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     strip_caption_shadows(&mut stored);
-    assert_eq!(stored["format_version"], 21);
+    assert_eq!(stored["format_version"], 22);
     strip_abbreviations(&mut stored);
     strip_label_weights(&mut stored);
     stored["format_version"] = json!(7);
@@ -169,7 +169,7 @@ fn old_draft_bytes_are_preserved_before_the_first_changed_v9_draft() {
         Some(edited.document.revision)
     );
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 21);
+    assert_eq!(rewritten["format_version"], 22);
     assert_eq!(rewritten["document"]["revision"], edited.document.revision);
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 7)).unwrap(),
@@ -1684,8 +1684,10 @@ fn v15_maximum_metadata_109_caption_edit_preserves_undo_redo_and_original_bytes(
             assert_eq!(loaded.scene_objects(), doc.scene_objects());
             // Actual v16 reservation is separate from the legacy admission allowance.
             // All fixed envelopes and quote/backslash escaping are included in it.
-            let bound =
-                CAPTION_CONTENT_WEIGHT_LIMIT + 1_024_000 + CAPTION_HISTORY_WEIGHT_LIMIT * 6 / 5;
+            let bound = CAPTION_CONTENT_WEIGHT_LIMIT
+                + 1_024_000
+                + CAPTION_HISTORY_WEIGHT_LIMIT * 6 / 5
+                + 12_864;
             assert!(loaded.persistence_weight() <= bound);
             assert!(bound < MAX_DOCUMENT_BYTES as usize);
             if draft {
@@ -1838,8 +1840,8 @@ fn shadow_is_strict_in_current_and_history_for_documents_and_drafts() {
 }
 
 #[test]
-fn v16_through_v20_maximum_metadata_109_caption_edit_preserves_undo_redo_and_original_bytes() {
-    for version in [16, 17, 18, 19, 20] {
+fn v16_through_v21_maximum_metadata_109_caption_edit_preserves_undo_redo_and_original_bytes() {
+    for version in [16, 17, 18, 19, 20, 21] {
         for undone in [false, true] {
             for draft in [false, true] {
                 let root = tempfile::tempdir().unwrap();
@@ -1953,8 +1955,10 @@ fn v16_through_v20_maximum_metadata_109_caption_edit_preserves_undo_redo_and_ori
                 assert_eq!(loaded.scene_objects(), doc.scene_objects());
                 // Actual v16 reservation is separate from the legacy admission allowance.
                 // All fixed envelopes and quote/backslash escaping are included in it.
-                let bound =
-                    CAPTION_CONTENT_WEIGHT_LIMIT + 1_024_000 + CAPTION_HISTORY_WEIGHT_LIMIT * 6 / 5;
+                let bound = CAPTION_CONTENT_WEIGHT_LIMIT
+                    + 1_024_000
+                    + CAPTION_HISTORY_WEIGHT_LIMIT * 6 / 5
+                    + 12_864;
                 assert!(loaded.persistence_weight() <= bound);
                 assert!(bound < MAX_DOCUMENT_BYTES as usize);
                 if draft {
@@ -1997,6 +2001,7 @@ fn strip_label_weights(value: &mut serde_json::Value) {
             object.remove("label_style");
             object.remove("label_underline");
             object.remove("label_outline");
+            object.remove("label_shadow");
             for child in object.values_mut() {
                 strip_label_weights(child);
             }
@@ -2019,6 +2024,9 @@ fn restore_settings_fields(value: &mut Value, version: u32) {
                 }
                 if version >= 19 {
                     object.insert("label_style".into(), json!("normal"));
+                }
+                if version >= 21 {
+                    object.insert("label_outline".into(), json!(false));
                 }
                 if version >= 20 {
                     object.insert("label_underline".into(), json!(false));

@@ -80,6 +80,8 @@ pub struct Settings {
     pub label_underline: bool,
     /// Hollow chemical glyphs; captions and state marks are independent.
     pub label_outline: bool,
+    /// Shadow chemical glyphs; captions and state marks are independent.
+    pub label_shadow: bool,
     /// The font size of atom labels, in pt.
     pub label_size_pt: f64,
     pub carbon_labels: CarbonLabels,
@@ -96,6 +98,7 @@ impl Default for Settings {
             label_style: LabelStyle::Normal,
             label_underline: false,
             label_outline: false,
+            label_shadow: false,
             label_size_pt: 12.0,
             carbon_labels: CarbonLabels::Default,
             display_unit: DisplayUnit::Pt,
@@ -131,6 +134,7 @@ impl Settings {
             label_style: edit.label_style.unwrap_or(self.label_style),
             label_underline: edit.label_underline.unwrap_or(self.label_underline),
             label_outline: edit.label_outline.unwrap_or(self.label_outline),
+            label_shadow: edit.label_shadow.unwrap_or(self.label_shadow),
             label_size_pt: edit.label_size_pt.unwrap_or(self.label_size_pt),
             carbon_labels: edit.carbon_labels.unwrap_or(self.carbon_labels),
             display_unit: edit.display_unit.unwrap_or(self.display_unit),
@@ -149,6 +153,7 @@ impl Settings {
             label_style: Some(self.label_style),
             label_underline: Some(self.label_underline),
             label_outline: Some(self.label_outline),
+            label_shadow: Some(self.label_shadow),
             label_size_pt: Some(self.label_size_pt),
             carbon_labels: Some(self.carbon_labels),
             display_unit: Some(self.display_unit),
@@ -166,6 +171,7 @@ pub struct SettingsEdit {
     pub label_style: Option<LabelStyle>,
     pub label_underline: Option<bool>,
     pub label_outline: Option<bool>,
+    pub label_shadow: Option<bool>,
     pub label_size_pt: Option<f64>,
     pub carbon_labels: Option<CarbonLabels>,
     pub display_unit: Option<DisplayUnit>,
