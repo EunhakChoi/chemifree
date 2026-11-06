@@ -329,6 +329,8 @@ fn v22_draft_retains_default_display_and_history_then_archives_exact_bytes() {
     }])
     .unwrap();
     doc.undo().unwrap();
+    // Original-target recovery requires an existing saved base at this revision.
+    repo.save(&doc, None).unwrap();
     let draft = Draft {
         document: doc.clone(),
         base_revision: doc.revision(),
@@ -349,6 +351,37 @@ fn v22_draft_retains_default_display_and_history_then_archives_exact_bytes() {
         },
     )
     .unwrap();
+    assert_eq!(
+        fs::read(repo.migrated_draft_path(doc.id(), 22)).unwrap(),
+        bytes
+    );
+    let base_revision = doc.revision();
+    let graph = doc.to_parts();
+    doc.apply(&[label(Some("Ph 한"))]).unwrap();
+    let next = Draft {
+        document: doc.clone(),
+        base_revision,
+        saved_at_ms: 43,
+    };
+    repo.write_draft(&next).unwrap();
+    repo.release_draft(doc.id());
+    let mut recovered = repo
+        .claim_draft(doc.id())
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .document;
+    assert_eq!(recovered, doc);
+    assert_eq!(recovered.to_parts().atoms, graph.atoms);
+    assert_eq!(recovered.to_parts().bonds, graph.bonds);
+    assert_eq!(recovered.to_parts().positions, graph.positions);
+    recovered.undo().unwrap();
+    assert!(recovered.to_parts().display_labels.is_empty());
+    recovered.redo().unwrap();
+    assert_eq!(
+        recovered.to_parts().display_labels,
+        doc.to_parts().display_labels
+    );
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 22)).unwrap(),
         bytes
