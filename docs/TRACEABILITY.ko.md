@@ -2,6 +2,11 @@
 
 이 문서는 P08이 더한 추적 파일, conformance runner와 추적 검사가 무엇을 기록하고 무엇을 확인하는지 정확히 적는다. 여기 적힌 확인 범위를 넘는 성질(화학적 정확성, 다른 프로그램과의 동등성, 기능 완성도)은 이 장치들로 확인되지 않는다.
 
+P34b 후보는 기존 고리 명령에 size5(생략/explicit6은 기존6)를 더하고 실제 웹 5/6 선택과
+captured size의 immutable recovery를 연결한다. 독립 5-cycle·기하·rollback·저장/history·
+HTTP=CLI·client·production UI 회귀를 작성했으나 실행하지 않았다. 상위 상태나 기존
+conformance 개수/통과 근거는 승격하지 않으며 [P34b 기록](verification/p34b-five-ring.md)을 따른다.
+
 P34a 후보는 shared `insert_ring` 명령과 웹 중심 클릭으로 독립 탄소 6원 단일결합 고리를
 추가한다. 현재 길이·단일 배치·기존 선택 유지·한 Undo 및 미확정 결과의 같은 attempt
 확인으로 제한하며, 전체 MODEL-02/OPS-02/MODEL-04의 상태는 승격하지 않는다.

@@ -2,8 +2,17 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P34b 독립 탄소 5원 고리 후보
+
+- P34a HEAD `5a8c20e`에서 분리한 `feat/p34b-five-ring` 후보다. P34a squash `71321a9`와 restart 수정 #176의 main `5be98a8`을 합쳤으며 P34b 자체는 아직 병합·납품 완료가 아니다. 이전 통합본 `6d84d85`의 전체 격리 검증은 통과했으나 #175 CI browser가 restart/Reload 경주로 실패했다. 최신 통합본의 전체 격리 검증과 PR CI는 pending이다.
+- `insert_ring`에 optional `size:5|6`을 더했다. 생략은 기존6, explicit null·다른 숫자·비정수·문자열은 invalid_request다. Domain의 닫힌 RingSize와 독립 golden-ratio 정오각형은 현재 bond length의 5C·5 single·fresh IDs를 만든다. 기존6 좌표 산술은 유지한다.
+- 실제 웹 R 도구에 5/6 선택(초기6·비저장)을 연결하고 클릭한 size를 큐/immutable attempt에 고정한다. busy 동안 size 변경을 막으며 같은 body/process로만 결과를 확인한다. 저장·Undo/Redo·selection/기존 상태 보존은 기존 경로다.
+- Domain/Application·client·HTTP=CLI와 실제 production size control/frozen recovery browser 회귀를 작성했다. 실행 담당자가 `86c584c`의 targeted와 `6d84d85`의 `npm run check`·standard browser·clipboard 8개·ring browser 전체 격리 검증을 통과시켰다. 작성·통합 담당자는 별도 테스트·빌드·브라우저·mutation을 실행하지 않았다. CI·리뷰 상태와 검증 범위는 [P34b 검증 기록](verification/p34b-five-ring.md)을 따른다.
+- attachment·fusion·replace·방향족·다른 크기·치환기·사용자 template·약어·복수 배치·collision avoidance·conformation은 후속이다. P34는 in_progress다.
+
 ## Autosave 재시작·명시 재조회 보강 후보
 
+- 현재 상태: [PR #176](https://github.com/EunhakChoi/chemifree/pull/176)이 `5be98a8`로 main에 병합됐다. 최종 head `7e35063`의 [CI 42164290471](https://github.com/EunhakChoi/chemifree/actions/runs/42164290471) check/browser는 모두 SUCCESS다. 아래 bullet은 각 후보 작성 시점의 원인·미실행/실패 기록이며 현재 최종 CI 상태와 구분한다. P34b와 합친 새 snapshot의 full/CI 검증은 별도 pending이다.
 - 별도 `fix/autosave-restart-reconcile` 후보는 main `71321a9`에서 분리했다. background refresh 성공/실패가 editor 오류를 지우지 않으며, 화면 snapshot의 서비스 세대가 달라지면 autosave timer·수동 retry·늦은 draft 응답·대기 중 refresh가 새 process를 무단 채택하지 않는다. 명시 Reload/reconcile과 기존 same-content edit recovery의 snapshot 채택 뒤에만 재개한다. PR #176 Codex P1을 반영해 undrafted 이전 세대의 flush는 실패 사유를 반환하며 Open/Create는 HTTP 전송 전에 원본을 화면에 남기고 Reload를 안내한다. clean/already-drafted navigation과 정상 process draft 실패의 기존 `draft_not_written` 경로는 유지한다.
 - 실제 editor/autosave hook·client를 사용하는 `npm run test:browser:autosave-restart`를 작성해 CI에 연결했다. HTTP·브라우저 시간만 제어하며 실제 backend crash 검증은 아니다. 기존 smoke에는 aromaticity block의 누락된 step 이름만 보강했다. 부모 지시로 테스트·빌드·브라우저를 실행하지 않았고 current full/CI는 pending이다. 원인·리뷰·검증 대기는 [기록](verification/autosave-restart-reconcile.md)을 따른다.
 - 추가 PR #176 Codex P1은 일반 edit 등의 늦은 old-process 응답을 setCurrent가 최신 세대로 다시 표시하는 경계였다. 실제 HTTP attempt의 세대를 normalization 뒤에도 메모리에서 추적하고 중앙 snapshot 채택 guard를 적용했다. safe internal retry는 새 attempt의 세대를 사용하며 Close는 별도 요청 세대 guard로 화면 제거를 제한한다. held response의 edit/Open/Create/copy/recover/reload/import/Close 회귀를 작성했고 이번 수정도 테스트·빌드·브라우저는 미실행이다.

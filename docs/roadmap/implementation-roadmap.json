@@ -1395,7 +1395,7 @@
     "P10",
     "P14"
    ],
-   "note": "P34a 후보: shared insert_ring transaction command와 웹 Ring(R)이 현재 bond length의 독립 탄소 6원 single-bond 정육각형을 fresh ID·한 Undo 단계로 삽입한다. 단일 명시 배치만 지원하고 기존 선택·chemistry/stereo/scene/settings를 보존하며 기존 저장/replay와 immutable 미확정 attempt gate를 재사용한다. 외부 DATA나 legacy framing geometry를 활성화하지 않는다. domain/application/client/HTTP=CLI/browser 회귀 및 CI 연결을 작성했으나 이 구현 작업에서는 테스트·빌드·브라우저를 실행하지 않았다. P34 전체 완료 근거가 아니며 attachment·fusion·replace·다른 크기·치환기·사용자 template·약어·복수 배치·conformation/cleanup은 후속이다. docs/verification/p34a-independent-ring.md 참조."
+   "note": "P34b 후보는 optional size5와 실제 웹5/6 선택을 더한다(생략/explicit6은 기존6). 독립 정오각형·captured size의 immutable attempt·malformed/null 거절과 Domain/Application/client/HTTP=CLI/production UI 회귀를 작성했으나 테스트·빌드·브라우저는 실행하지 않았다. P34a HEAD 5a8c20e에서 분리했으며 병합/전체 검증 대기다. docs/verification/p34b-five-ring.md 참조. P34a 후보: shared insert_ring transaction command와 웹 Ring(R)이 현재 bond length의 독립 탄소 6원 single-bond 정육각형을 fresh ID·한 Undo 단계로 삽입한다. 단일 명시 배치만 지원하고 기존 선택·chemistry/stereo/scene/settings를 보존하며 기존 저장/replay와 immutable 미확정 attempt gate를 재사용한다. 외부 DATA나 legacy framing geometry를 활성화하지 않는다. domain/application/client/HTTP=CLI/browser 회귀 및 CI 연결을 작성했으나 이 구현 작업에서는 테스트·빌드·브라우저를 실행하지 않았다. P34 전체 완료 근거가 아니며 attachment·fusion·replace·다른 크기·치환기·사용자 template·약어·복수 배치·conformation/cleanup은 후속이다. docs/verification/p34a-independent-ring.md 참조."
   },
   {
    "phase": "editor",

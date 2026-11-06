@@ -6,14 +6,15 @@ An independently authored, open-source chemical drawing workspace for humans and
 
 Continuing in a new session? Start with [the handoff](docs/HANDOFF.ko.md) and [project instructions](AGENTS.md). They record the completed baseline, current limits, and the proposed next implementation slice.
 
-P34a adds the bounded **Ring** tool (R): click a center to append an independent six-carbon
-single-bond regular ring at the current bond length, in a document with one placement.
-HTTP and CLI share the `insert_ring` transaction command. One Undo removes the complete ring;
-the editor keeps uncertain attempts for explicit outcome checking. Attachment, fusion, other
-templates and molecular conformations remain unimplemented. P34 is in progress; this slice's
-new checks are written but unrun in its implementation session. See the
+P34a/P34b add the bounded **Ring** tool (R): choose 5 or 6 (initially 6), then click a
+center to append an independent carbon single-bond regular ring at the current bond length,
+in a document with one placement. HTTP and CLI share `insert_ring`; optional `size` is 5 or 6
+and omission retains 6. One Undo removes the complete ring; Redo restores its IDs.
+Attachment, fusion, replacement, aromatic patterns, other sizes, substituents, user templates,
+abbreviations and molecular conformations remain unimplemented. P34 is in progress; P34b's
+checks are written but have not run in this implementation session. See the
 [contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a) and
-[verification plan](docs/verification/p34a-independent-ring.md).
+[P34b verification plan](docs/verification/p34b-five-ring.md).
 
 ## Run locally
 

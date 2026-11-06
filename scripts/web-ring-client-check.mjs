@@ -136,3 +136,72 @@ test('a lost ring result followed by revision conflict requires explicit reconci
   assert.equal(bodies.length, 3)
   assert.deepEqual(bodies[2], bodies[0])
 })
+
+test('five-ring capture survives changed inputs and lost responses with the same size and body', async (t) => {
+  const bodies = service(t, (_body, count) => {
+    if (count <= 2) throw new TypeError('Committed five-ring reply lost.')
+    return json(ringAfter(5))
+  })
+  const point = { x: 100, y: 100 }
+  const selection = ringSelection()
+  let size = 5
+  const attempt = new DocumentClient().createRingInsertion(ringSource().document, 's1', point, selection, size)
+  size = 6
+  point.x = 900
+  selection.atoms.length = 0
+  await assert.rejects(attempt.send(), { code: 'clipboard_ring_unconfirmed' })
+  const result = await attempt.send()
+  assert.equal(size, 6)
+  assert.equal(result.document.atoms.length, 7)
+  assert.equal(result.document.bonds.length, 6)
+  assert.deepEqual(bodies[0].commands, [{ op: 'insert_ring', instance: 's1', center: { x: 100, y: 100 }, size: 5 }])
+  assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
+  assert.deepEqual(result.document.selection, ringSelection())
+})
+
+for (const [name, reply] of [
+  ['six-ring returned for five', () => ringAfter(6)],
+  ['five-ring returned for six', () => ringAfter(5)],
+]) {
+  test(`size-specific ring reply validation rejects ${name}`, async (t) => {
+    service(t, () => json(reply()))
+    const size = name.startsWith('six') ? 5 : 6
+    const attempt = new DocumentClient().createRingInsertion(ringSource().document, 's1', { x: 100, y: 100 }, ringSelection(), size)
+    await assert.rejects(attempt.send(), { code: 'clipboard_ring_unconfirmed' })
+  })
+}
+
+for (const [name, change] of [
+  ['open cycle', (after) => { after.document.bonds[5].end = 'a4' }],
+  ['altered geometry', (after) => { after.document.atoms[2].position.x += 2; after.document.scene.instances[0].positions[2].x += 2 }],
+]) {
+  test(`five-ring validation rejects ${name}`, async (t) => {
+    const after = ringAfter(5)
+    change(after)
+    service(t, () => json(after))
+    const attempt = new DocumentClient().createRingInsertion(ringSource().document, 's1', { x: 100, y: 100 }, ringSelection(), 5)
+    await assert.rejects(attempt.send(), { code: 'clipboard_ring_unconfirmed' })
+  })
+}
+
+test('runtime-invalid ring sizes are refused without sending', (t) => {
+  const bodies = service(t, () => { throw new Error('Must not send.') })
+  for (const size of [null, 4, 7, 5.5, '5', true]) {
+    assert.throws(() => new DocumentClient().createRingInsertion(ringSource().document, 's1', { x: 100, y: 100 }, ringSelection(), size), { code: 'ring_size_invalid' })
+  }
+  assert.deepEqual(bodies, [])
+})
+
+test('five-ring recovery never changes its size or resends after restart', async (t) => {
+  const bodies = service(t, (_body, count) => {
+    if (count <= 2) throw new TypeError('Reply lost.')
+    return json({ api_version: 'v1', code: 'unauthorized', message: 'New process.' }, 401)
+  })
+  const attempt = new DocumentClient().createRingInsertion(ringSource().document, 's1', { x: 100, y: 100 }, ringSelection(), 5)
+  await assert.rejects(attempt.send(), { code: 'clipboard_ring_unconfirmed' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_ring_restarted' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_ring_restarted' })
+  assert.equal(bodies.length, 3)
+  assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
+  assert.equal(bodies[2].commands[0].size, 5)
+})

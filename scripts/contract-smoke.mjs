@@ -1066,6 +1066,25 @@ try {
       const redone = await both((id) => request('op-ring-redo', 'history.redo', { document_id: id, expected_revision: 2 }))
       assert.deepEqual(redone.result.document.atoms, ring.result.document.atoms)
       assert.deepEqual(redone.result.document.bonds, ring.result.document.bonds)
+      const insertFive = (id) => request('op-ring-five', 'document.transaction', { document_id: id, expected_revision: 3,
+        commands: [{ op: 'insert_ring', instance: 's1', center: { x: 100, y: 100 }, size: 5 }] })
+      const five = await both(insertFive)
+      assert.equal(five.outcome, 'ok')
+      assert.equal(five.result.document.atoms.length, 11)
+      assert.equal(five.result.document.bonds.length, 11)
+      assert.deepEqual(five.result.document.atoms.slice(0, 6), ring.result.document.atoms)
+      assert.deepEqual(five.result.document.bonds.slice(0, 6), ring.result.document.bonds)
+      assert.deepEqual(await both(insertFive), five, 'five-ring replay never inserts twice')
+      for (const [index, size] of [null, 4, 7, 5.5, '5'].entries()) {
+        const refusal = await both((id) => request(`op-ring-size-${index}`, 'document.transaction', { document_id: id, expected_revision: 4,
+          commands: [{ op: 'insert_ring', instance: 's1', center: { x: 100, y: 100 }, size }] }))
+        assert.equal(refusal.diagnostics[0].code, 'invalid_request')
+      }
+      const undoFive = await both((id) => request('op-ring-five-undo', 'history.undo', { document_id: id, expected_revision: 4 }))
+      assert.deepEqual(undoFive.result.document.atoms, ring.result.document.atoms)
+      const redoFive = await both((id) => request('op-ring-five-redo', 'history.redo', { document_id: id, expected_revision: 5 }))
+      assert.deepEqual(redoFive.result.document.atoms, five.result.document.atoms)
+      assert.deepEqual(redoFive.result.document.bonds, five.result.document.bonds)
       httpDoc = outerHttp
       cliDoc = outerCli
     }

@@ -355,14 +355,25 @@ pub enum NewAtomPositions {
     PerInstance(BTreeMap<ObjectId, Point>),
 }
 
+/// Supported independently defined regular carbon-ring recipes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RingSize {
+    /// Five carbon atoms and five single bonds.
+    Five,
+    /// Six carbon atoms and six single bonds; the original recipe.
+    #[default]
+    Six,
+}
+
 /// One edit. A transaction applies an ordered list of commands all-or-nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
-    /// Appends an independent six-carbon single-bond regular ring in the only placement.
+    /// Appends an independent five- or six-carbon single-bond regular ring in the only placement.
     /// Uses the current document bond length; creates no transaction-local `$N` target.
     InsertRing {
         instance: ObjectId,
         center: Point,
+        size: RingSize,
     },
     /// Adds an atom with the given state, optionally bonded from another atom (`bond_to.atom`
     /// is the bond's `begin`, so the donor of a dative bond).
@@ -1977,25 +1988,49 @@ impl Draft {
     fn apply(&mut self, command: &Command) -> Result<(), EditError> {
         let mut created = Created::Nothing;
         match command {
-            Command::InsertRing { instance, center } => {
+            Command::InsertRing {
+                instance,
+                center,
+                size,
+            } => {
                 self.content.require_instance(*instance)?;
                 let instances = self.content.instance_count();
                 if instances != 1 {
                     return Err(EditError::PositionsRequired { instances });
                 }
                 let length = self.content.settings.bond_length_pt;
-                let height = length * (3.0_f64.sqrt() / 2.0);
-                // Independently defined 2D regular hexagon, clockwise in y-down coordinates.
-                // This is a drawing recipe, not a molecular conformation or layout engine.
-                let offsets = [
-                    (length, 0.0),
-                    (length / 2.0, height),
-                    (-length / 2.0, height),
-                    (-length, 0.0),
-                    (-length / 2.0, -height),
-                    (length / 2.0, -height),
-                ];
-                let mut atoms = Vec::with_capacity(6);
+                // Fixed recipes start at the rightmost vertex, clockwise in y-down coordinates.
+                // Keep the original six-ring arithmetic unchanged for compatibility.
+                let offsets = match size {
+                    RingSize::Six => {
+                        let height = length * (3.0_f64.sqrt() / 2.0);
+                        vec![
+                            (length, 0.0),
+                            (length / 2.0, height),
+                            (-length / 2.0, height),
+                            (-length, 0.0),
+                            (-length / 2.0, -height),
+                            (length / 2.0, -height),
+                        ]
+                    }
+                    RingSize::Five => {
+                        // sin(36°), cos(72°), cos(36°), sin(72°), from the golden ratio.
+                        let root_five = 5.0_f64.sqrt();
+                        let radius = 2.0 * length / (10.0 - 2.0 * root_five).sqrt();
+                        let near_x = radius * (root_five - 1.0) / 4.0;
+                        let far_x = -radius * (root_five + 1.0) / 4.0;
+                        let high_y = radius * (10.0 + 2.0 * root_five).sqrt() / 4.0;
+                        vec![
+                            (radius, 0.0),
+                            (near_x, high_y),
+                            (far_x, length / 2.0),
+                            (far_x, -length / 2.0),
+                            (near_x, -high_y),
+                        ]
+                    }
+                };
+                let count = offsets.len();
+                let mut atoms = Vec::with_capacity(count);
                 for (x, y) in offsets {
                     let point = Point::new(center.x() + x, center.y() + y)?;
                     let atom = self.allocate_atom()?;
@@ -2009,8 +2044,8 @@ impl Draft {
                     );
                     atoms.push(atom);
                 }
-                for index in 0..6 {
-                    self.insert_bond(atoms[index], atoms[(index + 1) % 6], BondOrder::Single)?;
+                for index in 0..count {
+                    self.insert_bond(atoms[index], atoms[(index + 1) % count], BondOrder::Single)?;
                 }
             }
             Command::AddAtom {

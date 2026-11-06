@@ -1,5 +1,13 @@
 # Autosave restart reconciliation 후보
 
+## 현재 병합 상태
+
+[PR #176](https://github.com/EunhakChoi/chemifree/pull/176)은 최종 head `7e35063`에서
+[CI 42164290471](https://github.com/EunhakChoi/chemifree/actions/runs/42164290471)의
+check/browser가 모두 SUCCESS였고 main `5be98a8`로 병합됐다. 이 상태는 읽기 전용 PR
+metadata로 확인했다. 아래는 각 작성 시점의 미실행·실패·수정 기록이며 최종 PR CI와
+구분한다. P34b에 main을 합친 새로운 통합 snapshot의 full/CI는 별도 pending이다.
+
 ## 원인과 범위
 
 main `71321a9` 기반 별도 `fix/autosave-restart-reconcile` 후보다. P34b의 코드와

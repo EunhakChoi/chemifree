@@ -569,7 +569,7 @@ impl Entry {
 const TRANSACTION_PARTS: [Entry; 47] = [
     runs(
         "insert_ring",
-        "Appends an independent six-carbon single-bond regular ring at an explicit center in the only placement, using the current bond length. No attachment, fusion, aromaticity or conformation calculation.",
+        "Appends an independent five- or six-carbon single-bond regular ring (size 5 or 6, omitted means 6) at an explicit center in the only placement, using the current bond length. No attachment, fusion, aromaticity or conformation calculation.",
     ),
     runs(
         "add_atom",

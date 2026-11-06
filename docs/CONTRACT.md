@@ -97,14 +97,21 @@ Unknown parameters are `invalid_request` (`path: "parameters"`). Every other ope
 
 ## Independent six-carbon ring insertion (P34a)
 
-The `insert_ring` transaction command is `{ op: "insert_ring", instance, center: { x, y } }`.
-It appends six neutral natural-abundance carbon atoms (inferred hydrogens, no radicals or
-attachment points) and six single bonds as one independent cycle. It runs through the same
+The `insert_ring` transaction command is `{ op: "insert_ring", instance, center: { x, y }, size?: 5 | 6 }`.
+P34b adds size 5; omission and explicit 6 retain the original six-ring recipe and arithmetic.
+Explicit `null`, strings, non-integers and any number outside 5/6 are `invalid_request`
+without changing the document.
+It appends five or six neutral natural-abundance carbon atoms (inferred hydrogens, no radicals or
+attachment points) and the same number of single bonds as one independent cycle. It runs through the same
 Application transaction via HTTP, CLI `documents apply`, or operation contract 1; it is not a
 separate format, provider or external DATA consumer. The command requires an existing explicit
 instance and exactly one molecule placement. The current document `bond_length_pt` is the side
-length. Starting at the rightmost vertex, vertices run clockwise on the y-down page at offsets
+length. For six vertices, starting at the rightmost vertex, vertices run clockwise on the y-down page at offsets
 `(L,0), (L/2,H), (-L/2,H), (-L,0), (-L/2,-H), (L/2,-H)` where `H=L*(sqrt(3)/2)`.
+For five vertices the regular pentagon has circumradius `R=L/(2 sin(π/5))`;
+vertex `k=0..4` is centered at `(R cos(2πk/5), R sin(2πk/5))` on the y-down page.
+The Domain computes this fixed recipe with golden-ratio radicals; vertices 2 and 3
+have y offsets `L/2` and `-L/2`, respectively.
 All resulting coordinates must fit the existing point bounds.
 
 Fresh atom/bond IDs use the ordinary allocators and are not reused after Undo. The recipe
@@ -117,14 +124,16 @@ entire transaction and preserves selection, numbering, revision, dirty state and
 The existing 500-command budget counts this as one bounded command. Save/reopen and ordinary
 Undo/Redo retain its IDs and coordinates without a storage schema change.
 
-The web Ring tool (R) sends the pointer-down center on a completed click through the inverse
+The web Ring tool (R) offers a 5/6 size selector (initially 6, not saved in the document)
+and sends the pointer-down center on a completed click through the inverse
 SVG transform; dragging does not insert. A click over existing content never attaches, replaces
-or fuses it. The queued action captures document/process/instance/selection and resolves the
+or fuses it. The queued action captures size/document/process/instance/selection and resolves the
 current bond length when the transaction executes. A missing target, another document/process
 or unsupported placement count refuses the captured action. An uncertain response holds later
 edits and shows **Check ring insertion outcome**, reusing the same request/body/process.
 Restart or a terminal revision conflict requires explicit reload/reconciliation and never
-resends the insertion to a new process. Checking and history never access the OS clipboard.
+resends the insertion to a new process. Size controls are disabled while busy; later tool
+choices cannot retarget an already captured attempt. Checking and history never access the OS clipboard.
 Close and its discard confirmation are disabled while the editor is busy, including an
 unresolved ring or clipboard mutation. Hook callers still pass the queue-time unresolved
 attempt guard; closing or opening cannot remove recovery controls while an attempt is pending.
@@ -134,11 +143,12 @@ shown. Normal clean Close and the existing unsaved-discard confirmation resume a
 
 This is an independently defined 2D regular-ring drawing recipe, not conformation prediction,
 aromaticity assignment, chemical layout or collision avoidance. Multiple placements, other ring
-sizes or atom/bond patterns, attachment/fusion/replacement, substituents, user templates,
+sizes beyond 5/6 or atom/bond patterns, attachment/fusion/replacement, substituents, user templates,
 abbreviation contraction/expansion and prepared legacy template framing activation remain
 unsupported. Unknown command fields are refused. P34 remains **in_progress**. The written
 checks have not been executed in this implementation session; see
-[the P34a verification plan](verification/p34a-independent-ring.md).
+[the P34a verification plan](verification/p34a-independent-ring.md) and
+[the P34b verification plan](verification/p34b-five-ring.md).
 
 ## Effective selection scope and movement (P32a)
 
@@ -973,7 +983,7 @@ The `chemifree-numerics` Rust library separates exact signed rational values fro
 
 `GET /api/v1/data` and `chemifree data status --json` return `api_version`, `state` (`not_configured`, `refused`, or `checked`), nullable `reason`, registration IDs with `loaded` or `unavailable` state and nullable reason, and `engine: "not_implemented"` for the separate prediction model binding. A loaded registration may also include `retained_extra_columns`, a nonnegative integer count of source columns kept as opaque metadata; older responses omit it. The CLI and web display the count when it is positive. Neither response contains column names, data records or source paths. A checked registration means only that a supported profile was authorized and decoded; `chem.properties` independently recognizes the two mass input profiles described above. The host selects and trusts each registration separately; an aggregate registry hash alone does not establish manifest membership. Public checks use independent fixtures, not personal payloads. Missing or invalid data never prevents document editing. The explicitly selected local trust descriptor, identity checks, supported profiles, and current limits are specified in [DATA.ko.md](DATA.ko.md).
 
-Catalog: `{ implementation, version, contracts: [1], profiles: [{ id, execution, note }], operations: [{ id, representation, execution, followup?, note, commands?, sub_operations? }] }`. Representation and execution are separate: `representation` ∈ `supported | not_supported` says whether a document and this contract can hold the operation's inputs and results; `execution` ∈ `executable | requires_data | not_implemented | rejected` says whether it runs, would need data that is not loaded, does not run, or never will. `document.transaction` lists its sub-operations, each either a command or a capability. A command row has no `commands` field and its `id` is an `op` of the transaction body. A capability row is not a command: its `commands` lists the command rows (by `id`) that carry it out, and is empty while it is not implemented. `commands` was added within contract 1; a reply without it predates that. The transaction lists the existing atom, bond, title, and placement commands, plus `add_graphic`, `group`, `ungroup`, `reorder`, `delete_objects`, `move_objects`, `move_selection`, `arrange_objects`, `transform_selection`, `add_reference`, and `remove_reference`. The `scene_tree` capability names these eleven commands; `scene_placement` names the three instance commands. Recorded-state capability rows name their implementing atom and bond commands. The four stereo commands are command rows (`set_bond_mark`, `set_atom_configuration`, `set_bond_configuration`, `set_configuration_from_drawing`); the `stereo_marks` capability row names the first and `stereo_configuration` the other three. The eight stereo group commands are command rows too (`create_stereo_group`, `delete_stereo_group`, `set_stereo_group_kind`, `set_stereo_group_number`, `add_stereo_group_members`, `remove_stereo_group_members`, `merge_stereo_groups`, `split_stereo_group`), carried out for the `stereo_group` capability row, which also states the group limits (at most one group for each stored center, so no more than the 2,000-atom cap; one absolute group; a stored number is any 32-bit signed integer); the catalog has no separate limits field. The transaction lists 47 sub-operations: 36 command rows and 11 capability rows, including the bounded `insert_ring` drawing recipe (P34a). Recorded states remain separate from the bounded `chem.validate` inspection described above. `chem.properties` lists formula and mass (P19). `followup` names the plan entry expected to change a row (docs/roadmap/).
+Catalog: `{ implementation, version, contracts: [1], profiles: [{ id, execution, note }], operations: [{ id, representation, execution, followup?, note, commands?, sub_operations? }] }`. Representation and execution are separate: `representation` ∈ `supported | not_supported` says whether a document and this contract can hold the operation's inputs and results; `execution` ∈ `executable | requires_data | not_implemented | rejected` says whether it runs, would need data that is not loaded, does not run, or never will. `document.transaction` lists its sub-operations, each either a command or a capability. A command row has no `commands` field and its `id` is an `op` of the transaction body. A capability row is not a command: its `commands` lists the command rows (by `id`) that carry it out, and is empty while it is not implemented. `commands` was added within contract 1; a reply without it predates that. The transaction lists the existing atom, bond, title, and placement commands, plus `add_graphic`, `group`, `ungroup`, `reorder`, `delete_objects`, `move_objects`, `move_selection`, `arrange_objects`, `transform_selection`, `add_reference`, and `remove_reference`. The `scene_tree` capability names these eleven commands; `scene_placement` names the three instance commands. Recorded-state capability rows name their implementing atom and bond commands. The four stereo commands are command rows (`set_bond_mark`, `set_atom_configuration`, `set_bond_configuration`, `set_configuration_from_drawing`); the `stereo_marks` capability row names the first and `stereo_configuration` the other three. The eight stereo group commands are command rows too (`create_stereo_group`, `delete_stereo_group`, `set_stereo_group_kind`, `set_stereo_group_number`, `add_stereo_group_members`, `remove_stereo_group_members`, `merge_stereo_groups`, `split_stereo_group`), carried out for the `stereo_group` capability row, which also states the group limits (at most one group for each stored center, so no more than the 2,000-atom cap; one absolute group; a stored number is any 32-bit signed integer); the catalog has no separate limits field. The transaction lists 47 sub-operations: 36 command rows and 11 capability rows, including the bounded `insert_ring` drawing recipe (P34a/P34b). Recorded states remain separate from the bounded `chem.validate` inspection described above. `chem.properties` lists formula and mass (P19). `followup` names the plan entry expected to change a row (docs/roadmap/).
 
 Protocol errors (`envelope: "protocol_error"`):
 
@@ -1059,7 +1069,7 @@ Transaction body: `{ "request_id": string, "expected_revision": number, "command
 
 | `op` | Fields | Effect |
 | --- | --- | --- |
-| `insert_ring` | `instance`, `center: { x, y }` | Independent six-carbon single-bond regular ring at current bond length; exactly one placement; no `$N` target; [P34a limits](#independent-six-carbon-ring-insertion-p34a) |
+| `insert_ring` | `instance`, `center: { x, y }`, `size?: 5 \| 6` | Independent five/six-carbon single-bond regular ring (omitted size is 6) at current bond length; exactly one placement; no `$N` target; [P34a limits](#independent-six-carbon-ring-insertion-p34a) |
 | `add_atom` | `element` or `query`, `position` or `positions`, optional `hydrogens`, `radical`, `attachment_points`, `bond_to: { atom, order, query? }` | New neutral, natural-abundance atom, placed in every scene instance; omitted states take their defaults |
 | `add_bond` | `begin`, `end`, `order`, `query` (with order `query` only) | New bond |
 | `update_atom` | `atom`, optional `element` or `query`, `charge`, `isotope`, `hydrogens`, `radical`, `attachment_points` | Omitted fields unchanged; `"isotope": null` restores natural abundance; `element` makes a query atom an element atom and `query` the reverse |
