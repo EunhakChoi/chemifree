@@ -184,7 +184,7 @@ export function StructureCanvas({
   const [preview, setPreview] = useState<Preview>(null)
   const [hover, setHover] = useState<Located | null>(null)
   const selectedGeometry = selectionGeometry(document, selection, activePlacement)
-  const [captionMeasurement, setCaptionMeasurement] = useState<{ document: DocumentView; boxes: Map<string, Box> } | null>(null)
+  const [captionMeasurement, setCaptionMeasurement] = useState<{ document: DocumentView; boxes: Map<string, Box>; fontsReady: boolean } | null>(null)
   const captionBoxes = captionMeasurement?.document === document ? captionMeasurement.boxes : new Map<string, Box>()
   useEffect(() => {
     const svg = svgRef.current
@@ -202,14 +202,21 @@ export function StructureCanvas({
           const ink = text.getBBox()
           boxes.set(id, { x: ink.x - 2, y: ink.y - 2, width: ink.width + 4, height: ink.height + 4 })
         }
-        setCaptionMeasurement({ document, boxes })
+        setCaptionMeasurement({ document, boxes, fontsReady: globalThis.document.fonts.status === 'loaded' })
       })
     }
     const observer = new ResizeObserver(measure)
     for (const text of svg.querySelectorAll('[data-caption-text]')) observer.observe(text)
     globalThis.document.fonts.addEventListener('loadingdone', measure)
+    globalThis.document.fonts.addEventListener('loadingerror', measure)
     measure()
-    return () => { active = false; cancelAnimationFrame(frame); observer.disconnect(); globalThis.document.fonts.removeEventListener('loadingdone', measure) }
+    return () => {
+      active = false
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      globalThis.document.fonts.removeEventListener('loadingdone', measure)
+      globalThis.document.fonts.removeEventListener('loadingerror', measure)
+    }
   }, [document])
 
   function switchPlacement(instance: string) {
@@ -267,7 +274,7 @@ export function StructureCanvas({
       viewBox(
         [
           ...drawings.flatMap((drawing) => drawing.view.atoms.map((atom) => atom.position)),
-          ...(document.scene?.objects?.flatMap((object) => object.kind === 'graphic' ? object.points : []) ?? []),
+          ...(document.scene?.objects?.flatMap((object) => object.kind === 'graphic' ? object.points : object.kind === 'caption' ? [object.anchor] : []) ?? []),
         ],
         [...captionBoxes.values(), ...drawings.flatMap((drawing) => [
           ...drawing.view.atoms.flatMap((atom) => labelBox(drawing.labels, atom.id, atom.position) ?? []),
@@ -280,7 +287,10 @@ export function StructureCanvas({
     [document.scene, document.bonds, drawings, groupLabels, captionBoxes],
   )
 
-  const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box)
+  const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
+  const captionBoundsReady = captionCount === 0 || (captionMeasurement?.document === document &&
+    captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount)
+  const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box, captionBoundsReady)
   const unitsPerPixel = 1 / viewport.scale
 
   function drawingOf(instance: string | null) {
@@ -747,6 +757,7 @@ export function StructureCanvas({
       ref={svgRef}
       role="group"
       data-structure-canvas=""
+      data-caption-bounds-ready={captionBoundsReady}
       aria-label={`${document.title}: ${document.atoms.length} atoms and ${document.bonds.length} bonds`}
       viewBox={canvasViewBox}
       data-viewport-scale={viewport.scale}

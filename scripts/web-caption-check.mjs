@@ -37,6 +37,13 @@ try {
   const create = await fetch(`${base}/api/v1/documents`, { method: 'POST', headers: { 'content-type': 'application/json', [token.header]: token.token, origin: base }, body: JSON.stringify({ request_id: 'caption-browser-create', title: 'Unicode caption' }) })
   assert.equal(create.status, 201)
   const id = (await create.json()).document.id
+  const alternateCreate = await fetch(`${base}/api/v1/documents`, { method: 'POST', headers: { 'content-type': 'application/json', [token.header]: token.token, origin: base }, body: JSON.stringify({ request_id: 'caption-browser-alternate', title: 'Alternate caption' }) })
+  assert.equal(alternateCreate.status, 201)
+  const alternateId = (await alternateCreate.json()).document.id
+  const alternateEdit = await fetch(`${base}/api/v1/documents/${alternateId}/transactions`, { method: 'POST', headers: { 'content-type': 'application/json', [token.header]: token.token, origin: base }, body: JSON.stringify({ request_id: 'caption-browser-alternate-edit', expected_revision: 0, commands: [{ op: 'add_caption', anchor: { x: -2400, y: -900 }, runs: [{ text: 'Alternate 한글 caption outside the old frame', script: 'baseline' }] }] }) })
+  assert.equal(alternateEdit.status, 200)
+  const alternateSave = await fetch(`${base}/api/v1/documents/${alternateId}/save`, { method: 'POST', headers: { 'content-type': 'application/json', [token.header]: token.token, origin: base }, body: JSON.stringify({ request_id: 'caption-browser-alternate-save', expected_revision: 1 }) })
+  assert.equal(alternateSave.status, 200)
   const fixture = `
 import React, { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -48,6 +55,8 @@ function Harness() {
   const editor = useDocumentEditor()
   useEffect(() => { void editor.open(${JSON.stringify(id)}) }, [])
   return <main>
+    <button disabled={editor.busy} onClick={() => void editor.open(${JSON.stringify(id)})}>Open original caption drawing</button>
+    <button disabled={editor.busy} onClick={() => void editor.open(${JSON.stringify(alternateId)})}>Open alternate caption drawing</button>
     <button disabled={editor.busy} onClick={() => void editor.undo()}>Undo caption</button>
     <button disabled={editor.busy} onClick={() => void editor.redo()}>Redo caption</button>
     <button disabled={editor.busy} onClick={() => void editor.save()}>Save caption drawing</button>
@@ -116,14 +125,17 @@ createRoot(document.getElementById('root')).render(<Harness />)
   stage = 'edit through selection and preserve one undo step'
   await page.getByRole('img', { name: `Caption s2: ${text}2+`, exact: true }).click()
   await button('Edit selected caption…').click()
-  await page.getByLabel('Run 1 text', { exact: true }).fill('NFC é and NFD e\u0301')
+  const editedText = 'NFC é and NFD e\u0301 '.repeat(8)
+  await page.getByLabel('Run 1 text', { exact: true }).fill(editedText)
+  await page.getByLabel('Caption horizontal position (pt)', { exact: true }).fill('1200')
+  await page.getByLabel('Caption vertical position (pt)', { exact: true }).fill('450')
   await button('Apply caption').click()
-  await page.waitForFunction(() => document.querySelector('[data-caption-text]')?.textContent === 'NFC é and NFD e\u03012+')
+  await page.waitForFunction((text) => document.querySelector('[data-caption-text]')?.textContent === `${text}2+`, editedText)
   await button('Undo caption').click()
   await page.waitForFunction((text) => document.querySelector('[data-caption-text]')?.textContent === `${text}2+`, text)
   assert.deepEqual((await caption()).runs, expected)
   await button('Redo caption').click()
-  await page.waitForFunction(() => document.querySelector('[data-caption-text]')?.textContent === 'NFC é and NFD e\u03012+')
+  await page.waitForFunction((text) => document.querySelector('[data-caption-text]')?.textContent === `${text}2+`, editedText)
   stage = 'save, reload and reopen the exact native runs'
   const edited = await caption()
   await button('Save caption drawing').click()
@@ -134,6 +146,72 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.reload()
   await page.locator('[data-caption-text="s2"]').waitFor()
   assert.deepEqual(await caption(), edited)
+  async function fullyVisible(target) {
+    await target.waitForFunction(() => {
+      const text = document.querySelector('[data-caption-text]')
+      if (!text) return false
+      const canvas = text.ownerSVGElement
+      if (canvas.dataset.captionBoundsReady !== 'true') return false
+      const ink = text.getBBox()
+      const view = canvas.viewBox.baseVal
+      const drawn = text.getBoundingClientRect()
+      const frame = canvas.getBoundingClientRect()
+      return ink.width > 0 && view.x <= ink.x && view.y <= ink.y && view.x + view.width >= ink.x + ink.width && view.y + view.height >= ink.y + ink.height && drawn.left >= frame.left - 1 && drawn.right <= frame.right + 1 && drawn.top >= frame.top - 1 && drawn.bottom <= frame.bottom + 1
+    })
+  }
+  // Reopening must fit actual caption ink, not merely add it to an unused content-bound value.
+  await fullyVisible(page)
+  stage = 'document switches get one measured fit for the current document'
+  await button('Open alternate caption drawing').click()
+  await page.waitForFunction((id) => JSON.parse(document.querySelector('[aria-label="Caption snapshot"]').textContent)?.document.id === id, alternateId)
+  await fullyVisible(page)
+  await button('Open original caption drawing').click()
+  await page.waitForFunction((id) => JSON.parse(document.querySelector('[aria-label="Caption snapshot"]').textContent)?.document.id === id, id)
+  await fullyVisible(page)
+
+  // Hold real font HTTP replies on cold pages: the actual SVG/font measurement remains pending.
+  // No React, caption layout or viewport implementation is replaced by the fixture.
+  async function fontRace(userNavigatesViewport) {
+    const cold = await browser.newPage()
+    cold.on('pageerror', (error) => errors.push(error.message))
+    let releaseFonts
+    const fontsHeld = new Promise((resolveFonts) => { releaseFonts = resolveFonts })
+    let fontRequests = 0
+    await cold.route(/\.woff2(?:\?.*)?$/, async (route) => {
+      if (route.request().resourceType() !== 'font') return route.continue()
+      fontRequests += 1
+      await fontsHeld
+      await route.continue()
+    })
+    try {
+      await cold.goto('http://127.0.0.1:5173/caption-check', { waitUntil: 'domcontentloaded' })
+      await cold.waitForFunction(() => document.fonts.status === 'loading' && document.querySelector('[data-structure-canvas]')?.dataset.captionBoundsReady === 'false' && document.querySelector('[data-caption] rect') !== null)
+      assert.ok(fontRequests > 0, 'a real font response must be held')
+      if (userNavigatesViewport) {
+        const canvas = cold.locator('[data-structure-canvas]')
+        await canvas.focus()
+        await canvas.press('ArrowRight')
+        await canvas.press('+')
+        const chosen = await canvas.getAttribute('viewBox')
+        releaseFonts()
+        await cold.waitForFunction(() => document.querySelector('[data-structure-canvas]')?.dataset.captionBoundsReady === 'true')
+        assert.equal(await canvas.getAttribute('viewBox'), chosen, 'late measurements must retain user pan/zoom')
+      } else {
+        await cold.getByRole('button', { name: 'Open alternate caption drawing', exact: true }).click()
+        await cold.waitForFunction((id) => JSON.parse(document.querySelector('[aria-label="Caption snapshot"]').textContent)?.document.id === id && document.querySelector('[data-structure-canvas]')?.dataset.captionBoundsReady === 'false', alternateId)
+        releaseFonts()
+        await fullyVisible(cold)
+        assert.equal(JSON.parse(await cold.getByLabel('Caption snapshot', { exact: true }).textContent()).document.id, alternateId)
+      }
+    } finally {
+      releaseFonts()
+      await cold.close()
+    }
+  }
+  stage = 'font completion fits the latest document but preserves explicit viewport input'
+  await fontRace(false)
+  await fontRace(true)
+
   assert.equal(await page.getByLabel('Caption error', { exact: true }).textContent(), '')
   assert.deepEqual(errors, [])
   passed = true

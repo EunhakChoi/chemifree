@@ -132,3 +132,26 @@ same loss after valid digest, plus unchanged document/session. Corrected clipboa
 pin the existing envelope, reason, current revision and null result. No product mapping was
 changed: source inspection confirms all these paths already use the caption-aware loss
 collectors and common consent flow. Corrected fixtures have not been run by this agent.
+
+## Codex PR #184 P2: first fit before caption bounds
+
+The parent relayed [Codex P2](https://github.com/EunhakChoi/chemifree/pull/184#discussion_r4490810286):
+reopening could fit the default frame before the caption's requestAnimationFrame measurement,
+then retain that incomplete viewport after the actual ink bounds arrived. This was a product
+bug. Added an explicit bounds-readiness input to the viewport hook. Its null first viewport
+now waits for positive dimensions plus a measurement for the current caption snapshot after
+font loading settles. A document switch resets this pending state and stale measurement
+callbacks are discarded. Caption anchors are also included in provisional content bounds.
+
+Explicit Fit/pan/zoom creates a viewport from currently available bounds even while waiting,
+so late measurements cannot overwrite user navigation. Once fitted, later edits, resize and
+font completion preserve center/scale. No repeated auto-fit effect was added.
+
+The real-backend browser regression now edits a long caption to a remote anchor, saves and
+reopens it, and checks actual SVG viewBox plus CSS pixel visibility, not only the stored
+content-bound calculation. It switches between two remote-caption documents. Two cold-page
+cases hold actual woff2 font replies at HTTP: one switches documents while the first fit is
+pending and verifies the latest caption fits on completion; the other pans/zooms while fonts
+are pending and pins the chosen viewBox after completion. No React/layout/viewport code is
+mocked. These review fixes do not trigger another review round. This agent has not executed
+tests, builds, browsers or push for them; only static source/diff inspection was performed.

@@ -1782,7 +1782,10 @@ anchor. Script runs use two-thirds size, subscript +one-third label size in y an
 minus five-twelfths. These are explicit Chemifree display choices, not vendor-derived metrics.
 The SVG keeps text at natural advance, preserves whitespace and uses text nodes. The canvas
 measures actual SVG glyph ink after rendering and font loading for view-box inclusion,
-selection indication and hit area. Font fallback, glyph availability, complex shaping and
+selection indication and hit area. A new document's first fit waits for its current caption
+measurements, font completion and positive canvas size. Document switches discard the old
+pending fit. Once a viewport is fitted or a user chooses Fit/pan/zoom (even while measurements
+are pending), later measurements, font completion and edits preserve that viewport. Font fallback, glyph availability, complex shaping and
 cross-run combining/emoji shaping are not portable visual-roundtrip guarantees. Avoid
 splitting such sequences across runs. Native persistence preserves the exact scalar/run
 sequence independently of visual accuracy in a given environment.
