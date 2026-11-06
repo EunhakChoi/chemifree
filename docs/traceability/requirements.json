@@ -1103,17 +1103,15 @@
         },
         {
           "id": "OPS-01.user-template-files",
-          "summary": "P34d candidate: user-authored complete graph components are explicitly downloaded and reselected as existing native v1 fragment files, then independently inserted through native paste. Boundary bonds refuse saving; strict UTF-8/64KiB reads, file-selection/close/document/process race guards, exact destination style, one placement, explicit pt translation, fresh IDs/history and immutable same-request recovery apply. No new schema, DATA/template geometry activation, library, attachment/replacement, abbreviation or layout semantics. Actual download-to-real-backend browser coverage is written but unrun by parent instruction; review and execution status are in docs/verification/p34d-user-template.md. P34 remains in_progress.",
-          "status": "partial",
+          "summary": "P34d candidate: user-authored complete graph components are explicitly downloaded and reselected as existing native v1 fragment files, then independently inserted through native paste. Boundary bonds refuse saving; strict UTF-8/64KiB reads, file-selection/close/document/process race guards, exact destination style, one placement, explicit pt translation, fresh IDs/history and immutable same-request recovery apply. No new schema, DATA/template geometry activation, library, attachment/replacement, abbreviation or layout semantics. Parent isolated targeted checks at 5c9e148 passed lint/type/client/build and the actual download-to-real-backend browser flow. This part is unverified under traceability's common-check policy: its dedicated browser script is outside npm run check, so it supplies no eligible evidence entry here. The a19062d full run failed traceability; execution and review details are in docs/verification/p34d-user-template.md. P34 remains in_progress.",
+          "status": "unverified",
           "implementation": [
             "apps/web/src/components/user-template-panel.tsx",
             "apps/web/src/components/document-workspace.tsx",
             "apps/web/src/hooks/use-document-editor.ts",
             "scripts/web-user-template-check.mjs"
           ],
-          "evidence": [
-            "check:test:browser:user-template"
-          ],
+          "evidence": [],
           "followups": [
             "P34"
           ]

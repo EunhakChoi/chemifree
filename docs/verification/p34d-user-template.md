@@ -134,3 +134,21 @@ TypeScript patterns/testing과 shadcn 스킬을 적용하고 공식 Base UI comp
   `5c9e148` 근거이며 #179를 합친 통합본의 `npm run check`·standard browser와 PR/main
   CI 성공으로 확대하지 않는다. 통합 full/CI 및 Codex PR 리뷰는 pending이다. P34 전체는
   계속 in_progress다.
+
+## 통합 full의 traceability 실패와 evidence 상태 정정
+
+- 부모의 `a19062d` 격리 `npm run check`는 traceability에서 실패했다. 로그는
+  `/tmp/chemifree-p29d-verify-j4KjPa/p34d-full.log`다. 그 앞의 Rust workspace,
+  HTTP/CLI contract와 conformance 109/109는 통과했지만 전체 check 성공은 아니다.
+- 새 `OPS-01.user-template-files`의 evidence로 전용 `test:browser:user-template`를
+  연결했으나, 현 검사 규칙은 `npm run check`가 호출하는 script만 적격 check evidence로
+  인정한다. 전용 browser의 `5c9e148` targeted 통과는 실제 결과로 유지하되 공통
+  evidence로 취급하지 않는다. 관련 없는 client 단위 검사 이름을 대신 붙이지 않는다.
+- 구현 경로와 후속 P34는 유지하고 이 부분을 `unverified`/evidence 빈 배열로 정정했다.
+  이는 제품 코드 부재나 browser 미실행이라는 뜻이 아니라 공통 정책상 적격 evidence
+  부재의 표현이다. traceability 검사와 그 테스트·호출 범위는 변경하지 않았다.
+- TRACEABILITY/HANDOFF의 유일한 현재 집계를 부분108개(implemented60·partial12·
+  unverified3·not_implemented33)로 맞췄다. 상위 요구사항33개와 conformance109개 및
+  공개 선언 집계는 변하지 않는다. P34 전체 in_progress를 유지한다.
+- 이 정정 담당자는 `git diff --check`만 실행했다. 테스트·빌드·브라우저·push는 실행하지
+  않았으며 수정본 full/CI와 Codex PR 리뷰는 pending이다.
