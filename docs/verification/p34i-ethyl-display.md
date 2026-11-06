@@ -159,3 +159,19 @@ exact rendering-loss checks. Clipboard regression now asserts the error outcome,
 code, specific reason, and unchanged snapshot. Corrected the same reason-path mistake in the
 HTTP/CLI smoke case as well. No production error mapping or parser behavior was broadened.
 Formatting and whitespace checks ran; tests and builds are reserved for the parent.
+
+### Codex P2: first Shift-click after collapse
+
+PR #185 Codex review found that collapse retains selection of the two atoms without adding
+an explicit internal-bond selection. The canvas incorrectly required all three IDs before
+Shift-click would deselect; the first click therefore added the bond. Corrected compact
+selection detection to require its two explicit member atoms, while deselection still removes
+the pair and internal bond together. Ordinary atom/bond/graphic target behavior is unchanged.
+
+Extended the real production browser regression to assert the exact retained pair immediately
+after panel collapse, first Shift-click clearing it, a second Shift-click selecting all three
+IDs, and a third clearing them again. It also checks the full document snapshot remains
+unchanged through these selection-only interactions. Existing covered-boundary drag regression
+remains in place. The browser regression was authored but not executed in this correction;
+its failure-sensitivity and the product fix remain subject to the parent's execution checks.
+No additional review was requested, following the repository's finding-disposition workflow.

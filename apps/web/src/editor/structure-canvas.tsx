@@ -449,7 +449,10 @@ export function StructureCanvas({
       : bond !== undefined && positions?.has(bond.begin) && positions.has(bond.end)
     let next = current
     const targets = kind === 'atom' ? abbreviationTargets(document, instance, id) : [id]
-    const deselected = additive && targets.every((target) => next.has(target))
+    const compact = kind === 'atom' ? abbreviationsIn(document, instance).find((item) => item.anchor === id) : undefined
+    // Collapse preserves the atom-pair selection; its internal bond may be implicit.
+    const targetSelected = compact ? next.has(compact.anchor) && next.has(compact.terminal) : next.has(id)
+    const deselected = additive && targetSelected
     if (additive) {
       if (deselected) targets.forEach((target) => { next.delete(target) })
       else targets.forEach((target) => { next.add(target) })
