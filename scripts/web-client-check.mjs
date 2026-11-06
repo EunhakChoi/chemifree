@@ -6071,7 +6071,26 @@ function clipboardSmilesInput() {
 
 function clipboardSmilesReply(scripted, losses = []) {
   const snapshot = document('doc-1', 3)
-  snapshot.document.atoms = [{ id: 'a1', element: 'C', charge: 0, isotope: null, radical: 'none', hydrogens: { mode: 'inferred' } }]
+  snapshot.document.atoms = [
+    { id: 'a1', element: 'C', kind: 'element', query: null, charge: 0, isotope: null,
+      radical: 'none', hydrogens: { mode: 'inferred' }, attachment_points: [], position: { x: 40, y: 40 } },
+    { id: 'a2', element: 'O', kind: 'element', query: null, charge: 0, isotope: null,
+      radical: 'none', hydrogens: { mode: 'inferred' }, attachment_points: [], position: { x: 70, y: 40 } },
+  ]
+  snapshot.document.bonds = [{ id: 'b1', begin: 'a1', end: 'a2', order: 'single', query: null, mark: null }]
+  snapshot.document.molecule = { id: 'm1' }
+  snapshot.document.scene = {
+    pages: [{ id: 'p1' }],
+    instances: [{ id: 's1', page: 'p1', molecule: 'm1', positions: [{ atom: 'a1', x: 40, y: 40 }, { atom: 'a2', x: 70, y: 40 }] }],
+    roots: ['s1'], objects: [{ kind: 'instance', id: 's1', parent: null, molecule: 'm1' }], references: [],
+  }
+  snapshot.document.settings = { ...DEFAULT_SETTINGS }
+  snapshot.document.stereo = { atoms: [], bonds: [], groups: [] }
+  snapshot.document.selection = { objects: [], atoms: [], bonds: [] }
+  snapshot.session.saved_revision = 2
+  snapshot.session.unsaved_changes = true
+  snapshot.session.undo_depth = 1
+  snapshot.notes = []
   return { ...clipboardMolReply(scripted, snapshot, losses), model_id: 'chemifree-smiles-1' }
 }
 
@@ -6131,6 +6150,8 @@ for (const [name, change] of [
   ['destination', (reply) => { reply.result.document.id = 'another' }],
   ['unchanged revision', (reply) => { reply.document_revision = 2; reply.result.document.revision = 2 }],
   ['revision jump', (reply) => { reply.document_revision = 4; reply.result.document.revision = 4 }],
+  ['atom missing position', (reply) => { delete reply.result.document.atoms[0].position }],
+  ['partial recorded atom state', (reply) => { delete reply.result.document.atoms[0].query }],
   ['loss outcome', (reply) => { reply.outcome = 'partial' }],
   ['loss vocabulary', (reply) => { reply.outcome = 'partial'; reply.loss_report = [{ feature: 'stereo' }] }],
 ]) {
