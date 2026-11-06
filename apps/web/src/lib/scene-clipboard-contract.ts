@@ -31,13 +31,14 @@ function point(value: unknown): value is Position {
     Number.isFinite(value.x) && Number.isFinite(value.y) && Math.abs(value.x) <= 100_000 && Math.abs(value.y) <= 100_000
 }
 
-function equal(left: unknown, right: unknown): boolean {
+function equal(left: unknown, right: unknown, exactNumbers = false): boolean {
+  if (exactNumbers && typeof left === 'number' && typeof right === 'number') return Object.is(left, right)
   if (left === right) return true
   if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => equal(item, right[index]))
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => equal(item, right[index], exactNumbers))
   }
   return record(left) && record(right) && Object.keys(left).length === Object.keys(right).length &&
-    Object.keys(left).every((key) => key in right && equal(left[key], right[key]))
+    Object.keys(left).every((key) => key in right && equal(left[key], right[key], exactNumbers))
 }
 
 function referenceKey(reference: SceneReference): string {
@@ -127,6 +128,30 @@ export function sceneClipboardCopyMatches(
   const references = (scene.references ?? []).filter((reference) => included.has(reference.source))
   return equal(roots, expectedRoots) && equal(payload.roots, expectedRoots) &&
     equal(copied.objects, objects.map((object) => object.id)) && equal(payload.objects, objects) && sameReferences(payload.references, references)
+}
+
+/** Incoming links belong to surviving objects and must never be discarded by Cut. */
+export function sceneClipboardCutHasIncoming(source: DocumentView, copied: string[]): boolean {
+  const removed = new Set(copied)
+  return (source.scene?.references ?? []).some((reference) => !removed.has(reference.source) &&
+    reference.target.kind === 'object' && removed.has(reference.target.id))
+}
+
+/** Cut removes exactly the copied forest and its owned links, retaining outside parents. */
+export function sceneClipboardCutMatches(before: DocumentView, after: DocumentView, copied: string[]): boolean {
+  const source = before.scene
+  const target = after.scene
+  const removed = new Set(copied)
+  if (!source?.objects || !source.roots || !target || removed.size === 0 ||
+      sceneClipboardCutHasIncoming(before, copied) || !equal(after.selection, { objects: [], atoms: [], bonds: [] })) return false
+  const objects = source.objects.filter((object) => !removed.has(object.id)).map((object) => object.kind === 'group'
+    ? { ...object, children: object.children.filter((child) => !removed.has(child)) } : object)
+  if (!equal(target, { ...source, roots: source.roots.filter((id) => !removed.has(id)), objects,
+    references: (source.references ?? []).filter((reference) => !removed.has(reference.source)) }, true)) return false
+  for (const key of ['id', 'title', 'atoms', 'bonds', 'molecule', 'settings', 'stereo'] as const) {
+    if (!equal(before[key], after[key], true)) return false
+  }
+  return true
 }
 
 /** Verifies fresh mappings, the translated forest, its append order and every unchanged destination entity. */

@@ -55,6 +55,8 @@ P33g는 기존 SMILES panel에 명시 Read clipboard·Select written SMILES·Cop
 
 P33h는 기존 CDXML export loss-consent 뒤 준비된 전체 도면 첫 배치 text에 명시 browser copy와 수동/keyboard 선택을 더한다. 직접 클릭 전에는 clipboard 접근이 없고 known full snapshot/process 변화 및 지연된 완료는 이전 UI를 복원하지 않는다. 문서 변경·CDXML clipboard import·CDX text·Cut은 추가하지 않으며 P33은 in_progress다. 새 `scripts/web-cdxml-clipboard-check.mjs`와 real-backend smoke 회귀를 작성하고 CI에 연결했으나 이번 변경의 테스트·빌드·브라우저 실행 근거는 아직 없다. 기존 실행 근거와 집계는 재사용하거나 늘리지 않았다.
 
+P33j는 native graphic forest에 명시 Cut을 추가한다. 기존 Copy 거절에 외부 incoming reference 거절을 더하고 activated write 성공 뒤 exact source/process에서만 frozen roots의 subtree 삭제 하나를 보낸다. 여러 placement·원래 chemistry는 유지하며 외부 parent의 empty/singleton 상태를 자동 제거하지 않는다. 미확정 삭제는 shared same-request gate와 명시 restart reconcile을 따르고 수동 복사는 삭제를 허가하지 않는다. client boundary 및 실제 panel/hook browser 검사를 작성해 CI에 연결했지만 이번 변경에서 실행하지 않아 새 통과 evidence나 집계를 늘리지 않았다. 기존 Copy/Paste 자체의 Scene Cut 미지원 기록은 당시 범위이며 P33j가 이 제한된 후속을 더한다. P33은 in_progress다.
+
 현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 107개(implemented 60, partial 12, unverified 2, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.

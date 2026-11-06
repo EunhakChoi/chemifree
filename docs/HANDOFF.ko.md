@@ -2,6 +2,13 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P33j graphic forest Cut 후보 인계
+
+- Scene graphics clipboard의 Cut graphics가 기존 v2 graphic/group forest를 준비한다. 전체 press-time 선택과 process를 캡처하여 큐 뒤에서 검사하고 mixed graph/placement를 걸러내지 않는다. 기존 Copy 범위·순서·한도·거절에 outside-owned incoming reference 거절만 더한다. 내부 cycle/self-reference와 여러 source placement는 허용하며 Copy의 incoming 허용 범위는 그대로다.
+- Cut to clipboard 클릭에서 browser write를 먼저 시작하고 성공 뒤에만 exact source snapshot/revision/process를 확인해 frozen roots의 delete_objects/subtree 하나를 보낸다. live selection 변경은 삭제·history를 retarget하지 않는다. 수동 선택/Copy는 삭제 권한이 없고 write 실패/API 부재에는 삭제 요청이 없다. 부모는 자동 제거하지 않아 empty/singleton으로 남을 수 있다.
+- client는 제거 closure·부모 children·외부 references·원래 chemistry/settings/placements와 생존 좌표 비트까지 확인한다. Undo/Redo는 IDs·containment·refs·준비 당시 선택을 복구하고 clipboard를 바꾸지 않는다. write/delete는 별도 단계이며 뒤의 source 변경/거절에는 Copy만 남고 rollback/paste-back이 없다.
+- scene_cut은 기존 shared 미확정 gate를 사용한다. 같은 request/body/process만 확인하고 대화상자를 닫아도 추적을 유지하며 restart/held success/terminal conflict는 명시 reload/reconcile이다. `scripts/web-scene-cut-client-check.mjs`와 실제 panel/hook/client의 `scripts/web-scene-cut-check.mjs`를 작성해 `npm run test:client`·`npm run test:browser:scene-cut` 및 CI에 연결했다. 테스트·빌드·브라우저는 이번 작업에서 실행하지 않았으며 통과 근거는 아직 없다. 새 backend operation/format/chemistry는 없고 P33은 in_progress다.
+
 ## P33h 명시적 CDXML-text 복사 후보 인계
 
 - 기존 CDXML/CDX export panel에서 CDXML 도면 export의 loss-consent가 끝난 결과에만 Copy CDXML to clipboard·Select CDXML text·read-only text를 제공한다. transient 선택과 무관한 전체 도면 첫 배치 projection이며 손실 보고·입체/그룹 거절·digest 재동의는 기존 그대로다.
