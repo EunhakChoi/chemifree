@@ -71,11 +71,12 @@ pub const MAX_EDIT_REVISION: u64 = MAX_REVISION - 1;
 /// Entity changes kept across all history entries. With the entity limits this bounds the
 /// stored history, so a saved document stays within what storage providers read back.
 pub const HISTORY_CHANGE_LIMIT: usize = 100_000;
-/// Maximum current-state persistence reservation when captions exist in content or history.
-/// Combined with the history reservation, this stays below the native 64 MiB read cap.
+/// Current-state admission budget when captions exist in content or history.
+/// Encoding reserves at most 11/10 of the combined content/history admission budgets.
 pub const CAPTION_CONTENT_WEIGHT_LIMIT: usize = 48 * 1024 * 1024;
-/// Whole-history persistence reservation for caption-bearing documents. The latest edit
-/// must fit by itself; older undo entries are discarded to make room.
+/// Whole-history admission budget for caption-bearing documents. The latest edit must
+/// fit by itself; older undo entries make room. Runs without outline retain v15 admission
+/// weights; actual encoding reserves at most 11/10 of this budget (see persistence_weight).
 pub const CAPTION_HISTORY_WEIGHT_LIMIT: usize = 8 * 1024 * 1024;
 const MAX_DOCUMENT_ID_CHARS: usize = 64;
 
@@ -2890,10 +2891,10 @@ impl Document {
         {
             selection.clone_from(&next.selection.before);
         }
-        if caption_budget && content.persistence_weight(&selection) > CAPTION_CONTENT_WEIGHT_LIMIT {
-            return Err(invalid(
-                "caption content exceeds the persistence reservation",
-            ));
+        if caption_budget
+            && content.caption_admission_weight(&selection) > CAPTION_CONTENT_WEIGHT_LIMIT
+        {
+            return Err(invalid("caption content exceeds the admission budget"));
         }
         let document = Self {
             id: parts.id,
@@ -3339,9 +3340,11 @@ impl Document {
                 .chain(&self.redo)
                 .any(ChangeSet::has_captions);
         if caption_budget
-            && (draft.content.persistence_weight(&changes.selection.after)
+            && (draft
+                .content
+                .caption_admission_weight(&changes.selection.after)
                 > CAPTION_CONTENT_WEIGHT_LIMIT
-                || changes.persistence_weight() > CAPTION_HISTORY_WEIGHT_LIMIT)
+                || changes.history_admission_weight() > CAPTION_HISTORY_WEIGHT_LIMIT)
         {
             return Err(whole(EditError::CaptionPersistenceLimit));
         }

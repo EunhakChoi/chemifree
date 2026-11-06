@@ -1933,6 +1933,9 @@ impl From<CaptionAlignment> for CaptionAlignmentDto {
 pub struct CaptionRunDto {
     /// Omission means false; null and non-booleans are malformed.
     #[serde(default)]
+    pub outline: bool,
+    /// Omission means false; null and non-booleans are malformed.
+    #[serde(default)]
     pub underline: bool,
     /// Null or omission follows the theme foreground; overrides are opaque sRGB #RRGGBB.
     #[serde(default)]
@@ -1978,6 +1981,7 @@ pub enum CaptionStyleDto {
 impl From<&CaptionRun> for CaptionRunDto {
     fn from(run: &CaptionRun) -> Self {
         Self {
+            outline: run.outline,
             underline: run.underline,
             color: run.color.clone(),
             size_pt: run.size_pt,
@@ -2014,6 +2018,7 @@ fn caption(
         runs: runs
             .iter()
             .map(|run| CaptionRun {
+                outline: run.outline,
                 underline: run.underline,
                 color: run.color.clone(),
                 size_pt: run.size_pt,

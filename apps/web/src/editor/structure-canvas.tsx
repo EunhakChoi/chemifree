@@ -216,6 +216,19 @@ export function StructureCanvas({
           let top = ink.y
           let right = ink.x + ink.width
           let bottom = ink.y + ink.height
+          // SVG getBBox excludes strokes. Expand each outlined run independently;
+          // filled siblings, empty/whitespace runs and zero-ink formatting characters
+          // must not acquire a stroke margin. Zero advance alone does not mean no ink
+          // (combining marks); use the browser's shaped run box, including RTL/ligatures.
+          for (const span of text.querySelectorAll<SVGTSpanElement>('[data-caption-outline="true"]')) {
+            const glyph = span.getBBox()
+            if (!span.textContent?.match(/\S/u) || glyph.width <= 0 || glyph.height <= 0) continue
+            const radius = Number(span.getAttribute('font-size')) / 32
+            left = Math.min(left, glyph.x - radius)
+            top = Math.min(top, glyph.y - radius)
+            right = Math.max(right, glyph.x + glyph.width + radius)
+            bottom = Math.max(bottom, glyph.y + glyph.height + radius)
+          }
           // SVG text getBBox does not promise decoration ink. Our underline is an
           // explicit rectangle whose geometry also enters fit, selection and hit testing.
           for (const line of text.parentElement?.querySelectorAll<SVGRectElement>('[data-caption-underline]') ?? []) {
@@ -340,13 +353,18 @@ export function StructureCanvas({
   )
 
   const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
-  const captionBoundsReady = captionCount === 0 || (captionMeasurement?.document === document &&
+  const captionMeasurementComplete = captionCount === 0 || (captionMeasurement?.document === document &&
     captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount)
   const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box, {
-    boundsReady: captionBoundsReady,
+    // Opening fit needs the first complete measurement, even though fitting will
+    // change the viewport and require a second measurement there.
+    boundsReady: captionMeasurementComplete,
     measuredViewBox: captionCount > 0 && captionMeasurement?.document === document ? captionMeasurement.viewBox : undefined,
     contentIdentity: document,
   })
+  // Font metrics can change with SVG scale. Completeness permits initial fitting;
+  // readiness describes bounds measured in the viewport that is actually painted.
+  const captionBoundsReady = captionMeasurementComplete && (captionCount === 0 || captionMeasurement?.viewBox === canvasViewBox)
   const unitsPerPixel = 1 / viewport.scale
 
   function drawingOf(instance: string | null) {

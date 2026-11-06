@@ -9,11 +9,11 @@ use crate::stereo_group::StereoGroup;
 // Each reservation includes field/identifier overhead. Identifiers need at most 11 ASCII
 // bytes, floats at most 32; ID list entries reserve 16. Control-free text reserves twice its
 // UTF-8 length for quotes/backslashes, plus run metadata (including the longest script, weight and style).
-// A v15 run has at most 154 compact JSON metadata bytes: 89 for text/script/
+// A v16 run has at most 170 compact JSON metadata bytes: 89 for text/script/
 // weight/style/font (sans-serif is longest), 29 for size_pt (bounded floats need
 // at most 18 characters), 18 for ,"color":"#RRGGBB", and
-// 18 for ,"underline":false.
-// The 160-byte reservation covers all run metadata and every finite 4–72 pt override.
+// 18 for ,"underline":false, and 16 for ,"outline":false.
+// The 176-byte encoding reservation covers all run metadata and every finite 4–72 pt override.
 // The caption-level 256-byte overhead also covers the bounded v11 alignment enum.
 const ATOM: usize = 512;
 const BOND: usize = 256;
@@ -33,13 +33,25 @@ fn ids_weight(count: usize) -> usize {
 }
 
 fn object_weight(object: &SceneObject) -> usize {
+    object_weight_with(object, false)
+}
+
+fn admission_object_weight(object: &SceneObject) -> usize {
+    object_weight_with(object, true)
+}
+
+fn object_weight_with(object: &SceneObject, admission: bool) -> usize {
     match object {
         SceneObject::Instance => 128,
         SceneObject::Graphic(_) => 256,
         SceneObject::Group { children } => 128 + ids_weight(children.len()),
         SceneObject::Caption(caption) => caption.runs.iter().fold(256_usize, |total, run| {
             total
-                .saturating_add(160)
+                .saturating_add(if admission {
+                    if run.outline { 192 } else { 160 }
+                } else {
+                    176
+                })
                 .saturating_add(run.text.len().saturating_mul(2))
         }),
     }
@@ -62,9 +74,15 @@ fn changed_weight<K, T>(changes: &[(K, Change<Option<T>>)], weight: impl Fn(&T) 
     })
 }
 
+// Preserve v15 admission allowances for runs without the new effect, in both
+// current content and history. Encoding reserves 176 independently; admission
+// counts 160 (outline=false) or 192 (true). Every nonnegative encoding weight
+// is <=176/160 = 11/10 of its admission counterpart, including fixed envelopes,
+// identifiers and escaped text. Thus the complete file reserves no more than
+// (48+8)*11/10 = 61.6 MiB, safely below the 64 MiB native read limit.
 pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) -> usize {
     sets.into_iter().fold(0_usize, |total, set| {
-        total.saturating_add(set.persistence_weight())
+        total.saturating_add(set.history_admission_weight())
     })
 }
 
@@ -77,6 +95,14 @@ impl Content {
     }
 
     pub(super) fn persistence_weight(&self, selection: &Selection) -> usize {
+        self.weight(selection, object_weight)
+    }
+
+    pub(super) fn caption_admission_weight(&self, selection: &Selection) -> usize {
+        self.weight(selection, admission_object_weight)
+    }
+
+    fn weight(&self, selection: &Selection, object_weight: fn(&SceneObject) -> usize) -> usize {
         // Format/draft envelopes, counters, document metadata and all fixed list keys.
         4096 + text_weight(&self.title)
             + SETTINGS
@@ -113,6 +139,14 @@ impl ChangeSet {
     }
 
     pub(super) fn persistence_weight(&self) -> usize {
+        self.weight(object_weight)
+    }
+
+    pub(super) fn history_admission_weight(&self) -> usize {
+        self.weight(admission_object_weight)
+    }
+
+    fn weight(&self, object_weight: fn(&SceneObject) -> usize) -> usize {
         let mut total = 256
             + selection_weight(&self.selection.before)
             + selection_weight(&self.selection.after);
@@ -140,12 +174,19 @@ impl ChangeSet {
 impl Document {
     /// Conservative persistence reservation for current content and both history stacks.
     /// This is neither memory usage nor an exact serialized size; providers must verify
-    /// that their encoding fits it. Caption-bearing accepted states reserve at most 56 MiB.
+    /// that their encoding fits it. Caption-bearing accepted states reserve at most
+    /// 61.6 MiB ((48 + 8) × 11/10), including fixed file/draft envelopes.
     #[must_use]
     pub fn persistence_weight(&self) -> usize {
         self.content
             .persistence_weight(&self.selection)
-            .saturating_add(history_weight(&self.undo))
-            .saturating_add(history_weight(&self.redo))
+            .saturating_add(
+                self.undo
+                    .iter()
+                    .chain(&self.redo)
+                    .fold(0_usize, |total, set| {
+                        total.saturating_add(set.persistence_weight())
+                    }),
+            )
     }
 }

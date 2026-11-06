@@ -12,6 +12,7 @@ fn widest(text: char) -> Caption {
         anchor: Point::new(0.0, 0.0).unwrap(),
         runs: vec![
             CaptionRun {
+                outline: true,
                 underline: false,
                 color: None,
                 size_pt: None,
@@ -56,9 +57,9 @@ fn first(doc: &Document) -> &str {
 
 #[test]
 fn largest_single_caption_transaction_keeps_undo_and_the_next_size_refuses_atomically() {
-    let mut doc = document(110);
+    let mut doc = document(107);
     let before = doc.clone();
-    let refused = doc.apply(&updates(110, '\\')).unwrap_err();
+    let refused = doc.apply(&updates(107, '\\')).unwrap_err();
     assert_eq!(
         refused.index, None,
         "this is a whole-transaction reservation"
@@ -66,10 +67,10 @@ fn largest_single_caption_transaction_keeps_undo_and_the_next_size_refuses_atomi
     assert_eq!(refused.error, EditError::CaptionPersistenceLimit);
     assert_eq!(refused.error.reason(), Some("caption_persistence_limit"));
     assert_eq!(doc, before);
-    // At 160 metadata bytes per run, each complete before/after update reserves
-    // 76,352 bytes. With 576 bytes of entry overhead, 109 fit 8 MiB;
-    // the 110th does not.
-    doc.apply(&updates(109, '\\')).unwrap();
+    // At 192 metadata bytes per run, each complete before/after update reserves
+    // 78,400 bytes. With 576 bytes of entry overhead, 106 fit 8 MiB;
+    // the 107th does not.
+    doc.apply(&updates(106, '\\')).unwrap();
     assert_eq!(
         doc.undo_depth(),
         1,
@@ -144,6 +145,7 @@ fn reservations_count_utf8_bytes_and_escape_overhead_without_changing_text_limit
             alignment: Default::default(),
             anchor: Point::new(0.0, 0.0).unwrap(),
             runs: vec![CaptionRun {
+                outline: false,
                 underline: false,
                 color: None,
                 size_pt: None,
@@ -175,4 +177,47 @@ fn reservations_count_utf8_bytes_and_escape_overhead_without_changing_text_limit
         "the existing 16 KiB per-caption limit still applies first"
     );
     assert_eq!(unicode, before);
+}
+
+#[test]
+fn maximum_caption_object_population_stays_inside_content_and_total_file_reservations() {
+    // The 1,000-object ceiling includes the initial instance. With 192 metadata
+    // bytes/run, even 999 maximal captions cannot reach the 48 MiB content ceiling.
+    let mut doc = document(100);
+    for count in [100, 100, 100, 100, 100, 100, 100, 100, 99] {
+        let commands: Vec<_> = (0..count)
+            .map(|_| Command::AddCaption {
+                caption: widest('"'),
+                parent: None,
+                index: None,
+            })
+            .collect();
+        doc.apply(&commands).unwrap();
+    }
+    assert_eq!(doc.scene_objects().len(), 1_000);
+    assert!(
+        doc.persistence_weight() <= CAPTION_CONTENT_WEIGHT_LIMIT + CAPTION_HISTORY_WEIGHT_LIMIT
+    );
+    assert!(doc.persistence_weight() < 64 * 1024 * 1024);
+    let mut parts = doc.to_parts();
+    parts.undo.clear();
+    parts.redo.clear();
+    let current_only = Document::restore(parts).unwrap();
+    assert!(current_only.persistence_weight() < CAPTION_CONTENT_WEIGHT_LIMIT);
+    assert!(
+        current_only.persistence_weight() > 36 * 1024 * 1024,
+        "maximal population exercises the content reservation"
+    );
+    let before = doc.clone();
+    assert_eq!(
+        doc.apply(&[Command::AddCaption {
+            caption: widest('"'),
+            parent: None,
+            index: None,
+        }])
+        .unwrap_err()
+        .error,
+        EditError::ObjectLimit
+    );
+    assert_eq!(doc, before);
 }

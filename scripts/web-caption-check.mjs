@@ -143,6 +143,10 @@ createRoot(document.getElementById('root')).render(<Harness />)
   page = await browser.newPage()
   page.on('pageerror', (error) => errors.push(error.message))
   const button = (name) => page.getByRole('button', { name, exact: true })
+  const waitForCaptionMeasurement = () => page.waitForFunction(() => {
+    const canvas = document.querySelector('[data-structure-canvas]')
+    return canvas?.dataset.captionBoundsReady === 'true' && canvas.dataset.captionMeasuredViewBox === canvas.getAttribute('viewBox')
+  })
   const snapshot = async () => JSON.parse(await page.getByLabel('Caption snapshot', { exact: true }).textContent())
   const caption = async () => (await snapshot()).document.scene.objects.find((object) => object.kind === 'caption')
   stage = 'create explicit Unicode runs through the production form'
@@ -184,7 +188,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.getByLabel('Run 2 color', { exact: true }).fill('#000000')
   await button('Create caption').click()
   await page.locator('[data-caption-text="s2"]').waitFor()
-  const expected = [{ underline: false, text, script: 'baseline', weight: 'bold', style: 'normal', font: 'serif', color: '#2A7BCD', size_pt: 24 }, { underline: false, text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace', color: '#000000', size_pt: 18 }, { underline: false, text: '+   ', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif', color: null, size_pt: null }]
+  const expected = [{ outline: false, underline: false, text, script: 'baseline', weight: 'bold', style: 'normal', font: 'serif', color: '#2A7BCD', size_pt: 24 }, { outline: false, underline: false, text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace', color: '#000000', size_pt: 18 }, { outline: false, underline: false, text: '+   ', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif', color: null, size_pt: null }]
   assert.deepEqual((await caption()).runs, expected)
   assert.deepEqual(await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => [node.getAttribute('font-weight'), node.getAttribute('font-style')])), [['bold', 'normal'], ['normal', 'italic'], ['bold', 'italic']])
   const familyStyles = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fontFamily))
@@ -192,7 +196,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   assert.equal(familyStyles[1], 'monospace')
   assert.ok(familyStyles[2].includes('Geist'), familyStyles[2])
   stage = 'theme foreground inheritance and opaque overrides preserve geometry'
-  await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+  await waitForCaptionMeasurement()
   const inkBeforeTheme = await page.locator('[data-caption-text]').evaluate((node) => { const b = node.getBBox(); return [b.x, b.y, b.width, b.height] })
   await page.evaluate(() => { document.documentElement.classList.remove('dark'); document.documentElement.style.setProperty('--foreground', '#102030') })
   const lightInk = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fill))
@@ -245,7 +249,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.waitForFunction(() => Number(document.querySelector('[data-caption-text] tspan')?.getAttribute('font-size')) === 24)
   assert.deepEqual((await caption()).runs, expected)
   stage = 'measure actual glyph and script bounds with the loaded fonts'
-  await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+  await waitForCaptionMeasurement()
   assert.equal(await page.locator('[data-structure-canvas]').getAttribute('viewBox'), beforeCreateViewBox, 'creating a caption preserves the chosen viewport')
   // The new baseline is at y=0, so its ascenders can be above the existing frame.
   // Editing does not auto-fit: use the same explicit control offered by the product.
@@ -273,14 +277,14 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await page.getByLabel('Run 1 text', { exact: true }).fill(sample)
     await button('Apply caption').click()
     await page.waitForFunction((sample) => document.querySelector('[data-caption-text] tspan')?.textContent === sample, sample)
-    await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+    await waitForCaptionMeasurement()
     const plain = await glyphMetrics()
     const plainSnapshot = await caption()
     await button('Edit selected caption…').click()
     for (let run = 1; run <= 3; run++) await page.getByRole('group', { name: `Run ${run} underline`, exact: true }).getByRole('button', { name: 'On', exact: true }).click()
     await button('Apply caption').click()
     await page.waitForFunction(() => [...document.querySelectorAll('[data-caption-underline]')].length === 3 && [...document.querySelectorAll('[data-caption-underline]')].every((line) => line.hasAttribute('height')))
-    await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+    await waitForCaptionMeasurement()
     assert.deepEqual(await glyphMetrics(), plain, `underline leaves all character advances and anchor fixed: ${sample}`)
     assert.deepEqual((await caption()).runs, plainSnapshot.runs.map((run) => ({ ...run, underline: true })))
     await button('Fit drawing').click()
@@ -318,12 +322,110 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await button('Undo caption').click()
     await page.waitForFunction(() => document.querySelectorAll('[data-caption-underline]').length === 0)
   }
+  stage = 'hollow run outlines, theme colors, stroke bounds and undo'
+  await page.evaluate(() => {
+    const canvas = document.querySelector('[data-structure-canvas]')
+    const output = document.createElement('output')
+    output.hidden = true
+    output.dataset.captionReadinessProbe = ''
+    document.body.append(output)
+    const evidence = { viewChanges: 0, pendingViewports: 0, violations: [] }
+    let previous = canvas.getAttribute('viewBox')
+    const observer = new MutationObserver(() => {
+      const current = canvas.getAttribute('viewBox')
+      const measured = canvas.dataset.captionMeasuredViewBox
+      const ready = canvas.dataset.captionBoundsReady === 'true'
+      if (current !== previous) evidence.viewChanges++
+      if (measured !== current && !ready) evidence.pendingViewports++
+      if (measured !== current && ready) evidence.violations.push({ current, measured })
+      previous = current
+      output.textContent = JSON.stringify(evidence)
+    })
+    observer.observe(canvas, { attributes: true, attributeFilter: ['viewBox', 'data-caption-bounds-ready', 'data-caption-measured-view-box'] })
+  })
+  for (const sample of ['H', '   ffi office   ', '  العربية אבג  ', 'e\u0301 👩‍🔬 🧪', '   ', '\ufeff', '\u0301']) {
+    await button('Select caption').click()
+    await button('Edit selected caption…').click()
+    await page.getByLabel('Run 1 text', { exact: true }).fill(sample)
+    await page.getByLabel('Run 1 size (pt)', { exact: true }).fill('72')
+    await button('Apply caption').click()
+    await page.waitForFunction((sample) => document.querySelector('[data-caption-text] tspan')?.textContent === sample, sample)
+    await waitForCaptionMeasurement()
+    const plain = await glyphMetrics()
+    assert.deepEqual(await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).stroke)), ['none', 'none', 'none'], 'filled glyphs do not inherit theme stroke')
+    const original = await caption()
+    await button('Edit selected caption…').click()
+    for (let run = 1; run <= 3; run++) await page.getByRole('group', { name: `Run ${run} outline`, exact: true }).getByRole('button', { name: 'On', exact: true }).click()
+    await page.getByRole('group', { name: 'Run 1 underline', exact: true }).getByRole('button', { name: 'On', exact: true }).click()
+    await button('Apply caption').click()
+    await page.waitForFunction(() => document.querySelectorAll('[data-caption-outline="true"]').length === 3)
+    await waitForCaptionMeasurement()
+    assert.deepEqual(await glyphMetrics(), plain, `outline retains all advances and fixed anchor: ${sample}`)
+    assert.deepEqual((await caption()).runs, original.runs.map((run, index) => ({ ...run, outline: true, underline: index === 0 })))
+    await button('Fit drawing').click()
+    await waitForCaptionMeasurement()
+    const outline = await page.locator('[data-caption-text]').evaluate((node) => {
+      const ink = node.getBBox()
+      let left = ink.x, top = ink.y, right = ink.x + ink.width, bottom = ink.y + ink.height
+      const runs = [...node.querySelectorAll('tspan')].map((span) => {
+        const b = span.getBBox(), size = Number(span.getAttribute('font-size')), style = getComputedStyle(span)
+        if (/\S/u.test(span.textContent) && b.width > 0 && b.height > 0) {
+          left = Math.min(left, b.x - size / 32); top = Math.min(top, b.y - size / 32)
+          right = Math.max(right, b.x + b.width + size / 32); bottom = Math.max(bottom, b.y + b.height + size / 32)
+        }
+        return { fill: style.fill, stroke: style.stroke, width: Number.parseFloat(style.strokeWidth), join: style.strokeLinejoin, size }
+      })
+      const underline = node.parentElement.querySelector('[data-caption-underline]').getBBox()
+      if (underline.width > 0) {
+        left = Math.min(left, underline.x); top = Math.min(top, underline.y)
+        right = Math.max(right, underline.x + underline.width); bottom = Math.max(bottom, underline.y + underline.height)
+      }
+      const hit = node.parentElement.querySelector('rect').getBBox(), view = node.ownerSVGElement.viewBox.baseVal
+      return { runs, expected: [left - 2, top - 2, right - left + 4, bottom - top + 4], hit: [hit.x, hit.y, hit.width, hit.height],
+        fits: view.x <= hit.x && view.y <= hit.y && view.x + view.width >= hit.x + hit.width && view.y + view.height >= hit.y + hit.height,
+        underline: { fill: getComputedStyle(node.parentElement.querySelector('[data-caption-underline]')).fill, stroke: getComputedStyle(node.parentElement.querySelector('[data-caption-underline]')).stroke } }
+    })
+    for (const run of outline.runs) {
+      assert.equal(run.fill, 'none')
+      assert.equal(run.join, 'round')
+      assert.ok(Math.abs(run.width - run.size / 16) < 0.001)
+    }
+    assert.deepEqual(outline.runs.slice(0, 2).map((run) => run.stroke), ['rgb(42, 123, 205)', 'rgb(0, 0, 0)'])
+    assert.equal(outline.underline.fill, 'rgb(42, 123, 205)', 'underline stays filled while glyphs are hollow')
+    assert.equal(outline.underline.stroke, 'none')
+    outline.hit.forEach((value, index) => assert.ok(Math.abs(value - outline.expected[index]) < 0.001, `stroke participates in hit/selection bounds: ${sample}`))
+    assert.equal(outline.fits, true, `fit encloses full stroke: ${sample}`)
+    if (sample === 'H') {
+      await button('Clear caption selection').click()
+      assert.equal(await button('Edit selected caption…').isDisabled(), true)
+      const point = await page.locator('[data-caption-text] tspan').first().evaluate((span) => {
+        const b = span.getBBox(), radius = Number(span.getAttribute('font-size')) / 32
+        const point = new DOMPoint(b.x + b.width / 2, b.y - radius + 0.1).matrixTransform(span.getScreenCTM())
+        return { x: point.x, y: point.y }
+      })
+      await page.mouse.click(point.x, point.y)
+      assert.equal(await button('Edit selected caption…').isEnabled(), true, 'outer outline bounds participate in real pointer hit testing')
+    }
+    await page.evaluate(() => document.documentElement.classList.add('dark'))
+    const darkStroke = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).stroke))
+    assert.deepEqual(darkStroke.slice(0, 2), ['rgb(42, 123, 205)', 'rgb(0, 0, 0)'])
+    assert.notEqual(darkStroke[2], outline.runs[2].stroke, 'inherited outline follows theme')
+    await page.evaluate(() => document.documentElement.classList.remove('dark'))
+    await button('Undo caption').click()
+    await page.waitForFunction(() => document.querySelectorAll('[data-caption-outline="true"]').length === 0)
+    assert.deepEqual((await caption()).runs, original.runs)
+  }
   await button('Select caption').click()
   await button('Edit selected caption…').click()
+  const readiness = JSON.parse(await page.locator('[data-caption-readiness-probe]').textContent())
+  assert.ok(readiness.viewChanges > 0, 'outline fits changed the actual SVG viewport')
+  assert.ok(readiness.pendingViewports > 0, 'viewport changes invalidate measured bounds until remeasurement')
+  assert.deepEqual(readiness.violations, [], 'ready never exposes bounds measured in another viewport')
   await page.getByLabel('Run 1 text', { exact: true }).fill(text)
+  await page.getByLabel('Run 1 size (pt)', { exact: true }).fill('24')
   await button('Apply caption').click()
   await page.waitForFunction((text) => document.querySelector('[data-caption-text] tspan')?.textContent === text, text)
-  await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+  await waitForCaptionMeasurement()
   await button('Fit drawing').click()
   const scriptY = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute('y'))))
   assert.deepEqual(scriptY, [0, 6, -5])
@@ -382,6 +484,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await button('Edit selected caption…').click()
   const editedText = '  NFC é and NFD e\u0301 '.repeat(8)
   await page.getByLabel('Run 1 text', { exact: true }).fill(editedText)
+  await page.getByRole('group', { name: 'Run 1 outline', exact: true }).getByRole('button', { name: 'On', exact: true }).click()
   await page.getByRole('group', { name: 'Run 1 underline', exact: true }).getByRole('button', { name: 'On', exact: true }).click()
   await page.getByRole('group', { name: 'Caption alignment', exact: true }).getByRole('button', { name: 'Right', exact: true }).click()
   await page.getByLabel('Caption horizontal position (pt)', { exact: true }).fill('1200')
@@ -398,7 +501,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await button('Save caption drawing').click()
   await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Caption snapshot"]').textContent)?.session.unsaved_changes === false)
   const native = JSON.parse(readFileSync(join(work, 'documents', `${id}.json`), 'utf8'))
-  assert.equal(native.format_version, 15)
+  assert.equal(native.format_version, 16)
   assert.equal(native.document.objects.find((object) => object.id === 's2').state.alignment, 'right')
   assert.deepEqual(native.document.objects.find((object) => object.id === 's2').state.runs, edited.runs)
   await page.reload()
