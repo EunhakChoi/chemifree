@@ -54,6 +54,7 @@ try {
     session: { saved_revision: 0, unsaved_changes: false, undo_depth: 0, redo_depth: 0, draft_revision: null }, recovery: null })
   const original = snapshot('original')
   const requests = []
+  const creationPosts = []
   const commits = new Map()
   let token = 'cdxml-process-1'
   let loseCreation = false
@@ -73,6 +74,9 @@ try {
     const request = route.request()
     const path = new URL(request.url()).pathname
     if (path === '/api/v1/session') return respond(route, { header: 'x-chemifree-session', token })
+    if (path === '/api/v1/operations' && request.method() === 'POST' && request.postDataJSON().parameters?.mode === 'create') {
+      creationPosts.push({ body: request.postDataJSON(), token: request.headers()['x-chemifree-session'] })
+    }
     if (request.method() !== 'GET' && request.headers()['x-chemifree-session'] !== token) return respond(route, { api_version: 'v1', code: 'unauthorized', message: 'Session changed.' }, 401)
     if (path === '/api/v1/documents' || path === '/api/v1/trash') return respond(route, { api_version: 'v1', documents: [], unreadable: [] })
     if (path === '/api/v1/documents/original/autosave') {
@@ -224,7 +228,16 @@ try {
   assert.equal(commits.size, 3)
   assert.equal(await check.count(), 0, 'confirmed creation is not retried because the old drawing draft failed')
   assert.equal(await field.inputValue(), '')
-  assert.deepEqual(await page.evaluate(() => window.cdxmlClipboard.reads), [true, true, true, true, true])
+  await prepare()
+  const postsBeforeFirstSendRestart = creationPosts.length
+  token = 'cdxml-process-3' // Unobserved restart after preview, before the first create POST.
+  await page.getByRole('button', { name: 'Accept losses and create drawing', exact: true }).click()
+  await page.getByRole('button', { name: 'Refresh Saved documents', exact: true }).waitFor()
+  assert.equal(creationPosts.length, postsBeforeFirstSendRestart + 1)
+  assert.equal(creationPosts.at(-1).token, 'cdxml-process-2', 'only the old authorization is attempted')
+  assert.equal(commits.size, 3, 'a first-send restart never creates an unreviewed new-process drawing')
+  assert.equal(await page.getByLabel('Current document').textContent(), 'created-3')
+  assert.deepEqual(await page.evaluate(() => window.cdxmlClipboard.reads), [true, true, true, true, true, true])
   assert.deepEqual(errors, [])
   console.log('CDXML exact text, explicit source/consent, new-drawing creation and process-bound recovery checks passed.')
 } finally {

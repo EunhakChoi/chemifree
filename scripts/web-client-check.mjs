@@ -116,6 +116,28 @@ test('unconfirmed CDXML creation is never resent to a restarted process; another
   assert.deepEqual(creations.map((write) => write.token), ['token-1', 'token-2'])
 })
 
+test('reviewed CDXML creation refuses a first-send restart without creating in the new process', async () => {
+  let committed = 0
+  const choice = { page_id: 7, fragment_id: 12, page_path: 'page7', fragment_path: 'page7/fragment12' }
+  const scripted = service({ '/api/v1/operations': [
+    () => json(200, { outcome: 'ok', diagnostics: [], loss_report: [], result: { choices: [choice] } }),
+    () => {
+      committed += 1
+      return json(200, { outcome: 'ok', diagnostics: [], loss_report: [], result: document('unexpected-created') })
+    },
+  ] })
+  const client = new DocumentClient()
+  await client.readInterchange('<CDXML/>', 'cdxml')
+  scripted.restart() // No intervening request informs the client before its first create POST.
+  await assert.rejects(client.createInterchange({
+    format: 'cdxml', source: '<CDXML/>', title: 'Reviewed', page_id: 7, fragment_id: 12,
+  }, 'a'.repeat(64), 'reload'), { code: 'create_unconfirmed' })
+  const creations = scripted.writes.filter((write) => write.parameters.mode === 'create')
+  assert.equal(creations.length, 1, 'the authorization-refused first POST is never retried')
+  assert.equal(creations[0].token, 'token-1')
+  assert.equal(committed, 0, 'no mutation reaches the restarted process')
+})
+
 test('reading a CDX or CDXML source asks for compact bytes', async () => {
   const choice = { page_id: 1, fragment_id: 2, page_path: 'page 1', fragment_path: 'page 1/fragment 2' }
   const reply = { outcome: 'ok', diagnostics: [], loss_report: [], result: { choices: [choice] } }

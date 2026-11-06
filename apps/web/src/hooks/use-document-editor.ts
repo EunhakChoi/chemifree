@@ -689,7 +689,7 @@ export function useDocumentEditor() {
             if (generation !== undefined && !checking && generation !== serviceGenerationRef.current) {
               throw new ApiError('preview_changed', 'The service changed. Read and preview the source again before creating a drawing.', 400)
             }
-            const created = await client.createInterchange(frozen, digest)
+            const created = await client.createInterchange(frozen, digest, generation === undefined ? 'retry' : 'reload')
             if (generation !== undefined && generation !== serviceGenerationRef.current) {
               throw new ApiError('create_unconfirmed', 'The service changed before this creation was confirmed. Check Saved documents before creating another drawing.', 401)
             }
