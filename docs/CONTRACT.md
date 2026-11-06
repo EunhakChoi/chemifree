@@ -75,6 +75,9 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 | `document.selection_scope` | `{ document_id, selection, instance? }` | Read-only effective movement targets with exact snapshot; [rules](#effective-selection-scope-and-movement-p32a) |
 | `document.clipboard_copy` | `{ document_id, selection, instance }` | Read-only native graph fragment, copied IDs, boundary bonds and exact snapshot; [rules](#native-graph-fragment-copy-and-paste-p33a) |
 | `document.clipboard_paste` | `{ document_id, expected_revision, payload, offset, selection_before? }` | One atomic native paste with exact resulting snapshot and fresh atom/bond ID mapping; [rules](#native-graph-fragment-copy-and-paste-p33a) |
+| `document.template_inspect` | `{ payload }` | Validated local atoms and explicit anchor eligibility; [P34e](#user-template-anchor-connection-p34e) |
+| `document.template_plan` | Attachment input | Read-only candidate and exact source snapshot; [P34e](#user-template-anchor-connection-p34e) |
+| `document.template_attach` | Attachment input | Atomic native template connection; [P34e](#user-template-anchor-connection-p34e) |
 | `document.clipboard_scene_copy` | `{ document_id, selection }` | Read-only graphic/group forest with internal object references and exact source snapshot; [rules](#native-graphic-subtree-clipboard-backend-p33e) |
 | `document.clipboard_scene_paste` | `{ document_id, expected_revision, payload, offset, selection_before? }` | Atomic graphic forest paste with fresh object mapping, root selection and preserved containment; [rules](#native-graphic-subtree-clipboard-backend-p33e) |
 | `document.transaction` | `{ document_id, expected_revision, commands }` (v1 commands) | same; its `result` also carries `notes` (see [Stereo marks and configurations](#stereo-marks-and-configurations)), and `loss_report` repeats them |
@@ -196,6 +199,87 @@ activated. No graph normalization, scale/rotation, attachment, replacement, abbr
 contraction/expansion, scene-template copying, template library management or layout search
 is provided. P34 remains **in_progress**. The new real-backend browser checks are written,
 not executed in this implementation session; see [P34d record](verification/p34d-user-template.md).
+
+## User template anchor connection (P34e)
+
+Three additive operation-contract-1 operations reuse the closed native graph v1 file codec.
+They run through HTTP operations and the CLI operations process; no original template/DLL or
+external DATA provider is activated. They do not add a transaction command or change storage
+schema. The catalog has 38 operations; 28 run in the default no-DATA/no-native-provider host.
+
+| Operation | Parameters | Result |
+| --- | --- | --- |
+| `document.template_inspect` | `{ payload }` | Exact payload and local atoms `{id,element,x,y,supported}`; read-only validation and anchor eligibility |
+| `document.template_plan` | Attachment input below | `{ source, snapshot, mapping, connection }`; source is the actual current document, snapshot is only a candidate preview |
+| `document.template_attach` | Same attachment input | `{ snapshot, mapping, connection }`; committed immutable snapshot with the same native source→fresh ID mapping |
+
+Attachment input is `{document_id, expected_revision, payload, instance, source_anchor, atom,
+direction:{dx,dy}, selection_before?}`. All anchor, target, instance and direction fields are
+required. IDs are explicit; `$N` references and attachment-point inference are unsupported.
+Direction is a finite nonzero vector; magnitude is ignored and normalization scales by the
+largest component before hypot. The selected source anchor is translated to destination
+atom position plus current `bond_length_pt` along that direction. Every other source position
+gets the identical offset. No rotation/reflection/scaling, automatic endpoint merge, collision
+avoidance or layout is performed.
+
+The existing 64KiB/strict native v1 decoder, exact-style rule and one destination placement
+are retained. The template must contain exactly one connected component (one atom is allowed).
+A source anchor with a stored center record or an incident stored double-bond record is
+refused, including unknown configurations, because joining would discard that copied statement.
+Other copied configurations/marks/states are retained under the existing fresh-ID mapping;
+canonical tetrahedral slot/relation-reference adjustments preserve their statements. Numbered
+attachment points are preserved data and never consumed.
+
+The final connector is one ordinary `AddBond` after the native paste commands. Destination
+center/incident double configurations are cleared and its groups pruned/reported with the
+existing transaction notes. Marks and unrelated destination state are preserved. No new
+valence edit gate, H correction, configurations, CIP labels or chemistry inference is added.
+The operation uses N fresh atoms, M fresh internal bonds and one fresh connector, with the
+connector included in the 500-command and identifier/entity limits. The new fragment atoms
+and internal bonds are selected; connector/target are not automatically selected. Undo restores
+the captured prior selection and destination statements/groups; Redo retains fresh IDs.
+Any late failure rolls back the whole transaction, counters, revision, dirty state and redo.
+
+Inspection and planning mutate no document/history/selection/counters and reserve no IDs.
+The plan runs the same commands on a clone under the destination revision lock, returning
+predicted notes in its candidate snapshot/loss report; this is not a committed edit. Its
+`document_revision` envelope names the unchanged source revision, while the candidate body
+shows the hypothetical next revision. Apply
+revalidates under the ordinary mutation gate. Replay binds exact payload, anchors, instance,
+direction (including signed zero), expected revision and captured selection. Reusing an apply
+request with different input is refused. Its original response remains immutable after Undo.
+
+Unknown/missing parameters and nonnumeric/null direction components are `invalid_request`.
+Semantic refusals use `invalid_command` with existing native `details.reason` codes, or
+`template_disconnected`, `template_anchor_unknown`, `template_anchor_stereo_unsupported`,
+`template_instance_invalid`, `template_direction_invalid`, `template_target_invalid`.
+A syntactically valid but absent destination atom also uses `template_target_invalid`;
+malformed instance/source-anchor/destination ID strings use `template_instance_invalid`,
+`template_anchor_unknown`, and `template_target_invalid` respectively. Missing or null ID
+fields remain `invalid_request` rather than semantic ID failures.
+Dangling references inside the native file retain `clipboard_fragment_invalid` and are not
+reclassified as destination failures. Source-only inspection returns `document_revision:null`;
+plan/apply keep their numeric source/committed revision semantics.
+A stale destination revision is `revision_conflict`. Unknown source fields/versions, malformed
+native records, style mismatch, unsupported groups, coordinate/ID/entity/command limits and
+multiple placements are refused without editing; old independent file insertion stays available.
+
+The web dialog first validates the chosen file, then exposes local source IDs/labels/coordinates
+and disables unsupported anchors. Source and destination choices start empty. dx/dy must be
+entered explicitly, followed by **Preview template connection** and **Attach template**.
+Input/file changes invalidate the offer. Document/style/revision/process changes invalidate
+adoption. A preview snapshot is never a live editor snapshot. The client verifies fresh counts,
+properties/marks/translation, exact copied stereo remapping, retained destination state and
+expected stereo/group notes before accepting the plan. Apply must match the frozen preview,
+notes, mapping and connector; late/malformed success remains unconfirmed. The existing template
+recovery UI checks the exact same body/request/process after response loss; closing the dialog
+retains that recovery. Restart/conflict needs explicit reconciliation, with no new-process resend.
+File operations do not access the OS clipboard.
+
+The native file is not modified or upgraded to store anchor metadata. Fusion/spiro/replacement,
+multi-anchor/polymer rules, disconnected attachments, library management, abbreviation expansion
+and automatic layout/conformation remain unsupported. P34 is **in_progress**. These checks have
+not run in this implementation session; see [P34e record](verification/p34e-template-attachment.md).
 
 ## Attached carbon ring (P34c)
 

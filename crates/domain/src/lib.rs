@@ -23,6 +23,7 @@ pub mod stereo_drawing;
 pub mod stereo_group;
 pub mod stereo_inspection;
 pub mod substructure;
+pub mod template;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapabilityId {

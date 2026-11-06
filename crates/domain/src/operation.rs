@@ -17,6 +17,9 @@ pub enum OperationId {
     DocumentTransformPlan,
     DocumentClipboardCopy,
     DocumentClipboardPaste,
+    DocumentTemplateInspect,
+    DocumentTemplatePlan,
+    DocumentTemplateAttach,
     DocumentClipboardSceneCopy,
     DocumentClipboardScenePaste,
     DocumentTransaction,
@@ -48,7 +51,7 @@ pub enum OperationId {
 
 impl OperationId {
     /// Every operation, in catalog order.
-    pub const ALL: [Self; 35] = [
+    pub const ALL: [Self; 38] = [
         Self::CapabilitiesInspect,
         Self::DocumentCreate,
         Self::DocumentSnapshot,
@@ -57,6 +60,9 @@ impl OperationId {
         Self::DocumentTransformPlan,
         Self::DocumentClipboardCopy,
         Self::DocumentClipboardPaste,
+        Self::DocumentTemplateInspect,
+        Self::DocumentTemplatePlan,
+        Self::DocumentTemplateAttach,
         Self::DocumentClipboardSceneCopy,
         Self::DocumentClipboardScenePaste,
         Self::DocumentTransaction,
@@ -96,6 +102,9 @@ impl OperationId {
             Self::DocumentTransformPlan => "document.transform_plan",
             Self::DocumentClipboardCopy => "document.clipboard_copy",
             Self::DocumentClipboardPaste => "document.clipboard_paste",
+            Self::DocumentTemplateInspect => "document.template_inspect",
+            Self::DocumentTemplatePlan => "document.template_plan",
+            Self::DocumentTemplateAttach => "document.template_attach",
             Self::DocumentClipboardSceneCopy => "document.clipboard_scene_copy",
             Self::DocumentClipboardScenePaste => "document.clipboard_scene_paste",
             Self::DocumentTransaction => "document.transaction",

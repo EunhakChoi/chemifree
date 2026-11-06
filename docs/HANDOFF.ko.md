@@ -2,6 +2,15 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P34e 명시 사용자 template anchor 연결 후보
+
+- P34d HEAD `8113f0f` 기반 `feat/p34e-template-attach` 후보다. 선행 변경 병합·최신 main 통합과 실행 검증은 후속이며 P34는 in_progress다.
+- native v1 파일 본문을 바꾸지 않고 `document.template_inspect`·`document.template_plan`·`document.template_attach`를 추가했다. 단일 연결성분·명시 source anchor/target/instance·finite nonzero direction·동일 style·단일 배치만 지원한다. geometry는 target+현재 bond length 방향까지 평행이동하며 N fresh atom/M internal bond/connector single 하나다. source-anchor center/incident double 저장 입체 손실은 거절한다.
+- 다른 source states/marks/stereo remapping은 기존 paste 계획이다. destination의 clearing/group prune/notes는 마지막 일반 AddBond 그대로다. selection은 fresh atoms/internal bonds만이며 connector/target은 자동 선택하지 않는다. clone preview는 ID/history/selection을 예약·수정하지 않고 실제 apply는 revision/mutation gate에서 다시 검증한다. replay/Undo/Redo/save 경로를 재사용한다.
+- 실제 파일 dialog는 검증→빈 source/target 선택 및 명시 dx/dy 입력→preview→attach다. 입력/file·document/style/revision/process 변화는 offer를 무효화하고, 후보 snapshot은 live 채택을 금지한다. 동일 request/body/process recovery와 닫힌 dialog 뒤 확인 UI를 유지한다. OS clipboard에는 접근하지 않는다.
+- Domain/Application·HTTP=CLI/client·real-backend template browser 회귀를 작성했다. 독립 fresh-context 리뷰의 copied-stereo ID-only P2는 완전한 canonical remapping/statement 비교와 변조 회귀로 수정했다. 부모 지시로 테스트·빌드·브라우저·mutation·push는 실행하지 않았다. [P34e 기록](verification/p34e-template-attachment.md)을 따른다.
+- fusion/spiro/replace·복수 anchor/polymer attachment·약어·라이브러리·layout/collision/conformation·외부 DATA/원본 geometry/DLL은 범위 밖이다. 모델·저장 schema 변경은 없다.
+
 ## P34d 사용자 그래프 템플릿 파일 후보
 
 - P34c `36893cc` 기반 `feat/p34d-user-template` 후보이며 #177 main과 #179 smoke 종료 경합 fix(`02def38`)를 통합했다. P34는 in_progress다.

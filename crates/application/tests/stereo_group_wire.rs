@@ -1066,8 +1066,8 @@ fn the_catalog_lists_the_group_commands_and_the_capability_that_they_carry_out()
     let catalog = &reply["result"]["operations"];
     assert_eq!(
         catalog.as_array().unwrap().len(),
-        35,
-        "the catalog includes optional InChI, selection geometry and native clipboard operations"
+        38,
+        "the catalog includes optional InChI, selection geometry, native clipboard and template operations"
     );
     let transaction = catalog
         .as_array()

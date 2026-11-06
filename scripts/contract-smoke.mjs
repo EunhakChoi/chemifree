@@ -928,8 +928,10 @@ try {
       assert.equal(response.headers.get('access-control-allow-origin'), null)
       return { status: response.status, body: await response.json() }
     }
-    const request = (id, operation, parameters) =>
-      JSON.stringify({ contract: 1, request_id: id, profile: 'preserve-semantics', operation, parameters })
+    const request = (id, operation, parameters) => {
+      assert.match(id, /^[A-Za-z0-9_-]{1,64}$/, 'operation fixture must use a valid request_id')
+      return JSON.stringify({ contract: 1, request_id: id, profile: 'preserve-semantics', operation, parameters })
+    }
     let httpDoc
     let cliDoc
     /** Sends `build(documentId)` both ways and checks that the replies agree. */
@@ -1104,6 +1106,64 @@ try {
       const redoAttach = await both((id) => request('op-ring-attach-redo', 'history.redo', { document_id: id, expected_revision: 8 }))
       assert.deepEqual(redoAttach.result.document.atoms, attached.result.document.atoms)
       assert.deepEqual(redoAttach.result.document.bonds, attached.result.document.bonds)
+      httpDoc = outerHttp
+      cliDoc = outerCli
+    }
+    {
+      // Native template inspection/preview/apply use the same shared operation path over HTTP and CLI.
+      const outerHttp = httpDoc
+      const outerCli = cliDoc
+      const createTemplate = request('op-template-create', 'document.create', { title: 'Native template connection parity' })
+      httpDoc = (await viaHttp(createTemplate)).body.result.document.id
+      cliDoc = (await viaCli(createTemplate)).result.document.id
+      const initial = await both((id) => request('op-template-seed', 'document.transaction', { document_id: id, expected_revision: 0,
+        commands: [{ op: 'add_atom', element: 'C', position: { x: 0, y: 0 } }] }))
+      const payload = JSON.stringify({ format: 'chemifree.clipboard', version: 1, settings: initial.result.document.settings,
+        atoms: [['a10', 'C', 100], ['a20', 'O', 110]].map(([id, symbol, x]) => ({ id, kind: { type: 'element', symbol },
+          charge: 0, isotope: null, hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], position: { x, y: 100 } })),
+        bonds: [{ id: 'b10', begin: 'a10', end: 'a20', order: 'single', query: null, mark: null }], stereo: [] })
+      const inspected = await both(() => request('op-template-inspect', 'document.template_inspect', { payload }))
+      assert.equal(inspected.outcome, 'ok')
+      assert.equal(inspected.document_revision, null, 'source-only inspection has no document revision')
+      assert.deepEqual(inspected.result.atoms.map(({ id, supported }) => [id, supported]), [['a10', true], ['a20', true]])
+      const parameters = (id) => ({ document_id: id, expected_revision: 1, payload, instance: 's1', source_anchor: 'a10', atom: 'a1', direction: { dx: 0, dy: 2 } })
+      const preview = await both((id) => request('op-template-plan', 'document.template_plan', parameters(id)))
+      assert.equal(preview.outcome, 'ok')
+      assert.equal(preview.document_revision, 1, 'read-only plan reports the current source revision')
+      const unchanged = await both((id) => request('op-template-before', 'document.snapshot', { document_id: id }))
+      assert.deepEqual(unchanged.result.document, initial.result.document)
+      const malformedTemplate = JSON.parse(payload)
+      malformedTemplate.bonds[0].end = 'a999'
+      for (const [action, operation] of [['plan', 'document.template_plan'], ['attach', 'document.template_attach']]) {
+        for (const [name, target, bytes, reason] of [
+          ['missing-target', 'a99', payload, 'template_target_invalid'],
+          ['dangling-source', 'a1', JSON.stringify(malformedTemplate), 'clipboard_fragment_invalid'],
+          ['dangling-source-and-target', 'a99', JSON.stringify(malformedTemplate), 'clipboard_fragment_invalid'],
+        ]) {
+          const rejected = await both((id) => request(`op-template-${action}-${name}`, operation, { ...parameters(id), atom: target, payload: bytes }))
+          assert.equal(rejected.outcome, 'error')
+          assert.equal(rejected.diagnostics[0].code, 'invalid_command')
+          assert.equal(rejected.diagnostics[0].details.reason, reason)
+          const preserved = await both((id) => request(`op-template-${action}-${name}-snapshot`, 'document.snapshot', { document_id: id }))
+          assert.deepEqual(preserved.result.document, initial.result.document)
+        }
+      }
+      const attach = (id) => request('op-template-attach', 'document.template_attach', parameters(id))
+      const attached = await both(attach)
+      assert.equal(attached.outcome, 'ok')
+      assert.deepEqual(attached.result.snapshot.document, preview.result.snapshot.document)
+      assert.deepEqual(attached.result.mapping, { atoms: [{ source: 'a10', target: 'a2' }, { source: 'a20', target: 'a3' }], bonds: [{ source: 'b10', target: 'b1' }] })
+      assert.equal(attached.result.connection, 'b2')
+      assert.deepEqual(attached.result.snapshot.document.selection, { objects: [], atoms: ['a2', 'a3'], bonds: ['b1'] })
+      assert.deepEqual(await both(attach), attached)
+      const refused = await both((id) => request('op-template-refused', 'document.template_attach', { ...parameters(id), expected_revision: 2, direction: { dx: 0, dy: 0 } }))
+      assert.equal(refused.diagnostics[0].details.reason, 'template_direction_invalid')
+      const undone = await both((id) => request('op-template-undo', 'history.undo', { document_id: id, expected_revision: 2 }))
+      assert.deepEqual(undone.result.document.atoms, initial.result.document.atoms)
+      assert.deepEqual(await both(attach), attached, 'immutable replay after Undo cannot create a second attachment')
+      const redone = await both((id) => request('op-template-redo', 'history.redo', { document_id: id, expected_revision: 3 }))
+      assert.deepEqual(redone.result.document.atoms, attached.result.snapshot.document.atoms)
+      assert.deepEqual(redone.result.document.bonds, attached.result.snapshot.document.bonds)
       httpDoc = outerHttp
       cliDoc = outerCli
     }

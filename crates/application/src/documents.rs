@@ -64,6 +64,9 @@ enum Mutation {
     ImportCtfile {
         fingerprint: String,
     },
+    TemplateAttach {
+        fingerprint: String,
+    },
     ClipboardPaste {
         expected_revision: u64,
         payload: String,
@@ -1085,6 +1088,91 @@ impl<R: DocumentRepository> Documents<R> {
                 .apply_reporting(&domain_commands, &domain_selection);
             edit_notes(&session.document, result)
         })
+    }
+
+    /// Preview validates on a clone under the session lock; it reserves no identifiers.
+    pub(crate) fn template_plan(
+        &self,
+        parameters: &crate::operations::template::AttachParameters,
+        fragment: &chemifree_domain::clipboard::Fragment,
+    ) -> Result<(DocumentResponse, DocumentResponse), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, &parameters.document_id)?;
+        session.expect_revision(parameters.expected_revision)?;
+        let (instance, source, target) = crate::operations::template::targets(parameters)?;
+        let plan = chemifree_domain::template::attach(
+            fragment,
+            &session.document,
+            instance,
+            source,
+            target,
+            chemifree_domain::document::Vector {
+                dx: parameters.direction.dx,
+                dy: parameters.direction.dy,
+            },
+        )
+        .map_err(crate::operations::template::refusal)?;
+        let selection = contract::to_selection(&TransactionSelections {
+            before: parameters.selection_before.clone(),
+            after: None,
+        })?;
+        let mut candidate = session.document.clone();
+        let applied = candidate.apply_reporting(
+            &plan.paste.commands,
+            &TransactionSelection {
+                before: selection.before,
+                after: Some(plan.paste.selection),
+            },
+        );
+        let notes = edit_notes(&candidate, applied)?;
+        let mut after =
+            DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
+        after.notes = notes;
+        Ok((self.respond(session), after))
+    }
+
+    /// Replay binds the exact native bytes, explicit anchors, direction bits and captured selection.
+    pub(crate) fn template_attach(
+        &self,
+        request_id: &str,
+        parameters: &crate::operations::template::AttachParameters,
+        fragment: &chemifree_domain::clipboard::Fragment,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let fingerprint = serde_json::to_string(parameters)
+            .map_err(|error| ApplicationError::new(ErrorCode::InvalidRequest, error.to_string()))?;
+        let (instance, source, target) = crate::operations::template::targets(parameters)?;
+        let selection = contract::to_selection(&TransactionSelections {
+            before: parameters.selection_before.clone(),
+            after: None,
+        })?;
+        self.mutate(
+            &parameters.document_id,
+            Some(request_id),
+            parameters.expected_revision,
+            Mutation::TemplateAttach { fingerprint },
+            |session| {
+                let plan = chemifree_domain::template::attach(
+                    fragment,
+                    &session.document,
+                    instance,
+                    source,
+                    target,
+                    chemifree_domain::document::Vector {
+                        dx: parameters.direction.dx,
+                        dy: parameters.direction.dy,
+                    },
+                )
+                .map_err(crate::operations::template::refusal)?;
+                let result = session.document.apply_reporting(
+                    &plan.paste.commands,
+                    &TransactionSelection {
+                        before: selection.before,
+                        after: Some(plan.paste.selection),
+                    },
+                );
+                edit_notes(&session.document, result)
+            },
+        )
     }
 
     /// Native copy captures its source graph and snapshot under one lock.
