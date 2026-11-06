@@ -1,6 +1,6 @@
 // Data at the public HTTP boundary; expected deletion keeps s3 as a singleton parent.
 export function sceneCutSource() {
-  const settings = { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'sans-serif', label_weight: 'normal', label_size_pt: 12, carbon_labels: 'default', display_unit: 'pt' }
+  const settings = { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'sans-serif', label_weight: 'normal', label_style: 'normal', label_size_pt: 12, carbon_labels: 'default', display_unit: 'pt' }
   const atoms = ['C', 'O'].map((element, index) => ({ id: `a${index + 1}`, element, kind: 'element', query: null,
     charge: 0, isotope: null, hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], position: { x: index * 30, y: 0 } }))
   return { api_version: 'v1', document: { id: 'drawing', title: 'Graphic Cut', revision: 3, atoms,

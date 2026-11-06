@@ -40,3 +40,21 @@ No new component or dependency was introduced.
 
 PR Codex and fresh-context independent reviews must be recorded by the delivery
 workflow; no review or execution pass is claimed by this implementation record.
+
+## Follow-up: shared client fixtures
+
+The parent's first isolated `npm run check` log reported 69 client failures.
+Static inspection traced 68 failures to the shared `sceneCutSource` complete
+settings fixture missing `label_style`: caption, ring, abbreviation and template
+fixtures derive from it, and the old-weight clipboard assertion compared its
+incomplete source settings to a normalized payload. The remaining failure was
+the expected `labelStyleOf` object missing `style: normal`. This evidence calls
+for fixture updates; it does not establish an old clipboard decoder defect.
+
+Current HTTP response fixtures and browser complete-settings fixtures now state
+normal style explicitly. Complete API settings validation stays strict. A new
+client suite explicitly deletes style (and both weight/style for older payloads),
+checks normal inheritance, italic destination mismatch and invalid explicit style
+refusal. It also checks style edits/preferences, enum validation and unchanged
+400/500/700 weights and marks. The client runner imports this suite. No test or
+build was rerun by the implementation agent; only `git diff --check` was run.
