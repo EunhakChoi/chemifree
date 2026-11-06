@@ -95,6 +95,51 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 
 Unknown parameters are `invalid_request` (`path: "parameters"`). Every other operation name the catalog lists (`chem.name_to_structure`, `chem.structure_to_name`, `layout.structure`, `layout.reaction`, `render.scene`, `biopolymer.expand`, `prediction.evaluate`, `integration.invoke`, `script.evaluate`) is answered `outcome: "unsupported"` with `details: { execution, followup }`, whatever its parameters. Prediction uses the diagnostic `model_unavailable`; the other operations use `operation_not_implemented`: nothing is computed and no placeholder result is returned. Mutations retain the v1 request replay, revision and saving rules; inspection reads the current working snapshot. An operation that fails reports the v1 error code as its diagnostic (`revision_conflict`, `document_not_found`, `storage_failed`, …), with `details.current_revision`, `details.command_index`, and `details.reason` where the v1 envelope has them.
 
+## Independent six-carbon ring insertion (P34a)
+
+The `insert_ring` transaction command is `{ op: "insert_ring", instance, center: { x, y } }`.
+It appends six neutral natural-abundance carbon atoms (inferred hydrogens, no radicals or
+attachment points) and six single bonds as one independent cycle. It runs through the same
+Application transaction via HTTP, CLI `documents apply`, or operation contract 1; it is not a
+separate format, provider or external DATA consumer. The command requires an existing explicit
+instance and exactly one molecule placement. The current document `bond_length_pt` is the side
+length. Starting at the rightmost vertex, vertices run clockwise on the y-down page at offsets
+`(L,0), (L/2,H), (-L/2,H), (-L,0), (-L/2,-H), (L/2,-H)` where `H=L*(sqrt(3)/2)`.
+All resulting coordinates must fit the existing point bounds.
+
+Fresh atom/bond IDs use the ordinary allocators and are not reused after Undo. The recipe
+creates no `$N` atom, bond or object reference; subsequent commands cannot name one of its
+vertices implicitly. Selection follows ordinary transaction semantics: `selection_before`
+records the captured prior selection, and without `selection_after` the surviving selection
+is preserved. Existing chemistry, stereo, graphics, references, containment and settings are
+unchanged. Any failure, including a late coordinate/ID/entity-limit failure, rolls back the
+entire transaction and preserves selection, numbering, revision, dirty state and redo history.
+The existing 500-command budget counts this as one bounded command. Save/reopen and ordinary
+Undo/Redo retain its IDs and coordinates without a storage schema change.
+
+The web Ring tool (R) sends the pointer-down center on a completed click through the inverse
+SVG transform; dragging does not insert. A click over existing content never attaches, replaces
+or fuses it. The queued action captures document/process/instance/selection and resolves the
+current bond length when the transaction executes. A missing target, another document/process
+or unsupported placement count refuses the captured action. An uncertain response holds later
+edits and shows **Check ring insertion outcome**, reusing the same request/body/process.
+Restart or a terminal revision conflict requires explicit reload/reconciliation and never
+resends the insertion to a new process. Checking and history never access the OS clipboard.
+Close and its discard confirmation are disabled while the editor is busy, including an
+unresolved ring or clipboard mutation. Hook callers still pass the queue-time unresolved
+attempt guard; closing or opening cannot remove recovery controls while an attempt is pending.
+A Close queued behind an Open never redirects to the newly shown document: it keeps the
+document ID and revision captured when Close was requested and lapses if that ID is no longer
+shown. Normal clean Close and the existing unsaved-discard confirmation resume after settlement.
+
+This is an independently defined 2D regular-ring drawing recipe, not conformation prediction,
+aromaticity assignment, chemical layout or collision avoidance. Multiple placements, other ring
+sizes or atom/bond patterns, attachment/fusion/replacement, substituents, user templates,
+abbreviation contraction/expansion and prepared legacy template framing activation remain
+unsupported. Unknown command fields are refused. P34 remains **in_progress**. The written
+checks have not been executed in this implementation session; see
+[the P34a verification plan](verification/p34a-independent-ring.md).
+
 ## Effective selection scope and movement (P32a)
 
 The bounded P32 delivery is complete; see the [completion evidence](verification/p32-selection-completion.md). `document.selection_scope` is a read-only operation taking `{ document_id, selection, instance? }` and returning `{ snapshot, effective: { objects, positions, graphics } }` with the exact document revision. A selection has `objects`, `atoms` and `bonds` arrays, each defaulting to empty; repeated IDs are deduplicated. IDs must already exist; these fields do not resolve transaction-local `$N` references. Results are ordered by domain identifier, with `positions` containing unique `{ instance, atom }` pairs in instance-then-atom order. It changes no geometry, stored selection, revision, dirty state or history; repeating a request inspects the current snapshot rather than replaying a previous result.
@@ -928,7 +973,7 @@ The `chemifree-numerics` Rust library separates exact signed rational values fro
 
 `GET /api/v1/data` and `chemifree data status --json` return `api_version`, `state` (`not_configured`, `refused`, or `checked`), nullable `reason`, registration IDs with `loaded` or `unavailable` state and nullable reason, and `engine: "not_implemented"` for the separate prediction model binding. A loaded registration may also include `retained_extra_columns`, a nonnegative integer count of source columns kept as opaque metadata; older responses omit it. The CLI and web display the count when it is positive. Neither response contains column names, data records or source paths. A checked registration means only that a supported profile was authorized and decoded; `chem.properties` independently recognizes the two mass input profiles described above. The host selects and trusts each registration separately; an aggregate registry hash alone does not establish manifest membership. Public checks use independent fixtures, not personal payloads. Missing or invalid data never prevents document editing. The explicitly selected local trust descriptor, identity checks, supported profiles, and current limits are specified in [DATA.ko.md](DATA.ko.md).
 
-Catalog: `{ implementation, version, contracts: [1], profiles: [{ id, execution, note }], operations: [{ id, representation, execution, followup?, note, commands?, sub_operations? }] }`. Representation and execution are separate: `representation` ∈ `supported | not_supported` says whether a document and this contract can hold the operation's inputs and results; `execution` ∈ `executable | requires_data | not_implemented | rejected` says whether it runs, would need data that is not loaded, does not run, or never will. `document.transaction` lists its sub-operations, each either a command or a capability. A command row has no `commands` field and its `id` is an `op` of the transaction body. A capability row is not a command: its `commands` lists the command rows (by `id`) that carry it out, and is empty while it is not implemented. `commands` was added within contract 1; a reply without it predates that. The transaction lists the existing atom, bond, title, and placement commands, plus `add_graphic`, `group`, `ungroup`, `reorder`, `delete_objects`, `move_objects`, `move_selection`, `arrange_objects`, `transform_selection`, `add_reference`, and `remove_reference`. The `scene_tree` capability names these eleven commands; `scene_placement` names the three instance commands. Recorded-state capability rows name their implementing atom and bond commands. The four stereo commands are command rows (`set_bond_mark`, `set_atom_configuration`, `set_bond_configuration`, `set_configuration_from_drawing`); the `stereo_marks` capability row names the first and `stereo_configuration` the other three. The eight stereo group commands are command rows too (`create_stereo_group`, `delete_stereo_group`, `set_stereo_group_kind`, `set_stereo_group_number`, `add_stereo_group_members`, `remove_stereo_group_members`, `merge_stereo_groups`, `split_stereo_group`), carried out for the `stereo_group` capability row, which also states the group limits (at most one group for each stored center, so no more than the 2,000-atom cap; one absolute group; a stored number is any 32-bit signed integer); the catalog has no separate limits field. The transaction lists 46 sub-operations: 35 command rows and 11 capability rows. Recorded states remain separate from the bounded `chem.validate` inspection described above. `chem.properties` lists formula and mass (P19). `followup` names the plan entry expected to change a row (docs/roadmap/).
+Catalog: `{ implementation, version, contracts: [1], profiles: [{ id, execution, note }], operations: [{ id, representation, execution, followup?, note, commands?, sub_operations? }] }`. Representation and execution are separate: `representation` ∈ `supported | not_supported` says whether a document and this contract can hold the operation's inputs and results; `execution` ∈ `executable | requires_data | not_implemented | rejected` says whether it runs, would need data that is not loaded, does not run, or never will. `document.transaction` lists its sub-operations, each either a command or a capability. A command row has no `commands` field and its `id` is an `op` of the transaction body. A capability row is not a command: its `commands` lists the command rows (by `id`) that carry it out, and is empty while it is not implemented. `commands` was added within contract 1; a reply without it predates that. The transaction lists the existing atom, bond, title, and placement commands, plus `add_graphic`, `group`, `ungroup`, `reorder`, `delete_objects`, `move_objects`, `move_selection`, `arrange_objects`, `transform_selection`, `add_reference`, and `remove_reference`. The `scene_tree` capability names these eleven commands; `scene_placement` names the three instance commands. Recorded-state capability rows name their implementing atom and bond commands. The four stereo commands are command rows (`set_bond_mark`, `set_atom_configuration`, `set_bond_configuration`, `set_configuration_from_drawing`); the `stereo_marks` capability row names the first and `stereo_configuration` the other three. The eight stereo group commands are command rows too (`create_stereo_group`, `delete_stereo_group`, `set_stereo_group_kind`, `set_stereo_group_number`, `add_stereo_group_members`, `remove_stereo_group_members`, `merge_stereo_groups`, `split_stereo_group`), carried out for the `stereo_group` capability row, which also states the group limits (at most one group for each stored center, so no more than the 2,000-atom cap; one absolute group; a stored number is any 32-bit signed integer); the catalog has no separate limits field. The transaction lists 47 sub-operations: 36 command rows and 11 capability rows, including the bounded `insert_ring` drawing recipe (P34a). Recorded states remain separate from the bounded `chem.validate` inspection described above. `chem.properties` lists formula and mass (P19). `followup` names the plan entry expected to change a row (docs/roadmap/).
 
 Protocol errors (`envelope: "protocol_error"`):
 
@@ -1014,6 +1059,7 @@ Transaction body: `{ "request_id": string, "expected_revision": number, "command
 
 | `op` | Fields | Effect |
 | --- | --- | --- |
+| `insert_ring` | `instance`, `center: { x, y }` | Independent six-carbon single-bond regular ring at current bond length; exactly one placement; no `$N` target; [P34a limits](#independent-six-carbon-ring-insertion-p34a) |
 | `add_atom` | `element` or `query`, `position` or `positions`, optional `hydrogens`, `radical`, `attachment_points`, `bond_to: { atom, order, query? }` | New neutral, natural-abundance atom, placed in every scene instance; omitted states take their defaults |
 | `add_bond` | `begin`, `end`, `order`, `query` (with order `query` only) | New bond |
 | `update_atom` | `atom`, optional `element` or `query`, `charge`, `isotope`, `hydrogens`, `radical`, `attachment_points` | Omitted fields unchanged; `"isotope": null` restores natural abundance; `element` makes a query atom an element atom and `query` the reverse |

@@ -2,6 +2,13 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P34a 독립 탄소 6원 고리 후보
+
+- shared Domain/Application `insert_ring` transaction command가 현재 bond length의 독립 정육각형 6C·6 single을 fresh ID로 삽입한다. 단일 명시 배치만 받고 외부 DATA·원본 template geometry·DLL을 쓰지 않는다. 기존 선택·입체·장면·settings를 보존하고 기존 저장/Undo/Redo/replay를 재사용하며 늦은 좌표/원자/ID 한도 실패도 transaction 전체를 rollback한다.
+- 웹 Ring(R)은 inverse SVG 좌표의 중심 클릭을 고정한다. 다른 문서/process·배치 소실·복수 배치는 전체 거절하며 큐의 현재 bond length를 사용한다. shared immutable attempt gate의 ring kind로 미확정 변경을 잠그고 같은 ID/body/process만 확인한다. restart·terminal conflict는 명시 reload/reconcile이며 새 process 재삽입이나 OS clipboard 접근이 없다.
+- domain/application·client·HTTP=CLI 회귀와 canvas/hook/client browser script 및 CI 연결을 작성했다. 부모의 공유 격리 실행 지시에 따라 이 작업에서는 테스트·빌드·브라우저를 실행하지 않았고 통과/납품 완료 근거로 주장하지 않는다. 검증과 review 상태는 [계획/기록](verification/p34a-independent-ring.md)을 따른다.
+- P34는 in_progress다. attachment·fusion·replace·방향족·다른 크기/치환기·사용자 template·약어 축약/펼침·복수 배치·collision avoidance·conformation은 미구현이다.
+
 ## P33 bounded 완료 기록
 
 - 로드맵 P33의 명시 scope/acceptance에 한해 `done`으로 기록한다. graph v1·graphic forest v2 분리, 정확히 같은 destination style, graph paste 한 placement, graph Cut 한 source placement·crossing/incoming graph reference 거절을 유지한다. graphic forest는 복수 destination placement를 허용하지만 instance·mixed graph·outgoing/graph refs·child 두 개 미만 group을 거절하고 Cut은 외부 incoming도 거절한다.

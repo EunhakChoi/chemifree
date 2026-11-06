@@ -227,7 +227,7 @@ export function NativeClipboardPanel({ document, editor, activePlacement }: Nati
   }
 
   const clipboardAction = editor.clipboardAction === 'mol_import' ? 'MOL import' : editor.clipboardAction ?? 'paste'
-  const unresolved = editor.clipboardPending && editor.clipboardAction !== 'mol_import' && editor.clipboardAction !== 'scene_paste' && editor.clipboardAction !== 'scene_cut' && editor.clipboardAction !== 'smiles_import' && <Alert>
+  const unresolved = editor.clipboardPending && editor.clipboardAction !== 'mol_import' && editor.clipboardAction !== 'scene_paste' && editor.clipboardAction !== 'scene_cut' && editor.clipboardAction !== 'smiles_import' && editor.clipboardAction !== 'ring' && <Alert>
     <AlertDescription className="flex flex-col gap-2">
       <p>{editor.clipboardNeedsReload
         ? `The original ${clipboardAction} can no longer be confirmed by replay. ${clipboardAction === 'cut' ? 'The source may already have been removed.' : 'It may already be present.'} Reload the document to reconcile its outcome.`

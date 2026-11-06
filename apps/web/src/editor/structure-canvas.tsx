@@ -48,7 +48,7 @@ export type { DrawnOrder } from '@/editor/bond-gestures'
 /** What the bond tool draws: a kind of bond, or a stereo mark on a single bond. */
 export type DrawnKind = DrawnOrder | 'wedge' | 'hash' | 'wavy'
 
-export type Tool = 'select' | 'atom' | 'bond' | 'erase' | 'pan'
+export type Tool = 'select' | 'atom' | 'bond' | 'erase' | 'pan' | 'ring'
 
 /** Below this pointer travel in CSS pixels a press is a click, not a drag. */
 const DRAG_THRESHOLD = 3
@@ -125,6 +125,8 @@ interface StructureCanvasProps {
   onCommands: (commands: Command[], selectionBefore?: ReadonlySet<string>) => void
   /** A stereo-mark gesture, built from the document on screen; the parent sends it to the latest. */
   onMark: (intent: MarkIntent) => void
+  /** An explicit center click; the shared Rust command owns graph and geometry generation. */
+  onRing?: (instance: string | null, center: Position) => void
   /** Rings for the items whose stored configuration the drawing does not agree with; none while it is unknown. */
   rings?: readonly AgreementRing[]
   /** CIP labels to draw over the atoms and double bonds they are about; an overlay, never part of the document. */
@@ -153,6 +155,7 @@ export function StructureCanvas({
   onSelectionChange,
   activePlacement,
   onActivePlacementChange,
+  onRing,
   onCommands,
   onMark,
   rings = [],
@@ -472,6 +475,10 @@ export function StructureCanvas({
     // document and drops them if what they name is gone.
     if (active.pan || !gesture || !point) return
     const dragged = distance({ x: event.clientX, y: event.clientY }, active.start) >= DRAG_THRESHOLD
+    if (tool === 'ring') {
+      if (!dragged) onRing?.(gesture.instance, gesture.start)
+      return
+    }
     const intent = markIntent(gesture, point, dragged)
     if (intent) {
       onMark(intent)

@@ -1,0 +1,205 @@
+//! Independent ring insertion uses ordinary document history and refuses atomically.
+
+use chemifree_domain::document::{
+    Atom, AtomId, BondOrder, Command, Document, DocumentId, EditError, MAX_ATOMS, NewAtomPositions,
+    ObjectId, Point, Vector,
+};
+use chemifree_domain::element::Element;
+use chemifree_domain::settings::SettingsEdit;
+
+fn drawing() -> Document {
+    Document::new(DocumentId::parse("ring-test").unwrap(), "Independent ring").unwrap()
+}
+
+fn ring(x: f64, y: f64) -> Command {
+    Command::InsertRing {
+        instance: ObjectId::from_serial(1).unwrap(),
+        center: Point::new(x, y).unwrap(),
+    }
+}
+
+#[test]
+fn ring_is_one_independent_six_cycle_with_current_bond_length_and_stable_history_ids() {
+    let mut document = drawing();
+    document
+        .apply(&[
+            Command::AddAtom {
+                atom: Atom::from(Element::from_symbol("O").unwrap()),
+                positions: NewAtomPositions::Single(Point::new(1.0, 2.0).unwrap()),
+                bond_to: None,
+            },
+            Command::UpdateSettings(SettingsEdit {
+                bond_length_pt: Some(40.0),
+                ..SettingsEdit::default()
+            }),
+        ])
+        .unwrap();
+    let before = document.to_parts();
+    document.apply(&[ring(100.0, 200.0)]).unwrap();
+    let inserted = document.to_parts();
+    assert_eq!(document.revision(), 2);
+    assert_eq!(document.undo_depth(), 2);
+    assert_eq!(document.atoms().len(), 7);
+    let ids: Vec<_> = document
+        .atoms()
+        .skip(1)
+        .map(|(id, atom)| {
+            assert_eq!(atom, &Atom::from(Element::CARBON));
+            id
+        })
+        .collect();
+    let edges: Vec<_> = document
+        .bonds()
+        .map(|(_, bond)| {
+            assert_eq!(bond.order, BondOrder::Single);
+            assert_eq!(bond.mark, None);
+            (bond.begin, bond.end)
+        })
+        .collect();
+    assert_eq!(
+        edges,
+        vec![
+            (ids[0], ids[1]),
+            (ids[1], ids[2]),
+            (ids[2], ids[3]),
+            (ids[3], ids[4]),
+            (ids[4], ids[5]),
+            (ids[5], ids[0])
+        ]
+    );
+    let points: Vec<_> = document
+        .positions(document.first_instance())
+        .skip(1)
+        .map(|(_, point)| point)
+        .collect();
+    assert_eq!(points[0], Point::new(140.0, 200.0).unwrap());
+    assert_eq!(points[3], Point::new(60.0, 200.0).unwrap());
+    assert!((points[1].y() - 234.64101615137756).abs() < 1e-12);
+    for index in 0..6 {
+        let next = points[(index + 1) % 6];
+        let length = (points[index].x() - next.x()).hypot(points[index].y() - next.y());
+        assert!((length - 40.0).abs() < 1e-12, "edge {index}: {length}");
+    }
+    document.undo().unwrap();
+    assert_eq!(document.to_parts().atoms, before.atoms);
+    assert_eq!(document.to_parts().bonds, before.bonds);
+    assert_eq!(document.to_parts().positions, before.positions);
+    assert_eq!(document.selection(), &before.selection);
+    document.redo().unwrap();
+    assert_eq!(document.to_parts().atoms, inserted.atoms);
+    assert_eq!(document.to_parts().bonds, inserted.bonds);
+    assert_eq!(document.to_parts().positions, inserted.positions);
+    document.undo().unwrap();
+    document.apply(&[ring(0.0, 0.0)]).unwrap();
+    assert!(
+        document
+            .atoms()
+            .skip(1)
+            .all(|(id, _)| id.serial() > ids[5].serial()),
+        "Undo never recycles fresh IDs"
+    );
+}
+
+#[test]
+fn late_coordinate_failure_rolls_back_prior_commands_counters_and_redo() {
+    let mut document = drawing();
+    document.apply(&[ring(0.0, 0.0)]).unwrap();
+    document.undo().unwrap();
+    let before = document.to_parts();
+    let error = document
+        .apply(&[
+            Command::Rename {
+                title: "Must roll back".into(),
+            },
+            ring(-99_990.0, 0.0),
+        ])
+        .unwrap_err();
+    assert_eq!(error.index, Some(1));
+    assert_eq!(error.error, EditError::CoordinateOutOfRange);
+    assert_eq!(document.to_parts(), before);
+}
+
+#[test]
+fn multiple_or_missing_placements_are_refused_without_editing() {
+    let mut document = drawing();
+    let before = document.to_parts();
+    let error = document
+        .apply(&[Command::InsertRing {
+            instance: ObjectId::from_serial(99).unwrap(),
+            center: Point::new(0.0, 0.0).unwrap(),
+        }])
+        .unwrap_err();
+    assert_eq!(error.error.reason(), Some("object_unknown"));
+    assert_eq!(document.to_parts(), before);
+    document
+        .apply(&[Command::AddInstance {
+            source: None,
+            offset: Vector { dx: 50.0, dy: 0.0 },
+        }])
+        .unwrap();
+    let before = document.to_parts();
+    assert_eq!(
+        document.apply(&[ring(0.0, 0.0)]).unwrap_err().error,
+        EditError::PositionsRequired { instances: 2 }
+    );
+    assert_eq!(document.to_parts(), before);
+}
+
+#[test]
+fn atom_limit_and_identifier_exhaustion_do_not_leave_partial_rings() {
+    let mut document = drawing();
+    let atom = Command::AddAtom {
+        atom: Atom::from(Element::CARBON),
+        positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+        bond_to: None,
+    };
+    for chunk in vec![atom; MAX_ATOMS - 5].chunks(500) {
+        document.apply(chunk).unwrap();
+    }
+    let before = document.to_parts();
+    assert_eq!(
+        document.apply(&[ring(0.0, 0.0)]).unwrap_err().error,
+        EditError::AtomLimit
+    );
+    assert_eq!(document.to_parts(), before);
+    let mut parts = drawing().to_parts();
+    parts.next_atom = u32::MAX - 2;
+    let mut document = Document::restore(parts).unwrap();
+    let before = document.to_parts();
+    assert_eq!(
+        document.apply(&[ring(0.0, 0.0)]).unwrap_err().error,
+        EditError::IdentifierSpaceExhausted
+    );
+    assert_eq!(document.to_parts(), before);
+}
+
+#[test]
+fn ring_command_does_not_invent_a_transaction_local_atom_reference() {
+    let mut document = drawing();
+    let before = document.to_parts();
+    let error = document
+        .apply(&[
+            ring(0.0, 0.0),
+            Command::AddBond {
+                begin: chemifree_domain::document::AtomRef::Created(0),
+                end: chemifree_domain::document::AtomRef::Id(AtomId::from_serial(1).unwrap()),
+                order: BondOrder::Single,
+            },
+        ])
+        .unwrap_err();
+    assert_eq!(error.error, EditError::UnresolvedReference(0));
+    assert_eq!(document.to_parts(), before);
+}
+
+#[test]
+fn late_bond_identifier_exhaustion_rolls_back_all_new_atoms_and_bonds() {
+    let mut parts = drawing().to_parts();
+    parts.next_bond = u32::MAX - 2;
+    let mut document = Document::restore(parts).unwrap();
+    let before = document.to_parts();
+    assert_eq!(
+        document.apply(&[ring(0.0, 0.0)]).unwrap_err().error,
+        EditError::IdentifierSpaceExhausted
+    );
+    assert_eq!(document.to_parts(), before);
+}

@@ -26,6 +26,7 @@ import {
   type NativeClipboardPasteAttempt,
   type NativeSceneClipboardCopy,
   type NativeSceneClipboardPasteAttempt,
+  type RingInsertionAttempt,
   type SelectionView,
   type SettingsSource,
   type TrashListResponse,
@@ -127,6 +128,7 @@ type ClipboardMutation = {
 } & ({ kind: 'paste'; attempt: NativeClipboardPasteAttempt } | { kind: 'cut'; attempt: NativeClipboardCutAttempt } |
   { kind: 'mol_import'; attempt: NativeClipboardMolImportAttempt } | { kind: 'scene_paste'; attempt: NativeSceneClipboardPasteAttempt } |
   { kind: 'scene_cut'; attempt: NativeClipboardCutAttempt } |
+  { kind: 'ring'; attempt: RingInsertionAttempt } |
   { kind: 'smiles_import'; attempt: SmilesClipboardImportAttempt })
 
 function requireCutEligible(copy: NativeClipboardCopy) {
@@ -224,7 +226,7 @@ export function useDocumentEditor() {
   const clipboardAttempt = useRef<ClipboardMutation | null>(null)
   const [clipboardPending, setClipboardPending] = useState(false)
   const [clipboardNeedsReload, setClipboardNeedsReload] = useState(false)
-  const [clipboardAction, setClipboardAction] = useState<'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'scene_cut' | 'smiles_import' | null>(null)
+  const [clipboardAction, setClipboardAction] = useState<'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'scene_cut' | 'smiles_import' | 'ring' | null>(null)
 
   const adoptSelection = useCallback((next: Set<string>) => {
     selectionRef.current = next
@@ -287,7 +289,7 @@ export function useDocumentEditor() {
     const next = queue.current
       .then(async () => {
         if (clipboardAttempt.current && !checkClipboard) {
-          throw new ApiError(`clipboard_${clipboardAttempt.current.kind}_unconfirmed`, 'Check the pending clipboard operation before making another change.', 0)
+          throw new ApiError(`clipboard_${clipboardAttempt.current.kind}_unconfirmed`, 'Check the pending editor operation before making another change.', 0)
         }
         await task()
       })
@@ -360,7 +362,7 @@ export function useDocumentEditor() {
       setClipboardAction(null)
       if (currentRef.current?.document.id === pendingPaste.documentId) {
         setCurrent(snapshot)
-        adoptSelection(pendingPaste.kind === 'mol_import' || pendingPaste.kind === 'smiles_import'
+        adoptSelection(pendingPaste.kind === 'mol_import' || pendingPaste.kind === 'smiles_import' || pendingPaste.kind === 'ring'
           ? selectionIds(selectionSnapshot(selectionRef.current, snapshot.document))
           : selectionIds(snapshot.document.selection))
       }
@@ -733,6 +735,26 @@ export function useDocumentEditor() {
       })
     }, [clipboardTask, finishClipboardMutation]),
     checkClipboardPaste: useCallback(() => clipboardTask(finishClipboardMutation, true), [clipboardTask, finishClipboardMutation]),
+    insertRing: useCallback((documentId: string, instance: string | null, center: { x: number; y: number }) => {
+      const pressed = new Set(selectionRef.current)
+      const generation = serviceGenerationRef.current
+      const point = { ...center }
+      return run(async () => {
+        const shown = currentRef.current?.document
+        if (!shown || shown.id !== documentId || generation !== serviceGenerationRef.current ||
+            !instance || shown.scene?.instances.length !== 1 || shown.scene.instances[0].id !== instance) {
+          throw new ApiError('ring_destination_invalid', 'Ring insertion requires the captured document and its only placement. Click again after choosing a supported drawing.', 0)
+        }
+        const before = selectionSnapshot(pressed, shown)
+        if (selectionIds(before).size !== pressed.size) {
+          throw new ApiError('ring_selection_changed', 'The captured selection no longer exists. Click again to insert the ring.', 0)
+        }
+        clipboardAttempt.current = { kind: 'ring', documentId, generation,
+          attempt: client.createRingInsertion(shown, instance, point, before) }
+        setClipboardAction('ring')
+        await finishClipboardMutation()
+      })
+    }, [run, finishClipboardMutation]),
     reconcileClipboardPaste: useCallback(() => clipboardTask(async () => {
       const unresolved = clipboardAttempt.current
       if (!unresolved) return
@@ -749,7 +771,7 @@ export function useDocumentEditor() {
       setClipboardNeedsReload(false)
       setClipboardAction(null)
       if (currentRef.current?.document.id === unresolved.documentId) {
-        adoptSelection(unresolved.kind === 'mol_import' || unresolved.kind === 'smiles_import'
+        adoptSelection(unresolved.kind === 'mol_import' || unresolved.kind === 'smiles_import' || unresolved.kind === 'ring'
           ? selectionIds(selectionSnapshot(selectionRef.current, fresh.document))
           : selectionIds(fresh.document.selection))
       }
@@ -1135,9 +1157,12 @@ export function useDocumentEditor() {
       (discardUnsaved: boolean) => {
         // The revision on screen when the user confirmed: a discard never drops edits that
         // another client made after it.
-        const shown = currentRef.current?.document.revision
+        const shown = currentRef.current?.document
         return run(async () => {
-          await client.close(id(), discardUnsaved, shown)
+          // `run` also refuses unresolved mutations after earlier queued work settles.
+          // A navigation queued first must not redirect Close to another document.
+          if (!shown || currentRef.current?.document.id !== shown.id) return
+          await client.close(shown.id, discardUnsaved, shown.revision)
           setCurrent(null)
           refreshList()
         })

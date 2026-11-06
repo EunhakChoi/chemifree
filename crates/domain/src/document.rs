@@ -358,6 +358,12 @@ pub enum NewAtomPositions {
 /// One edit. A transaction applies an ordered list of commands all-or-nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    /// Appends an independent six-carbon single-bond regular ring in the only placement.
+    /// Uses the current document bond length; creates no transaction-local `$N` target.
+    InsertRing {
+        instance: ObjectId,
+        center: Point,
+    },
     /// Adds an atom with the given state, optionally bonded from another atom (`bond_to.atom`
     /// is the bond's `begin`, so the donor of a dative bond).
     AddAtom {
@@ -1971,6 +1977,42 @@ impl Draft {
     fn apply(&mut self, command: &Command) -> Result<(), EditError> {
         let mut created = Created::Nothing;
         match command {
+            Command::InsertRing { instance, center } => {
+                self.content.require_instance(*instance)?;
+                let instances = self.content.instance_count();
+                if instances != 1 {
+                    return Err(EditError::PositionsRequired { instances });
+                }
+                let length = self.content.settings.bond_length_pt;
+                let height = length * (3.0_f64.sqrt() / 2.0);
+                // Independently defined 2D regular hexagon, clockwise in y-down coordinates.
+                // This is a drawing recipe, not a molecular conformation or layout engine.
+                let offsets = [
+                    (length, 0.0),
+                    (length / 2.0, height),
+                    (-length / 2.0, height),
+                    (-length, 0.0),
+                    (-length / 2.0, -height),
+                    (length / 2.0, -height),
+                ];
+                let mut atoms = Vec::with_capacity(6);
+                for (x, y) in offsets {
+                    let point = Point::new(center.x() + x, center.y() + y)?;
+                    let atom = self.allocate_atom()?;
+                    self.content.atoms.insert(atom, Atom::from(Element::CARBON));
+                    self.content.positions.insert(
+                        PositionKey {
+                            instance: *instance,
+                            atom,
+                        },
+                        point,
+                    );
+                    atoms.push(atom);
+                }
+                for index in 0..6 {
+                    self.insert_bond(atoms[index], atoms[(index + 1) % 6], BondOrder::Single)?;
+                }
+            }
             Command::AddAtom {
                 atom,
                 positions,

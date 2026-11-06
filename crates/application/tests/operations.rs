@@ -678,6 +678,7 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
     assert_eq!(
         commands,
         [
+            "insert_ring",
             "add_atom",
             "update_atom",
             "move_atoms",
@@ -787,12 +788,12 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "split_stereo_group"
         ]
     );
-    assert_eq!(commands.len(), 35, "{commands:?}");
+    assert_eq!(commands.len(), 36, "{commands:?}");
     assert_eq!(capabilities.len(), 11, "{capabilities:?}");
     assert_eq!(
         transaction["sub_operations"].as_array().unwrap().len(),
-        46,
-        "35 command rows and 11 capability rows"
+        47,
+        "36 command rows and 11 capability rows"
     );
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }
