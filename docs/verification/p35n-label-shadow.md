@@ -31,3 +31,14 @@ legacy rendering equivalence claim. P35 remains `in_progress`.
 
 Required Codex and fresh independent subagent PR reviews and their dispositions:
 pending parent workflow; no completed review is claimed here.
+
+
+Codex PR #199 P2 disposition: addressed. The canonical settings table and complete
+`new_document_settings` response example now include `label_shadow` with default
+false. Static audit also found the complete document response settings example
+and `update_settings` command field list omitted the typography fields; both now
+include weight, style, underline, outline and shadow. The sparse `new_documents`
+preference example intentionally contains only the serif override. Review
+metadata and completion evidence remain owned by the parent PR workflow.
+Verification for this documentation fix: static comparison with domain settings
+and application DTO fields, plus `git diff --check`; no tests or builds run.

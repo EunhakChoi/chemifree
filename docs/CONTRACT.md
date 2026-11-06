@@ -1355,8 +1355,9 @@ A document is a titled drawing: one chemical graph (`m1`) and one page (`p1`) wi
       "references": []
     },
     "selection": { "objects": [], "atoms": [], "bonds": [] },
-    "settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "sans-serif", "label_size_pt": 12,
-                  "carbon_labels": "default", "display_unit": "pt" }
+    "settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "sans-serif",
+                  "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false, "label_shadow": false,
+                  "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" }
   },
   "session": { "saved_revision": 0, "unsaved_changes": true, "undo_depth": 1, "redo_depth": 0, "draft_revision": 1, "draft_failure": null },
   "recovery": null
@@ -1412,7 +1413,7 @@ Transaction body: `{ "request_id": string, "expected_revision": number, "command
 | `move_selection` | `selection`, `delta: { x, y }`, optional `instance` | Moves the effective union of selected subtrees, atoms and bond endpoints once; [scope and atomicity](#effective-selection-scope-and-movement-p32a) |
 | `move_objects` | `objects`, `delta: { x, y }` | Moves graphics and instance positions in the selected subtrees once, even when an ancestor and child are both named |
 | `add_reference`, `remove_reference` | `source`, `target: { kind, id }` | Add or remove a directed reference; no chemical semantics are inferred |
-| `update_settings` | optional `bond_length_pt`, `line_width_pt`, `label_font`, `label_size_pt`, `carbon_labels`, `display_unit` | Changes the named document settings; omitted fields remain unchanged |
+| `update_settings` | optional `bond_length_pt`, `line_width_pt`, `label_font`, `label_weight`, `label_style`, `label_underline`, `label_outline`, `label_shadow`, `label_size_pt`, `carbon_labels`, `display_unit` | Changes the named document settings; omitted fields remain unchanged |
 | `set_bond_mark` | `bond` (an ID or `$N`), `mark`: `null` or `{ kind: "wedge" \| "hash", narrow: "begin" \| "end" }`, `{ kind: "wavy" }`, `{ kind: "crossed" }` | Sets or clears how the bond is drawn; `null` clears. Both keys are required |
 | `set_atom_configuration` | `atom` (an ID or `$N`), `configuration`: `null`, `{ kind: "tetrahedral", neighbors: [four slots], turn }` or `{ kind: "unknown", neighbors: [four slots] }` | States or clears a stereocenter's configuration; neighbors may be listed in any order |
 | `set_bond_configuration` | `bond` (an ID or `$N`), `configuration`: `null`, `{ kind: "relative", begin_neighbor, end_neighbor, relation: "same_side" \| "opposite_sides" }` or `{ kind: "unknown" }` | States or clears a double bond's configuration |
@@ -1589,6 +1590,7 @@ Every document has its own **settings**, its style. They are saved with it, chan
 | `label_style` | `normal \| italic` | `normal` |
 | `label_underline` | boolean | `false` |
 | `label_outline` | boolean | `false` |
+| `label_shadow` | boolean | `false` |
 | `label_size_pt` | finite, 4–72 | 12 |
 | `carbon_labels` | `default` (a bonded carbon that records nothing is a bare vertex; every other carbon is labelled) `\| all` | `default` |
 | `display_unit` | `pt \| mm \| cm \| in` | `pt` |
@@ -1605,7 +1607,7 @@ Lengths are always stored in pt (1 in = 72 pt = 25.4 mm); `display_unit` only sa
 ```json
 { "api_version": "v1", "revision": 2, "ui": { "theme": "dark" },
   "new_documents": { "label_font": "serif" },
-  "new_document_settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false, "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" },
+  "new_document_settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false, "label_shadow": false, "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" },
   "computation": {
     "nmr": { "status": "not_implemented", "owner": "preferences", "followup": "P66", "note": "..." },
     "numeric_precision": { "status": "not_implemented", "owner": "preferences", "followup": "P60", "note": "..." },
