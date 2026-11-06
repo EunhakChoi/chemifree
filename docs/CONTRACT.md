@@ -143,12 +143,59 @@ shown. Normal clean Close and the existing unsaved-discard confirmation resume a
 
 This is an independently defined 2D regular-ring drawing recipe, not conformation prediction,
 aromaticity assignment, chemical layout or collision avoidance. Multiple placements, other ring
-sizes beyond 5/6 or atom/bond patterns, fusion/replacement, other substituent patterns, user templates,
+sizes beyond 5/6 or atom/bond patterns, fusion/replacement, other substituent patterns, template attachment,
 abbreviation contraction/expansion and prepared legacy template framing activation remain
 unsupported. Unknown command fields are refused. P34 remains **in_progress**. The written
 checks have not been executed in this implementation session; see
 [the P34a verification plan](verification/p34a-independent-ring.md) and
 [the P34b verification plan](verification/p34b-five-ring.md).
+
+## User graph template files (P34d)
+
+The web **User graph templates** panel saves complete selected graph components through
+the existing `document.clipboard_copy` operation. Selected bond endpoints and every internal
+bond are included, as in native copy. A non-empty `boundary_bonds` list refuses template
+saving: cut graph boundaries are not guessed attachment instructions. Scene-object selection,
+enhanced-stereo-group members and non-self-contained stereo retain native copy's refusals.
+The selected source placement supplies coordinates; multiple source placements are permitted
+when one is explicitly chosen. Source graph, selection, history and revision remain unchanged.
+
+**Download template** saves the exact `chemifree.clipboard` version 1 payload as a JSON file
+with a `.chemifree-fragment.json` filename suffix. The editable filename is not graph metadata;
+characters other than Unicode letters/numbers, dot, underscore and hyphen become underscores,
+and leading dots are removed. No new file schema, template database or server operation is
+introduced. The offer is hidden after the complete source snapshot or service generation
+changes. Download uses the already prepared bytes, without a network recheck at the click;
+it cannot detect an otherwise unobserved service restart.
+
+**Insert template file** reads one explicitly selected file, at most 64 KiB, with strict UTF-8
+decoding. Empty files and decoding failures are local errors. The filename/extension does not
+determine format. File selection alone sends no paste and edits nothing. A later file selection,
+dialog close, document switch or observed process change invalidates an older asynchronous
+read. The interface identifies the selected file; graph/version/style validation occurs through
+the existing closed native decoder only on the explicit **Insert template** click.
+
+Insertion is the existing `document.clipboard_paste`: exactly one destination placement,
+exactly matching settings, finite explicit x/y point offsets added to saved coordinates,
+fresh IDs, preserved recorded states/marks/self-contained stereo and selected new entities.
+The normal 500-command and graph/coordinate/identifier limits apply. A refusal preserves graph,
+selection, counters, history, revision and dirty state. A successful insertion is one undo step;
+Undo/Redo and save/reopen retain the same graph, IDs and coordinates. Existing destination
+entities, graphics, references and settings remain unchanged. Attachment-point metadata is
+preserved and never consumed. Source files are not rewritten or executed.
+
+The click captures file bytes, offsets, destination ID, selection and service generation;
+the queue rejects a changed destination/process. The immutable native paste attempt owns
+request ID, revision and body. An uncertain result blocks later mutations and exposes
+**Check template insertion outcome** even after closing the dialog. It checks only the same
+attempt. Restart or terminal conflict requires explicit reconciliation without inserting again
+into another process. Browser clipboard APIs are never used.
+
+Browser File/Download is the user-file adapter. Existing inert DATA template framing is not
+activated. No graph normalization, scale/rotation, attachment, replacement, abbreviation
+contraction/expansion, scene-template copying, template library management or layout search
+is provided. P34 remains **in_progress**. The new real-backend browser checks are written,
+not executed in this implementation session; see [P34d record](verification/p34d-user-template.md).
 
 ## Attached carbon ring (P34c)
 
@@ -198,7 +245,7 @@ The client checks the exact cycle/link, retained state, affected stereo/group re
 note feature/path/disposition set before adopting a claimed success. The existing StereoNotes
 shows the authoritative reasons. No clipboard access occurs.
 
-Fusion/spiro/replacement, aromatic patterns, other ring sizes, user templates, abbreviation
+Fusion/spiro/replacement, aromatic patterns, other ring sizes, user-template attachment, abbreviation
 expansion and layout/collision/conformation remain unsupported. P34 is **in_progress**.
 Tests/build/browser/mutation have not run for this candidate; see the
 [P34c record](verification/p34c-attached-ring.md).

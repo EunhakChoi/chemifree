@@ -94,6 +94,8 @@ jobs:
         run: npm run test:browser:ring
       - name: Attached carbon rings and ordinary stereo clearing
         run: npm run test:browser:attach-ring
+      - name: User graph template files with the real backend
+        run: npm run test:browser:user-template
       - name: Autosave process ownership and explicit restart reconciliation
         run: npm run test:browser:autosave-restart
       # Runs even if the guard check failed, so each check reports on its own.

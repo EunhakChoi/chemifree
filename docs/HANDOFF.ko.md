@@ -2,6 +2,14 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P34d 사용자 그래프 템플릿 파일 후보
+
+- P34c `36893cc` 기반 `feat/p34d-user-template` 후보이며 최신 main 통합 뒤 검증한다. P34는 in_progress다.
+- 실제 웹 User graph templates에서 전체 연결 성분 선택을 기존 native copy로 준비하고 명시 Download template으로 이름 있는 파일을 저장한다. 본문은 `chemifree.clipboard` v1 그대로이며 crossing bond·scene 혼합·enhanced stereo·자체완결되지 않은 입체는 거절한다. 파일 이름은 메타데이터 스키마가 아니다.
+- 명시 File 선택은 64KiB·엄격 UTF-8로 읽기만 하며 기존 decoder 검증은 Insert template 때 수행한다. 재선택·닫기·문서/process 변경의 지연 읽기를 버리고 다운로드 offer는 원본 snapshot 변경 시 숨긴다. 단일 destination placement·정확한 style·명시 pt translation과 fresh IDs/선택/한 Undo 단계·저장/복구는 기존 native paste다. 큐에서 process를 재확인하며 lost reply는 동일 body/request/process만 확인한다.
+- 새 DATA/provider activation·legacy geometry·템플릿 라이브러리·자동 attachment/교체/회전/layout·약어는 없다. 사용자 파일 I/O는 browser adapter이고 기존 source states/attachment_points를 소비하지 않는다.
+- 실제 다운로드→파일 재선택→real backend 삽입·거절·Undo/Redo·save/reopen·지연 읽기·실제 service restart·lost reply 회귀를 `npm run test:browser:user-template`와 CI에 작성했다. 부모 지시로 테스트·빌드·브라우저·mutation·push는 실행하지 않았다. [P34d 기록](verification/p34d-user-template.md)에 범위·검증 대기·리뷰를 기록한다.
+
 ## P34c 기존 원자에 고리 치환기 연결 후보
 
 - P34b `86c584c` 기반 `feat/p34c-attach-ring` 후보다. 선행 PR 병합 후 최신 main을 합쳐 검증하며 P34는 in_progress다.

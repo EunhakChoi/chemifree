@@ -229,7 +229,7 @@ export function useDocumentEditor() {
   const clipboardAttempt = useRef<ClipboardMutation | null>(null)
   const [clipboardPending, setClipboardPending] = useState(false)
   const [clipboardNeedsReload, setClipboardNeedsReload] = useState(false)
-  const [clipboardAction, setClipboardAction] = useState<'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'scene_cut' | 'smiles_import' | 'ring' | null>(null)
+  const [clipboardAction, setClipboardAction] = useState<'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'scene_cut' | 'smiles_import' | 'ring' | 'template' | null>(null)
 
   const adoptSelection = useCallback((next: Set<string>) => {
     selectionRef.current = next
@@ -710,13 +710,14 @@ export function useDocumentEditor() {
         await finishClipboardMutation()
       })
     }, [clipboardTask, finishClipboardMutation]),
-    pasteFragment: useCallback((documentId: string, payload: string, offset: { x: number; y: number }): Promise<void> => {
+    pasteFragment: useCallback((documentId: string, payload: string, offset: { x: number; y: number }, action: 'paste' | 'template' = 'paste'): Promise<void> => {
       const pressed = new Set(selectionRef.current)
       const capturedOffset = { ...offset }
+      const generation = serviceGenerationRef.current
       return clipboardTask(async () => {
         const shown = currentRef.current?.document
-        if (!shown || shown.id !== documentId) {
-          throw new ApiError('clipboard_destination_changed', 'The destination changed. Open Paste fragment again.', 0)
+        if (!shown || shown.id !== documentId || generation !== serviceGenerationRef.current) {
+          throw new ApiError('clipboard_destination_changed', 'The destination or service changed. Prepare the fragment insertion again.', 0)
         }
         const before = selectionSnapshot(pressed, shown)
         if (selectionIds(before).size !== pressed.size) {
@@ -726,9 +727,9 @@ export function useDocumentEditor() {
           kind: 'paste',
           attempt: client.createClipboardPaste(documentId, shown.revision, payload, capturedOffset, before),
           documentId,
-          generation: serviceGenerationRef.current,
+          generation,
         }
-        setClipboardAction('paste')
+        setClipboardAction(action)
         await finishClipboardMutation()
       })
     }, [clipboardTask, finishClipboardMutation]),

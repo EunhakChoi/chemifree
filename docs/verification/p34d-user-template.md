@@ -1,0 +1,65 @@
+# P34d 사용자 그래프 템플릿 파일 후보
+
+## 범위와 결정
+
+P34c `36893cc` 기반 `feat/p34d-user-template`의 bounded 후속이다. P34는 in_progress다.
+사용자 승인 범위는 선택 그래프 파일 저장·독립 삽입이며 더 많은 고리 recipe 대신
+재사용할 사용자 도형을 직접 저장할 수 있게 한다. 새로운 화학·약어 의미를 만들지 않는다.
+
+- 전체 연결 성분만 저장한다. 기존 copy의 atoms/bond endpoints/induced bonds를 쓰고,
+  `boundary_bonds`가 있으면 저장을 거절한다. 파일에 담기지 않는 잘린 결합을 attachment로
+  오해하지 않기 위한 bounded 제한이다. 원본은 변경하지 않는다.
+- 기존 `chemifree.clipboard` v1 본문을 그대로 파일 저장한다. 이름은 filename뿐이며
+  새 metadata/schema/registration/persistence를 만들지 않는다. browser File/Download는
+  사용자 파일 I/O adapter다. inert `phase4_templates`를 활성화하지 않는다.
+- 명시 선택한 파일은 64KiB·strict UTF-8로 읽기만 한다. 파일명/확장자를 신뢰하지 않으며
+  실제 구조/version/style 검증은 기존 decoder가 Insert template에서 수행한다.
+- 재선택·닫기·document/process 전환 뒤 늦은 File 응답을 버린다. 원본 snapshot이 바뀐
+  준비 offer는 다운로드하지 않는다. 미감지 service restart를 다운로드 클릭이 새로
+  조회하지는 않는다. 준비된 파일은 일반 data이며 명령이나 실행 파일이 아니다.
+- 기존 native paste의 정확한 style·한 destination placement·명시 pt translation,
+  fresh IDs·state/mark/self-contained stereo·한 Undo 단계·save/reopen을 재사용한다.
+  insertion click의 generation을 큐에서 재확인하며 immutable body/request/process로
+  lost reply를 확인한다. 닫아도 recovery controls를 남긴다. OS clipboard 접근은 없다.
+- scene/template library/attachment/replacement/rotation/scale/layout/collision/약어와
+  외부 DATA/원본 geometry/DLL은 범위 밖이다. 참조는 템플릿 본문이 아니며 destination
+  참조는 보존한다. attachment_points는 보존만 하고 소비하지 않는다.
+
+## 작성한 검증과 한계
+
+`npm run test:browser:user-template` (`scripts/web-user-template-check.mjs`)를 CI에
+연결했다. 테스트 파일은 production panel·hook·client와 실제 Rust backend를 사용하며,
+harness는 navigation/selection controls만 제공한다. 실제 editor canvas 전체 navigation이나
+외부 앱 파일 호환을 이 harness로 입증하지 않는다.
+
+- crossing/mixed 선택 저장 거절과 source snapshot/history 불변.
+- 명시 Download의 실제 파일 bytes/이름/선택 source placement 좌표, 별도 destination의
+  File 선택과 Insert 클릭 전 mutation 부재.
+- 파일 재선택/닫기/문서 전환·실제 API 재시작 중 지연 File 읽기의 stale 응답 폐기.
+- 64KiB 초과·invalid UTF-8의 client 거절, malformed JSON/unknown version/unknown field/
+  style mismatch의 실제 decoder 거절, 복수 destination placement 거절과 무변경.
+- 실제 backend commit 뒤 두 응답만 transport에서 버리고 같은 body/request/offset으로
+  confirmation하는 경로. 늦은 확정 뒤 중복 삽입 없이 한 revision/history step.
+- 독립 기대 좌표·fresh IDs·원본 isotope/charge/H/radical/attachment state·bond mark,
+  선택·destination settings/references·source 불변, Undo/Redo와 save/page-reload/reopen.
+
+**부모 지시로 테스트·빌드·브라우저·mutation·push는 실행하지 않았다.** skill gate,
+`npm run check`, standard browser smoke, 새 browser script의 실행 결과와 반증 실행은
+pending이며 이 기록은 성공 근거가 아니다. 새 Application/Domain operation이나 과학
+알고리즘은 없으므로 동일한 기존 native paste unit tests를 새 이름으로 복제하지 않았다.
+TypeScript patterns/testing과 shadcn 스킬을 적용하고 공식 Base UI component 문서를 읽었다.
+
+## 리뷰
+
+- Codex PR review: PR 미생성으로 pending. 부모의 PR 단계에서 한 번 수행하고 결과를 기록한다.
+- fresh-context 독립 subagent `/root/p34d_decision/p34d_review`: 2026-11-06
+  05:31:15–05:32:52 UTC, HEAD `9d855fbfe5766f0d7dc91db15cf4d28a0b7763e1`의
+  tracked 변경 10개·untracked 3개 local diff 전체와 P34c 대비를 읽기 전용 검토했다.
+  추상 요구사항의 임의 보충·async/file/recovery·코드 품질에 수정할 finding은 없었다.
+  새 fixture에 stored configuration과 비어 있지 않은 destination references가 없다는
+  검증 한계를 알렸다. 리뷰 후 source unknown double configuration과 destination incoming
+  atom reference를 fixture에 더하고 보존의 독립 기대값을 작성했다. 이 보강도 미실행이다.
+
+최신 main `af6c724` (P34c #177 squash)을 `9d855fb`에서 충돌 없이 합쳤다.
+동일 선행 source라 merge 자체의 추가 source 변경은 없다. `git diff --check`는 통과했으며
+이는 테스트·빌드·브라우저 성공을 뜻하지 않는다. PR Codex 리뷰·실행 검증은 부모가 이어간다.
