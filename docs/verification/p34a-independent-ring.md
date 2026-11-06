@@ -107,5 +107,18 @@ request-ID 재생성·process guard 제거는 lost-response/restart 검사로 �
   이번 수정에서는 테스트·빌드·브라우저·mutation을 실행하지 않았다. 부모가 보고한
   이전 `78b5124` 전체 검사와 `bda7835` targeted 통과는 이 추가 수정의 실행 증거가 아니다.
 
+### Close 보강 후 fixture 수정
+
+부모의 `bdee128` 격리 targeted 실행은 lint/typecheck/client/build를 통과한 뒤
+`scripts/web-ring-check.mjs:266`에서 실패했다. 로그는
+`/tmp/chemifree-p29d-verify-j4KjPa/p34a-close-targeted.log`이며, fixture가 전송 유실 뒤
+`invalid_command` 응답이면 곧바로 시도가 해소된다고 잘못 기대했다. 실제 shared
+attempt는 이미 유실된 결과를 이 오류만으로 확정하지 않고 `_unconfirmed`를 유지한다.
+제품의 보수적인 복구 동작을 유지하고 fixture를 수정했다. graph/scene 양쪽에서 이
+응답 뒤 navigation이 계속 차단됨을 단정하고, 같은 request의 다음 확인에서 terminal
+`revision_conflict`를 받아 `_reconcile`로 전환한 뒤에만 명시 authoritative reread로
+잠금을 해소하고 clean Close한다. 네 번의 전송 모두 같은 body이며, 재조회한 문서의
+새 revision도 단정한다. fixture 수정 이후 테스트·빌드·브라우저를 재실행하지 않았다.
+
 Rust/TypeScript patterns/testing skills를 적용했다. shadcn의 기존 Button/Alert/ToggleGroup
 구성을 재사용하며 새로운 UI primitive나 dependency는 추가하지 않았다.

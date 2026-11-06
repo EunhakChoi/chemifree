@@ -114,10 +114,17 @@ try {
     if (droppedBeforeDispatch > 0) { droppedBeforeDispatch -= 1; return route.abort('failed') }
     if (path === '/api/v1/operations') {
       assert.ok(['document.clipboard_paste', 'document.clipboard_scene_paste'].includes(body.operation))
+      const conflict = bodies.length > 3
+      if (conflict) {
+        state.document.title = 'Changed elsewhere'
+        state.document.revision = 4
+        state.session.saved_revision = 4
+      }
       return reply(route, { contract: 1, envelope: 'operation_result', request_id: body.request_id,
         operation: body.operation, profile: 'preserve-semantics', document_revision: null,
-        outcome: 'error', result: null, diagnostics: [{ code: 'invalid_command', message: 'Confirmed refusal.',
-          severity: 'error', path: null, details: {} }], loss_report: [] })
+        outcome: 'error', result: null, diagnostics: [{ code: conflict ? 'revision_conflict' : 'invalid_command',
+          message: conflict ? 'Revision changed before replay could confirm the attempt.' : 'Unrelated refusal after reply loss.',
+          severity: 'error', path: null, details: conflict ? { current_revision: 4 } : {} }], loss_report: [] })
     }
     assert.deepEqual(body.commands, [{ op: 'insert_ring', instance: 's1', center: { x: 100, y: 100 } }])
     let confirmed = replies.get(body.request_id)
@@ -263,9 +270,18 @@ try {
       try { await window.ringHarness.checkClipboardPaste(); return 'unexpected success' }
       catch (failure) { return failure.code }
     })
-    assert.equal(refusal, 'invalid_command', 'a definitive refusal settles the original attempt')
+    assert.equal(refusal, `clipboard_${kind}_unconfirmed`, 'an unrelated refusal cannot prove what a lost attempt did')
+    await page.evaluate(() => window.ringHarness.close(false))
+    assert.deepEqual(navigation, [], `${kind}: an unrelated refusal must not release navigation`)
+    const conflict = await page.evaluate(async () => {
+      try { await window.ringHarness.checkClipboardPaste(); return 'unexpected success' }
+      catch (failure) { return failure.code }
+    })
+    assert.equal(conflict, `clipboard_${kind}_reconcile`, 'a terminal revision conflict requires an explicit authoritative reread')
+    await page.evaluate(() => window.ringHarness.reconcileClipboardPaste())
     await page.getByLabel('Pending ring', { exact: true }).filter({ hasText: 'false' }).waitFor()
-    assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
+    assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0], bodies[0]])
+    assert.equal(await page.evaluate(() => window.ringHarness.current.document.revision), 4)
     await page.evaluate(() => window.ringHarness.close(false))
     assert.deepEqual(navigation, ['/api/v1/documents/drawing/close'])
     assert.equal(await page.getByLabel('Current document', { exact: true }).textContent(), 'none')
