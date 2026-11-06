@@ -117,3 +117,10 @@ The parent integration should run `npm run test:traceability` and
 review the new `STYLE-01.4` evidence links. This audit intentionally performs no
 execution verification. Product checks need rerunning only if integration changes
 product code or exposes a concrete concern; this commit changes documentation.
+
+Parent integration follow-up: the first isolated `test:traceability` invocation
+reported stale HANDOFF/TRACEABILITY summary totals after adding `STYLE-01.4`
+(109/60 rather than 110/61), and a missing fresh `target/conformance/report.json`.
+Both summary lines now use the checker-provided exact 110-part/61-implemented
+text. Conformance generation and verification remain parent-owned; this correction
+ran no tests and does not claim the traceability check has passed.

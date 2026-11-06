@@ -460,7 +460,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 109개(implemented 60, partial 13, unverified 3, not_implemented 33) · conformance 사례 110개(passed 110: accept 80·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 110개(implemented 61, partial 13, unverified 3, not_implemented 33) · conformance 사례 110개(passed 110: accept 80·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
