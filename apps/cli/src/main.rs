@@ -1176,7 +1176,7 @@ mod tests {
         assert_eq!(
             caption,
             [
-                r#"  s2  caption in page at (0, 0) [left]: baseline/normal/normal/inherit/inherit/inherit/none("\u{d55c}\u{ae00} e\u{301} \u{202e}\"\\ & <>")"#
+                r#"  s2  caption in page at (0, 0) [left]: baseline/normal/normal/inherit/inherit/inherit/none/filled("\u{d55c}\u{ae00} e\u{301} \u{202e}\"\\ & <>")"#
             ]
         );
         assert!(
