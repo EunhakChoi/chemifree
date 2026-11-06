@@ -37,16 +37,25 @@ Domain/Application transaction·replay·history·persistence를 공유한다. HT
 
 ## 실행 상태
 
-이 구현 작업에서는 사용자/부모가 공유 격리 실행을 맡도록 지정해 **테스트·빌드·
-브라우저 및 mutation 검사를 실행하지 않았다**. 검사 작성은 통과 증거가 아니다.
-Rust formatting과 diff의 정적 검토만 수행한다. 실행 담당자는 다음을 격리 환경에서
-확인하고 실제 결과/변이 근거를 이 기록에 추가해야 한다.
+구현 담당자는 공유 격리 실행 지시에 따라 Rust formatting과 diff의 정적 검토만
+수행했으며 테스트·빌드·브라우저·mutation 검사를 직접 실행하지 않았다.
+
+이후 부모가 구현 커밋 `59c8478d96ba27f332ce9a6033be88b16be7f649`를 공유 격리
+환경에서 검증했다. `cargo test --locked -p chemifree-domain`, `npm run lint`,
+`npm run typecheck`, `npm run test:client`(500 passed, 0 failed), `npm run build`
+(웹 production build와 Rust workspace build), `npm run test:browser:ring`이 통과했다.
+로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34a-targeted.log`이며 `sandbox-run: exit=0`,
+peak anon 1217 MiB·page cache 3110 MiB·cap 6144 MiB·swap 0을 기록한다.
+전용 browser는 scripted HTTP 경계의 canvas/hook/client 검사이며 실제 backend의
+canvas 통합이나 전체 browser smoke 통과를 뜻하지 않는다.
+
+전체 `npm run check`, Application ring 전용 테스트, HTTP=CLI 계약 smoke,
+전체 browser smoke·mutation 검증·PR/병합 CI는 아직 이 기록의 통과 근거가 없다.
+다음 남은 명령은 격리 실행 담당자가 확인하고 실제 결과를 추가해야 한다.
 
 ```sh
-cargo test --locked -p chemifree-domain --test insert_ring
 cargo test --locked -p chemifree-application --test insert_ring
 npm run check
-npm run test:browser:ring
 npm run test:browser
 ```
 
@@ -66,7 +75,8 @@ request-ID 재생성·process guard 제거는 lost-response/restart 검사로 �
   IDs/history·DTO/catalog·중심 클릭·immutable process gate·작성 검사·범위를 확인했다.
   테스트/빌드/브라우저/mutation/skill gate는 실행하지 않았다. 이후 보강한 시험은
   drag 비삽입·OS clipboard 접근 금지·terminal revision conflict의 명시 reconcile다.
-- PR Codex review와 최종 검증·CI: 아직 요청/실행하지 않았다.
+- PR Codex review: pending. 완료된 PR review 근거는 아직 이 기록에 없다.
+  전체 검증과 PR/병합 CI도 pending이며 위 targeted 통과로 완료 처리하지 않는다.
 
 Rust/TypeScript patterns/testing skills를 적용했다. shadcn의 기존 Button/Alert/ToggleGroup
 구성을 재사용하며 새로운 UI primitive나 dependency는 추가하지 않았다.
