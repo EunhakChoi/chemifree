@@ -2,6 +2,11 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## Browser smoke 종료 시 요청 기록 경합 보강 후보
+
+- main `af6c724` 기반 `fix/browser-smoke-teardown`은 완료된 smoke 뒤 async requestfinished logger가 browser.close와 경합하는 문제를 수정한다. response event에서 status를 동기 보관하고 완료/실패를 동기 기록하며 cleanup 전에 이 observer의 listener만 제거한다. 기존 browser 오류 감지·검사 단정은 유지한다.
+- node event-boundary 회귀 5개를 `npm run test:checks`에 연결했다. 부모 지시로 테스트·빌드·브라우저·push는 실행하지 않았으며 full/CI는 pending이다. 원인·독립 리뷰·미실행 검증은 [기록](verification/browser-smoke-teardown.md)을 따른다.
+
 ## P34c 기존 원자에 고리 치환기 연결 후보
 
 - P34b `86c584c` 기반 `feat/p34c-attach-ring` 후보다. 선행 PR 병합 후 최신 main을 합쳐 검증하며 P34는 in_progress다.

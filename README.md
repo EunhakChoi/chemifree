@@ -123,7 +123,7 @@ npm run check:rust       # rustfmt + clippy (-D warnings) + Rust tests
 npm run test:contracts   # Real HTTP/CLI processes: parity, document flow, guards, conflicts, failures
 npm run test:conformance # Conformance cases → target/conformance/report.json; exit 1 if any case fails
 npm run test:traceability # Traceability files against the roadmap, the recorded run, and npm scripts
-npm run test:checks      # node:test tests for the main rules of the traceability check
+npm run test:checks      # node:test checks for traceability rules and smoke request-log lifecycle
 npm run check            # All of the above
 npm run conformance:record   # Rewrite the committed run record (review the change before committing)
 npm run build            # Web assets and debug Rust binaries
