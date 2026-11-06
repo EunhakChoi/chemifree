@@ -58,3 +58,20 @@ Implementation-agent execution record:
 - No tests, production builds, browser checks or mutation checks were executed by the
   implementation agent. Parent integration owns isolated, resource-bounded validation and
   both repository reviews; no passing outcome for those checks is claimed here.
+
+Independent review disposition (P2, caption persistence boundary): fixed. Raising run
+metadata from 96 to 128 bytes changes each 32-run maximal caption's complete before/after
+update reservation to 74,304 bytes. The empty-selection entry overhead is 576 bytes, so
+112 updates reserve 8,322,624 bytes (accepted) and 113 reserve 8,396,928 bytes (refused)
+against the unchanged 8,388,608-byte history cap. The domain boundary regression now
+checks those adjacent counts and retains its rollback, restore and Undo/Redo checks.
+
+Static comparison found another affected accepted fixture: the maximal storage state has
+7,000 selected entities in each selection, adding 224,576 bytes of entry overhead. Its
+move now uses 109 captions (8,323,712 bytes total); 110 would reserve 8,398,016 bytes and
+exceed the cap. Other budget assertions remain valid: 100-caption repeated updates reserve
+7,430,976 bytes per entry (one fits, two do not), 500 maximal creations still exceed the
+cap, the 117-caption application group move still exceeds the cap, and equal UTF-8 byte
+lengths still receive equal text reservations. These are static calculations, not executed
+test results. No tests or builds were run while addressing this finding; parent isolated
+validation remains responsible for execution evidence.

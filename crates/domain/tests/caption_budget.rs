@@ -54,9 +54,9 @@ fn first(doc: &Document) -> &str {
 
 #[test]
 fn largest_single_caption_transaction_keeps_undo_and_the_next_size_refuses_atomically() {
-    let mut doc = document(117);
+    let mut doc = document(113);
     let before = doc.clone();
-    let refused = doc.apply(&updates(117, '\\')).unwrap_err();
+    let refused = doc.apply(&updates(113, '\\')).unwrap_err();
     assert_eq!(
         refused.index, None,
         "this is a whole-transaction reservation"
@@ -64,8 +64,10 @@ fn largest_single_caption_transaction_keeps_undo_and_the_next_size_refuses_atomi
     assert_eq!(refused.error, EditError::CaptionPersistenceLimit);
     assert_eq!(refused.error.reason(), Some("caption_persistence_limit"));
     assert_eq!(doc, before);
-    // With 32 maximal runs, both states and metadata for 116 updates fit 8 MiB; 117 do not.
-    doc.apply(&updates(116, '\\')).unwrap();
+    // At 128 metadata bytes per run, each complete before/after update reserves
+    // 74,304 bytes. With the 576-byte empty-selection entry overhead, 112 fit 8 MiB;
+    // the 113th does not.
+    doc.apply(&updates(112, '\\')).unwrap();
     assert_eq!(
         doc.undo_depth(),
         1,

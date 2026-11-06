@@ -1324,13 +1324,15 @@ mod tests {
             .unwrap();
         // Isolate the maximal current state, then nearly fill its separate history budget
         // with both complete caption states and the maximal before/after selections.
+        // The 7,000 selected entities reserve 224,576 entry bytes; 109 maximal caption
+        // updates add 8,099,136 bytes and fit 8 MiB, while 110 would exceed it.
         let mut parts = document.to_parts();
         parts.undo.clear();
         parts.redo.clear();
         document = Document::restore(parts).unwrap();
         document
             .apply(&[Command::MoveObjects {
-                objects: (MAX_INSTANCES + 1..MAX_INSTANCES + 113)
+                objects: (MAX_INSTANCES + 1..MAX_INSTANCES + 110)
                     .map(|serial| ObjectId::from_serial(serial as u32).unwrap())
                     .collect(),
                 delta: Vector {
