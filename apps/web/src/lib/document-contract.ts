@@ -2295,6 +2295,11 @@ export class DocumentClient {
     }
   }
 
+  /** Explicit Saved-documents reconciliation ends tracking; it never resends or rolls back creation. */
+  reconcileInterchangeCreation(input: InterchangeInput, digest: string): void {
+    this.unconfirmed.delete(`interchange:${JSON.stringify([input, digest])}`)
+  }
+
   async previewCt(documentId: string, revision: number, format: CtFormat, source: string, record: number): Promise<CtPreview> {
     const reply = ctReply(await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.import',

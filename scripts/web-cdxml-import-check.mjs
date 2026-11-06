@@ -8,17 +8,20 @@ import { chromium } from 'playwright-core'
 import { keepRequestInterception } from './lib/request-interception.mjs'
 
 const fixture = `
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { CdxmlImport } from '/src/components/cdxml-import.tsx'
+import { CdxmlImport, InterchangeCreationNotice } from '/src/components/cdxml-import.tsx'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
 import '/src/index.css'
 function Harness() {
   const editor = useDocumentEditor()
+  const [picker, setPicker] = useState(true)
   useEffect(() => { void editor.open('original') }, [])
   window.cdxmlHarness = { editor }
   return <><output aria-label="Current document">{editor.current?.document.id ?? 'loading'}</output>
-    <CdxmlImport editor={editor} /></>
+    <button disabled={editor.busy} onClick={async () => { await editor.open('original'); setPicker(false) }}>Inspect Saved drawing</button>
+    <button disabled={editor.busy} onClick={() => setPicker(true)}>Return to import form</button>
+    {picker ? <CdxmlImport editor={editor} /> : <InterchangeCreationNotice editor={editor} />}</>
 }
 createRoot(document.getElementById('root')).render(<Harness />)
 `
@@ -60,6 +63,7 @@ try {
   let loseCreation = false
   let dirtyOriginal = false
   let draftWrites = 0
+  let newDocumentPosts = 0
   const source = '\ufeff<?xml version="1.0"?>\r\n<CDXML><page id="7"><fragment id="9"/><fragment id="12"/></page></CDXML>\r\n'
   const choices = [
     { page_id: 7, fragment_id: 9, page_path: 'page7', fragment_path: 'page7/fragment9' },
@@ -78,6 +82,10 @@ try {
       creationPosts.push({ body: request.postDataJSON(), token: request.headers()['x-chemifree-session'] })
     }
     if (request.method() !== 'GET' && request.headers()['x-chemifree-session'] !== token) return respond(route, { api_version: 'v1', code: 'unauthorized', message: 'Session changed.' }, 401)
+    if (path === '/api/v1/documents' && request.method() === 'POST') {
+      newDocumentPosts += 1
+      return respond(route, snapshot('unexpected-new-document'))
+    }
     if (path === '/api/v1/documents' || path === '/api/v1/trash') return respond(route, { api_version: 'v1', documents: [], unreadable: [] })
     if (path === '/api/v1/documents/original/autosave') {
       draftWrites += 1
@@ -166,6 +174,22 @@ try {
   await page.getByRole('alert').filter({ hasText: 'Not a CDXML' }).waitFor()
   assert.equal(commits.size, 0)
 
+  const file = page.getByLabel('CDXML or CDX file', { exact: true })
+  const fixtureFile = { name: 'fixture.cdxml', mimeType: 'text/xml', buffer: Buffer.from(source, 'utf8') }
+  await file.setInputFiles(fixtureFile)
+  await page.getByLabel('Page and molecule', { exact: true }).waitFor()
+  assert.equal(await file.evaluate((input) => input.files.length), 1)
+  await field.fill('text replaces the file source')
+  assert.equal(await file.evaluate((input) => input.files.length), 0, 'text invalidation clears the native file path')
+  const readsBeforeReselect = requests.filter((request) => request.parameters.mode === 'read').length
+  await file.setInputFiles(fixtureFile)
+  await page.getByLabel('Page and molecule', { exact: true }).waitFor()
+  assert.equal(requests.filter((request) => request.parameters.mode === 'read').length, readsBeforeReselect + 1, 'the same file can be selected and read again')
+  await page.getByLabel('Page and molecule', { exact: true }).selectOption('1')
+  await page.getByRole('button', { name: 'Preview import', exact: true }).click()
+  await page.getByTestId('cdxml-preview').waitFor()
+  assert.equal(requests.at(-1).parameters.fragment_id, 12, 'ordinary file molecule selection still previews')
+
   async function prepare() {
     await page.evaluate((text) => { window.cdxmlClipboard.text = text }, source)
     await read.click()
@@ -192,6 +216,18 @@ try {
   assert.equal(commits.size, 1)
   assert.equal(await field.isDisabled(), true, 'uncertain creation cannot be redirected to new source')
   const first = requests.find((request) => request.parameters.mode === 'create')
+  const frozenAttempt = await page.evaluate(() => window.cdxmlHarness.editor.interchangeCreation)
+  await page.evaluate(() => window.cdxmlHarness.editor.clearInterchangeCreation())
+  assert.deepEqual(await page.evaluate(() => window.cdxmlHarness.editor.interchangeCreation), frozenAttempt, 'an unresolved attempt cannot be cleared as if it had been reconciled')
+  await page.getByRole('button', { name: 'Inspect Saved drawing', exact: true }).click()
+  assert.equal(await field.count(), 0, 'inspecting a saved drawing unmounts the picker')
+  await check.waitFor()
+  await page.evaluate(() => window.cdxmlHarness.editor.create())
+  assert.equal(newDocumentPosts, 0, 'editor-level lock rejects another creation during reconciliation')
+  await page.getByRole('button', { name: 'Return to import form', exact: true }).click()
+  assert.equal(await field.isDisabled(), true, 'the remounted picker retains its lock')
+  assert.equal(await field.inputValue(), '', 'temporary source fields are separate from persistent attempt tracking')
+  assert.deepEqual(await page.evaluate(() => window.cdxmlHarness.editor.interchangeCreation), frozenAttempt)
   loseCreation = false
   await check.click()
   await page.getByLabel('Current document').filter({ hasText: 'created-1' }).waitFor()
@@ -214,7 +250,15 @@ try {
   await page.getByRole('button', { name: 'Refresh Saved documents', exact: true }).waitFor()
   assert.equal(requests.length, beforeRestart, 'a restarted service never receives another creation attempt')
   assert.equal(commits.size, 2)
+  const reconcileAttempt = await page.evaluate(() => window.cdxmlHarness.editor.interchangeCreation)
+  await page.getByRole('button', { name: 'Inspect Saved drawing', exact: true }).click()
+  assert.equal(await field.count(), 0)
+  assert.equal(await page.getByRole('button', { name: 'I checked Saved documents; clear this attempt', exact: true }).count(), 1)
+  await page.getByRole('button', { name: 'Return to import form', exact: true }).click()
+  assert.equal(await field.isDisabled(), true)
+  assert.deepEqual(await page.evaluate(() => window.cdxmlHarness.editor.interchangeCreation), reconcileAttempt)
   await page.getByRole('button', { name: 'Refresh Saved documents', exact: true }).click()
+  assert.equal(await field.isDisabled(), true, 'refreshing the list is not an acknowledgment that creation failed')
   await page.getByRole('button', { name: 'I checked Saved documents; clear this attempt', exact: true }).click()
   dirtyOriginal = true
   await page.evaluate(() => { void window.cdxmlHarness.editor.open('original') })
@@ -237,6 +281,17 @@ try {
   assert.equal(creationPosts.at(-1).token, 'cdxml-process-2', 'only the old authorization is attempted')
   assert.equal(commits.size, 3, 'a first-send restart never creates an unreviewed new-process drawing')
   assert.equal(await page.getByLabel('Current document').textContent(), 'created-3')
+  await page.getByRole('button', { name: 'I checked Saved documents; clear this attempt', exact: true }).click()
+  await file.setInputFiles(fixtureFile)
+  await page.getByLabel('Page and molecule', { exact: true }).waitFor()
+  await page.getByLabel('Page and molecule', { exact: true }).selectOption('1')
+  await page.getByLabel('New drawing title', { exact: true }).fill('File molecule')
+  await page.getByRole('button', { name: 'Preview import', exact: true }).click()
+  await page.getByTestId('cdxml-preview').waitFor()
+  await page.getByRole('button', { name: 'Accept losses and create drawing', exact: true }).click()
+  await page.getByLabel('Current document').filter({ hasText: 'created-4' }).waitFor()
+  await page.waitForFunction(() => document.getElementById('cdxml-file').files.length === 0)
+  assert.equal(commits.size, 4, 'ordinary file import still creates exactly one new drawing')
   assert.deepEqual(await page.evaluate(() => window.cdxmlClipboard.reads), [true, true, true, true, true, true])
   assert.deepEqual(errors, [])
   console.log('CDXML exact text, explicit source/consent, new-drawing creation and process-bound recovery checks passed.')

@@ -13,7 +13,7 @@
 
 - 74f608b 기준 독립 worktree에서 기존 CdxmlImport 폼에 Read CDXML clipboard·수동 text·Read CDXML pages and molecules를 추가했다. 읽기는 field만 채우고 별도 클릭에서만 정확한 source를 mode:read로 보낸다. UTF-8 120KiB·명시 cdxml이며 CDX/base64/HTML 형식 추측은 없다. 지연 읽기는 새 source/manual 편집·process 변경을 덮지 않는다.
 - 기존 page/fragment 선택→title→projection preview/mapping/losses→명시 동의→mode:create를 재사용한다. 현재 도면 append가 아니며 graph/selection/history는 바꾸지 않고 기존 file import의 새 도면 생성·이전 도면 autosave 동작을 따른다.
-- 미확정 생성은 input/digest/request/process를 유지하고 source/file/choice/title/새 생성 제어를 잠근다. Check CDXML creation outcome은 같은 createOnce 결과만 확인한다. restart/held old-process success는 새 도면을 채택하지 않고 Saved documents를 명시 확인한 뒤 시도를 비울 수 있다. 성공한 생성 뒤 이전 도면 draft 실패를 새 생성 재시도 이유로 삼지 않는다.
+- 미확정 생성은 editor-level state/ref에 input/digest/request/process를 유지하고 source/file/choice/title/새 생성 제어를 잠근다. Saved 도면 Open으로 picker가 unmount돼도 recovery notice와 lock은 남으며 복귀 시에도 같은 시도를 확인한다. 목록 refresh/Open은 명시적 reconcile 확인을 대신하지 않는다. text가 file source를 무효화하거나 생성이 끝나면 native file input도 비워 같은 파일 재선택을 허용한다. Check CDXML creation outcome은 같은 createOnce 결과만 확인한다. restart/held old-process success는 새 도면을 채택하지 않고 Saved documents를 명시 확인한 뒤 시도를 비울 수 있다. 성공한 생성 뒤 이전 도면 draft 실패를 새 생성 재시도 이유로 삼지 않는다.
 - 전용 browser script는 실제 form/hook/client와 scripted HTTP/clipboard로 권한/manual fallback·stale read·UTF-8 경계·source/선택/동의·중복 생성 방지·restart 미재전송을 검사하도록 작성했고 client 회귀를 더했다. npm run test:browser:cdxml-import를 CI에 연결했으나 테스트/빌드/브라우저는 실행하지 않았다. 기존 slice 통과를 이 후보 검증으로 세지 않는다. P33은 in_progress이며 append·Cut·custom MIME·새 backend/chemistry는 추가하지 않는다.
 
 ## P32 제한된 선택·기하 납품 완료

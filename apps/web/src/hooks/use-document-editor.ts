@@ -4,6 +4,7 @@ import { useAutosave } from '@/hooks/use-autosave'
 import { mergeGroupSelection, selectionAfterGroup, selectionIds, selectionSnapshot } from '@/editor/scene-selection'
 import {
   ApiError,
+  outcomeOpen,
   DocumentClient,
   sameConversionSnapshot,
   type Command,
@@ -91,6 +92,15 @@ export type Edit = Command[] | ((document: DocumentView) => Command[] | null)
 
 /** What committing an import came to; a refusal is the caller's to show. */
 export type ImportResult = { committed: true } | { committed: false; failure: ApiError | null }
+
+/** Survives picker navigation until creation is confirmed or explicitly reconciled. */
+export interface InterchangeCreation {
+  input: InterchangeInput
+  digest: string
+  generation: number
+  status: 'sending' | 'unconfirmed' | 'reconcile'
+  message?: string
+}
 
 /** Grouping replaces selected scene members; a drag supplies its own press-time history selection. */
 export type EditSelection = { kind: 'group'; objects: string[] } | { kind: 'gesture'; before: ReadonlySet<string> }
@@ -195,6 +205,12 @@ export function useDocumentEditor() {
   const currentRef = useRef<DocumentResponse | null>(null)
   const queue = useRef<Promise<void>>(Promise.resolve())
   const failures = useRef(0)
+  const [interchangeCreation, setInterchangeCreationState] = useState<InterchangeCreation | null>(null)
+  const interchangeCreationRef = useRef<InterchangeCreation | null>(null)
+  const setInterchangeCreation = useCallback((attempt: InterchangeCreation | null) => {
+    interchangeCreationRef.current = attempt
+    setInterchangeCreationState(attempt)
+  }, [])
   // An unanswered clipboard mutation is checked with its original request, never resubmitted.
   const clipboardAttempt = useRef<ClipboardMutation | null>(null)
   const [clipboardPending, setClipboardPending] = useState(false)
@@ -496,6 +512,49 @@ export function useDocumentEditor() {
     return committed
   }, [run, setCurrent])
 
+  const performInterchangeCreation = useCallback(async (attempt: InterchangeCreation, checking: boolean) => {
+    let confirmed = false
+    let started = false
+    try {
+      await clipboardTask(async () => {
+        await show(async () => {
+          if (attempt.generation !== serviceGenerationRef.current) {
+            throw new ApiError(checking ? 'create_unconfirmed' : 'preview_changed',
+              checking ? 'The service changed. Inspect Saved documents before clearing the original attempt.' : 'The service changed. Read and preview the source again before creating a drawing.',
+              checking ? 401 : 400)
+          }
+          started = true
+          const created = await client.createInterchange(attempt.input, attempt.digest, 'reload')
+          if (attempt.generation !== serviceGenerationRef.current) {
+            throw new ApiError('create_unconfirmed', 'The service changed before this creation was confirmed. Check Saved documents before creating another drawing.', 401)
+          }
+          confirmed = true
+          return created
+        })
+      })
+      setInterchangeCreation(null)
+      refreshList()
+    } catch (failure) {
+      const error = asApiError(failure)
+      if (confirmed && error.code === 'draft_not_written') {
+        // Creation is confirmed even if drafting the drawing being left failed.
+        setInterchangeCreation(null)
+        report(error)
+        refreshList()
+        return
+      }
+      if (error.code === 'create_unconfirmed') {
+        setInterchangeCreation({ ...attempt, status: 'reconcile', message: error.message })
+        refreshList()
+      } else if ((checking || started) && (outcomeOpen(error) || error.code === 'incompatible_response')) {
+        setInterchangeCreation({ ...attempt, status: 'unconfirmed', message: error.message })
+      } else {
+        setInterchangeCreation(null)
+      }
+      throw error
+    }
+  }, [clipboardTask, show, setInterchangeCreation, refreshList, report])
+
   return {
     list,
     listQuery,
@@ -678,38 +737,31 @@ export function useDocumentEditor() {
     currentServiceGeneration: useCallback(() => serviceGenerationRef.current, []),
     readInterchange: useCallback((source: string, format: InterchangeFormat) => client.readInterchange(source, format), []),
     previewInterchange: useCallback((input: InterchangeInput) => client.previewInterchange(input), []),
-    createInterchange: useCallback((input: InterchangeInput, digest: string, context?: { generation: number; checking: boolean }) => {
-      const frozen = { ...input }
-      const generation = context?.generation
-      const checking = context?.checking ?? false
-      return clipboardTask(async () => {
-        let confirmed = false
-        try {
-          await show(async () => {
-            if (generation !== undefined && !checking && generation !== serviceGenerationRef.current) {
-              throw new ApiError('preview_changed', 'The service changed. Read and preview the source again before creating a drawing.', 400)
-            }
-            const created = await client.createInterchange(frozen, digest, generation === undefined ? 'retry' : 'reload')
-            if (generation !== undefined && generation !== serviceGenerationRef.current) {
-              throw new ApiError('create_unconfirmed', 'The service changed before this creation was confirmed. Check Saved documents before creating another drawing.', 401)
-            }
-            confirmed = true
-            return created
-          })
-          refreshList()
-        } catch (failure) {
-          if (confirmed && failure instanceof ApiError && failure.code === 'draft_not_written') {
-            // Creation is already confirmed. Report the old drawing's draft issue
-            // without inviting a second creation with a fresh request ID.
-            report(failure)
-            refreshList()
-            return
-          }
-          if (failure instanceof ApiError && failure.code === 'create_unconfirmed') refreshList()
-          throw failure
-        }
-      })
-    }, [clipboardTask, show, refreshList, report]),
+    interchangeCreation,
+    createInterchange: useCallback((input: InterchangeInput, digest: string, context?: { generation: number }) => {
+      if (interchangeCreationRef.current) {
+        return Promise.reject(new ApiError('interchange_creation_pending', 'Check or explicitly reconcile the pending imported drawing before creating another.', 409))
+      }
+      const attempt: InterchangeCreation = { input: { ...input }, digest,
+        generation: context?.generation ?? serviceGenerationRef.current, status: 'sending' }
+      setInterchangeCreation(attempt)
+      return performInterchangeCreation(attempt, false)
+    }, [performInterchangeCreation, setInterchangeCreation]),
+    checkInterchangeCreation: useCallback(() => {
+      const pending = interchangeCreationRef.current
+      if (!pending) return Promise.resolve()
+      if (pending.status === 'sending') return Promise.reject(new ApiError('request_in_progress', 'The original creation check is already running.', 409))
+      if (pending.status === 'reconcile') return Promise.reject(new ApiError('create_unconfirmed', 'Inspect Saved documents before explicitly clearing this attempt.', 409))
+      const checking: InterchangeCreation = { ...pending, status: 'sending' }
+      setInterchangeCreation(checking)
+      return performInterchangeCreation(checking, true)
+    }, [performInterchangeCreation, setInterchangeCreation]),
+    clearInterchangeCreation: useCallback(() => {
+      const pending = interchangeCreationRef.current
+      if (pending?.status !== 'reconcile') return
+      client.reconcileInterchangeCreation(pending.input, pending.digest)
+      setInterchangeCreation(null)
+    }, [setInterchangeCreation]),
     isCurrentConversion: useCallback((snapshot: DocumentView, generation: number) =>
       serviceGenerationRef.current === generation && currentRef.current !== null &&
       sameConversionSnapshot(currentRef.current.document, snapshot), []),
@@ -786,6 +838,7 @@ export function useDocumentEditor() {
     create: useCallback(
       (title?: string) =>
         run(async () => {
+          if (interchangeCreationRef.current) throw new ApiError('interchange_creation_pending', 'Check or explicitly reconcile the pending imported drawing before creating another.', 409)
           try {
             await show(() => client.create(title))
           } catch (failure) {

@@ -5,7 +5,7 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import { ApiError, outcomeOpen, type InterchangeChoice, type InterchangeFormat, type InterchangeInput, type InterchangePreview } from '@/lib/document-contract'
+import type { InterchangeChoice, InterchangeFormat, InterchangeInput, InterchangePreview } from '@/lib/document-contract'
 
 /** This form's cap on the file itself; CDX grows by a third as base64 and must fit the 256 KiB request body. */
 const MAX_FILE_BYTES = 120 * 1024
@@ -42,7 +42,8 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
   const [error, setError] = useState<string | null>(null)
   const [text, setText] = useState('')
   const [reading, setReading] = useState(false)
-  const [creation, setCreation] = useState<{ prepared: Prepared; reconcile: boolean } | null>(null)
+  const creation = editor.interchangeCreation
+  const fileInput = useRef<HTMLInputElement>(null)
   const sequence = useRef(0)
   const creating = useRef(false)
   const alive = useRef(true)
@@ -50,6 +51,11 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     alive.current = true
     return () => { alive.current = false; sequence.current += 1 }
   }, [])
+  useEffect(() => {
+    // A detected restart also invalidates the file-backed read. Allow the same
+    // file to fire change again after the user has reconciled the old attempt.
+    if (fileInput.current) fileInput.current.value = ''
+  }, [editor.serviceGeneration])
 
   const current = prepared?.generation === editor.serviceGeneration ? prepared : null
   const liveSource = source?.generation === editor.serviceGeneration ? source : null
@@ -59,6 +65,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
   function editText(value: string) {
     sequence.current += 1
     setText(value)
+    if (fileInput.current) fileInput.current.value = ''
     setSource(null)
     setPrepared(null)
     setChoice(0)
@@ -167,30 +174,17 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     }
   }
 
-  async function create(checking = false) {
-    const ready = checking ? creation?.prepared : current
-    if (!ready || creating.current || pending || editor.busy || creation?.reconcile) return
+  async function create() {
+    const ready = current
+    if (!ready || creating.current || pending || editor.busy || locked) return
     creating.current = true
     setPending(true)
     setError(null)
-    setCreation({ prepared: ready, reconcile: false })
     try {
-      await editor.createInterchange(ready.input, ready.preview.digest, { generation: ready.generation, checking })
-      if (alive.current) {
-        setCreation(null)
-        editText('')
-      }
+      await editor.createInterchange(ready.input, ready.preview.digest, { generation: ready.generation })
+      if (alive.current) editText('')
     } catch (cause) {
-      if (!alive.current) return
-      if (cause instanceof ApiError && cause.code === 'create_unconfirmed') {
-        setCreation({ prepared: ready, reconcile: true })
-        editor.refreshList()
-      } else if (!(cause instanceof ApiError) || outcomeOpen(cause) || cause.code === 'incompatible_response') {
-        setCreation({ prepared: ready, reconcile: false })
-      } else {
-        setCreation(null)
-      }
-      setError(cause instanceof Error ? cause.message : 'The creation outcome is unknown. Check the original attempt.')
+      if (alive.current) setError(cause instanceof Error ? cause.message : 'The creation outcome is unknown. Check the original attempt.')
     } finally {
       creating.current = false
       if (alive.current) setPending(false)
@@ -202,7 +196,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     <p className="text-sm text-muted-foreground">Choose a page and molecule. The editor supports one molecule; review the other content that will be left out before creating a new drawing.</p>
     <Field>
       <FieldLabel htmlFor="cdxml-file">CDXML or CDX file</FieldLabel>
-      <Input id="cdxml-file" type="file" accept=".cdxml,.cdx,application/xml,text/xml" disabled={pending || reading || locked || editor.busy}
+      <Input ref={fileInput} id="cdxml-file" type="file" accept=".cdxml,.cdx,application/xml,text/xml" disabled={pending || reading || locked || editor.busy}
         onChange={(event) => void chooseFile(event.currentTarget.files?.[0])} />
       <FieldDescription>External resources are never fetched. Files up to 120 KiB; CDX is sent as base64.</FieldDescription>
     </Field>
@@ -217,15 +211,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
       <Button variant="outline" disabled={pending || reading || locked || editor.busy} onClick={() => void readClipboard()}>Read CDXML clipboard</Button>
       <Button variant="outline" disabled={pending || reading || locked || editor.busy || !text.trim() || !fits} onClick={() => void readText()}>Read CDXML pages and molecules</Button>
     </div>
-    {creation && <div role="status" className="flex flex-col gap-2 text-sm">
-      <p>{creation.reconcile ? 'The service changed before creation was confirmed. Check Saved documents before creating another drawing; this form will not resend into a new process.' : 'Creation may have completed. Check the original attempt before preparing another drawing.'}</p>
-      {creation.reconcile
-        ? <>
-          <Button variant="outline" disabled={pending} onClick={() => editor.refreshList()}>Refresh Saved documents</Button>
-          <Button variant="outline" disabled={pending} onClick={() => { setCreation(null); editText('') }}>I checked Saved documents; clear this attempt</Button>
-        </>
-        : <Button variant="outline" disabled={pending || editor.busy} onClick={() => void create(true)}>Check CDXML creation outcome</Button>}
-    </div>}
+    <InterchangeCreationNotice editor={editor} onClear={() => editText('')} />
     {liveSource && liveSource.choices.length === 0 && <p role="status">No page and top-level molecule with IDs can be projected into the editor.</p>}
     {liveSource && liveSource.choices.length > 0 && <>
       <Field>
@@ -263,4 +249,20 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
       </Button>
     </div>}
   </section>
+}
+
+/** Recovery stays visible while inspecting Saved documents, outside the conditional picker. */
+export function InterchangeCreationNotice({ editor, onClear }: { editor: DocumentEditor; onClear?: () => void }) {
+  const creation = editor.interchangeCreation
+  if (!creation) return null
+  return <div role="status" className="flex flex-col gap-2 text-sm">
+    <p>{creation.message ?? (creation.status === 'sending' ? 'Checking the reviewed drawing creation.' : 'Creation may have completed. Check the original attempt before preparing another drawing.')}</p>
+    {creation.status === 'reconcile'
+      ? <>
+        <p>Inspect Saved documents before explicitly clearing this attempt. This does not mean the earlier creation failed.</p>
+        <Button variant="outline" disabled={editor.busy} onClick={() => editor.refreshList()}>Refresh Saved documents</Button>
+        <Button variant="outline" disabled={editor.busy} onClick={() => { editor.clearInterchangeCreation(); onClear?.() }}>I checked Saved documents; clear this attempt</Button>
+      </>
+      : <Button variant="outline" disabled={editor.busy || creation.status === 'sending'} onClick={() => void editor.checkInterchangeCreation().catch(() => {})}>Check CDXML creation outcome</Button>}
+  </div>
 }
