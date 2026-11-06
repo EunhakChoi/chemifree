@@ -153,6 +153,24 @@ transaction sub-operation exact 48/37/11 검사는 유지했다. browser의 DATA
 28/38 기대값도 이미 반영돼 있다. 이 실패를 full 통과로 세지 않으며 수정 HEAD의 full/CI는
 재검증 대기다. 작성자는 테스트·빌드·브라우저·push를 실행하지 않았다.
 
+## 두 번째 full 실행의 독립 catalog 총수 기대값 수정
+
+부모의 `be25bf1aa04f608ab80a4fe3a687c48c9f895290` 격리 full 로그
+`/tmp/chemifree-p29d-verify-j4KjPa/p34e-final-full.log:4675`에서
+stereo_group_wire의 catalog 총수 비교가 expected35/actual38로 실패했다(해당 suite
+17 passed/1 failed). 이 독립 exact 기대값을 template 세 연산을 포함하는 38로 고치고,
+그룹 명령 8개 및 capability commands의 exact 검사는 그대로 유지했다.
+
+저장소의 Rust/TS/TSX/MJS/shell/Python 코드와 conformance JSON을 rg로 정적 검색해
+catalog/operations 개수, 실행 가능 목록, summary 문자열과 35/25 잔존 값을 대조했다.
+operations.rs의 38개 총수 및 명시 executable 배열은 이미 세 template 연산을 포함하며,
+OperationId::ALL의 38개 순서와 일치한다. transaction 48/37/11 및 그룹 명령 배열은
+이 slice에서 바뀌지 않는다. browser 요약 28/38은 맞고 README의 현재 요약 35/25는
+38/28로 수정했다. provider capability 8개와 conformance의 $contains 부분 검사는
+전체 operation 목록 검사가 아니므로 유지했다. HANDOFF 등의 과거 slice 시점 수치는
+이력으로 보존했다. 정적 대조는 실행 통과 근거가 아니며 새 HEAD의 full/CI는 pending이다.
+작성자는 테스트·빌드·브라우저·push 없이 fmt/diff 검사만 수행했다.
+
 ## 실행 대기
 
 부모의 공유 격리 실행 지시에 따라 테스트·빌드·브라우저·lint/typecheck/clippy·mutation·
