@@ -443,6 +443,17 @@ pub(crate) fn drawing_losses(
             },
         );
     }
+    for display in &doc.fragment_displays {
+        push(
+            &format!(
+                ".fragment_displays[{}:{}]",
+                display.instance, display.anchor
+            ),
+            "abbreviation_display",
+            SemanticImpact::Rendering,
+            "Display text is omitted; the complete underlying chemical graph is written without compact appearance. Text does not define chemistry.",
+        );
+    }
     for abbreviation in &doc.abbreviations {
         push(
             &format!(

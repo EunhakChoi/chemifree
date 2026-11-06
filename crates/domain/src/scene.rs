@@ -257,6 +257,8 @@ pub enum DeleteMode {
 pub enum SceneError {
     /// Unsupported or invalid Et display.
     AbbreviationInvalid,
+    /// Explicit fragment display is outside its supported graph profile.
+    FragmentDisplayInvalid,
     /// Cosmetic display text violates the shared single-line profile or 128-byte bound.
     DisplayLabelInvalid,
     /// Caption content violates the bounded text profile.
@@ -305,11 +307,12 @@ pub enum SceneError {
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::CaptionInvalid,
         Self::CaptionPersistenceLimit,
         Self::CaptionUnsupported,
         Self::AbbreviationInvalid,
+        Self::FragmentDisplayInvalid,
         Self::DisplayLabelInvalid,
         Self::ObjectUnknown,
         Self::ObjectKindMismatch,
@@ -338,6 +341,7 @@ impl SceneError {
             Self::CaptionPersistenceLimit => "caption_persistence_limit",
             Self::CaptionUnsupported => "caption_unsupported",
             Self::AbbreviationInvalid => "abbreviation_invalid",
+            Self::FragmentDisplayInvalid => "fragment_display_invalid",
             Self::DisplayLabelInvalid => "display_label_invalid",
             Self::ObjectUnknown => "object_unknown",
             Self::ObjectKindMismatch => "object_kind_mismatch",

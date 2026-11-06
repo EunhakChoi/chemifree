@@ -296,6 +296,7 @@ fn chemical_label_weight_preserves_ethyl_graph_inspections_and_all_export_payloa
         "scene",
         "stereo",
         "abbreviations",
+        "fragment_displays",
         "molecule",
         "selection",
     ] {
@@ -402,6 +403,7 @@ fn chemical_label_style_preserves_ethyl_graph_inspections_and_all_export_payload
         "scene",
         "stereo",
         "abbreviations",
+        "fragment_displays",
         "molecule",
         "selection",
     ] {

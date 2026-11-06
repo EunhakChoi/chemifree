@@ -15,6 +15,7 @@
 //! recorded states to perform chemistry; interpretation belongs to separate domain rules.
 
 mod abbreviation;
+mod fragment_display;
 mod persistence;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
@@ -421,6 +422,24 @@ fn ring_offsets(length: f64, size: RingSize) -> Vec<(f64, f64)> {
 /// One edit. A transaction applies an ordered list of commands all-or-nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    /// Contracts explicitly named graph members; text never defines chemistry.
+    ContractFragment {
+        instance: ObjectId,
+        anchor: AtomId,
+        members: Vec<AtomId>,
+        text: String,
+    },
+    /// Changes only an existing fragment's presentation text.
+    SetFragmentDisplayText {
+        instance: ObjectId,
+        anchor: AtomId,
+        text: String,
+    },
+    /// Reveals a retained fragment graph and its original coordinates.
+    ExpandFragment {
+        instance: ObjectId,
+        anchor: AtomId,
+    },
     /// Hides an existing, checked terminal ethyl graph in one explicit placement.
     CollapseEthyl {
         instance: ObjectId,
@@ -690,6 +709,8 @@ pub enum Command {
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditError {
     AbbreviationInvalid,
+    /// Explicit fragment members do not meet the bounded contraction profile.
+    FragmentDisplayInvalid,
     DisplayLabelInvalid,
     CaptionInvalid,
     CaptionPersistenceLimit,
@@ -799,6 +820,7 @@ impl EditError {
     pub fn scene_error(&self) -> Option<SceneError> {
         Some(match self {
             Self::AbbreviationInvalid => SceneError::AbbreviationInvalid,
+            Self::FragmentDisplayInvalid => SceneError::FragmentDisplayInvalid,
             Self::DisplayLabelInvalid => SceneError::DisplayLabelInvalid,
             Self::CaptionInvalid => SceneError::CaptionInvalid,
             Self::CaptionPersistenceLimit => SceneError::CaptionPersistenceLimit,
@@ -969,6 +991,7 @@ impl fmt::Display for EditError {
             ),
             Self::CaptionPersistenceLimit => formatter.write_str("The text edit exceeds the persistence budget; reduce text or transaction size."),
             Self::DisplayLabelInvalid => formatter.write_str("Display label needs non-whitespace single-line Unicode text, at most 128 UTF-8 bytes; text does not define chemistry."),
+            Self::FragmentDisplayInvalid => formatter.write_str("Fragment display needs disjoint connected acyclic neutral default element members, one unmarked single boundary at the anchor, no local stereo, and one explicit placement; display text does not define chemistry."),
             Self::AbbreviationInvalid => formatter.write_str("Et needs a disjoint neutral default two-carbon terminal graph, one unmarked single boundary, no local stereo, and one explicit placement."),
             Self::CaptionInvalid => formatter.write_str("Caption needs 1–32 nonempty single-line runs, at most 16384 UTF-8 bytes, non-whitespace text, and finite 4–72 pt size overrides."),
             Self::CaptionUnsupported(id) => write!(formatter, "This operation cannot preserve caption {id}; nothing was changed."),
@@ -1074,12 +1097,22 @@ pub struct Change<T> {
     pub after: T,
 }
 
+/// Plain presentation for explicit retained graph members, including the anchor.
+/// Members are unique, stored in identifier order, and bounded by MAX_ATOMS.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FragmentDisplay {
+    pub members: Vec<AtomId>,
+    pub text: String,
+}
+
 /// The exact difference made by one transaction; applied backward to undo and forward to redo.
 /// Graph changes (atoms, bonds), scene changes (the page's root order, scene objects, and
 /// positions), the title, style settings, and selection are recorded apart, and undo or redo
 /// replays all of them as one step.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChangeSet {
+    /// Independent graph-retaining fragment display changes.
+    pub fragment_displays: Vec<(PositionKey, Change<Option<FragmentDisplay>>)>,
     /// Per-placement Et display changes; the graph is retained.
     pub abbreviations: Vec<(PositionKey, Change<Option<AtomId>>)>,
     /// Independent cosmetic text changes, never chemical graph definitions.
@@ -1106,6 +1139,7 @@ pub struct ChangeSet {
 impl ChangeSet {
     fn between(before: &Content, after: &Content, selection: Change<Selection>) -> Self {
         Self {
+            fragment_displays: diff_maps(&before.fragment_displays, &after.fragment_displays),
             abbreviations: diff_maps(&before.abbreviations, &after.abbreviations),
             display_labels: diff_maps(&before.display_labels, &after.display_labels),
             title: (before.title != after.title).then(|| Change {
@@ -1133,7 +1167,8 @@ impl ChangeSet {
 
     /// Whether the content is unchanged; the selection does not count.
     pub fn is_empty(&self) -> bool {
-        self.abbreviations.is_empty()
+        self.fragment_displays.is_empty()
+            && self.abbreviations.is_empty()
             && self.display_labels.is_empty()
             && self.title.is_none()
             && self.settings.is_none()
@@ -1149,7 +1184,8 @@ impl ChangeSet {
 
     /// Entity changes counted against [`HISTORY_CHANGE_LIMIT`].
     fn size(&self) -> usize {
-        self.abbreviations.len()
+        self.fragment_displays.len()
+            + self.abbreviations.len()
             + self.display_labels.len()
             + usize::from(self.title.is_some())
             + usize::from(self.settings.is_some())
@@ -1198,6 +1234,7 @@ impl ChangeSet {
                 .roots
                 .as_ref()
                 .is_none_or(|change| change.before != change.after)
+            && entries_valid(&self.fragment_displays)
             && entries_valid(&self.abbreviations)
             && entries_valid(&self.display_labels)
             && entries_valid(&self.atoms)
@@ -1283,6 +1320,7 @@ fn replay<K: Copy + Ord, V: Clone + PartialEq>(
 
 #[derive(Clone, Debug, PartialEq)]
 struct Content {
+    fragment_displays: BTreeMap<PositionKey, FragmentDisplay>,
     abbreviations: BTreeMap<PositionKey, AtomId>,
     display_labels: BTreeMap<PositionKey, String>,
     title: String,
@@ -1601,6 +1639,7 @@ impl Content {
     /// Checks every structural invariant; used for restored and replayed states.
     fn validate(&self) -> Result<(), EditError> {
         self.validate_abbreviations()?;
+        self.validate_fragment_displays()?;
         validate_title(&self.title)?;
         self.settings.validate()?;
         if self.atoms.len() > MAX_ATOMS {
@@ -2160,9 +2199,56 @@ impl Draft {
 
     /// Applies one command and records what, if anything, it created.
     fn apply(&mut self, command: &Command) -> Result<(), EditError> {
-        let display_before = (!self.content.abbreviations.is_empty()).then(|| self.content.clone());
+        let display_before = (!self.content.abbreviations.is_empty()
+            || !self.content.fragment_displays.is_empty())
+        .then(|| self.content.clone());
         let mut created = Created::Nothing;
         match command {
+            Command::ContractFragment {
+                instance,
+                anchor,
+                members,
+                text,
+            } => {
+                let key = PositionKey {
+                    instance: *instance,
+                    atom: *anchor,
+                };
+                let display = FragmentDisplay {
+                    members: members.clone(),
+                    text: text.clone(),
+                };
+                self.content.check_fragment_display(key, &display)?;
+                let mut display = display;
+                display.members.sort_unstable();
+                self.content.check_fragment_overlap(key, &display)?;
+                self.content.fragment_displays.insert(key, display);
+            }
+            Command::SetFragmentDisplayText {
+                instance,
+                anchor,
+                text,
+            } => {
+                abbreviation::validate_display_label(text)?;
+                let key = PositionKey {
+                    instance: *instance,
+                    atom: *anchor,
+                };
+                let display = self
+                    .content
+                    .fragment_displays
+                    .get_mut(&key)
+                    .ok_or(EditError::FragmentDisplayInvalid)?;
+                display.text.clone_from(text);
+            }
+            Command::ExpandFragment { instance, anchor } => {
+                self.content.require_instance(*instance)?;
+                self.content.require_atom(*anchor)?;
+                self.content.fragment_displays.remove(&PositionKey {
+                    instance: *instance,
+                    atom: *anchor,
+                });
+            }
             Command::CollapseEthyl {
                 instance,
                 anchor,
@@ -2173,6 +2259,14 @@ impl Draft {
                     atom: *anchor,
                 };
                 self.content.check_ethyl(key, *terminal)?;
+                if self.content.fragment_displays.values().any(|display| {
+                    display
+                        .members
+                        .iter()
+                        .any(|id| [*anchor, *terminal].contains(id))
+                }) {
+                    return Err(EditError::FragmentDisplayInvalid);
+                }
                 if self.content.abbreviations.iter().any(|(other, end)| {
                     *other != key
                         && [other.atom, *end]
@@ -2670,6 +2764,7 @@ impl Draft {
         }
         if let Some(before) = display_before {
             self.content.reconcile_abbreviations(&before, command);
+            self.content.reconcile_fragment_displays(&before, command);
         }
         self.created.push(created);
         Ok(())
@@ -2728,6 +2823,8 @@ impl Numbering {
 /// `redo` is a stack whose last entry is redone next.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DocumentParts {
+    /// Explicit graph membership and plain display text; no chemical interpretation.
+    pub fragment_displays: Vec<(PositionKey, FragmentDisplay)>,
     /// `(instance, anchor)` to the hidden terminal carbon of an Et display.
     pub abbreviations: Vec<(PositionKey, AtomId)>,
     /// Optional cosmetic text; missing entries display Et. No chemical interpretation.
@@ -2802,6 +2899,7 @@ impl Document {
             id,
             revision: 0,
             content: Content {
+                fragment_displays: BTreeMap::new(),
                 abbreviations: BTreeMap::new(),
                 display_labels: BTreeMap::new(),
                 title: title.to_owned(),
@@ -2859,6 +2957,7 @@ impl Document {
             return Err(invalid("revision exceeds the largest revision"));
         }
         let counts = (
+            parts.fragment_displays.len(),
             parts.abbreviations.len(),
             parts.display_labels.len(),
             parts.atoms.len(),
@@ -2870,6 +2969,7 @@ impl Document {
             parts.stereo_groups.len(),
         );
         let content = Content {
+            fragment_displays: parts.fragment_displays.into_iter().collect(),
             abbreviations: parts.abbreviations.into_iter().collect(),
             display_labels: parts.display_labels.into_iter().collect(),
             title: parts.title,
@@ -2887,6 +2987,7 @@ impl Document {
         };
         if counts
             != (
+                content.fragment_displays.len(),
                 content.abbreviations.len(),
                 content.display_labels.len(),
                 content.atoms.len(),
@@ -2911,6 +3012,9 @@ impl Document {
         // History retention is not a migration path for malformed display text. Check
         // every incoming string and local record shape, including entries later trimmed.
         for set in parts.undo.iter().chain(&parts.redo) {
+            set.validate_fragment_display_changes().map_err(|error| {
+                RestoreError(format!("invalid fragment display history: {error}"))
+            })?;
             set.validate_display_label_changes()
                 .map_err(|error| RestoreError(format!("invalid display label history: {error}")))?;
         }
@@ -3062,6 +3166,10 @@ impl Document {
 
     pub fn to_parts(&self) -> DocumentParts {
         DocumentParts {
+            fragment_displays: self
+                .fragment_displays()
+                .map(|(key, display)| (key, display.clone()))
+                .collect(),
             abbreviations: self.abbreviations().collect(),
             display_labels: self
                 .content
@@ -3110,6 +3218,14 @@ impl Document {
             undo: self.undo.iter().cloned().collect(),
             redo: self.redo.clone(),
         }
+    }
+
+    /// Fragment display text never replaces or defines retained atoms, bonds, or coordinates.
+    pub fn fragment_displays(&self) -> impl Iterator<Item = (PositionKey, &FragmentDisplay)> + '_ {
+        self.content
+            .fragment_displays
+            .iter()
+            .map(|(key, display)| (*key, display))
     }
 
     /// The display map never replaces atoms, bonds, or coordinates.
@@ -3564,6 +3680,11 @@ fn step(content: &mut Content, set: &ChangeSet, direction: Direction) -> Result<
         }
         next.scene.roots.clone_from(to);
     }
+    replay(
+        &mut next.fragment_displays,
+        &set.fragment_displays,
+        direction,
+    )?;
     replay(&mut next.abbreviations, &set.abbreviations, direction)?;
     replay(&mut next.display_labels, &set.display_labels, direction)?;
     replay(&mut next.atoms, &set.atoms, direction)?;

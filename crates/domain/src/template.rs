@@ -73,6 +73,24 @@ impl fmt::Display for TemplateError {
     }
 }
 
+// Templates cannot implicitly edit hidden members; expand the display first.
+fn refuse_display_target(
+    destination: &Document,
+    instance: ObjectId,
+    target: AtomId,
+) -> Result<(), TemplateError> {
+    if destination
+        .fragment_displays()
+        .any(|(key, display)| key.instance == instance && display.members.contains(&target))
+        || destination.abbreviations().any(|(key, terminal)| {
+            key.instance == instance && (key.atom == target || terminal == target)
+        })
+    {
+        return Err(FragmentError::AbbreviationDisplay.into());
+    }
+    Ok(())
+}
+
 /// Replace a terminal atom's state and bind the template there without deleting its identity.
 ///
 /// # Errors
@@ -96,6 +114,7 @@ pub fn replace(
     if destination.instances().count() != 1 || destination.first_instance() != instance {
         return Err(TemplateError::Instance);
     }
+    refuse_display_target(destination, instance, target)?;
     let origin = destination
         .position(instance, target)
         .ok_or(TemplateError::TargetUnknown(target))?;
@@ -199,6 +218,7 @@ pub fn attach(
     if destination.instances().count() != 1 || destination.first_instance() != instance {
         return Err(TemplateError::Instance);
     }
+    refuse_display_target(destination, instance, target)?;
     let origin = destination
         .position(instance, target)
         .ok_or(TemplateError::TargetUnknown(target))?;

@@ -153,6 +153,17 @@ fn drawing_losses(view: &DocumentView) -> Vec<Loss> {
             );
         }
     }
+    for display in &view.fragment_displays {
+        push(
+            format!(
+                "document.fragment_displays[{}:{}]",
+                display.instance, display.anchor
+            ),
+            "abbreviation_display",
+            SemanticImpact::Rendering,
+            "Display text is omitted; the complete underlying chemical graph is written without compact appearance. Text does not define chemistry.",
+        );
+    }
     for abbreviation in &view.abbreviations {
         push(
             format!(

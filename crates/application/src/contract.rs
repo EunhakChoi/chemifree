@@ -598,6 +598,22 @@ pub enum CommandDto {
     DeleteInstance {
         instance: String,
     },
+    /// Explicit members retain their chemistry; text is presentation only.
+    ContractFragment {
+        instance: String,
+        anchor: String,
+        members: Vec<String>,
+        text: String,
+    },
+    SetFragmentDisplayText {
+        instance: String,
+        anchor: String,
+        text: String,
+    },
+    ExpandFragment {
+        instance: String,
+        anchor: String,
+    },
     CollapseEthyl {
         instance: String,
         anchor: String,
@@ -1247,6 +1263,33 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
         },
         CommandDto::DeleteInstance { instance } => Command::DeleteInstance {
             instance: instance_id(instance)?,
+        },
+        CommandDto::ContractFragment {
+            instance,
+            anchor,
+            members,
+            text,
+        } => Command::ContractFragment {
+            instance: instance_id(instance)?,
+            anchor: atom_id(anchor)?,
+            members: members
+                .iter()
+                .map(|id| atom_id(id))
+                .collect::<Result<_, _>>()?,
+            text: text.clone(),
+        },
+        CommandDto::SetFragmentDisplayText {
+            instance,
+            anchor,
+            text,
+        } => Command::SetFragmentDisplayText {
+            instance: instance_id(instance)?,
+            anchor: atom_id(anchor)?,
+            text: text.clone(),
+        },
+        CommandDto::ExpandFragment { instance, anchor } => Command::ExpandFragment {
+            instance: instance_id(instance)?,
+            anchor: atom_id(anchor)?,
         },
         CommandDto::CollapseEthyl {
             instance,
@@ -1899,6 +1942,8 @@ pub enum RecoveryState {
 /// `atoms` and `bonds` are the chemical graph, `molecule`; `scene` places it on the page.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DocumentView {
+    /// Plain display text never defines chemistry; every member remains in the graph.
+    pub fragment_displays: Vec<FragmentDisplayView>,
     /// Et is display metadata; all graph IDs and coordinates remain present.
     pub abbreviations: Vec<AbbreviationView>,
     pub id: String,
@@ -1914,6 +1959,15 @@ pub struct DocumentView {
     /// configuration is stated. No record means "unspecified": it says nothing about whether an
     /// atom or bond is stereogenic.
     pub stereo: StereoView,
+}
+
+/// A bounded explicit fragment contraction, independent of Et metadata.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FragmentDisplayView {
+    pub instance: String,
+    pub anchor: String,
+    pub members: Vec<String>,
+    pub text: String,
 }
 
 /// The two real graph atoms represented by a per-placement Et label.
@@ -2502,6 +2556,15 @@ impl DocumentResponse {
         Self {
             api_version: API_VERSION,
             document: DocumentView {
+                fragment_displays: document
+                    .fragment_displays()
+                    .map(|(key, display)| FragmentDisplayView {
+                        instance: key.instance.to_string(),
+                        anchor: key.atom.to_string(),
+                        members: display.members.iter().map(ToString::to_string).collect(),
+                        text: display.text.clone(),
+                    })
+                    .collect(),
                 abbreviations: document
                     .abbreviations()
                     .map(|(key, terminal)| AbbreviationView {

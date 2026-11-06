@@ -2,7 +2,7 @@
 //! their stored document and draft representations fit these reservations. Text-bearing
 //! histories use a byte-oriented budget because one object can contain substantial text.
 
-use super::{Change, ChangeSet, Content, Document};
+use super::{Change, ChangeSet, Content, Document, FragmentDisplay};
 use crate::scene::{SceneObject, Selection};
 use crate::stereo_group::StereoGroup;
 
@@ -29,6 +29,10 @@ const ABBREVIATION: usize = 192;
 
 fn text_weight(text: &str) -> usize {
     128_usize.saturating_add(text.len().saturating_mul(2))
+}
+
+fn fragment_display_weight(display: &FragmentDisplay) -> usize {
+    128 + ids_weight(display.members.len()) + text_weight(&display.text)
 }
 
 fn ids_weight(count: usize) -> usize {
@@ -95,6 +99,10 @@ fn changed_weight<K, T>(changes: &[(K, Change<Option<T>>)], weight: impl Fn(&T) 
 // They activate the same byte budgets without changing any old caption weight.
 // The extra empty display_labels list key fits each existing 256-byte history
 // envelope and 4096-byte document/draft envelope, so the physical bound is unchanged.
+// v24 fragment displays reserve 128 bytes plus the full member-ID list and escaped text.
+// Both history sides use the same reservation, and any current/history fragment display
+// activates the existing byte budgets. Empty field keys fit the existing envelopes, so
+// old documents retain their admission weights and the physical 64 MiB bound is unchanged.
 // This leaves >5 MiB reserve; the 4 KiB envelope already covers document/draft metadata.
 pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) -> usize {
     sets.into_iter().fold(0_usize, |total, set| {
@@ -104,7 +112,8 @@ pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) 
 
 impl Content {
     pub(super) fn has_variable_text(&self) -> bool {
-        !self.display_labels.is_empty()
+        !self.fragment_displays.is_empty()
+            || !self.display_labels.is_empty()
             || self
                 .scene
                 .objects
@@ -134,6 +143,11 @@ impl Content {
             + self.positions.len() * POSITION
             + self.references.len() * REFERENCE
             + self.stereo.len() * STEREO
+            + self
+                .fragment_displays
+                .values()
+                .map(fragment_display_weight)
+                .sum::<usize>()
             + self.abbreviations.len() * ABBREVIATION
             + self
                 .display_labels
@@ -158,7 +172,8 @@ impl Content {
 
 impl ChangeSet {
     pub(super) fn has_variable_text(&self) -> bool {
-        !self.display_labels.is_empty()
+        !self.fragment_displays.is_empty()
+            || !self.display_labels.is_empty()
             || self.objects.iter().any(|(_, change)| {
                 [&change.before, &change.after]
                     .into_iter()
@@ -189,6 +204,10 @@ impl ChangeSet {
             total += ids_weight(roots.before.len()) + ids_weight(roots.after.len());
         }
         total
+            .saturating_add(changed_weight(
+                &self.fragment_displays,
+                fragment_display_weight,
+            ))
             .saturating_add(changed_weight(&self.atoms, |_| ATOM))
             .saturating_add(changed_weight(&self.bonds, |_| BOND))
             .saturating_add(changed_weight(&self.positions, |_| POSITION))
