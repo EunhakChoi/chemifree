@@ -1105,7 +1105,7 @@ try {
       const createCaption = request('op-caption-create', 'document.create', { title: 'Caption parity' })
       httpDoc = (await viaHttp(createCaption)).body.result.document.id
       cliDoc = (await viaCli(createCaption)).result.document.id
-      const runs = [{ text: '한글 e\u0301 👩‍🔬 H', script: 'baseline', weight: 'bold', style: 'normal', font: 'serif' }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace' }, { text: '+', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif' }]
+      const runs = [{ text: '한글 e\u0301 👩‍🔬 H', script: 'baseline', weight: 'bold', style: 'normal', font: 'serif', size_pt: null }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace', size_pt: 18.5 }, { text: '+', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif', size_pt: 30 }]
       const add = (id) => request('op-caption-add', 'document.transaction', { document_id: id, expected_revision: 0,
         commands: [{ op: 'add_caption', anchor: { x: 20, y: 30 }, alignment: 'right', runs }], selection_after: { objects: ['$0'], atoms: [], bonds: [] } })
       const caption = await both(add)
@@ -1124,6 +1124,12 @@ try {
         const badStyle = await both((id) => request(`op-caption-style-${field}-${String(value)}`, 'document.transaction', { document_id: id, expected_revision: 1,
           commands: [{ op: 'update_caption', object: 's2', anchor: { x: 0, y: 0 }, runs: [{ text: 'H', script: 'baseline', [field]: value }] }] }))
         assert.equal(badStyle.diagnostics[0].code, 'invalid_request')
+      }
+      for (const [index, size_pt] of [3.99, 72.01, '12', false, [], {}].entries()) {
+        const badSize = await both((id) => request(`op-caption-size-invalid-${index}`, 'document.transaction', { document_id: id, expected_revision: 1,
+          commands: [{ op: 'rename', title: 'must roll back' }, { op: 'update_caption', object: 's2', anchor: { x: 20, y: 30 }, runs: [{ text: 'H', script: 'baseline', size_pt }] }] }))
+        if (typeof size_pt === 'number') assert.equal(badSize.diagnostics[0].details.reason, 'caption_invalid')
+        else assert.equal(badSize.diagnostics[0].code, 'invalid_request')
       }
       for (const [index, alignment] of [null, 'start', 3, ['left']].entries()) {
         const badAlignment = await both((id) => request(`op-caption-align-${index}`, 'document.transaction', { document_id: id, expected_revision: 1,
@@ -1819,7 +1825,7 @@ try {
     const savedV1 = await write('/api/v1/documents/doc-00000000000000a1/save', { request_id: 'v1-save', expected_revision: 5 })
     assert.equal(savedV1.status, 200)
     assert.equal(readFileSync(kept('doc-00000000000000a1'), 'utf8'), viaHttp.bytes, 'the first save kept the exact version 1 bytes')
-    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 12)
+    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 13)
     assert.deepEqual(cli('documents', 'show', 'doc-00000000000000a1', '--json').body.document, savedV1.body.document)
 
     const viaCli = placed('v1-document.json', 'doc-00000000000000a2')
@@ -1862,10 +1868,10 @@ try {
     const savedV2 = await write('/api/v1/documents/doc-00000000000000b2/save', { request_id: 'v2-save', expected_revision: 7 })
     assert.equal(savedV2.status, 200)
     assert.equal(readFileSync(keptV2('doc-00000000000000b2'), 'utf8'), v2.bytes, 'the first save kept the exact version 2 bytes')
-    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 12)
+    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 13)
     assert.equal(cli('documents', 'show', 'doc-00000000000000b2', '--json').body.document.atoms[0].radical, 'doublet')
     const undoneV2 = cli('documents', 'undo', 'doc-00000000000000b2', '--expected-revision', '7', '--json')
-    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 12')
+    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 13')
 
     // Both entry adapters preserve an old draft's exact bytes before recovering it as a copy.
     const oldDraft = (documentId) => {
@@ -1907,19 +1913,19 @@ try {
     const savedV4 = await write(`/api/v1/documents/${v4Id}/save`, { request_id: 'v4-save', expected_revision: 3 })
     assert.equal(savedV4.status, 200)
     assert.equal(readFileSync(join(dataDir, 'migrated', `${v4Id}.v4.json`), 'utf8'), v4.bytes)
-    assert.equal(JSON.parse(readFileSync(v4.path, 'utf8')).format_version, 12)
+    assert.equal(JSON.parse(readFileSync(v4.path, 'utf8')).format_version, 13)
     const undoneV4 = cli('documents', 'undo', v4Id, '--expected-revision', '3', '--json')
     assert.equal(undoneV4.body.document.settings.label_font, 'sans-serif')
     assert.deepEqual(undoneV4.body.document.scene.references, openedV4.body.document.scene.references)
 
     const newer = placed('v4-document.json', 'doc-00000000000000a3')
-    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 13')
+    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 14')
     writeFileSync(newer.path, newer.bytes)
     const refused = await call('/api/v1/documents/doc-00000000000000a3')
     assert.deepEqual([refused.status, refused.body.code], [500, 'document_unreadable'])
-    assert.match(refused.body.message, /version 13/)
+    assert.match(refused.body.message, /version 14/)
     const unreadable = (await call('/api/v1/documents')).body.unreadable.find((item) => item.id === 'doc-00000000000000a3')
-    assert.match(unreadable?.message ?? '', /version 13; this build reads versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, and 12/)
+    assert.match(unreadable?.message ?? '', /version 14; this build reads versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, and 13/)
     assert.equal(cli('documents', 'show', 'doc-00000000000000a3', '--json').body.code, 'document_unreadable')
     assert.equal(readFileSync(newer.path, 'utf8'), newer.bytes, 'a newer file is left untouched')
     assert.equal(existsSync(kept('doc-00000000000000a3')), false)

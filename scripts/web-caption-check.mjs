@@ -106,6 +106,7 @@ function Harness() {
     <button disabled={editor.busy} onClick={() => void editor.open(${JSON.stringify(id)})}>Open original caption drawing</button>
     <button disabled={editor.busy} onClick={() => void editor.open(${JSON.stringify(alternateId)})}>Open alternate caption drawing</button>
     <button disabled={editor.busy} onClick={() => void editor.apply(() => [{ op: 'update_settings', label_font: 'monospace' }])}>Use monospace drawing font</button>
+    <button disabled={editor.busy} onClick={() => void editor.apply(() => [{ op: 'update_settings', label_size_pt: 30 }])}>Use 30pt drawing size</button>
     <button disabled={editor.busy} onClick={() => void editor.undo()}>Undo caption</button>
     <button disabled={editor.busy} onClick={() => void editor.redo()}>Redo caption</button>
     <button disabled={editor.busy} onClick={() => void editor.save()}>Save caption drawing</button>
@@ -163,9 +164,20 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.getByRole('group', { name: 'Run 1 font family', exact: true }).getByRole('button', { name: 'Serif', exact: true }).click()
   await page.getByRole('group', { name: 'Run 2 font family', exact: true }).getByRole('button', { name: 'Monospace', exact: true }).click()
   await page.getByRole('group', { name: 'Run 3 font family', exact: true }).getByRole('button', { name: 'Sans-serif', exact: true }).click()
+  await page.getByLabel('Run 1 size (pt)', { exact: true }).fill('24')
+  await page.getByLabel('Run 2 size (pt)', { exact: true }).fill('18')
+  for (const invalid of ['3.99', '72.01', 'NaN', 'Infinity', '12 pt', '0x10', '0b100', '0o10']) {
+    await page.getByLabel('Run 1 size (pt)', { exact: true }).fill(invalid)
+    assert.equal(await button('Create caption').isDisabled(), true, invalid)
+  }
+  for (const valid of ['4', '72', '4.25', '71.9999', '12.5', '.5e1']) {
+    await page.getByLabel('Run 1 size (pt)', { exact: true }).fill(valid)
+    assert.equal(await button('Create caption').isDisabled(), false, valid)
+  }
+  await page.getByLabel('Run 1 size (pt)', { exact: true }).fill('24')
   await button('Create caption').click()
   await page.locator('[data-caption-text="s2"]').waitFor()
-  const expected = [{ text, script: 'baseline', weight: 'bold', style: 'normal', font: 'serif' }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace' }, { text: '+   ', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif' }]
+  const expected = [{ text, script: 'baseline', weight: 'bold', style: 'normal', font: 'serif', size_pt: 24 }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace', size_pt: 18 }, { text: '+   ', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif', size_pt: null }]
   assert.deepEqual((await caption()).runs, expected)
   assert.deepEqual(await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => [node.getAttribute('font-weight'), node.getAttribute('font-style')])), [['bold', 'normal'], ['normal', 'italic'], ['bold', 'italic']])
   const familyStyles = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fontFamily))
@@ -189,6 +201,22 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await button('Undo caption').click()
   await page.waitForFunction(() => document.querySelector('[data-caption-text] tspan')?.getAttribute('font-family') === 'serif')
   assert.deepEqual((await caption()).runs, expected)
+  stage = 'drawing size updates inheritance while preserving overrides and uses run size for script offsets'
+  await button('Use 30pt drawing size').click()
+  await page.waitForFunction(() => Number(document.querySelector('[data-caption-text] tspan:last-child')?.getAttribute('font-size')) === 20)
+  assert.deepEqual(await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => [Number(node.getAttribute('font-size')), Number(node.getAttribute('y'))])), [[24, 0], [12, 6], [20, -12.5]])
+  assert.deepEqual((await caption()).runs, expected)
+  await button('Undo caption').click()
+  await page.waitForFunction(() => Number(document.querySelector('[data-caption-text] tspan:last-child')?.getAttribute('font-size')) === 8)
+  await button('Select caption').click()
+  await button('Edit selected caption…').click()
+  await page.getByLabel('Run 1 size (pt)', { exact: true }).fill('')
+  await button('Apply caption').click()
+  await page.waitForFunction(() => Number(document.querySelector('[data-caption-text] tspan')?.getAttribute('font-size')) === 12)
+  assert.equal((await caption()).runs[0].size_pt, null)
+  await button('Undo caption').click()
+  await page.waitForFunction(() => Number(document.querySelector('[data-caption-text] tspan')?.getAttribute('font-size')) === 24)
+  assert.deepEqual((await caption()).runs, expected)
   stage = 'measure actual glyph and script bounds with the loaded fonts'
   await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
   assert.equal(await page.locator('[data-structure-canvas]').getAttribute('viewBox'), beforeCreateViewBox, 'creating a caption preserves the chosen viewport')
@@ -206,7 +234,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
     return ink.width > 30 && box.x <= ink.x && box.y <= ink.y && box.x + box.width >= ink.x + ink.width && box.y + box.height >= ink.y + ink.height && svg.x <= box.x && svg.y <= box.y && svg.x + svg.width >= box.x + box.width && svg.y + svg.height >= box.y + box.height
   })
   const scriptY = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute('y'))))
-  assert.deepEqual(scriptY, [0, 4, -5])
+  assert.deepEqual(scriptY, [0, 6, -5])
   stage = 'whole-caption alignment shifts all script chunks and includes edge spaces'
   const leftMetrics = await page.locator('[data-caption-text]').evaluate((node) => ({
     starts: [...node.querySelectorAll('tspan')].map((span) => span.getStartPositionOfChar(0).x),
@@ -277,7 +305,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await button('Save caption drawing').click()
   await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Caption snapshot"]').textContent)?.session.unsaved_changes === false)
   const native = JSON.parse(readFileSync(join(work, 'documents', `${id}.json`), 'utf8'))
-  assert.equal(native.format_version, 12)
+  assert.equal(native.format_version, 13)
   assert.equal(native.document.objects.find((object) => object.id === 's2').state.alignment, 'right')
   assert.deepEqual(native.document.objects.find((object) => object.id === 's2').state.runs, edited.runs)
   await page.reload()

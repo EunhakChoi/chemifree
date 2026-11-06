@@ -960,7 +960,7 @@ impl fmt::Display for EditError {
             ),
             Self::CaptionPersistenceLimit => formatter.write_str("The caption edit exceeds the persistence budget; reduce text or transaction size."),
             Self::AbbreviationInvalid => formatter.write_str("Et needs a disjoint neutral default two-carbon terminal graph, one unmarked single boundary, no local stereo, and one explicit placement."),
-            Self::CaptionInvalid => formatter.write_str("Caption needs 1–32 nonempty single-line runs, at most 16384 UTF-8 bytes, and non-whitespace text."),
+            Self::CaptionInvalid => formatter.write_str("Caption needs 1–32 nonempty single-line runs, at most 16384 UTF-8 bytes, non-whitespace text, and finite 4–72 pt size overrides."),
             Self::CaptionUnsupported(id) => write!(formatter, "This operation cannot preserve caption {id}; nothing was changed."),
             Self::SceneTreeInvalid(detail) => formatter.write_str(detail),
             Self::InvalidState(error) => error.fmt(formatter),
