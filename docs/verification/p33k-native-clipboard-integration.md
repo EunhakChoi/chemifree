@@ -1,6 +1,6 @@
 # P33k real-backend native clipboard integration
 
-Status: authored, not executed. P33 remains `in_progress`.
+Status: passed with #172 at head `7e7c921fae0ce2e4f3e6f5ff8222ca2859698dca`. See the [bounded P33 completion record](p33-clipboard-completion.md); post-merge main CI is pending.
 
 `npm run test:browser:clipboard-integration` builds `chemifree-api` with the
 lockfile, launches it on an OS-assigned loopback port with disposable storage,
@@ -55,11 +55,4 @@ readiness rather than arbitrary sleeps. Passing runs remove disposable storage;
 failed runs retain it and log the failing stage and API output. Startup timeout
 and bounded process termination protect cleanup.
 
-No tests, builds, browsers or deliberate mutations were run by this implementer,
-as instructed by the parent coordinating shared isolated validation. The required
-next evidence is the new browser command, the normal project checks, and a scoped
-mutation run (for example, remove native paste offset application or internal
-reference mapping and observe the relevant assertion fail, then restore it).
-Neither review completion nor successful CI is claimed here. The PR's completed
-Codex review and fresh-context independent review, their reviewed SHA, timestamps
-and finding dispositions must be recorded through the normal repository workflow.
+The coordinating parent subsequently ran the isolated full check and all browser commands successfully at the #172 head, including this integration check. PR CI check/browser also passed; see the completion record for the exact commands and link. No mutation result is claimed. This documentation update ran no tests, builds or browsers; its own reviews and CI remain pending.
