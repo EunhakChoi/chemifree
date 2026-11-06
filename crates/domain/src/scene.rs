@@ -25,6 +25,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::document::{AtomId, BondId, EditError, ObjectId, Point, PositionKey, Vector};
+use crate::settings::LabelFont;
 
 /// Scene objects a document holds, of every kind together.
 pub const MAX_OBJECTS: usize = 1_000;
@@ -120,6 +121,8 @@ pub enum CaptionStyle {
 /// Text stored verbatim: no Unicode normalization or index-based edits.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaptionRun {
+    /// None follows the document label font; overrides use the same closed vocabulary.
+    pub font: Option<LabelFont>,
     pub text: String,
     pub script: CaptionScript,
     pub weight: CaptionWeight,

@@ -105,6 +105,7 @@ function Harness() {
   return <main>
     <button disabled={editor.busy} onClick={() => void editor.open(${JSON.stringify(id)})}>Open original caption drawing</button>
     <button disabled={editor.busy} onClick={() => void editor.open(${JSON.stringify(alternateId)})}>Open alternate caption drawing</button>
+    <button disabled={editor.busy} onClick={() => void editor.apply(() => [{ op: 'update_settings', label_font: 'monospace' }])}>Use monospace drawing font</button>
     <button disabled={editor.busy} onClick={() => void editor.undo()}>Undo caption</button>
     <button disabled={editor.busy} onClick={() => void editor.redo()}>Redo caption</button>
     <button disabled={editor.busy} onClick={() => void editor.save()}>Save caption drawing</button>
@@ -159,11 +160,35 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.getByRole('group', { name: 'Run 2 style', exact: true }).getByRole('button', { name: 'Italic', exact: true }).click()
   await page.getByRole('group', { name: 'Run 3 weight', exact: true }).getByRole('button', { name: 'Bold', exact: true }).click()
   await page.getByRole('group', { name: 'Run 3 style', exact: true }).getByRole('button', { name: 'Italic', exact: true }).click()
+  await page.getByRole('group', { name: 'Run 1 font family', exact: true }).getByRole('button', { name: 'Serif', exact: true }).click()
+  await page.getByRole('group', { name: 'Run 2 font family', exact: true }).getByRole('button', { name: 'Monospace', exact: true }).click()
+  await page.getByRole('group', { name: 'Run 3 font family', exact: true }).getByRole('button', { name: 'Sans-serif', exact: true }).click()
   await button('Create caption').click()
   await page.locator('[data-caption-text="s2"]').waitFor()
-  const expected = [{ text, script: 'baseline', weight: 'bold', style: 'normal' }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic' }, { text: '+   ', script: 'superscript', weight: 'bold', style: 'italic' }]
+  const expected = [{ text, script: 'baseline', weight: 'bold', style: 'normal', font: 'serif' }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace' }, { text: '+   ', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif' }]
   assert.deepEqual((await caption()).runs, expected)
   assert.deepEqual(await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => [node.getAttribute('font-weight'), node.getAttribute('font-style')])), [['bold', 'normal'], ['normal', 'italic'], ['bold', 'italic']])
+  const familyStyles = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fontFamily))
+  assert.equal(familyStyles[0], 'serif')
+  assert.equal(familyStyles[1], 'monospace')
+  assert.ok(familyStyles[2].includes('Geist'), familyStyles[2])
+  stage = 'family-only edit resets to dynamic inheritance and undo keeps overrides'
+  await button('Select caption').click()
+  await button('Edit selected caption…').click()
+  await page.getByRole('group', { name: 'Run 1 font family', exact: true }).getByRole('button', { name: 'Drawing font', exact: true }).click()
+  await button('Apply caption').click()
+  await page.waitForFunction(() => document.querySelector('[data-caption-text] tspan')?.getAttribute('font-family') === null && !document.querySelector('[data-caption-text] tspan')?.classList.contains('font-sans'))
+  assert.deepEqual((await caption()).runs, [{ ...expected[0], font: null }, ...expected.slice(1)])
+  await button('Use monospace drawing font').click()
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-caption-text] tspan')).fontFamily === 'monospace')
+  const inheritedFamilies = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fontFamily))
+  assert.deepEqual(inheritedFamilies.slice(0, 2), ['monospace', 'monospace'])
+  assert.equal(inheritedFamilies[2], familyStyles[2], 'explicit sans stays fixed when the drawing font changes')
+  await button('Undo caption').click()
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-caption-text] tspan')).fontFamily.includes('Geist'))
+  await button('Undo caption').click()
+  await page.waitForFunction(() => document.querySelector('[data-caption-text] tspan')?.getAttribute('font-family') === 'serif')
+  assert.deepEqual((await caption()).runs, expected)
   stage = 'measure actual glyph and script bounds with the loaded fonts'
   await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
   assert.equal(await page.locator('[data-structure-canvas]').getAttribute('viewBox'), beforeCreateViewBox, 'creating a caption preserves the chosen viewport')
@@ -252,7 +277,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await button('Save caption drawing').click()
   await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Caption snapshot"]').textContent)?.session.unsaved_changes === false)
   const native = JSON.parse(readFileSync(join(work, 'documents', `${id}.json`), 'utf8'))
-  assert.equal(native.format_version, 11)
+  assert.equal(native.format_version, 12)
   assert.equal(native.document.objects.find((object) => object.id === 's2').state.alignment, 'right')
   assert.deepEqual(native.document.objects.find((object) => object.id === 's2').state.runs, edited.runs)
   await page.reload()

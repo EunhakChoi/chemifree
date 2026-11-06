@@ -95,7 +95,7 @@ export interface InstanceView {
 
 export type CaptionAlignment = 'left' | 'center' | 'right'
 
-export interface CaptionRun { text: string; script: 'baseline' | 'subscript' | 'superscript'; weight: 'normal' | 'bold'; style: 'normal' | 'italic' }
+export interface CaptionRun { font?: LabelFont | null; text: string; script: 'baseline' | 'subscript' | 'superscript'; weight: 'normal' | 'bold'; style: 'normal' | 'italic' }
 
 export type GraphicShape = 'line' | 'rectangle' | 'arrow'
 
@@ -1072,6 +1072,7 @@ export function validCaptionRuns(value: unknown): value is CaptionRun[] {
         (typeof run.script !== 'string' || !['baseline', 'subscript', 'superscript'].includes(run.script)) ||
         (run.weight !== 'normal' && run.weight !== 'bold') ||
         (run.style !== 'normal' && run.style !== 'italic') ||
+        (run.font !== undefined && run.font !== null && !LABEL_FONTS.some((font) => font === run.font)) ||
         /[\p{Cc}\u2028\u2029]/u.test(run.text)) return false
     // JSON can carry unpaired UTF-16 surrogates, which Rust String deliberately rejects.
     for (const character of run.text) {

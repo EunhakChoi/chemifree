@@ -264,6 +264,16 @@
 - 회귀를 작성했으며 부모 지시로 이 구현 작업에서는 테스트·빌드·browser·mutation을 실행하지 않았다.
   검증·Codex/독립 리뷰·PR은 후속 gate다. P35 전체 완료가 아니다. `docs/verification/p35c-caption-alignment.md` 참조.
 
+## P35d 후보 인계
+
+독립 caption run의 `font`는 null(문서 label_font 상속) 또는 기존 sans-serif/serif/monospace만 받는다.
+run별 override는 기존 script/weight/style·정렬·고정 anchor와 조합하며 UI에서 Drawing font로 되돌린다.
+원자·Et 레이블·임의 폰트명·size/color·외부 caption roundtrip은 추가하지 않았다.
+Native v12는 current/history의 font를 필수로 하고 v1–11은 해당 필드를 금지한다.
+v8–11 문서·draft·history를 상속으로 migration하며 읽기 시 미기록과 exact byte archive를 유지한다.
+P35는 in_progress. 구현과 회귀만 작성했고 테스트·빌드·브라우저·리뷰는 부모 통합 작업에서 진행한다.
+세부 근거: [P35d 기록](verification/p35d-caption-font-family.md).
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.

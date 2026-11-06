@@ -109,3 +109,14 @@ for (const alignment of [undefined, null, 'start', 'middle', 0, ['left']]) test(
   result.document.scene.objects.at(-1).alignment = alignment
   assert.equal(isDocumentResponse(result), false)
 })
+
+for (const font of [undefined, null, 'sans-serif', 'serif', 'monospace']) test(`caption generic font accepts ${font ?? 'inherit'}`, () => {
+  const value = source()
+  value.document.scene.objects.at(-1).runs[0].font = font
+  assert.equal(isDocumentResponse(value), true)
+})
+for (const font of ['Arial', 'inherit', '', 4, false, [], {}]) test(`caption generic font rejects ${JSON.stringify(font)}`, () => {
+  const value = source()
+  value.document.scene.objects.at(-1).runs[0].font = font
+  assert.equal(isDocumentResponse(value), false)
+})

@@ -12,6 +12,7 @@ fn widest(text: char) -> Caption {
         anchor: Point::new(0.0, 0.0).unwrap(),
         runs: vec![
             CaptionRun {
+                font: None,
                 text: text.to_string().repeat(512),
                 script: CaptionScript::Superscript,
                 weight: Default::default(),
@@ -138,6 +139,7 @@ fn reservations_count_utf8_bytes_and_escape_overhead_without_changing_text_limit
             alignment: Default::default(),
             anchor: Point::new(0.0, 0.0).unwrap(),
             runs: vec![CaptionRun {
+                font: None,
                 text,
                 script: CaptionScript::Baseline,
                 weight: Default::default(),
