@@ -176,3 +176,17 @@ and Undo/Redo across both the new caption and the original v7 title history. CON
 states the already-drafted no-rewrite behavior explicitly. No product code changed. This
 corrected regression has not been executed by this agent; only formatting/diff inspection
 was performed, with tests/build/browser/push still prohibited.
+
+## Fourth parent-run targeted result and caption-box reference stability
+
+For `4c2cd72`, the parent verifier's `p35a-targeted4.log` reports Domain 5/5, application
+4/4 and provider caption format 3/3. Lint then failed on one exhaustive-deps warning: the
+unmeasured/stale-caption branch allocated a new empty Map on every canvas render, changing
+the content-bounds memo dependency even for unrelated hover/gesture updates.
+
+Memoized the selected caption-box map by measurement state and document snapshot, exposing
+it as ReadonlyMap. Pending/stale measurements now retain the same empty-map reference until
+one of those inputs changes; current measured bounds retain their own map reference.
+This fixes the allocation/dependency issue without weakening lint or suppressing the rule.
+No extra implementation-mirroring test was added. This agent inspected the diff only;
+lint/tests/build/browser/push of the corrected snapshot remain unexecuted here.

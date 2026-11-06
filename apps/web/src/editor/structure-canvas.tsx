@@ -185,7 +185,10 @@ export function StructureCanvas({
   const [hover, setHover] = useState<Located | null>(null)
   const selectedGeometry = selectionGeometry(document, selection, activePlacement)
   const [captionMeasurement, setCaptionMeasurement] = useState<{ document: DocumentView; boxes: Map<string, Box>; fontsReady: boolean } | null>(null)
-  const captionBoxes = captionMeasurement?.document === document ? captionMeasurement.boxes : new Map<string, Box>()
+  const captionBoxes = useMemo<ReadonlyMap<string, Box>>(
+    () => captionMeasurement?.document === document ? captionMeasurement.boxes : new Map<string, Box>(),
+    [captionMeasurement, document],
+  )
   useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
