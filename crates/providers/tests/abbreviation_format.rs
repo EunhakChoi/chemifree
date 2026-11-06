@@ -42,6 +42,8 @@ fn drawing() -> Document {
                 runs: vec![CaptionRun {
                     text: "Et 원문 e\u{301}".into(),
                     script: CaptionScript::Baseline,
+                    weight: Default::default(),
+                    style: Default::default(),
                 }],
             },
             parent: None,
@@ -59,6 +61,7 @@ fn collapse() -> Command {
     }
 }
 fn v8(mut value: Value) -> Value {
+    strip_caption_styles(&mut value);
     value["format_version"] = json!(8);
     value["document"]
         .as_object_mut()
@@ -89,7 +92,7 @@ fn v9_document_and_draft_round_trip_display_undo_redo_and_unicode_caption() {
     let value: Value =
         serde_json::from_slice(&fs::read(root.path().join("documents/ethyl-native.json")).unwrap())
             .unwrap();
-    assert_eq!(value["format_version"], 9);
+    assert_eq!(value["format_version"], 10);
     assert_eq!(
         value["document"]["abbreviations"],
         json!([{"instance":"s1","anchor":"a2","terminal":"a3"}])
@@ -224,7 +227,7 @@ fn v8_drafts_migrate_with_caption_and_keep_original_bytes_before_recovery() {
     app.autosave("ethyl-native", Some("rewrite-v9-ethyl"))
         .unwrap();
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 9);
+    assert_eq!(rewritten["format_version"], 10);
     assert_eq!(rewritten["document"]["revision"], edited.document.revision);
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 8)).unwrap(),
@@ -317,5 +320,25 @@ fn caption_persistence_reserves_current_and_both_history_display_records() {
             "display history must fit its reservation in undo and redo (undo={undo})"
         );
         assert_eq!(repo.load(doc.id()).unwrap(), Some(doc.clone()));
+    }
+}
+
+fn strip_caption_styles(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if object.contains_key("script") && object.contains_key("text") {
+                object.remove("weight");
+                object.remove("style");
+            }
+            for child in object.values_mut() {
+                strip_caption_styles(child);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                strip_caption_styles(child);
+            }
+        }
+        _ => {}
     }
 }

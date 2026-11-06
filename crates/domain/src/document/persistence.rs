@@ -8,7 +8,8 @@ use crate::stereo_group::StereoGroup;
 
 // Each reservation includes field/identifier overhead. Identifiers need at most 11 ASCII
 // bytes, floats at most 32; ID list entries reserve 16. Control-free text reserves twice its
-// UTF-8 length for quotes/backslashes, plus run metadata (including the longest script).
+// UTF-8 length for quotes/backslashes, plus run metadata (including the longest script, weight and style).
+// A v10 run needs at most 66 metadata bytes; the existing 96-byte reservation covers it.
 const ATOM: usize = 512;
 const BOND: usize = 256;
 const POSITION: usize = 192;

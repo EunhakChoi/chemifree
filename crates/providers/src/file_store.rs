@@ -1244,7 +1244,9 @@ mod tests {
                     runs: vec![
                         CaptionRun {
                             text: "\"".repeat(512),
-                            script: CaptionScript::Superscript
+                            script: CaptionScript::Superscript,
+                            weight: Default::default(),
+                            style: Default::default(),
                         };
                         32
                     ],

@@ -34,10 +34,14 @@ fn caption() -> Command {
                 CaptionRun {
                     text: "한글 👩‍🔬 e\u{301}".into(),
                     script: CaptionScript::Baseline,
+                    weight: Default::default(),
+                    style: Default::default(),
                 },
                 CaptionRun {
                     text: "2".into(),
                     script: CaptionScript::Subscript,
+                    weight: Default::default(),
+                    style: Default::default(),
                 },
             ],
         },
@@ -54,7 +58,7 @@ fn old_document_bytes_and_history_survive_read_and_first_v9_save() {
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/caption-native.json");
     let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(stored["format_version"], 9);
+    assert_eq!(stored["format_version"], 10);
     strip_abbreviations(&mut stored);
     stored["format_version"] = json!(7);
     let original = serde_json::to_vec_pretty(&stored).unwrap();
@@ -148,7 +152,7 @@ fn old_draft_bytes_are_preserved_before_the_first_changed_v9_draft() {
         Some(edited.document.revision)
     );
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 9);
+    assert_eq!(rewritten["format_version"], 10);
     assert_eq!(rewritten["document"]["revision"], edited.document.revision);
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 7)).unwrap(),
@@ -225,7 +229,9 @@ fn repeated_maximal_caption_updates_save_reload_and_keep_the_latest_undo() {
         runs: vec![
             CaptionRun {
                 text: character.to_string().repeat(512),
-                script: CaptionScript::Superscript
+                script: CaptionScript::Superscript,
+                weight: Default::default(),
+                style: Default::default(),
             };
             32
         ],
@@ -300,6 +306,7 @@ fn repeated_maximal_caption_updates_save_reload_and_keep_the_latest_undo() {
 
 // Build the exact pre-abbreviation schema instead of putting v9 fields behind an old header.
 fn strip_abbreviations(value: &mut Value) {
+    strip_caption_styles(value);
     value["document"]
         .as_object_mut()
         .unwrap()
@@ -308,5 +315,142 @@ fn strip_abbreviations(value: &mut Value) {
         for entry in value["history"][stack].as_array_mut().unwrap() {
             entry.as_object_mut().unwrap().remove("abbreviations");
         }
+    }
+}
+
+fn strip_caption_styles(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if object.contains_key("script") && object.contains_key("text") {
+                object.remove("weight");
+                object.remove("style");
+            }
+            for child in object.values_mut() {
+                strip_caption_styles(child);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                strip_caption_styles(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn v9_caption_current_history_and_draft_migrate_without_rewriting_and_archive_exact_bytes() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = document();
+    doc.apply(&[caption()]).unwrap();
+    doc.apply(&[Command::UpdateCaption {
+        object: ObjectId::from_serial(2).unwrap(),
+        caption: Caption {
+            anchor: Point::new(7.0, 8.0).unwrap(),
+            runs: vec![CaptionRun {
+                text: "changed".into(),
+                script: CaptionScript::Superscript,
+                weight: Default::default(),
+                style: Default::default(),
+            }],
+        },
+    }])
+    .unwrap();
+    doc.undo().unwrap(); // Both undo and redo contain captions.
+    repo.save(&doc, None).unwrap();
+    let path = root.path().join("documents/caption-native.json");
+    let mut v9: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    strip_caption_styles(&mut v9);
+    v9["format_version"] = json!(9);
+    let original = serde_json::to_vec_pretty(&v9).unwrap();
+    fs::write(&path, &original).unwrap();
+    let mut loaded = repo.load(doc.id()).unwrap().unwrap();
+    assert_eq!(loaded, doc);
+    assert_eq!(fs::read(&path).unwrap(), original);
+    loaded.redo().unwrap();
+    loaded.undo().unwrap();
+    assert_eq!(loaded.scene_objects(), doc.scene_objects());
+    repo.save(&loaded, Some(doc.revision())).unwrap();
+    assert_eq!(fs::read(repo.migrated_path(doc.id(), 9)).unwrap(), original);
+    assert_eq!(repo.load(doc.id()).unwrap(), Some(loaded.clone()));
+    repo.write_draft(&Draft {
+        document: loaded.clone(),
+        base_revision: loaded.revision(),
+        saved_at_ms: 12,
+    })
+    .unwrap();
+    repo.release_draft(doc.id());
+    let draft_path = root.path().join("drafts/caption-native.json");
+    let mut draft: Value = serde_json::from_slice(&fs::read(&draft_path).unwrap()).unwrap();
+    strip_caption_styles(&mut draft);
+    draft["format_version"] = json!(9);
+    let old_draft = serde_json::to_vec_pretty(&draft).unwrap();
+    fs::write(&draft_path, &old_draft).unwrap();
+    let claimed = repo.claim_draft(doc.id()).unwrap().unwrap().unwrap();
+    assert_eq!(claimed.document, loaded);
+    assert_eq!(fs::read(&draft_path).unwrap(), old_draft);
+    // Claiming is read-only. Recovery preparation preserves the exact claimed bytes
+    // before recovery may expose the document for editing or overwrite its draft.
+    assert!(!repo.migrated_draft_path(doc.id(), 9).exists());
+    repo.prepare_draft_for_recovery(
+        doc.id(),
+        chemifree_application::DraftRecoveryTarget::Original {
+            base_revision: claimed.base_revision,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(repo.migrated_draft_path(doc.id(), 9)).unwrap(),
+        old_draft
+    );
+    assert_eq!(fs::read(&draft_path).unwrap(), old_draft);
+    let mut changed = claimed;
+    changed.document.redo().unwrap();
+    repo.write_draft(&changed).unwrap();
+    assert_eq!(
+        fs::read(repo.migrated_draft_path(doc.id(), 9)).unwrap(),
+        old_draft
+    );
+    repo.release_draft(doc.id());
+    assert_eq!(repo.claim_draft(doc.id()).unwrap(), Some(Ok(changed)));
+}
+
+#[test]
+fn v10_requires_style_fields_and_v9_refuses_them_even_in_history_only_captions() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = document();
+    doc.apply(&[caption()]).unwrap();
+    doc.undo().unwrap();
+    repo.save(&doc, None).unwrap();
+    let path = root.path().join("documents/caption-native.json");
+    let original: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for (version, field, value) in [
+        (10, "weight", None),
+        (10, "style", Some(json!(null))),
+        (10, "weight", Some(json!("heavy"))),
+        (9, "weight", Some(json!("bold"))),
+    ] {
+        let mut invalid = original.clone();
+        if version == 9 {
+            strip_caption_styles(&mut invalid);
+        }
+        invalid["format_version"] = json!(version);
+        let run = invalid["history"]["redo"][0]["objects"][0]["after"]["runs"][0]
+            .as_object_mut()
+            .unwrap();
+        if let Some(value) = value {
+            run.insert(field.into(), value);
+        } else {
+            run.remove(field);
+        }
+        let bytes = serde_json::to_vec(&invalid).unwrap();
+        fs::write(&path, &bytes).unwrap();
+        assert!(
+            matches!(repo.load(doc.id()), Err(StorageError::Corrupt(_))),
+            "version {version}, field {field}"
+        );
+        assert_eq!(fs::read(&path).unwrap(), bytes);
     }
 }

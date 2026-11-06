@@ -37,7 +37,7 @@ fn setup() -> (App, tempfile::TempDir, String) {
     (app, root, id)
 }
 fn runs() -> Value {
-    json!([{"text":"한글 e\u{301} 👩‍🔬 H","script":"baseline"},{"text":"2","script":"subscript"},{"text":"+","script":"superscript"}])
+    json!([{"text":"한글 e\u{301} 👩‍🔬 H","script":"baseline","weight":"bold","style":"normal"},{"text":"2","script":"subscript","weight":"normal","style":"italic"},{"text":"+","script":"superscript","weight":"bold","style":"italic"}])
 }
 fn commands() -> Value {
     json!([
@@ -296,7 +296,7 @@ fn every_chemical_export_requires_explicit_consent_for_caption_loss() {
             .collect();
         let expected = json!({
             "feature":"caption", "source_path":source_path, "disposition":"dropped", "semantic_impact":"rendering",
-            "reason":"Independent caption text and script styles are not written by this export profile."
+            "reason":"Independent caption text, script, weight and style are not written by this export profile."
         });
         assert_eq!(caption, vec![&expected], "{case}: {refused}");
         let digest = refused["diagnostics"][0]["details"]["loss_digest"].clone();
@@ -344,6 +344,8 @@ fn a_small_wire_request_cannot_create_an_oversized_caption_history_entry() {
                     CaptionRun {
                         text: "\"".repeat(512),
                         script: CaptionScript::Superscript,
+                        weight: Default::default(),
+                        style: Default::default(),
                     };
                     32
                 ],
@@ -386,4 +388,46 @@ fn a_small_wire_request_cannot_create_an_oversized_caption_history_entry() {
     );
     assert_eq!(refused["result"], Value::Null);
     assert_eq!(snapshot(&app, "caption-wire-budget"), before);
+}
+
+#[test]
+fn invalid_caption_styles_refuse_the_whole_transaction_and_omissions_default_to_normal() {
+    let (app, _root, id) = setup();
+    for (field, value) in [
+        ("weight", json!("heavy")),
+        ("weight", json!(700)),
+        ("style", json!("oblique")),
+        ("style", json!(null)),
+    ] {
+        let mut run = json!({"text":"H","script":"baseline"});
+        run[field] = value;
+        let before = snapshot(&app, &id);
+        let refused = call(
+            &app,
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":0,"commands":[
+                {"op":"rename","title":"must not commit"},
+                {"op":"add_caption","anchor":{"x":0,"y":0},"runs":[run]}
+            ]}),
+        );
+        assert_eq!(
+            refused["diagnostics"][0]["code"], "invalid_request",
+            "{refused}"
+        );
+        assert_eq!(snapshot(&app, &id), before);
+    }
+    let added = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[
+            {"op":"add_caption","anchor":{"x":0,"y":0},"runs":[{"text":"H","script":"baseline"}]}
+        ]}),
+    );
+    assert_eq!(added["outcome"], "ok", "{added}");
+    assert_eq!(
+        added["result"]["document"]["scene"]["objects"][1]["runs"],
+        json!([
+            {"text":"H","script":"baseline","weight":"normal","style":"normal"}
+        ])
+    );
 }

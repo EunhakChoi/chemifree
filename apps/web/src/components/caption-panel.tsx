@@ -17,7 +17,7 @@ export function CaptionPanel({ document, editor }: { document: DocumentView; edi
   const caption = selected.length === 1 && selected[0].kind === 'caption' ? selected[0] : null
   return (
     <section aria-label="Captions" className="flex flex-col gap-2 rounded-lg border p-3">
-      <p className="text-xs text-muted-foreground">Independent text with explicit script runs. Captions do not change atoms or chemical formulas. Single line, left aligned; uses the drawing label font and size.</p>
+      <p className="text-xs text-muted-foreground">Independent text with explicit script, weight and style runs. Captions do not change atoms or chemical formulas. Single line, left aligned; uses the drawing label font and size.</p>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" disabled={editor.busy} onClick={() => setDraft({ original: null })}>Add caption…</Button>
         <Button variant="outline" size="sm" disabled={editor.busy || caption === null} onClick={() => caption && setDraft({ original: caption })}>Edit selected caption…</Button>
@@ -34,7 +34,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
   close: () => void
 }) {
   const id = useId()
-  const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline' }])
+  const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal' }])
   const [x, setX] = useState(String(original?.anchor.x ?? 0))
   const [y, setY] = useState(String(original?.anchor.y ?? 0))
   const [composing, setComposing] = useState(false)
@@ -60,7 +60,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
       <DialogContent className="max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{original ? `Edit caption ${original.id}` : 'Add caption'}</DialogTitle>
-          <DialogDescription>Each input stores one complete Unicode run. Text is kept verbatim. Script changes its appearance only. Run boundaries may split shaping; avoid splitting combining or emoji sequences.</DialogDescription>
+          <DialogDescription>Each input stores one complete Unicode run. Text is kept verbatim. Script, weight and style change appearance only. Run boundaries may split shaping; avoid splitting combining or emoji sequences.</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field><FieldLabel htmlFor={`${id}-x`}>Caption horizontal position (pt)</FieldLabel><Input id={`${id}-x`} value={x} onChange={(event) => setX(event.target.value)} /></Field>
@@ -80,11 +80,27 @@ function CaptionDialog({ documentId, original, editor, close }: {
                   <ToggleGroupItem value="baseline">Baseline</ToggleGroupItem><ToggleGroupItem value="subscript">Subscript</ToggleGroupItem><ToggleGroupItem value="superscript">Superscript</ToggleGroupItem>
                 </ToggleGroup>
               </Field>
+              <Field><FieldLabel id={`${id}-weight-${index}`}>Run {index + 1} weight</FieldLabel>
+                <ToggleGroup variant="outline" size="sm" aria-labelledby={`${id}-weight-${index}`} value={[run.weight]} onValueChange={(values) => {
+                  const value = values[0]
+                  if (value === 'normal' || value === 'bold') setRuns((current) => current.map((item, at) => at === index ? { ...item, weight: value } : item))
+                }}>
+                  <ToggleGroupItem value="normal">Normal</ToggleGroupItem><ToggleGroupItem value="bold">Bold</ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
+              <Field><FieldLabel id={`${id}-style-${index}`}>Run {index + 1} style</FieldLabel>
+                <ToggleGroup variant="outline" size="sm" aria-labelledby={`${id}-style-${index}`} value={[run.style]} onValueChange={(values) => {
+                  const value = values[0]
+                  if (value === 'normal' || value === 'italic') setRuns((current) => current.map((item, at) => at === index ? { ...item, style: value } : item))
+                }}>
+                  <ToggleGroupItem value="normal">Normal</ToggleGroupItem><ToggleGroupItem value="italic">Italic</ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
               <Button variant="outline" size="sm" disabled={runs.length === 1 || composing} onClick={() => setRuns((current) => current.filter((_, at) => at !== index))}>Remove run {index + 1}</Button>
             </FieldGroup>
           ))}
         </FieldGroup>
-        <Button variant="outline" disabled={runs.length >= 32 || composing} onClick={() => setRuns((current) => [...current, { text: '', script: 'baseline' }])}>Add run</Button>
+        <Button variant="outline" disabled={runs.length >= 32 || composing} onClick={() => setRuns((current) => [...current, { text: '', script: 'baseline', weight: 'normal', style: 'normal' }])}>Add run</Button>
         <p className="text-xs text-muted-foreground">1–32 nonempty runs, at most 16384 UTF-8 bytes in total. No line breaks or control characters. Move/group/delete from Scene. Arrangement, rotation, reflection and graphic clipboard do not yet support captions.</p>
         <DialogFooter><Button disabled={!valid || composing || editor.busy} onClick={submit}>{original ? 'Apply caption' : 'Create caption'}</Button></DialogFooter>
       </DialogContent>

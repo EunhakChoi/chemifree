@@ -4,8 +4,8 @@ use chemifree_domain::document::{
     Command, Document, DocumentId, EditError, ObjectId, Outcome, Point, Vector,
 };
 use chemifree_domain::scene::{
-    Caption, CaptionRun, CaptionScript, DeleteMode, ReferenceTarget, SceneObject, SceneReference,
-    Selection, SelectionTransform,
+    Caption, CaptionRun, CaptionScript, CaptionStyle, CaptionWeight, DeleteMode, ReferenceTarget,
+    SceneObject, SceneReference, Selection, SelectionTransform,
 };
 
 fn object(serial: u32) -> ObjectId {
@@ -17,6 +17,8 @@ fn caption(text: &str) -> Caption {
         runs: vec![CaptionRun {
             text: text.into(),
             script: CaptionScript::Baseline,
+            weight: Default::default(),
+            style: Default::default(),
         }],
     }
 }
@@ -40,14 +42,20 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
             CaptionRun {
                 text: "한글 e\u{301} 👩‍🔬 H".into(),
                 script: CaptionScript::Baseline,
+                weight: Default::default(),
+                style: Default::default(),
             },
             CaptionRun {
                 text: "2".into(),
                 script: CaptionScript::Subscript,
+                weight: Default::default(),
+                style: Default::default(),
             },
             CaptionRun {
                 text: "+".into(),
                 script: CaptionScript::Superscript,
+                weight: Default::default(),
+                style: Default::default(),
             },
         ],
     };
@@ -167,4 +175,45 @@ fn caption_deletion_obeys_references_and_undo_restores_the_same_id() {
         &SceneObject::Caption(caption("caption"))
     );
     assert_eq!(doc.references().collect::<Vec<_>>(), vec![reference]);
+}
+
+#[test]
+fn weight_and_style_only_edits_combine_with_every_script_and_undo_independently() {
+    let mut doc = document();
+    doc.apply(&[add(caption("Et H₂ e\u{301}"))]).unwrap();
+    let original = doc.scene_objects()[1].2.clone();
+    for script in [
+        CaptionScript::Baseline,
+        CaptionScript::Subscript,
+        CaptionScript::Superscript,
+    ] {
+        for (weight, style) in [
+            (CaptionWeight::Normal, CaptionStyle::Italic),
+            (CaptionWeight::Bold, CaptionStyle::Normal),
+            (CaptionWeight::Bold, CaptionStyle::Italic),
+        ] {
+            let mut styled = caption("Et H₂ e\u{301}");
+            styled.runs[0].script = script;
+            styled.runs[0].weight = weight;
+            styled.runs[0].style = style;
+            let expected = SceneObject::Caption(styled.clone());
+            assert_eq!(
+                doc.apply(&[Command::UpdateCaption {
+                    object: object(2),
+                    caption: styled
+                }])
+                .unwrap(),
+                Outcome::Changed
+            );
+            assert_eq!(doc.scene_objects()[1].2, &expected);
+            assert_eq!(doc.atoms().count(), 0);
+            assert_eq!(doc.bonds().count(), 0);
+            assert_eq!(doc.abbreviations().count(), 0);
+            doc.undo().unwrap();
+            assert_eq!(doc.scene_objects()[1].2, &original);
+            doc.redo().unwrap();
+            assert_eq!(doc.scene_objects()[1].2, &expected);
+            doc.undo().unwrap();
+        }
+    }
 }

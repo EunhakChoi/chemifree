@@ -8,7 +8,7 @@ const { selectionMove, selectionTransform } = await import('../apps/web/src/edit
 const { sceneGeometryCommands } = await import('../apps/web/src/editor/scene-geometry.ts')
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 
-const runs = () => [{ text: '한글 e\u0301 👩‍🔬 H', script: 'baseline' }, { text: '2', script: 'subscript' }, { text: '+', script: 'superscript' }]
+const runs = () => [{ text: '한글 e\u0301 👩‍🔬 H', script: 'baseline', weight: 'normal', style: 'normal' }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic' }, { text: '+', script: 'superscript', weight: 'bold', style: 'italic' }]
 function source() {
   const result = ringSource()
   result.document.scene.roots.push('s8')
@@ -19,26 +19,26 @@ function source() {
 test('Unicode captions preserve code points, run boundaries and the native White_Space policy', () => {
   assert.equal(isDocumentResponse(source()), true)
   const feff = source()
-  feff.document.scene.objects.at(-1).runs = [{ text: '\ufeff', script: 'baseline' }]
+  feff.document.scene.objects.at(-1).runs = [{ text: '\ufeff', script: 'baseline', weight: 'normal', style: 'normal' }]
   assert.equal(isDocumentResponse(feff), true)
-  assert.equal(validCaptionRuns([{ text: '\ufeff', script: 'baseline' }]), true)
-  assert.equal(validCaptionRuns([{ text: '\u2003', script: 'baseline' }]), false)
-  assert.equal(validCaptionRuns([{ text: '한'.repeat(5461), script: 'baseline' }]), true)
-  assert.equal(validCaptionRuns([{ text: '한'.repeat(5462), script: 'baseline' }]), false)
-  assert.equal(validCaptionRuns(Array.from({ length: 32 }, () => ({ text: 'A', script: 'baseline' }))), true)
-  assert.equal(validCaptionRuns(Array.from({ length: 33 }, () => ({ text: 'A', script: 'baseline' }))), false)
+  assert.equal(validCaptionRuns([{ text: '\ufeff', script: 'baseline', weight: 'normal', style: 'normal' }]), true)
+  assert.equal(validCaptionRuns([{ text: '\u2003', script: 'baseline', weight: 'normal', style: 'normal' }]), false)
+  assert.equal(validCaptionRuns([{ text: '한'.repeat(5461), script: 'baseline', weight: 'normal', style: 'normal' }]), true)
+  assert.equal(validCaptionRuns([{ text: '한'.repeat(5462), script: 'baseline', weight: 'normal', style: 'normal' }]), false)
+  assert.equal(validCaptionRuns(Array.from({ length: 32 }, () => ({ text: 'A', script: 'baseline', weight: 'normal', style: 'normal' }))), true)
+  assert.equal(validCaptionRuns(Array.from({ length: 33 }, () => ({ text: 'A', script: 'baseline', weight: 'normal', style: 'normal' }))), false)
 })
 
 for (const [name, run] of [
-  ['array script', { text: 'H', script: ['baseline'] }],
-  ['object script', { text: 'H', script: {} }],
-  ['unknown script', { text: 'H', script: 'auto' }],
-  ['missing script', { text: 'H' }],
-  ['empty run', { text: '', script: 'baseline' }],
-  ['newline', { text: 'a\nb', script: 'baseline' }],
-  ['control', { text: 'a\u0085b', script: 'baseline' }],
-  ['line separator', { text: 'a\u2028b', script: 'baseline' }],
-  ['unpaired UTF-16', { text: '\ud800', script: 'baseline' }],
+  ['array script', { text: 'H', script: ['baseline'], weight: 'normal', style: 'normal' }],
+  ['object script', { text: 'H', script: {}, weight: 'normal', style: 'normal' }],
+  ['unknown script', { text: 'H', script: 'auto', weight: 'normal', style: 'normal' }],
+  ['missing script', { text: 'H', weight: 'normal', style: 'normal' }],
+  ['empty run', { text: '', script: 'baseline', weight: 'normal', style: 'normal' }],
+  ['newline', { text: 'a\nb', script: 'baseline', weight: 'normal', style: 'normal' }],
+  ['control', { text: 'a\u0085b', script: 'baseline', weight: 'normal', style: 'normal' }],
+  ['line separator', { text: 'a\u2028b', script: 'baseline', weight: 'normal', style: 'normal' }],
+  ['unpaired UTF-16', { text: '\ud800', script: 'baseline', weight: 'normal', style: 'normal' }],
 ]) test(`caption response refuses ${name} instead of accepting a malformed whole snapshot`, () => {
   const result = source()
   result.document.scene.objects.at(-1).runs = [run]
@@ -90,3 +90,11 @@ test('a group containing only a caption still has a movable anchor', () => {
     op: 'move_selection', selection: { objects: ['s9'], atoms: [], bonds: [] }, delta: { x: 3, y: 4 },
   }])
 })
+
+for (const [field, value] of [['weight', 'heavy'], ['weight', 700], ['weight', null], ['style', 'oblique'], ['style', null], ['style', undefined]]) {
+  test(`caption response rejects ${field}=${String(value)}`, () => {
+    const result = source()
+    result.document.scene.objects.at(-1).runs[0][field] = value
+    assert.equal(isDocumentResponse(result), false)
+  })
+}

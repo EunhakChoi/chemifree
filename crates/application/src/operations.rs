@@ -631,8 +631,8 @@ const TRANSACTION_PARTS: [Entry; 52] = [
     ),
     runs("collapse_ethyl", "Displays a checked existing terminal ethyl graph as Et; chemistry and positions are retained."),
     runs("expand_ethyl", "Reveals the original stored ethyl drawing."),
-    runs("add_caption", "Adds an independent single-line Unicode caption with explicit script runs."),
-    runs("update_caption", "Replaces a caption anchor and its complete script runs."),
+    runs("add_caption", "Adds an independent single-line Unicode caption with explicit script, weight and style runs."),
+    runs("update_caption", "Replaces a caption anchor and its complete script, weight and style runs."),
     runs(
         "add_graphic",
         "Adds a line, rectangle, or arrow to a page or group.",

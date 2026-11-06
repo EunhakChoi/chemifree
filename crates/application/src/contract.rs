@@ -11,9 +11,10 @@ use chemifree_domain::document::{
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
-    AlignMode, Caption, CaptionRun, CaptionScript, DeleteMode, DistributionAxis, Graphic,
-    GraphicShape, ObjectArrangement, ObjectRef, ReferenceTarget, SceneError, SceneObject,
-    SceneReference, Selection, SelectionRequest, SelectionTransform, TransactionSelection,
+    AlignMode, Caption, CaptionRun, CaptionScript, CaptionStyle, CaptionWeight, DeleteMode,
+    DistributionAxis, Graphic, GraphicShape, ObjectArrangement, ObjectRef, ReferenceTarget,
+    SceneError, SceneObject, SceneReference, Selection, SelectionRequest, SelectionTransform,
+    TransactionSelection,
 };
 use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, Settings, SettingsEdit};
 use chemifree_domain::states::{
@@ -1895,6 +1896,10 @@ pub enum SceneObjectView {
 pub struct CaptionRunDto {
     pub text: String,
     pub script: CaptionScriptDto,
+    #[serde(default)]
+    pub style: CaptionStyleDto,
+    #[serde(default)]
+    pub weight: CaptionWeightDto,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
@@ -1905,10 +1910,34 @@ pub enum CaptionScriptDto {
     Superscript,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptionWeightDto {
+    #[default]
+    Normal,
+    Bold,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptionStyleDto {
+    #[default]
+    Normal,
+    Italic,
+}
+
 impl From<&CaptionRun> for CaptionRunDto {
     fn from(run: &CaptionRun) -> Self {
         Self {
             text: run.text.clone(),
+            style: match run.style {
+                CaptionStyle::Normal => CaptionStyleDto::Normal,
+                CaptionStyle::Italic => CaptionStyleDto::Italic,
+            },
+            weight: match run.weight {
+                CaptionWeight::Normal => CaptionWeightDto::Normal,
+                CaptionWeight::Bold => CaptionWeightDto::Bold,
+            },
             script: match run.script {
                 CaptionScript::Baseline => CaptionScriptDto::Baseline,
                 CaptionScript::Subscript => CaptionScriptDto::Subscript,
@@ -1928,6 +1957,14 @@ fn caption(anchor: PointDto, runs: &[CaptionRunDto]) -> Result<Caption, String> 
             .iter()
             .map(|run| CaptionRun {
                 text: run.text.clone(),
+                style: match run.style {
+                    CaptionStyleDto::Normal => CaptionStyle::Normal,
+                    CaptionStyleDto::Italic => CaptionStyle::Italic,
+                },
+                weight: match run.weight {
+                    CaptionWeightDto::Normal => CaptionWeight::Normal,
+                    CaptionWeightDto::Bold => CaptionWeight::Bold,
+                },
                 script: match run.script {
                     CaptionScriptDto::Baseline => CaptionScript::Baseline,
                     CaptionScriptDto::Subscript => CaptionScript::Subscript,

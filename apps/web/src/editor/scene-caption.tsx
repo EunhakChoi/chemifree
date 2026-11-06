@@ -24,7 +24,7 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
         fontSize={size} data-caption-text={object.id} role="img"
         aria-label={`Caption ${object.id}: ${object.runs.map((run) => run.text).join('')}`}>
         {object.runs.map((run, index) => (
-          <tspan key={index} data-caption-script={run.script}
+          <tspan key={index} data-caption-script={run.script} fontWeight={run.weight} fontStyle={run.style}
             fontSize={run.script === 'baseline' ? size : size * 2 / 3}
             y={object.anchor.y + (run.script === 'subscript' ? size / 3 : run.script === 'superscript' ? -size * 5 / 12 : 0)}>{run.text}</tspan>
         ))}
