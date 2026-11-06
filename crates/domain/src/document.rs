@@ -71,10 +71,10 @@ pub const MAX_EDIT_REVISION: u64 = MAX_REVISION - 1;
 /// Entity changes kept across all history entries. With the entity limits this bounds the
 /// stored history, so a saved document stays within what storage providers read back.
 pub const HISTORY_CHANGE_LIMIT: usize = 100_000;
-/// Current-state admission budget when captions exist in content or history.
+/// Current-state admission budget when captions or custom display labels exist in content or history.
 /// Physical encoding also reserves per-run metadata; see persistence_weight.
 pub const CAPTION_CONTENT_WEIGHT_LIMIT: usize = 48 * 1024 * 1024;
-/// Whole-history admission budget for caption-bearing documents. The latest edit must
+/// Whole-history admission budget for caption/display-label-bearing documents. The latest edit must
 /// fit by itself; older undo entries make room. Runs without shadow retain v16 admission
 /// weights; physical encoding reserves at most 6/5 of history admission.
 pub const CAPTION_HISTORY_WEIGHT_LIMIT: usize = 8 * 1024 * 1024;
@@ -432,6 +432,12 @@ pub enum Command {
         instance: ObjectId,
         anchor: AtomId,
     },
+    /// Changes presentation text only; None restores the default Et label.
+    UpdateAbbreviationLabel {
+        instance: ObjectId,
+        anchor: AtomId,
+        text: Option<String>,
+    },
     /// Appends an independent regular carbon ring in the only placement.
     /// Uses the current document bond length; creates no transaction-local `$N` target.
     InsertRing {
@@ -684,6 +690,7 @@ pub enum Command {
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditError {
     AbbreviationInvalid,
+    DisplayLabelInvalid,
     CaptionInvalid,
     CaptionPersistenceLimit,
     CaptionUnsupported(ObjectId),
@@ -792,6 +799,7 @@ impl EditError {
     pub fn scene_error(&self) -> Option<SceneError> {
         Some(match self {
             Self::AbbreviationInvalid => SceneError::AbbreviationInvalid,
+            Self::DisplayLabelInvalid => SceneError::DisplayLabelInvalid,
             Self::CaptionInvalid => SceneError::CaptionInvalid,
             Self::CaptionPersistenceLimit => SceneError::CaptionPersistenceLimit,
             Self::CaptionUnsupported(_) => SceneError::CaptionUnsupported,
@@ -959,7 +967,8 @@ impl fmt::Display for EditError {
                 formatter,
                 "rectangle {object} requires an exact quarter-turn rotation; arbitrary angles cannot be represented by its two axis-aligned corners"
             ),
-            Self::CaptionPersistenceLimit => formatter.write_str("The caption edit exceeds the persistence budget; reduce text or transaction size."),
+            Self::CaptionPersistenceLimit => formatter.write_str("The text edit exceeds the persistence budget; reduce text or transaction size."),
+            Self::DisplayLabelInvalid => formatter.write_str("Display label needs non-whitespace single-line Unicode text, at most 128 UTF-8 bytes; text does not define chemistry."),
             Self::AbbreviationInvalid => formatter.write_str("Et needs a disjoint neutral default two-carbon terminal graph, one unmarked single boundary, no local stereo, and one explicit placement."),
             Self::CaptionInvalid => formatter.write_str("Caption needs 1–32 nonempty single-line runs, at most 16384 UTF-8 bytes, non-whitespace text, and finite 4–72 pt size overrides."),
             Self::CaptionUnsupported(id) => write!(formatter, "This operation cannot preserve caption {id}; nothing was changed."),
@@ -1073,6 +1082,8 @@ pub struct Change<T> {
 pub struct ChangeSet {
     /// Per-placement Et display changes; the graph is retained.
     pub abbreviations: Vec<(PositionKey, Change<Option<AtomId>>)>,
+    /// Independent cosmetic text changes, never chemical graph definitions.
+    pub display_labels: Vec<(PositionKey, Change<Option<String>>)>,
     pub title: Option<Change<String>>,
     pub settings: Option<Change<Settings>>,
     pub atoms: Vec<(AtomId, Change<Option<Atom>>)>,
@@ -1096,6 +1107,7 @@ impl ChangeSet {
     fn between(before: &Content, after: &Content, selection: Change<Selection>) -> Self {
         Self {
             abbreviations: diff_maps(&before.abbreviations, &after.abbreviations),
+            display_labels: diff_maps(&before.display_labels, &after.display_labels),
             title: (before.title != after.title).then(|| Change {
                 before: before.title.clone(),
                 after: after.title.clone(),
@@ -1122,6 +1134,7 @@ impl ChangeSet {
     /// Whether the content is unchanged; the selection does not count.
     pub fn is_empty(&self) -> bool {
         self.abbreviations.is_empty()
+            && self.display_labels.is_empty()
             && self.title.is_none()
             && self.settings.is_none()
             && self.atoms.is_empty()
@@ -1137,6 +1150,7 @@ impl ChangeSet {
     /// Entity changes counted against [`HISTORY_CHANGE_LIMIT`].
     fn size(&self) -> usize {
         self.abbreviations.len()
+            + self.display_labels.len()
             + usize::from(self.title.is_some())
             + usize::from(self.settings.is_some())
             + self.atoms.len()
@@ -1185,6 +1199,7 @@ impl ChangeSet {
                 .as_ref()
                 .is_none_or(|change| change.before != change.after)
             && entries_valid(&self.abbreviations)
+            && entries_valid(&self.display_labels)
             && entries_valid(&self.atoms)
             && entries_valid(&self.bonds)
             && entries_valid(&self.objects)
@@ -1269,6 +1284,7 @@ fn replay<K: Copy + Ord, V: Clone + PartialEq>(
 #[derive(Clone, Debug, PartialEq)]
 struct Content {
     abbreviations: BTreeMap<PositionKey, AtomId>,
+    display_labels: BTreeMap<PositionKey, String>,
     title: String,
     settings: Settings,
     atoms: BTreeMap<AtomId, Atom>,
@@ -2170,10 +2186,39 @@ impl Draft {
             Command::ExpandEthyl { instance, anchor } => {
                 self.content.require_instance(*instance)?;
                 self.content.require_atom(*anchor)?;
-                self.content.abbreviations.remove(&PositionKey {
+                let key = PositionKey {
                     instance: *instance,
                     atom: *anchor,
-                });
+                };
+                self.content.abbreviations.remove(&key);
+                self.content.display_labels.remove(&key);
+            }
+            Command::UpdateAbbreviationLabel {
+                instance,
+                anchor,
+                text,
+            } => {
+                let key = PositionKey {
+                    instance: *instance,
+                    atom: *anchor,
+                };
+                let terminal = self
+                    .content
+                    .abbreviations
+                    .get(&key)
+                    .ok_or(EditError::AbbreviationInvalid)?;
+                self.content.check_ethyl(key, *terminal)?;
+                if let Some(text) = text {
+                    abbreviation::validate_display_label(text)?;
+                    // Canonical default: explicit Et and reset produce the same state.
+                    if text == "Et" {
+                        self.content.display_labels.remove(&key);
+                    } else {
+                        self.content.display_labels.insert(key, text.clone());
+                    }
+                } else {
+                    self.content.display_labels.remove(&key);
+                }
             }
             Command::InsertRing {
                 instance,
@@ -2685,6 +2730,8 @@ impl Numbering {
 pub struct DocumentParts {
     /// `(instance, anchor)` to the hidden terminal carbon of an Et display.
     pub abbreviations: Vec<(PositionKey, AtomId)>,
+    /// Optional cosmetic text; missing entries display Et. No chemical interpretation.
+    pub display_labels: Vec<(PositionKey, String)>,
     pub id: DocumentId,
     pub revision: u64,
     pub title: String,
@@ -2756,6 +2803,7 @@ impl Document {
             revision: 0,
             content: Content {
                 abbreviations: BTreeMap::new(),
+                display_labels: BTreeMap::new(),
                 title: title.to_owned(),
                 settings,
                 atoms: BTreeMap::new(),
@@ -2812,6 +2860,7 @@ impl Document {
         }
         let counts = (
             parts.abbreviations.len(),
+            parts.display_labels.len(),
             parts.atoms.len(),
             parts.bonds.len(),
             parts.objects.len(),
@@ -2822,6 +2871,7 @@ impl Document {
         );
         let content = Content {
             abbreviations: parts.abbreviations.into_iter().collect(),
+            display_labels: parts.display_labels.into_iter().collect(),
             title: parts.title,
             settings: parts.settings,
             atoms: parts.atoms.into_iter().collect(),
@@ -2838,6 +2888,7 @@ impl Document {
         if counts
             != (
                 content.abbreviations.len(),
+                content.display_labels.len(),
                 content.atoms.len(),
                 content.bonds.len(),
                 content.scene.objects.len(),
@@ -2870,8 +2921,8 @@ impl Document {
                  entry's selection after nor the nearest redo entry's selection before",
             ));
         }
-        let caption_budget =
-            content.has_captions() || undo.iter().chain(&redo).any(ChangeSet::has_captions);
+        let caption_budget = content.has_variable_text()
+            || undo.iter().chain(&redo).any(ChangeSet::has_variable_text);
         // Editing keeps undo + redo within the limits (undo and redo only move entries between
         // them). A stored history beyond them, e.g. written under looser limits, is trimmed the
         // way editing trims: oldest undo entries first, then the farthest redo entries.
@@ -3006,6 +3057,12 @@ impl Document {
     pub fn to_parts(&self) -> DocumentParts {
         DocumentParts {
             abbreviations: self.abbreviations().collect(),
+            display_labels: self
+                .content
+                .display_labels
+                .iter()
+                .map(|(key, text)| (*key, text.clone()))
+                .collect(),
             id: self.id.clone(),
             revision: self.revision,
             title: self.content.title.clone(),
@@ -3055,6 +3112,14 @@ impl Document {
             .abbreviations
             .iter()
             .map(|(key, terminal)| (*key, *terminal))
+    }
+
+    /// Cosmetic text never defines the retained ethyl chemistry.
+    pub fn abbreviation_label(&self, key: PositionKey) -> &str {
+        self.content
+            .display_labels
+            .get(&key)
+            .map_or("Et", String::as_str)
     }
 
     pub fn id(&self) -> &DocumentId {
@@ -3332,13 +3397,13 @@ impl Document {
                 group_notes: Vec::new(),
             });
         }
-        let caption_budget = draft.content.has_captions()
-            || changes.has_captions()
+        let caption_budget = draft.content.has_variable_text()
+            || changes.has_variable_text()
             || self
                 .undo
                 .iter()
                 .chain(&self.redo)
-                .any(ChangeSet::has_captions);
+                .any(ChangeSet::has_variable_text);
         if caption_budget
             && (draft
                 .content
@@ -3494,6 +3559,7 @@ fn step(content: &mut Content, set: &ChangeSet, direction: Direction) -> Result<
         next.scene.roots.clone_from(to);
     }
     replay(&mut next.abbreviations, &set.abbreviations, direction)?;
+    replay(&mut next.display_labels, &set.display_labels, direction)?;
     replay(&mut next.atoms, &set.atoms, direction)?;
     replay(&mut next.bonds, &set.bonds, direction)?;
     replay(&mut next.scene.objects, &set.objects, direction)?;

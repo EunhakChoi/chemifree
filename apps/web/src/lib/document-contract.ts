@@ -314,7 +314,7 @@ export const LABEL_FONTS: readonly LabelFont[] = ['sans-serif', 'serif', 'monosp
 export const CARBON_LABELS: readonly CarbonLabels[] = ['default', 'all']
 export const DISPLAY_UNITS: readonly DisplayUnit[] = ['pt', 'mm', 'cm', 'in']
 
-export interface AbbreviationView { instance: string; anchor: string; terminal: string }
+export interface AbbreviationView { instance: string; anchor: string; terminal: string; display_label: string }
 
 export interface DocumentView {
   /** Et presentation only; atoms, bonds and coordinates remain complete. */
@@ -703,6 +703,7 @@ export type Command =
   | { op: 'move_instance'; instance: string; offset: Position }
   | { op: 'delete_instance'; instance: string }
   | { op: 'collapse_ethyl'; instance: string; anchor: string; terminal: string }
+  | { op: 'update_abbreviation_label'; instance: string; anchor: string; text: string | null }
   | { op: 'expand_ethyl'; instance: string; anchor: string }
   | { op: 'add_caption'; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[]; parent?: string; index?: number }
   | { op: 'update_caption'; object: string; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
@@ -1188,6 +1189,12 @@ function isSceneTree(document: Record<string, unknown>, atoms: AtomView[], bonds
     selection.atoms.every((id) => atomIds.has(id)) && selection.bonds.every((id) => bondIds.has(id))
 }
 
+/** Mirrors the shared caption text profile; payload length is UTF-8 bytes. */
+export function validDisplayLabel(value: unknown): value is string {
+  return typeof value === 'string' && new TextEncoder().encode(value).length <= 128 &&
+    /[^\p{White_Space}]/u.test(value) && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]/u.test(value)
+}
+
 /** Reject stale or overlapping compact metadata rather than hiding real graph content. */
 function isAbbreviations(document: Record<string, unknown>, atoms: AtomView[], bonds: BondView[]): boolean {
   const value = document.abbreviations
@@ -1199,7 +1206,7 @@ function isAbbreviations(document: Record<string, unknown>, atoms: AtomView[], b
   if (!isRecord(placement)) return false
   const members = new Set<string>()
   for (const item of value) {
-    if (!isRecord(item) || item.instance !== placement.id || typeof item.anchor !== 'string' || typeof item.terminal !== 'string' || item.anchor === item.terminal) return false
+    if (!isRecord(item) || item.instance !== placement.id || typeof item.anchor !== 'string' || typeof item.terminal !== 'string' || !validDisplayLabel(item.display_label) || item.anchor === item.terminal) return false
     const pair = [item.anchor, item.terminal]
     if (pair.some((id) => members.has(id))) return false
     for (const id of pair) {

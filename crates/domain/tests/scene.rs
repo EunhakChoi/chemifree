@@ -445,6 +445,7 @@ fn every_scene_reason_code_is_distinct_and_stable() {
             "caption_persistence_limit",
             "caption_unsupported",
             "abbreviation_invalid",
+            "display_label_invalid",
             "object_unknown",
             "object_kind_mismatch",
             "group_mixed_parents",

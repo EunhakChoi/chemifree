@@ -699,6 +699,7 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "add_instance",
             "move_instance",
             "delete_instance",
+            "update_abbreviation_label",
             "collapse_ethyl",
             "expand_ethyl",
             "add_caption",

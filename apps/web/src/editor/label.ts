@@ -435,6 +435,7 @@ function chunk(
   scale = 1,
   underline = false,
   shadow = false,
+  actualInk = false,
 ): LabelChunk {
   const measured = runs.map((item) => runMetric(item, font, metrics, scale))
   const advance = measured.reduce((total, item) => total + item.advance, 0)
@@ -444,7 +445,7 @@ function chunk(
   const top = Math.min(...runs.map((item, index) => item.shift + measured[index].top))
   const bottom = Math.max(...runs.map((item, index) => item.shift + measured[index].bottom))
   const metricKey = chunkMetricKey(runs, font, anchor, scale)
-  const actual = shadow || underline || runs.some((item) => item.weight === 700 || item.style === 'italic' || item.outline)
+  const actual = actualInk || shadow || underline || runs.some((item) => item.weight === 700 || item.style === 'italic' || item.outline)
     ? metrics?.chunks.get(metricKey) : undefined
   const measuredBox = actual ? {
     x: x + actual.box.x / scale, y: y + actual.box.y / scale,
@@ -620,13 +621,13 @@ function layout(atom: AtomView, hydrogensLeft: boolean, style: Readonly<LabelSty
 
 /** Graph-preserving Et uses the same weight and geometry as a chemical symbol. */
 export function compactLabel(text: string, style: Readonly<LabelStyle>): AtomLabel {
-  if (style.weight !== 'bold' && style.style !== 'italic' && !style.underline && !style.outline && !style.shadow) {
+  if (text === 'Et' && style.weight !== 'bold' && style.style !== 'italic' && !style.underline && !style.outline && !style.shadow) {
     const width = textWidth(text, style.size, style.font)
     const box = { x: -width / 2 - 1, y: -style.size * 0.65, width: width + 2, height: style.size * 1.3 }
     return { shadow: false, chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0, runs: [run(text, style.size, 0, 'symbol', 500)], box, underlines: [], measured: false, metricKey: chunkMetricKey([run(text, style.size, 0, 'symbol', 500)], style.font, 'middle') }], marks: [], dots: [], box, font: style.font }
   }
   const item = run(text, style.size, 0, 'symbol', style.weight === 'bold' ? 700 : 500, style.style, style.outline)
-  const content = chunk(style.font, 'text', 'middle', 0, 0, [item], style.metrics, 1, style.underline, style.shadow)
+  const content = chunk(style.font, 'text', 'middle', 0, 0, [item], style.metrics, 1, style.underline, style.shadow, true)
   const padding = style.size / LABEL_SIZE
   return {
     shadow: style.shadow, chunks: [content], marks: [], dots: [], font: style.font,

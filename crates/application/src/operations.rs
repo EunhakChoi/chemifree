@@ -629,6 +629,7 @@ const TRANSACTION_PARTS: [Entry; 52] = [
         "delete_instance",
         "Deletes a scene instance with its positions; the last one stays.",
     ),
+    runs("update_abbreviation_label", "Changes or resets cosmetic display text on a collapsed retained ethyl graph; text never defines chemistry."),
     runs("collapse_ethyl", "Displays a checked existing terminal ethyl graph as Et; chemistry and positions are retained."),
     runs("expand_ethyl", "Reveals the original stored ethyl drawing."),
     runs("add_caption", "Adds an independent single-line Unicode caption with explicit script, weight, style, generic font family and nullable size_pt (finite 4–72 pt; null/omission follows drawing size), and nullable color (canonical opaque sRGB #RRGGBB; null/omission follows theme foreground) runs."),

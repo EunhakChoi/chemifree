@@ -23,6 +23,6 @@ export function abbreviationTargets(document: DocumentView, instance: string | n
   return [...pair, ...document.bonds.filter((bond) => pair.includes(bond.begin) && pair.includes(bond.end)).map((bond) => bond.id)]
 }
 
-export function ethylLabel(style: LabelStyle): AtomLabel {
-  return compactLabel('Et', style)
+export function ethylLabel(style: LabelStyle, text = 'Et'): AtomLabel {
+  return compactLabel(text, style)
 }

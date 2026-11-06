@@ -12,6 +12,7 @@ function referencedIds(command: Command): string[] {
   switch (command.op) {
     case 'collapse_ethyl':
       return [command.instance, command.anchor, command.terminal]
+    case 'update_abbreviation_label':
     case 'expand_ethyl':
       return [command.instance, command.anchor]
     case 'attach_ring':

@@ -334,10 +334,10 @@ export function StructureCanvas({
     }
     return all.map((placement) => {
       const view = compactView(placedView(document, placement), placement.id)
-      const compactAnchors = new Set(abbreviationsIn(document, placement.id).map((item) => item.anchor))
+      const compactAnchors = new Map(abbreviationsIn(document, placement.id).map((item) => [item.anchor, item.display_label]))
       const index = atomIndex(view)
       const left = leaningRight(view)
-      const labels = new Map<string, AtomLabel | null>(view.atoms.map((atom) => [atom.id, compactAnchors.has(atom.id) ? ethylLabel(style) : layoutOf(atom, left.has(atom.id))]))
+      const labels = new Map<string, AtomLabel | null>(view.atoms.map((atom) => [atom.id, compactAnchors.has(atom.id) ? ethylLabel(style, compactAnchors.get(atom.id)) : layoutOf(atom, left.has(atom.id))]))
       const sides = bondSides(view, index, rings)
       const frame =
         all.length > 1 && placement.id !== null && view.atoms.length > 0
@@ -371,9 +371,12 @@ export function StructureCanvas({
   )
 
   const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
-  const measuredLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic' || settingsOf(document).label_underline || settingsOf(document).label_outline || settingsOf(document).label_shadow
+  const styledLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic' || settingsOf(document).label_underline || settingsOf(document).label_outline || settingsOf(document).label_shadow
+  const measuredLabels = styledLabels || (document.abbreviations ?? []).some((item) => item.display_label !== 'Et')
   const chemicalMeasurementComplete = !measuredLabels || drawings.every((drawing) =>
-    [...drawing.labels.values()].every((label) => label === null || label.chunks.every((chunk) => chunk.measured)))
+    [...drawing.labels.entries()].every(([id, label]) => label === null ||
+      (!styledLabels && !abbreviationsIn(document, drawing.id).some((item) => item.anchor === id && item.display_label !== 'Et')) ||
+      label.chunks.every((chunk) => chunk.measured)))
   const captionMeasurementComplete = chemicalMeasurementComplete && ((captionCount === 0 && !measuredLabels) || (captionMeasurement?.document === document &&
     captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount))
   const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box, {
@@ -1069,7 +1072,7 @@ const DrawingLayer = memo(function DrawingLayer({
         {drawing.view.atoms.map((atom) => {
           const label = drawing.labels.get(atom.id)
           return label ? (
-            <AtomMark key={atom.id} id={atom.id} name={abbreviationsIn(drawing.view, drawing.id).some((item) => item.anchor === atom.id) ? `Et abbreviation at ${atom.id}; retained ethyl graph` : atomName(atom, placement)} label={label} at={position(atom.id)} />
+            <AtomMark key={atom.id} id={atom.id} name={abbreviationsIn(drawing.view, drawing.id).some((item) => item.anchor === atom.id) ? `Display label ${abbreviationsIn(drawing.view, drawing.id).find((item) => item.anchor === atom.id)?.display_label} at ${atom.id}; text does not define chemistry; underlying ethyl graph` : atomName(atom, placement)} label={label} at={position(atom.id)} />
           ) : null
         })}
       </g>
@@ -1088,6 +1091,8 @@ function ChunkText({ chunk, at, shadow = false, ...rest }: { chunk: LabelChunk; 
         x={round(at.x + chunk.x)}
         y={round(at.y + chunk.y)}
         textAnchor={chunk.anchor}
+        xmlSpace="preserve"
+        style={{ whiteSpace: 'pre' }}
         dominantBaseline="central"
         aria-hidden="true"
         data-box={shadow ? undefined : boxAttribute(placed(chunk.box, at))}

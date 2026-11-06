@@ -336,3 +336,117 @@ fn unrelated_marked_fragment_is_unchanged_and_member_selection_replays_with_disp
     assert_eq!(doc.to_parts().bonds, before.bonds);
     assert_eq!(doc.abbreviations().count(), 1);
 }
+
+fn label(text: Option<&str>) -> Command {
+    Command::UpdateAbbreviationLabel {
+        instance: instance(),
+        anchor: atom(2),
+        text: text.map(str::to_owned),
+    }
+}
+fn key() -> PositionKey {
+    PositionKey {
+        instance: instance(),
+        atom: atom(2),
+    }
+}
+
+#[test]
+fn arbitrary_unicode_labels_are_cosmetic_undoable_and_reset_without_graph_edits() {
+    let mut doc = drawing();
+    doc.apply(&[collapse()]).unwrap();
+    let original = doc.to_parts();
+    for text in ["Ph", "Me", "한글 e\u{301} 🧪", &"\\\"".repeat(64)] {
+        assert_eq!(doc.apply(&[label(Some(text))]).unwrap(), Outcome::Changed);
+        assert_eq!(doc.abbreviation_label(key()), text);
+        let after = doc.to_parts();
+        assert_eq!(after.atoms, original.atoms);
+        assert_eq!(after.bonds, original.bonds);
+        assert_eq!(after.positions, original.positions);
+        assert_eq!(after.stereo, original.stereo);
+        assert_eq!(after.stereo_groups, original.stereo_groups);
+        assert_eq!(after.settings, original.settings);
+        assert_eq!(after.next_atom, original.next_atom);
+        assert_eq!(after.next_bond, original.next_bond);
+        assert_eq!(doc.apply(&[label(Some(text))]).unwrap(), Outcome::Unchanged);
+        doc.undo().unwrap();
+        assert_eq!(doc.abbreviation_label(key()), "Et");
+        doc.redo().unwrap();
+        assert_eq!(doc.abbreviation_label(key()), text);
+        assert_eq!(doc.apply(&[label(None)]).unwrap(), Outcome::Changed);
+        assert_eq!(doc.abbreviation_label(key()), "Et");
+        assert_eq!(doc.apply(&[label(None)]).unwrap(), Outcome::Unchanged);
+    }
+    assert_eq!(doc.apply(&[label(Some("Et"))]).unwrap(), Outcome::Unchanged);
+}
+
+#[test]
+fn invalid_labels_and_missing_compact_targets_refuse_the_whole_transaction() {
+    let mut doc = drawing();
+    let before = doc.clone();
+    assert!(doc.apply(&[label(Some("Ph"))]).is_err());
+    assert_eq!(doc, before);
+    doc.apply(&[collapse(), label(Some("Me"))]).unwrap();
+    for text in [
+        "",
+        "  \u{a0}",
+        "a\nb",
+        "a\rb",
+        "a\tb",
+        "a\u{7f}b",
+        "\u{85}",
+        "a\u{2028}b",
+        "a\u{2029}b",
+        &"한".repeat(43),
+    ] {
+        let before = doc.clone();
+        assert_eq!(
+            doc.apply(&[
+                Command::Rename {
+                    title: "must roll back".into()
+                },
+                label(Some(text))
+            ])
+            .unwrap_err()
+            .error,
+            EditError::DisplayLabelInvalid
+        );
+        assert_eq!(doc, before);
+    }
+    let mut missing = label(Some("Ph"));
+    if let Command::UpdateAbbreviationLabel { anchor, .. } = &mut missing {
+        *anchor = atom(1);
+    }
+    let before = doc.clone();
+    assert!(doc.apply(&[missing]).is_err());
+    assert_eq!(doc, before);
+}
+
+#[test]
+fn boundary_edits_expand_custom_labels_and_undo_restores_exact_text() {
+    let mut doc = drawing();
+    doc.apply(&[collapse(), label(Some("Ph 한"))]).unwrap();
+    let compact = doc.to_parts();
+    doc.apply(&[Command::UpdateAtom {
+        atom: atom(1),
+        edit: AtomEdit {
+            charge: Some(1),
+            ..AtomEdit::default()
+        },
+    }])
+    .unwrap();
+    assert_eq!(doc.abbreviations().count(), 0);
+    assert!(doc.to_parts().display_labels.is_empty());
+    doc.undo().unwrap();
+    assert_eq!(doc.to_parts().display_labels, compact.display_labels);
+    assert_eq!(doc.abbreviation_label(key()), "Ph 한");
+    let mut parts = doc.to_parts();
+    parts.display_labels.push((key(), "duplicate".into()));
+    assert!(Document::restore(parts).is_err());
+    let mut parts = doc.to_parts();
+    parts.display_labels[0].1 = "bad\ntext".into();
+    assert!(Document::restore(parts).is_err());
+    let mut parts = doc.to_parts();
+    parts.display_labels[0].0.atom = atom(1);
+    assert!(Document::restore(parts).is_err());
+}

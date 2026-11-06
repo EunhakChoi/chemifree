@@ -147,6 +147,14 @@ pub struct Caption {
     pub runs: Vec<CaptionRun>,
 }
 
+/// Shared single-line text profile for captions and cosmetic graph display labels.
+pub(crate) fn valid_caption_run_text(text: &str) -> bool {
+    !text.is_empty()
+        && !text
+            .chars()
+            .any(|ch| ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}'))
+}
+
 impl Caption {
     /// Validate edits and every restored/history state without truncating input.
     ///
@@ -168,11 +176,7 @@ impl Caption {
                 }) || run
                     .size_pt
                     .is_some_and(|size| !size.is_finite() || !LABEL_SIZE_RANGE.contains(&size))
-                    || run.text.is_empty()
-                    || run
-                        .text
-                        .chars()
-                        .any(|ch| ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}'))
+                    || !valid_caption_run_text(&run.text)
             })
             || !self
                 .runs
@@ -253,6 +257,8 @@ pub enum DeleteMode {
 pub enum SceneError {
     /// Unsupported or invalid Et display.
     AbbreviationInvalid,
+    /// Cosmetic display text violates the shared single-line profile or 128-byte bound.
+    DisplayLabelInvalid,
     /// Caption content violates the bounded text profile.
     CaptionInvalid,
     /// An edit would exceed the caption-safe persistence/history reservation.
@@ -299,11 +305,12 @@ pub enum SceneError {
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::CaptionInvalid,
         Self::CaptionPersistenceLimit,
         Self::CaptionUnsupported,
         Self::AbbreviationInvalid,
+        Self::DisplayLabelInvalid,
         Self::ObjectUnknown,
         Self::ObjectKindMismatch,
         Self::GroupMixedParents,
@@ -331,6 +338,7 @@ impl SceneError {
             Self::CaptionPersistenceLimit => "caption_persistence_limit",
             Self::CaptionUnsupported => "caption_unsupported",
             Self::AbbreviationInvalid => "abbreviation_invalid",
+            Self::DisplayLabelInvalid => "display_label_invalid",
             Self::ObjectUnknown => "object_unknown",
             Self::ObjectKindMismatch => "object_kind_mismatch",
             Self::GroupMixedParents => "group_mixed_parents",
