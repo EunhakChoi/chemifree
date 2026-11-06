@@ -1119,7 +1119,7 @@
         },
         {
           "id": "OPS-01.scene-clipboard-backend",
-          "summary": "P33e bounded backend graphic/group forest clipboard. Object-only outermost subtree selection preserves painting order and containment, remaps fresh object IDs and internal directed object references including cycles/self-links, and excludes incoming links owned outside scope. Molecule instances, explicit graph targets, outgoing/external references and groups with fewer than two children refuse. Strict version-2 kind graphics data-only JSON requires all fields and 64 KiB UTF-8; exact settings, finite offsets, ID/coordinate/depth/object/reference and actual 500-command limits apply. Atomic paste appends roots in source order, selects only fresh roots and preserves graph/stereo/placements, mixed history selection, Undo/Redo and immutable replay mapping even when root IDs are not in painting order. Targeted isolated domain10/integration6/operations11/codec13 and scoped clippy passed. Two conformance cases are authored but not yet executed, so they are not passing case evidence here. No full check, browser, CI or P33 completion is claimed. Backend only; scene clipboard web controls, scene Cut and chemical-instance cloning remain follow-ups.",
+          "summary": "P33e bounded backend graphic/group forest clipboard. Object-only outermost subtree selection preserves painting order and containment, remaps fresh object IDs and internal directed object references including cycles/self-links, and excludes incoming links owned outside scope. Molecule instances, explicit graph targets, outgoing/external references and groups with fewer than two children refuse. Strict version-2 kind graphics data-only JSON requires all fields and 64 KiB UTF-8; exact settings, finite offsets, ID/coordinate/depth/object/reference and actual 500-command limits apply. Atomic paste appends roots in source order, selects only fresh roots and preserves graph/stereo/placements, mixed history selection, Undo/Redo and immutable replay mapping even when root IDs are not in painting order. Targeted isolated domain10/integration6/operations11/codec13 and scoped clippy passed. The signed-zero replay regression and scoped clippy passed after offset identity was bound to exact floating-point bits. Clean isolated suite30 passed 109/109 (accept79/reject30, failed0/not_run0), including both scene clipboard cases; the exported report is linked as evidence. Scene object arrays are compared in actual DFS painting order, independently of numeric IDs. No full check, browser, CI or P33 completion is claimed. Backend only; scene clipboard web controls, scene Cut and chemical-instance cloning remain follow-ups.",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/scene_clipboard.rs",
@@ -1130,7 +1130,9 @@
             "crates/application/tests/native_scene_clipboard.rs"
           ],
           "evidence": [
-            "check:check:rust"
+            "check:check:rust",
+            "case:scene-clipboard-forest-history",
+            "case:scene-clipboard-refusals-atomic"
           ],
           "followups": []
         },
