@@ -946,6 +946,13 @@ try {
 
     const catalog = await both(() => request('op-caps', 'capabilities.inspect', {}))
     assert.deepEqual(catalog.result, (await call('/api/v1/capabilities')).body.operation_catalog)
+    assert.equal(catalog.result.operations.length, 40, 'HTTP and CLI expose all operations including both replacement operations')
+    for (const id of ['document.template_replace_plan', 'document.template_replace']) {
+      const entries = catalog.result.operations.filter((operation) => operation.id === id)
+      assert.equal(entries.length, 1, `${id} must appear exactly once`)
+      assert.equal(entries[0].representation, 'supported', id)
+      assert.equal(entries[0].execution, 'executable', id)
+    }
     {
       const cdxml = '\ufeff<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2" Element="8"/></fragment><t id="4"><s>α</s></t></page></CDXML>'
       const readCdxml = await both(() => request('rich-read', 'document.import', { mode: 'read', format: 'cdxml', source: cdxml }))
@@ -1164,6 +1171,27 @@ try {
       const redone = await both((id) => request('op-template-redo', 'history.redo', { document_id: id, expected_revision: 3 }))
       assert.deepEqual(redone.result.document.atoms, attached.result.snapshot.document.atoms)
       assert.deepEqual(redone.result.document.bonds, attached.result.snapshot.document.bonds)
+      const replacement = (id) => ({ document_id: id, expected_revision: 4, payload, instance: 's1', source_anchor: 'a10', atom: 'a3' })
+      const replacementPreview = await both((id) => request('op-replace-plan', 'document.template_replace_plan', replacement(id)))
+      assert.equal(replacementPreview.outcome, 'ok')
+      assert.deepEqual((await both((id) => request('op-replace-before', 'document.snapshot', { document_id: id }))).result.document, redone.result.document)
+      const rejectedReplacement = (id) => request('op-replace-nonterminal', 'document.template_replace', { ...replacement(id), atom: 'a2' })
+      const rejected = await both(rejectedReplacement)
+      assert.equal(rejected.diagnostics[0].details.reason, 'template_target_not_terminal_single')
+      assert.deepEqual(await both(rejectedReplacement), rejected)
+      const replace = (id) => request('op-replace-apply', 'document.template_replace', replacement(id))
+      const replaced = await both(replace)
+      assert.equal(replaced.outcome, 'ok')
+      assert.deepEqual(replaced.result.snapshot.document, replacementPreview.result.snapshot.document)
+      assert.equal(replaced.result.boundary, 'b1')
+      assert.deepEqual(replaced.result.mapping, { atoms: [{ source: 'a10', target: 'a3' }, { source: 'a20', target: 'a4' }], bonds: [{ source: 'b10', target: 'b3' }] })
+      assert.deepEqual(replaced.result.snapshot.document.bonds.slice(0, 2), redone.result.document.bonds)
+      assert.deepEqual(await both(replace), replaced)
+      const replacementUndo = await both((id) => request('op-replace-undo', 'history.undo', { document_id: id, expected_revision: 5 }))
+      assert.deepEqual(replacementUndo.result.document.atoms, redone.result.document.atoms)
+      assert.deepEqual(await both(replace), replaced)
+      const replacementRedo = await both((id) => request('op-replace-redo', 'history.redo', { document_id: id, expected_revision: 6 }))
+      assert.deepEqual(replacementRedo.result.document.atoms, replaced.result.snapshot.document.atoms)
       httpDoc = outerHttp
       cliDoc = outerCli
     }

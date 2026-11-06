@@ -64,6 +64,9 @@ enum Mutation {
     ImportCtfile {
         fingerprint: String,
     },
+    TemplateReplace {
+        fingerprint: String,
+    },
     TemplateAttach {
         fingerprint: String,
     },
@@ -1161,6 +1164,85 @@ impl<R: DocumentRepository> Documents<R> {
                         dx: parameters.direction.dx,
                         dy: parameters.direction.dy,
                     },
+                )
+                .map_err(crate::operations::template::refusal)?;
+                let result = session.document.apply_reporting(
+                    &plan.paste.commands,
+                    &TransactionSelection {
+                        before: selection.before,
+                        after: Some(plan.paste.selection),
+                    },
+                );
+                edit_notes(&session.document, result)
+            },
+        )
+    }
+
+    /// Replacement preview runs on a clone under the exact destination revision lock.
+    pub(crate) fn template_replace_plan(
+        &self,
+        parameters: &crate::operations::template::ReplaceParameters,
+        fragment: &chemifree_domain::clipboard::Fragment,
+    ) -> Result<(DocumentResponse, DocumentResponse), ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, &parameters.document_id)?;
+        session.expect_revision(parameters.expected_revision)?;
+        let (instance, source, target) =
+            crate::operations::template::replacement_targets(parameters)?;
+        let plan = chemifree_domain::template::replace(
+            fragment,
+            &session.document,
+            instance,
+            source,
+            target,
+        )
+        .map_err(crate::operations::template::refusal)?;
+        let selection = contract::to_selection(&TransactionSelections {
+            before: parameters.selection_before.clone(),
+            after: None,
+        })?;
+        let mut candidate = session.document.clone();
+        let applied = candidate.apply_reporting(
+            &plan.paste.commands,
+            &TransactionSelection {
+                before: selection.before,
+                after: Some(plan.paste.selection),
+            },
+        );
+        let notes = edit_notes(&candidate, applied)?;
+        let mut after =
+            DocumentResponse::new(&candidate, session.saved_revision, session.draft_revision);
+        after.notes = notes;
+        Ok((self.respond(session), after))
+    }
+
+    /// Replacement replay includes the exact file, bound atom and captured selection.
+    pub(crate) fn template_replace(
+        &self,
+        request_id: &str,
+        parameters: &crate::operations::template::ReplaceParameters,
+        fragment: &chemifree_domain::clipboard::Fragment,
+    ) -> Result<DocumentResponse, ApplicationError> {
+        let fingerprint = serde_json::to_string(parameters)
+            .map_err(|error| ApplicationError::new(ErrorCode::InvalidRequest, error.to_string()))?;
+        let (instance, source, target) =
+            crate::operations::template::replacement_targets(parameters)?;
+        let selection = contract::to_selection(&TransactionSelections {
+            before: parameters.selection_before.clone(),
+            after: None,
+        })?;
+        self.mutate(
+            &parameters.document_id,
+            Some(request_id),
+            parameters.expected_revision,
+            Mutation::TemplateReplace { fingerprint },
+            |session| {
+                let plan = chemifree_domain::template::replace(
+                    fragment,
+                    &session.document,
+                    instance,
+                    source,
+                    target,
                 )
                 .map_err(crate::operations::template::refusal)?;
                 let result = session.document.apply_reporting(

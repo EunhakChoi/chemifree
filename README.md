@@ -31,7 +31,14 @@ apply uses one atomic, replayable history step with frozen recovery. P34 remains
 [P34e checks](docs/verification/p34e-template-attachment.md) are authored and unrun.
 
 
-Fusion, spiro, replacement, aromatic patterns, other sizes, abbreviation contraction/expansion and
+P34f adds **Replace terminal atom…**: explicitly choose a template anchor and a destination
+atom with one single outside bond, preview, then replace. The anchor keeps the target's ID and
+position; its complete atom state is replaced. The outside bond/mark, references and neighboring
+stored stereo stay, while N−1 atoms and M internal bonds receive fresh IDs. Identical one-atom
+replacement is a no-op. See [the P34f record](docs/verification/p34f-template-replacement.md);
+checks are written and unrun in this implementation session.
+
+Fusion, spiro, non-terminal replacement, aromatic patterns, other sizes, abbreviation contraction/expansion and
 molecular conformations remain unimplemented. P34 is in progress; the new checks are written
 but have not run in this implementation session. See the
 [ring contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a),
@@ -74,7 +81,7 @@ MOL and SMILES clipboard text uses the existing preview/loss-consent flow to app
 
 Native graph version 1 and graphic-forest version 2 are separate profiles and require exact destination settings. Graph paste requires one destination placement; graph Cut additionally requires one source placement, no crossing bonds and no incoming graph references. Graphics can paste into multiple-placement destinations but reject molecule instances, mixed graph targets, outgoing/graph references and groups with fewer than two children; Cut also rejects incoming references from outside the forest. Molecule-instance cloning, enhanced-stereo-group graph copying, global shortcuts, custom MIME, external-format Cut and Windows/OLE remain outside this bounded delivery. OS clipboard permission success, external-application compatibility and full editor canvas/navigation are not established by the clipboard harness. The real-backend P33k harness checks cross-document graph/forest copying and pasting; it replaces browser clipboard transport only. Permission-error and uncertainty behavior is covered separately with scripted HTTP/clipboard boundaries. Broader scientific and format requirements remain partial.
 
-The catalog lists 38 operations, with 28 executable in the default profile.
+The catalog lists 40 operations, with 30 executable in the default profile.
 
 The scene can also contain ordered groups and simple line, rectangle, and arrow graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Each document owns its style (bond length and width, label font and size, carbon labels, and display unit); style changes are undoable. Data-directory preferences separately hold the theme, defaults copied into newly created documents, and mass-result display decimal places. **Document style** and **Preferences** edit these settings in the web UI; general numeric precision and NMR preferences remain unavailable.
 

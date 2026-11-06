@@ -26,7 +26,7 @@ mod stereo;
 mod substructure;
 pub(crate) mod template;
 mod transform;
-pub use template::{TemplateAtom, TemplateAttachment, TemplateInspection};
+pub use template::{TemplateAtom, TemplateAttachment, TemplateInspection, TemplateReplacement};
 
 use chemifree_domain::budget::{Budget, Interrupt, NEVER};
 use chemifree_domain::document::Command;
@@ -249,6 +249,7 @@ pub enum OperationResult {
     ClipboardPaste(Box<ClipboardPasteResult>),
     TemplateInspection(Box<TemplateInspection>),
     TemplateAttachment(Box<TemplateAttachment>),
+    TemplateReplacement(Box<TemplateReplacement>),
     ClipboardSceneCopy(Box<ClipboardSceneCopyResult>),
     ClipboardScenePaste(Box<ClipboardScenePasteResult>),
     /// `document.close`.
@@ -889,6 +890,20 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             runs(
                 id,
                 "Read-only translation-only single-anchor attachment preview at an exact destination revision.",
+            ),
+            &[],
+        ),
+        Op::DocumentTemplateReplacePlan => (
+            runs(
+                id,
+                "Read-only terminal atom replacement preview; retains the anchor and outside bond identities.",
+            ),
+            &[],
+        ),
+        Op::DocumentTemplateReplace => (
+            runs(
+                id,
+                "Atomically replaces a terminal atom with a bound native anchor; outside identity, marks and references are retained.",
             ),
             &[],
         ),
@@ -2409,6 +2424,9 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::DocumentTemplateInspect => match parameters::<template::InspectParameters>(parameters_value) {
                 Ok(parameters)=>self.resolve_template_inspect(known,parameters),Err(error)=>known.invalid(error),
+            },
+            Op::DocumentTemplateReplacePlan | Op::DocumentTemplateReplace => match parameters::<template::ReplaceParameters>(parameters_value) {
+                Ok(parameters) => self.resolve_template_replacement(known, parameters, known.operation == Op::DocumentTemplateReplacePlan), Err(error) => known.invalid(error),
             },
             Op::DocumentTemplatePlan | Op::DocumentTemplateAttach => match parameters::<template::AttachParameters>(parameters_value) {
                 Ok(parameters)=>self.resolve_template_attachment(known,parameters,known.operation==Op::DocumentTemplatePlan),Err(error)=>known.invalid(error),

@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::document::{
-    Atom, AtomId, AtomRef, Bond, BondId, BondRef, Command, Document, EditError, MAX_ATOMS,
-    MAX_BONDS, MAX_COMMANDS, NewAtomPositions, ObjectId, Point, Vector,
+    Atom, AtomEdit, AtomId, AtomRef, Bond, BondId, BondRef, Command, Document, EditError,
+    MAX_ATOMS, MAX_BONDS, MAX_COMMANDS, NewAtomPositions, ObjectId, Point, Vector,
 };
 use crate::scene::{Selection, SelectionRequest};
 use crate::settings::Settings;
@@ -279,6 +279,32 @@ impl Fragment {
         destination: &Document,
         offset: Vector,
     ) -> Result<PastePlan, FragmentError> {
+        self.plan_commands(destination, offset, None)
+    }
+
+    /// Bind one inspected source anchor to an existing atom; only the other atoms allocate IDs.
+    pub(crate) fn replace_anchor_commands(
+        &self,
+        destination: &Document,
+        offset: Vector,
+        source: AtomId,
+        target: AtomId,
+    ) -> Result<PastePlan, FragmentError> {
+        if !self.atoms.iter().any(|atom| atom.id == source) {
+            return Err(FragmentError::Invalid(EditError::UnknownAtom(source)));
+        }
+        if !destination.atoms().any(|(id, _)| id == target) {
+            return Err(FragmentError::Invalid(EditError::UnknownAtom(target)));
+        }
+        self.plan_commands(destination, offset, Some((source, target)))
+    }
+
+    fn plan_commands(
+        &self,
+        destination: &Document,
+        offset: Vector,
+        binding: Option<(AtomId, AtomId)>,
+    ) -> Result<PastePlan, FragmentError> {
         if destination.instances().count() != 1 {
             return Err(FragmentError::DestinationInstances);
         }
@@ -302,17 +328,37 @@ impl Fragment {
         let mut atom_mapping = Vec::new();
         let mut bond_mapping = Vec::new();
         let numbering = destination.numbering();
-        for (index, item) in self.atoms.iter().enumerate() {
+        let mut fresh = 0;
+        for item in &self.atoms {
+            if let Some((source, target)) = binding
+                && item.id == source
+            {
+                atom_mapping.push(AtomMapping { source, target });
+                atom_commands.insert(source, AtomRef::Id(target));
+                commands.push(Command::UpdateAtom {
+                    atom: target,
+                    edit: AtomEdit {
+                        kind: Some(item.atom.kind.clone()),
+                        charge: Some(item.atom.charge),
+                        isotope: Some(item.atom.isotope),
+                        hydrogens: Some(item.atom.hydrogens),
+                        radical: Some(item.atom.radical),
+                        attachment_points: Some(item.atom.attachment_points),
+                    },
+                });
+                continue;
+            }
             let serial = numbering
                 .next_atom
-                .checked_add(index as u32)
+                .checked_add(fresh)
                 .and_then(AtomId::from_serial)
                 .ok_or(FragmentError::IdentifierLimit)?;
             atom_mapping.push(AtomMapping {
                 source: item.id,
                 target: serial,
             });
-            atom_commands.insert(item.id, commands.len());
+            fresh += 1;
+            atom_commands.insert(item.id, AtomRef::Created(commands.len()));
             commands.push(Command::AddAtom {
                 atom: item.atom.clone(),
                 positions: NewAtomPositions::Single(
@@ -334,8 +380,8 @@ impl Fragment {
                 target: serial,
             });
             bond_commands.insert(item.id, commands.len());
-            let begin = created_atom(&atom_commands, item.bond.begin)?;
-            let end = created_atom(&atom_commands, item.bond.end)?;
+            let begin = mapped_atom(&atom_commands, item.bond.begin)?;
+            let end = mapped_atom(&atom_commands, item.bond.end)?;
             commands.push(Command::AddBond {
                 begin,
                 end,
@@ -363,7 +409,7 @@ impl Fragment {
                         },
                     };
                     commands.push(Command::SetAtomConfiguration {
-                        atom: created_atom(&atom_commands, id)?,
+                        atom: mapped_atom(&atom_commands, id)?,
                         configuration: Some(configuration),
                     });
                 }
@@ -411,24 +457,23 @@ impl Fragment {
     }
 }
 
-fn created_atom(commands: &BTreeMap<AtomId, usize>, id: AtomId) -> Result<AtomRef, FragmentError> {
+fn mapped_atom(commands: &BTreeMap<AtomId, AtomRef>, id: AtomId) -> Result<AtomRef, FragmentError> {
     commands
         .get(&id)
         .copied()
-        .map(AtomRef::Created)
         .ok_or(FragmentError::Invalid(EditError::UnknownAtom(id)))
 }
 
-fn remap_slot(commands: &BTreeMap<AtomId, usize>, slot: Slot) -> Result<SlotRef, FragmentError> {
+fn remap_slot(commands: &BTreeMap<AtomId, AtomRef>, slot: Slot) -> Result<SlotRef, FragmentError> {
     Ok(match slot {
-        Slot::Atom(id) => SlotRef::Atom(created_atom(commands, id)?),
+        Slot::Atom(id) => SlotRef::Atom(mapped_atom(commands, id)?),
         Slot::ImplicitHydrogen => SlotRef::ImplicitHydrogen,
         Slot::LonePair => SlotRef::LonePair,
     })
 }
 
 fn remap_slots(
-    commands: &BTreeMap<AtomId, usize>,
+    commands: &BTreeMap<AtomId, AtomRef>,
     slots: [Slot; 4],
 ) -> Result<[SlotRef; 4], FragmentError> {
     Ok([

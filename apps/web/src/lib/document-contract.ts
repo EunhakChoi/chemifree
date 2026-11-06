@@ -174,6 +174,16 @@ export interface TemplateParameters {
   selection_before: SelectionView
 }
 
+export type TemplateReplacementParameters = Omit<TemplateParameters, 'direction'>
+
+export interface TemplateReplacementOffer {
+  parameters: TemplateReplacementParameters
+  source: DocumentResponse
+  preview: DocumentResponse
+  mapping: NativeClipboardPaste['mapping']
+  boundary: string
+}
+
 export interface TemplateInspection {
   payload: string
   atoms: Array<{ id: string; element: string; x: number; y: number; supported: boolean }>
@@ -2309,6 +2319,61 @@ export class DocumentClient {
     return { payload, atoms }
   }
 
+  private replacementMapping(before: DocumentView, result: Record<string, unknown>, input: TemplateReplacementParameters, preview: DocumentResponse) {
+    const target = before.atoms.find((atom) => atom.id === input.atom)
+    const incident = before.bonds.filter((bond) => bond.begin === input.atom || bond.end === input.atom)
+    if (!target || incident.length !== 1 || incident[0].order !== 'single' || incident[0].query !== null ||
+        result.boundary !== incident[0].id || !isRecord(result.mapping)) throw clipboardIncompatible()
+    const source = clipboardPayloadIds(input.payload)
+    const oldAtoms = new Set(before.atoms.map((atom) => atom.id))
+    const oldBonds = new Set(before.bonds.map((bond) => bond.id))
+    const atoms = clipboardMappings(result.mapping.atoms, source.atoms, 'a', [input.atom,
+      ...preview.document.atoms.filter((atom) => !oldAtoms.has(atom.id)).map((atom) => atom.id)])
+    const bonds = clipboardMappings(result.mapping.bonds, source.bonds.map((bond) => bond.id), 'b',
+      preview.document.bonds.filter((bond) => !oldBonds.has(bond.id)).map((bond) => bond.id))
+    if (!atoms.some((entry) => entry.source === input.source_anchor && entry.target === input.atom)) throw clipboardIncompatible()
+    return { mapping: { atoms, bonds }, boundary: incident[0].id }
+  }
+
+  /** Bind one existing terminal identity in a read-only preview; no IDs are reserved. */
+  async previewTemplateReplacement(destination: DocumentView, parameters: TemplateReplacementParameters): Promise<TemplateReplacementOffer> {
+    const input = structuredClone(parameters)
+    const generation = this.generation
+    const before = structuredClone(withDocumentStates(destination))
+    if (before.id !== input.document_id || before.revision !== input.expected_revision || before.scene?.instances.length !== 1 ||
+        before.scene.instances[0].id !== input.instance || !clipboardTextFits(input.payload)) throw clipboardIncompatible()
+    const request = requestId()
+    const { result, revision, losses } = clipboardReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: request, profile: 'preserve-semantics', operation: 'document.template_replace_plan', parameters: input,
+    }, 'reload'), request, 'document.template_replace_plan')
+    if (generation !== this.generation || !isRecord(result.source) || !isRecord(result.snapshot)) throw clipboardIncompatible()
+    const source = DocumentClient.document({ api_version: API_VERSION, ...result.source })
+    const preview = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot })
+    snapshotOrigins.delete(preview.document)
+    if (!sameJson(withDocumentStates(source.document), before) || revision !== input.expected_revision || losses.length || preview.notes?.length) throw clipboardIncompatible()
+    const checked = this.replacementMapping(before, result, input, preview)
+    this.validateTemplatePlan(before, preview, input, checked.mapping, checked.boundary)
+    snapshotOrigins.set(source.document, { client: this, generation })
+    return { parameters: input, source, preview, ...checked }
+  }
+
+  /** A replacement confirmation replays only the original body and exact bound preview. */
+  createTemplateReplacement(offer: TemplateReplacementOffer): NativeClipboardPasteAttempt {
+    if (!this.isCurrentSnapshot(offer.source)) throw restarted(0)
+    const frozen = structuredClone(offer)
+    return this.clipboardAttempt('paste', '/api/v1/operations', {
+      contract: 1, profile: 'preserve-semantics', operation: 'document.template_replace', parameters: frozen.parameters,
+    }, (value, request) => {
+      const { result, revision, losses } = clipboardReply(value, request, 'document.template_replace')
+      if (!isRecord(result.snapshot)) throw clipboardIncompatible()
+      const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot })
+      const checked = this.replacementMapping(frozen.source.document, result, frozen.parameters, snapshot)
+      if (revision !== frozen.preview.document.revision || !sameJson(snapshot.document, frozen.preview.document) || losses.length || snapshot.notes?.length ||
+          !sameJson(checked.mapping, frozen.mapping) || checked.boundary !== frozen.boundary) throw clipboardIncompatible()
+      return { snapshot, mapping: checked.mapping }
+    })
+  }
+
   /** Freeze a full read-only preview; it reserves no identifiers and cannot be adopted as a live snapshot. */
   async previewTemplateAttachment(destination: DocumentView, parameters: TemplateParameters): Promise<TemplateAttachmentOffer> {
     const input = structuredClone(parameters)
@@ -2354,22 +2419,23 @@ export class DocumentClient {
     return { mapping: { atoms, bonds }, connection: result.connection }
   }
 
-  private validateTemplatePlan(before: DocumentView, preview: DocumentResponse, input: TemplateParameters, mapping: NativeClipboardPaste['mapping'], connection: string) {
+  private validateTemplatePlan(before: DocumentView, preview: DocumentResponse, input: TemplateParameters | TemplateReplacementParameters, mapping: NativeClipboardPaste['mapping'], connection: string) {
     const after = preview.document
-    const freshAtoms = new Set(mapping.atoms.map((entry) => entry.target))
-    const freshBonds = new Set([...mapping.bonds.map((entry) => entry.target), connection])
+    const replacing = !('direction' in input)
+    const freshAtoms = new Set(mapping.atoms.filter((entry) => !replacing || entry.source !== input.source_anchor).map((entry) => entry.target))
+    const freshBonds = new Set([...mapping.bonds.map((entry) => entry.target), ...(replacing ? [] : [connection])])
     if (after.atoms.length !== before.atoms.length + freshAtoms.size || after.bonds.length !== before.bonds.length + freshBonds.size ||
         before.atoms.some((atom) => freshAtoms.has(atom.id)) || before.bonds.some((bond) => freshBonds.has(bond.id))) throw clipboardIncompatible()
     const original = stereoOf(before)
     const touchedBonds = new Set(before.bonds.filter((bond) => bond.begin === input.atom || bond.end === input.atom).map((bond) => bond.id))
-    const expectedOld = { atoms: original.atoms.filter((record) => record.atom !== input.atom),
+    const expectedOld = replacing ? original : { atoms: original.atoms.filter((record) => record.atom !== input.atom),
       bonds: original.bonds.filter((record) => !touchedBonds.has(record.bond)),
       groups: (original.groups ?? []).map((group) => ({ ...group, members: group.members.filter((atom) => atom !== input.atom) })).filter((group) => group.members.length > 0) }
     const actual = stereoOf(after)
     if (!sameJson(actual.atoms.filter((record) => !freshAtoms.has(record.atom)), expectedOld.atoms) ||
         !sameJson(actual.bonds.filter((record) => !freshBonds.has(record.bond)), expectedOld.bonds) || !sameJson(actual.groups ?? [], expectedOld.groups)) throw clipboardIncompatible()
     const group = original.groups?.find((group) => group.members.includes(input.atom))
-    const expectedNotes = [...original.atoms.filter((record) => record.atom === input.atom).map((record) => `stereo_configuration:atoms[${record.atom}]`),
+    const expectedNotes = replacing ? [] : [...original.atoms.filter((record) => record.atom === input.atom).map((record) => `stereo_configuration:atoms[${record.atom}]`),
       ...original.bonds.filter((record) => touchedBonds.has(record.bond)).map((record) => `stereo_configuration:bonds[${record.bond}]`),
       ...(group ? [`stereo_group_member:atoms[${input.atom}]`, ...(group.members.length === 1 ? [`stereo_group:groups[${group.id}]`] : [])] : [])]
     const notes = preview.notes ?? []
@@ -2385,26 +2451,30 @@ export class DocumentClient {
     const sourceAnchor = sourceAtoms.find((atom: unknown) => isRecord(atom) && atom.id === input.source_anchor)
     const target = before.atoms.find((atom) => atom.id === input.atom)
     if (!isRecord(sourceAnchor) || !isRecord(sourceAnchor.position) || !isFiniteNumber(sourceAnchor.position.x) || !isFiniteNumber(sourceAnchor.position.y) || !target) throw clipboardIncompatible()
-    const scale = Math.max(Math.abs(input.direction.dx), Math.abs(input.direction.dy))
-    if (!Number.isFinite(scale) || scale === 0) throw clipboardIncompatible()
-    const dx = input.direction.dx / scale
-    const dy = input.direction.dy / scale
-    const norm = Math.hypot(dx, dy)
-    const length = settingsOf(before).bond_length_pt
-    const offset = { x: target.position.x + length * dx / norm - sourceAnchor.position.x, y: target.position.y + length * dy / norm - sourceAnchor.position.y }
+    let offset = { x: target.position.x - sourceAnchor.position.x, y: target.position.y - sourceAnchor.position.y }
+    if ('direction' in input) {
+      const scale = Math.max(Math.abs(input.direction.dx), Math.abs(input.direction.dy))
+      if (!Number.isFinite(scale) || scale === 0) throw clipboardIncompatible()
+      const dx = input.direction.dx / scale
+      const dy = input.direction.dy / scale
+      const norm = Math.hypot(dx, dy)
+      const length = settingsOf(before).bond_length_pt
+      offset = { x: target.position.x + length * dx / norm - sourceAnchor.position.x, y: target.position.y + length * dy / norm - sourceAnchor.position.y }
+    }
     for (const atom of sourceAtoms) {
       if (!isRecord(atom) || typeof atom.id !== 'string' || !isRecord(atom.kind) || !isRecord(atom.position) || !isFiniteNumber(atom.position.x) || !isFiniteNumber(atom.position.y) || Math.abs(atom.position.x) > 100_000 || Math.abs(atom.position.y) > 100_000) throw clipboardIncompatible()
       const copiedId = atomIds.get(atom.id)
       const copied = after.atoms.find((entry) => entry.id === copiedId)
+      const position = replacing && atom.id === input.source_anchor ? target.position : { x: atom.position.x + offset.x, y: atom.position.y + offset.y }
       if (!copied || copied.kind !== atom.kind.type || (atom.kind.type === 'element' ? copied.element !== atom.kind.symbol || copied.query !== null : !sameJson(copied.query, atom.kind.query)) ||
-          Math.abs(copied.position.x - (atom.position.x + offset.x)) > 1e-10 || Math.abs(copied.position.y - (atom.position.y + offset.y)) > 1e-10 ||
+          Math.abs(copied.position.x - position.x) > 1e-10 || Math.abs(copied.position.y - position.y) > 1e-10 ||
           !sameJson([copied.charge, copied.isotope, copied.hydrogens, copied.radical, copied.attachment_points], [atom.charge, atom.isotope, atom.hydrogens, atom.radical, atom.attachment_points])) throw clipboardIncompatible()
     }
     for (const bond of sourceBonds) {
       if (!isRecord(bond) || typeof bond.id !== 'string') throw clipboardIncompatible()
       const copiedId = bondIds.get(bond.id)
       const copied = after.bonds.find((entry) => entry.id === copiedId)
-      if (!copied || !sameJson([copied.order, copied.query, copied.mark], [bond.order, bond.query, bond.mark])) throw clipboardIncompatible()
+      if (!copied || copied.begin !== atomIds.get(String(bond.begin)) || copied.end !== atomIds.get(String(bond.end)) || !sameJson([copied.order, copied.query, copied.mark], [bond.order, bond.query, bond.mark])) throw clipboardIncompatible()
     }
     const centers: string[] = []
     const doubles: string[] = []
@@ -2476,9 +2546,16 @@ export class DocumentClient {
     if (!sameClipboardIds(actual.atoms.filter((record) => freshAtoms.has(record.atom)).map((record) => record.atom), centers) ||
         !sameClipboardIds(actual.bonds.filter((record) => freshBonds.has(record.bond)).map((record) => record.bond), doubles)) throw clipboardIncompatible()
     const retained = { ...after, revision: before.revision, selection: before.selection, stereo: before.stereo,
-      atoms: after.atoms.filter((atom) => !freshAtoms.has(atom.id)), bonds: after.bonds.filter((bond) => !freshBonds.has(bond.id)),
+      atoms: after.atoms.filter((atom) => !freshAtoms.has(atom.id)).map((atom) => replacing && atom.id === input.atom ? target : atom), bonds: after.bonds.filter((bond) => !freshBonds.has(bond.id)),
       scene: after.scene && { ...after.scene, instances: after.scene.instances.map((instance) => ({ ...instance, positions: instance.positions.filter((position) => !freshAtoms.has(position.atom)) })) } }
     if (!sameJson(retained, before)) throw clipboardIncompatible()
+    if (replacing) {
+      const unchanged = sameJson({ ...after, revision: before.revision, selection: before.selection }, before)
+      if (after.revision !== before.revision + Number(!unchanged) || !sameJson(after.selection, unchanged ? before.selection : {
+        objects: [], atoms: mapping.atoms.map((entry) => entry.target).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))),
+        bonds: mapping.bonds.map((entry) => entry.target).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))),
+      })) throw clipboardIncompatible()
+    }
   }
 
   /** Retain exactly this request after a lost response; preview and later UI changes cannot retarget it. */

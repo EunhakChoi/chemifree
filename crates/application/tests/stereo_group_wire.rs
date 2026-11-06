@@ -1066,9 +1066,23 @@ fn the_catalog_lists_the_group_commands_and_the_capability_that_they_carry_out()
     let catalog = &reply["result"]["operations"];
     assert_eq!(
         catalog.as_array().unwrap().len(),
-        38,
-        "the catalog includes optional InChI, selection geometry, native clipboard and template operations"
+        40,
+        "the catalog includes optional InChI, selection geometry, native clipboard, template attachment and terminal replacement plan/apply"
     );
+    for id in [
+        "document.template_replace_plan",
+        "document.template_replace",
+    ] {
+        let entries: Vec<_> = catalog
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry["id"] == id)
+            .collect();
+        assert_eq!(entries.len(), 1, "{id} must appear exactly once");
+        assert_eq!(entries[0]["representation"], "supported", "{id}");
+        assert_eq!(entries[0]["execution"], "executable", "{id}");
+    }
     let transaction = catalog
         .as_array()
         .unwrap()

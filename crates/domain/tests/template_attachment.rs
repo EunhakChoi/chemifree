@@ -77,6 +77,175 @@ fn destination() -> Document {
 }
 
 #[test]
+fn replacement_binds_a_nonfirst_source_anchor_and_preserves_the_outside_edge() {
+    let (_, mut fragment) = source();
+    fragment.atoms.rotate_left(1);
+    let mut dest = destination();
+    dest.apply(&[
+        add("F", 40.0, 20.0),
+        Command::AddBond {
+            begin: AtomRef::Id(atom(1)),
+            end: AtomRef::Id(atom(2)),
+            order: BondOrder::Single,
+        },
+        Command::SetBondMark {
+            bond: BondRef::Id(bond(1)),
+            mark: Some(StereoMark::Hash {
+                narrow: BondEnd::End,
+            }),
+        },
+    ])
+    .unwrap();
+    let before = dest.to_parts();
+    let original = fragment.clone();
+    let plan =
+        template::replace(&fragment, &dest, dest.first_instance(), atom(1), atom(2)).unwrap();
+    assert_eq!(dest.to_parts(), before);
+    assert_eq!(plan.boundary, bond(1));
+    assert_eq!(
+        plan.paste
+            .atoms
+            .iter()
+            .map(|mapping| (mapping.source, mapping.target))
+            .collect::<Vec<_>>(),
+        vec![(atom(2), atom(3)), (atom(3), atom(4)), (atom(1), atom(2))]
+    );
+    dest.apply_selecting(
+        &plan.paste.commands,
+        &TransactionSelection {
+            before: None,
+            after: Some(plan.paste.selection),
+        },
+    )
+    .unwrap();
+    let after = dest.to_parts();
+    assert_eq!(dest.atoms().len(), 4);
+    assert_eq!(dest.bonds().len(), 3);
+    assert_eq!(dest.bond(bond(1)), Some(&before.bonds[0].1));
+    assert_eq!(
+        dest.atoms()
+            .find(|(id, _)| *id == atom(2))
+            .map(|(_, state)| state),
+        Some(&Atom::from(Element::CARBON))
+    );
+    assert_eq!(
+        dest.position(dest.first_instance(), atom(2)),
+        Some(point(40.0, 20.0))
+    );
+    assert_eq!(
+        dest.position(dest.first_instance(), atom(3)),
+        Some(point(70.0, 20.0))
+    );
+    assert_eq!(
+        dest.position(dest.first_instance(), atom(4)),
+        Some(point(100.0, 20.0))
+    );
+    assert_eq!(after.next_atom, before.next_atom + 2);
+    assert_eq!(after.next_bond, before.next_bond + 2);
+    assert_eq!(after.stereo[0].0, StereoKey::DoubleBond(bond(3)));
+    dest.undo().unwrap();
+    assert_eq!(dest.to_parts().atoms, before.atoms);
+    assert_eq!(dest.to_parts().bonds, before.bonds);
+    assert_eq!(dest.to_parts().positions, before.positions);
+    dest.redo().unwrap();
+    assert_eq!(dest.to_parts().atoms, after.atoms);
+    assert_eq!(dest.to_parts().stereo, after.stereo);
+    assert_eq!(fragment, original);
+}
+
+#[test]
+fn replacement_repeated_refusals_do_not_consume_identifiers_or_history() {
+    let (_, fragment) = source();
+    let mut dest = destination();
+    let before = dest.to_parts();
+    for _ in 0..2 {
+        assert_eq!(
+            template::replace(&fragment, &dest, dest.first_instance(), atom(1), atom(1)),
+            Err(TemplateError::Terminal)
+        );
+        assert_eq!(
+            template::replace(&fragment, &dest, dest.first_instance(), atom(2), atom(1)),
+            Err(TemplateError::AnchorStereo)
+        );
+        assert_eq!(dest.to_parts(), before);
+    }
+    dest.apply(&[
+        add("F", 40.0, 20.0),
+        Command::AddBond {
+            begin: AtomRef::Id(atom(1)),
+            end: AtomRef::Id(atom(2)),
+            order: BondOrder::Double,
+        },
+    ])
+    .unwrap();
+    let before = dest.to_parts();
+    assert_eq!(
+        template::replace(&fragment, &dest, dest.first_instance(), atom(1), atom(2)),
+        Err(TemplateError::Terminal)
+    );
+    assert_eq!(dest.to_parts(), before);
+}
+
+#[test]
+fn replacement_budget_and_late_failure_roll_back_the_bound_atom_too() {
+    let mut dest = destination();
+    dest.apply(&[
+        add("F", 40.0, 20.0),
+        Command::AddBond {
+            begin: AtomRef::Id(atom(1)),
+            end: AtomRef::Id(atom(2)),
+            order: BondOrder::Single,
+        },
+    ])
+    .unwrap();
+    let mut fragment = Fragment {
+        settings: Settings::default(),
+        atoms: (1..=250)
+            .map(|id| FragmentAtom {
+                id: atom(id),
+                atom: Atom::from(Element::CARBON),
+                position: point(f64::from(id), 0.0),
+            })
+            .collect(),
+        bonds: (1..250)
+            .map(|id| FragmentBond {
+                id: bond(id),
+                bond: Bond::new(atom(id), atom(id + 1), BondOrder::Single),
+            })
+            .collect(),
+        stereo: Vec::new(),
+    };
+    fragment.bonds[0].bond.mark = Some(StereoMark::Wavy);
+    let before = dest.to_parts();
+    let plan =
+        template::replace(&fragment, &dest, dest.first_instance(), atom(1), atom(2)).unwrap();
+    assert_eq!(plan.paste.commands.len(), 500);
+    assert_eq!(dest.to_parts(), before);
+    fragment.bonds[1].bond.mark = Some(StereoMark::Wavy);
+    assert_eq!(
+        template::replace(&fragment, &dest, dest.first_instance(), atom(1), atom(2)),
+        Err(TemplateError::Fragment(FragmentError::CommandLimit))
+    );
+    assert_eq!(dest.to_parts(), before);
+    let (_, fragment) = source();
+    let mut parts = dest.to_parts();
+    parts.next_bond = u32::MAX - 1;
+    let dest = Document::restore(parts).unwrap();
+    let before = dest.to_parts();
+    assert_eq!(
+        template::replace(&fragment, &dest, dest.first_instance(), atom(1), atom(2)),
+        Err(TemplateError::Fragment(FragmentError::Invalid(
+            EditError::IdentifierSpaceExhausted
+        )))
+    );
+    assert_eq!(
+        dest.to_parts(),
+        before,
+        "late bond failure cannot leave the target state replaced"
+    );
+}
+
+#[test]
 fn translation_connection_mapping_and_preserved_source_stereo_survive_history() {
     let (source, fragment) = source();
     let original_source = source.to_parts();
@@ -374,6 +543,44 @@ fn a_tetrahedral_source_anchor_is_refused_but_a_neighbor_anchor_preserves_that_s
     dest.apply(&plan.paste.commands).unwrap();
     assert_eq!(dest.to_parts().stereo.len(), 1);
     assert_eq!(dest.to_parts().stereo[0].0, StereoKey::Center(atom(2)));
+    // Binding source a3 to existing a2 changes the canonical slot order by one swap:
+    // [a2,a3,a4,H] -> [a4,a2,a5,H] -> [a2,a4,a5,H], so the turn flips.
+    use chemifree_domain::stereo::{CenterState, Slot, StereoState};
+    let mut replacement = destination();
+    replacement
+        .apply(&[
+            add("F", 40.0, 20.0),
+            Command::AddBond {
+                begin: AtomRef::Id(atom(1)),
+                end: AtomRef::Id(atom(2)),
+                order: BondOrder::Single,
+            },
+        ])
+        .unwrap();
+    let plan = template::replace(
+        &fragment,
+        &replacement,
+        replacement.first_instance(),
+        atom(3),
+        atom(2),
+    )
+    .unwrap();
+    replacement.apply(&plan.paste.commands).unwrap();
+    assert_eq!(
+        replacement.to_parts().stereo,
+        vec![(
+            StereoKey::Center(atom(3)),
+            StereoState::Center(CenterState::Tetrahedral {
+                slots: [
+                    Slot::Atom(atom(2)),
+                    Slot::Atom(atom(4)),
+                    Slot::Atom(atom(5)),
+                    Slot::ImplicitHydrogen
+                ],
+                turn: Turn::Anticlockwise,
+            })
+        )]
+    );
 }
 
 #[test]

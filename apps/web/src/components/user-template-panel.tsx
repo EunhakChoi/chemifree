@@ -7,11 +7,11 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import { sameConversionSnapshot, settingsOf, type DocumentView, type NativeClipboardCopy, type TemplateInspection, type TemplateAttachmentOffer } from '@/lib/document-contract'
+import { sameConversionSnapshot, settingsOf, type DocumentView, type NativeClipboardCopy, type TemplateInspection, type TemplateAttachmentOffer, type TemplateReplacementOffer, type AtomView } from '@/lib/document-contract'
 
 interface UserTemplatePanelProps {
   document: DocumentView
-  editor: Pick<DocumentEditor, 'busy' | 'serviceGeneration' | 'currentServiceGeneration' | 'copyFragment' | 'pasteFragment' | 'inspectTemplate' | 'previewTemplateAttachment' | 'attachTemplate' | 'clipboardPending' | 'clipboardAction' | 'clipboardNeedsReload' | 'checkClipboardPaste' | 'reconcileClipboardPaste'>
+  editor: Pick<DocumentEditor, 'busy' | 'serviceGeneration' | 'currentServiceGeneration' | 'copyFragment' | 'pasteFragment' | 'inspectTemplate' | 'previewTemplateAttachment' | 'attachTemplate' | 'previewTemplateReplacement' | 'replaceTemplate' | 'clipboardPending' | 'clipboardAction' | 'clipboardNeedsReload' | 'checkClipboardPaste' | 'reconcileClipboardPaste'>
   activePlacement: string | null
 }
 
@@ -26,9 +26,20 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The template file operation failed.'
 }
 
+function replacementTarget(document: DocumentView, id: string): boolean {
+  const incident = document.bonds.filter((bond) => bond.begin === id || bond.end === id)
+  return incident.length === 1 && incident[0].order === 'single' && incident[0].query === null
+}
+
+function atomSummary(atom: AtomView | undefined): string {
+  if (!atom) return 'Missing atom'
+  const hydrogen = atom.hydrogens.mode === 'specified' ? atom.hydrogens.count : atom.hydrogens.mode
+  return `${atom.element}; charge ${atom.charge}; isotope ${atom.isotope ?? 'natural'}; H ${hydrogen}; radical ${atom.radical}; attachment points ${atom.attachment_points.join(', ') || 'none'}`
+}
+
 /** User-authored graph files use the existing native fragment codec and atomic paste. */
 export function UserTemplatePanel({ document, editor, activePlacement }: UserTemplatePanelProps) {
-  const [mode, setMode] = useState<'save' | 'insert' | 'attach' | null>(null)
+  const [mode, setMode] = useState<'save' | 'insert' | 'attach' | 'replace' | null>(null)
   const [offer, setOffer] = useState<NativeClipboardCopy | null>(null)
   const [file, setFile] = useState<TemplateFile | null>(null)
   const [inspection, setInspection] = useState<TemplateInspection | null>(null)
@@ -37,6 +48,7 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
   const [directionX, setDirectionX] = useState('')
   const [directionY, setDirectionY] = useState('')
   const [attachment, setAttachment] = useState<{ offer: TemplateAttachmentOffer; generation: number } | null>(null)
+  const [replacement, setReplacement] = useState<{ offer: TemplateReplacementOffer; generation: number } | null>(null)
   const [name, setName] = useState('template')
   const [offsetX, setOffsetX] = useState('')
   const [offsetY, setOffsetY] = useState('')
@@ -62,6 +74,7 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
   const dy = Number(directionY)
   const validDirection = directionX.trim() !== '' && directionY.trim() !== '' && Number.isFinite(dx) && Number.isFinite(dy) && (dx !== 0 || dy !== 0)
   const currentAttachment = attachment && sameConversionSnapshot(document, attachment.offer.source.document) && attachment.generation === editor.currentServiceGeneration() ? attachment.offer : null
+  const currentReplacement = replacement && sameConversionSnapshot(document, replacement.offer.source.document) && replacement.generation === editor.currentServiceGeneration() ? replacement.offer : null
   const unresolved = editor.clipboardPending && editor.clipboardAction === 'template'
 
   function current(attempt: number, generation: number): boolean {
@@ -72,7 +85,7 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
     sequence.current += 1
     setMode(null)
     setInspection(null)
-    setAttachment(null)
+    setAttachment(null); setReplacement(null)
     setOffer(null)
     setFile(null)
     setPending(null)
@@ -126,7 +139,7 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
     sequence.current += 1
     setMode('insert')
     setInspection(null)
-    setAttachment(null)
+    setAttachment(null); setReplacement(null)
     setSourceAnchor('')
     setTargetAtom('')
     setDirectionX('')
@@ -144,7 +157,7 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
     const generation = editor.serviceGeneration
     setFile(null)
     setInspection(null)
-    setAttachment(null)
+    setAttachment(null); setReplacement(null)
     setSourceAnchor('')
     setError(null)
     setPending(null)
@@ -157,7 +170,7 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
       // Fatal decoding prevents an invalid UTF-8 byte sequence from becoming replacement text.
       const payload = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
       if (!payload.trim()) throw new Error('Choose a non-empty Chemifree graph template file.')
-      if (mode === 'attach') {
+      if (mode === 'attach' || mode === 'replace') {
         const inspected = await editor.inspectTemplate(payload)
         if (!current(attempt, generation)) return
         setInspection(inspected)
@@ -187,13 +200,18 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
   }
 
   async function previewAttachment() {
-    if (busy || !file || !inspection || !sourceAnchor || !targetAtom || !activePlacement || !singleDestination || !validDirection) return
+    if (busy || !file || !inspection || !sourceAnchor || !targetAtom || !activePlacement || !singleDestination || (mode === 'attach' && !validDirection)) return
     const attempt = ++sequence.current
     const generation = editor.serviceGeneration
-    setAttachment(null)
+    setAttachment(null); setReplacement(null)
     setError(null)
     setPending('prepare')
     try {
+      if (mode === 'replace') {
+        const offer = await editor.previewTemplateReplacement(document.id, file.payload, activePlacement, sourceAnchor, targetAtom)
+        if (current(attempt, generation)) setReplacement({ offer, generation })
+        return
+      }
       const offer = await editor.previewTemplateAttachment(document.id, file.payload, activePlacement, sourceAnchor, targetAtom, { dx, dy })
       if (current(attempt, generation)) setAttachment({ offer, generation })
     } catch (cause: unknown) {
@@ -204,13 +222,14 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
   }
 
   async function attach() {
-    if (busy || !currentAttachment || editor.clipboardPending) return
+    if (busy || !(mode === 'replace' ? currentReplacement : currentAttachment) || editor.clipboardPending) return
     const attempt = ++sequence.current
     const generation = editor.serviceGeneration
     setPending('insert')
     setError(null)
     try {
-      await editor.attachTemplate(currentAttachment)
+      if (mode === 'replace' && currentReplacement) await editor.replaceTemplate(currentReplacement)
+      else if (currentAttachment) await editor.attachTemplate(currentAttachment)
       if (current(attempt, generation)) close()
     } catch (cause: unknown) {
       if (current(attempt, generation)) setError(errorMessage(cause))
@@ -252,12 +271,14 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy || editor.clipboardPending || !activePlacement} />} onClick={() => void prepare()}>Save template file…</DialogTrigger>
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy || editor.clipboardPending} />} onClick={() => openInsert()}>Insert template file…</DialogTrigger>
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy || editor.clipboardPending} />} onClick={() => { openInsert(); setMode('attach') }}>Attach template file…</DialogTrigger>
+        <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy || editor.clipboardPending} />} onClick={() => { openInsert(); setMode('replace') }}>Replace terminal atom…</DialogTrigger>
       </div>
       <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden transition-none sm:max-w-lg">
-        <DialogHeader className="shrink-0 pr-8"><DialogTitle>{mode === 'save' ? 'Save user graph template' : mode === 'attach' ? 'Attach user graph template' : 'Insert user graph template'}</DialogTitle></DialogHeader>
+        <DialogHeader className="shrink-0 pr-8"><DialogTitle>{mode === 'save' ? 'Save user graph template' : mode === 'replace' ? 'Replace terminal atom with template' : mode === 'attach' ? 'Attach user graph template' : 'Insert user graph template'}</DialogTitle></DialogHeader>
         <div className="-mx-4 flex min-h-0 flex-col gap-4 overflow-x-hidden overflow-y-auto px-4 pb-4">
           <DialogDescription>{mode === 'save'
             ? 'Only selected atoms, bond endpoints and internal bonds are saved. Scene objects, references and enhanced stereo groups are not template content. The source drawing is unchanged.'
+            : mode === 'replace' ? 'Choose one connected native template and an eligible source anchor. Choose a terminal destination atom. Its ID, position and outside single bond stay; its atom state becomes the source anchor state. Preview changes nothing.'
             : mode === 'attach' ? 'Choose one connected native template and an explicit eligible source atom. Choose a destination atom and direction, then preview the translation-only single-bond connection. Preview changes nothing; source-anchor stereo loss is refused.'
             : 'Choose a Chemifree graph template file (up to 64 KiB). Reading does not edit the drawing. The local service validates its graph, style and version only when you press Insert template.'}</DialogDescription>
           {mode !== null && recovery}
@@ -269,10 +290,10 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
               <Input id={`${id}-name`} value={name} disabled={busy} onChange={(event) => setName(event.target.value)} />
             </Field></FieldGroup>
             <DialogFooter className="mx-0 mb-0"><Button disabled={busy || !currentOffer || !name.trim()} onClick={() => download()}>Download template</Button></DialogFooter>
-          </> : mode === 'attach' ? <>
+          </> : mode === 'attach' || mode === 'replace' ? <>
             {!singleDestination && <p>Attachment requires exactly one destination placement.</p>}
-            <FieldGroup key="template-attach">
-              <Field><FieldLabel htmlFor={`${id}-attach-file`}>Template file for attachment</FieldLabel>
+            <FieldGroup key={mode}>
+              <Field><FieldLabel htmlFor={`${id}-attach-file`}>{mode === 'replace' ? 'Template file for replacement' : 'Template file for attachment'}</FieldLabel>
                 <Input id={`${id}-attach-file`} type="file" accept=".json,application/json" disabled={busy || editor.clipboardPending} onChange={(event) => {
                   const selected = event.target.files?.[0]
                   event.target.value = ''
@@ -282,7 +303,7 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
               </Field>
               <Field><FieldLabel htmlFor={`${id}-source`}>Source anchor</FieldLabel>
                 <Select value={sourceAnchor || null} disabled={busy || !inspection || editor.clipboardPending} onValueChange={(value) => {
-                  setSourceAnchor(typeof value === 'string' ? value : ''); setAttachment(null)
+                  setSourceAnchor(typeof value === 'string' ? value : ''); setAttachment(null); setReplacement(null)
                 }}>
                   <SelectTrigger id={`${id}-source`}><SelectValue placeholder="Choose a local atom" /></SelectTrigger>
                   <SelectContent><SelectGroup>{inspection?.atoms.map((atom) => <SelectItem key={atom.id} value={atom.id} disabled={!atom.supported}>
@@ -292,21 +313,28 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
               </Field>
               <Field><FieldLabel htmlFor={`${id}-target`}>Destination atom</FieldLabel>
                 <Select value={targetAtom || null} disabled={busy || editor.clipboardPending} onValueChange={(value) => {
-                  setTargetAtom(typeof value === 'string' ? value : ''); setAttachment(null)
+                  setTargetAtom(typeof value === 'string' ? value : ''); setAttachment(null); setReplacement(null)
                 }}>
                   <SelectTrigger id={`${id}-target`}><SelectValue placeholder="Choose an existing atom" /></SelectTrigger>
-                  <SelectContent><SelectGroup>{document.atoms.map((atom) => <SelectItem key={atom.id} value={atom.id}>{atom.id} · {atom.element}</SelectItem>)}</SelectGroup></SelectContent>
+                  <SelectContent><SelectGroup>{document.atoms.map((atom) => <SelectItem key={atom.id} value={atom.id} disabled={mode === 'replace' && !replacementTarget(document, atom.id)}>{atom.id} · {atom.element}{mode === 'replace' && !replacementTarget(document, atom.id) ? ' · requires one single bond' : ''}</SelectItem>)}</SelectGroup></SelectContent>
                 </Select>
               </Field>
-              <Field><FieldLabel htmlFor={`${id}-dx`}>Attachment direction dx</FieldLabel>
-                <Input id={`${id}-dx`} value={directionX} inputMode="decimal" disabled={busy || editor.clipboardPending} onChange={(event) => { setDirectionX(event.target.value); setAttachment(null) }} />
+              {mode === 'attach' && <><Field><FieldLabel htmlFor={`${id}-dx`}>Attachment direction dx</FieldLabel>
+                <Input id={`${id}-dx`} value={directionX} inputMode="decimal" disabled={busy || editor.clipboardPending} onChange={(event) => { setDirectionX(event.target.value); setAttachment(null); setReplacement(null) }} />
               </Field>
               <Field><FieldLabel htmlFor={`${id}-dy`}>Attachment direction dy</FieldLabel>
-                <Input id={`${id}-dy`} value={directionY} inputMode="decimal" disabled={busy || editor.clipboardPending} onChange={(event) => { setDirectionY(event.target.value); setAttachment(null) }} />
-              </Field>
+                <Input id={`${id}-dy`} value={directionY} inputMode="decimal" disabled={busy || editor.clipboardPending} onChange={(event) => { setDirectionY(event.target.value); setAttachment(null); setReplacement(null) }} />
+              </Field></>}
             </FieldGroup>
-            <p>Enter a finite nonzero vector. Magnitude is ignored; the connector uses the current bond length. The saved geometry is translated, without rotation or collision avoidance.</p>
-            <Button disabled={busy || pending === 'read' || editor.clipboardPending || !inspection || !sourceAnchor || !targetAtom || !activePlacement || !singleDestination || !validDirection} onClick={() => void previewAttachment()}>Preview template connection</Button>
+            <p>{mode === 'replace' ? 'The source anchor replaces the target state at its unchanged position. Other template coordinates are translated; the outside bond and its mark are retained. No hydrogen correction or layout is performed.' : 'Enter a finite nonzero vector. Magnitude is ignored; the connector uses the current bond length. The saved geometry is translated, without rotation or collision avoidance.'}</p>
+            <Button disabled={busy || pending === 'read' || editor.clipboardPending || !inspection || !sourceAnchor || !targetAtom || !activePlacement || !singleDestination || (mode === 'attach' && !validDirection)} onClick={() => void previewAttachment()}>{mode === 'replace' ? 'Preview template replacement' : 'Preview template connection'}</Button>
+            {replacement && !currentReplacement && <p>The drawing or service changed. Preview the replacement again.</p>}
+            {currentReplacement && <div className="flex flex-col gap-2">
+              <p role="status">Preview only: {currentReplacement.mapping.atoms.length - 1} fresh atoms, {currentReplacement.mapping.bonds.length} internal bonds. Target {targetAtom} and outside bond {currentReplacement.boundary} are retained. The destination has not changed.</p>
+              <p>Before: {atomSummary(document.atoms.find((atom) => atom.id === targetAtom))}</p>
+              <p>After: {atomSummary(currentReplacement.preview.document.atoms.find((atom) => atom.id === targetAtom))}</p>
+              <Button disabled={busy || editor.clipboardPending} onClick={() => void attach()}>Replace atom with template</Button>
+            </div>}
             {attachment && !currentAttachment && <p>The drawing or service changed. Preview the connection again.</p>}
             {currentAttachment && <div className="flex flex-col gap-2">
               <p role="status">Preview only: {currentAttachment.mapping.atoms.length} fresh atoms, {currentAttachment.mapping.bonds.length} internal bonds and one connector. The destination has not changed.</p>
