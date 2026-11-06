@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import { LossList } from '@/components/loss-list'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Spinner } from '@/components/ui/spinner'
+import { Textarea } from '@/components/ui/textarea'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import { afterDownloadFailure, afterExportFailure, MAX_CONSENT_RESTARTS } from '@/lib/ct-conversion'
 import { ApiError, ConsentRequired, sameConversionSnapshot, type CtLoss, type DocumentView, type InterchangeExport, type InterchangeFormat } from '@/lib/document-contract'
@@ -27,6 +29,12 @@ interface ExportOffer extends Stamp {
   changed: boolean
 }
 
+interface ClipboardWrite {
+  item: PreparedExport
+  status: 'pending' | 'copied' | 'failed'
+  message: string
+}
+
 interface InterchangeExportPanelProps {
   document: DocumentView
   editor: DocumentEditor
@@ -45,13 +53,15 @@ function exportBlob(result: InterchangeExport): Blob {
   return new Blob([bytes], { type: 'chemical/x-cdx' })
 }
 
-/** Downloads the current drawing with the same loss consent used by the HTTP and CLI clients. */
+/** Offers files and explicit CDXML text copying under the shared export loss consent. */
 export function InterchangeExportPanel({ document, editor }: InterchangeExportPanelProps) {
   const [exported, setExported] = useState<PreparedExport | null>(null)
   const [offer, setOffer] = useState<ExportOffer | null>(null)
   const [unacceptable, setUnacceptable] = useState<(Stamp & { features: string[]; losses: CtLoss[] }) | null>(null)
   const [pending, setPending] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [clipboardWrite, setClipboardWrite] = useState<ClipboardWrite | null>(null)
+  const text = useRef<HTMLTextAreaElement>(null)
   const alive = useRef(true)
   const request = useRef(0)
 
@@ -70,7 +80,8 @@ export function InterchangeExportPanel({ document, editor }: InterchangeExportPa
   const currentExport = exported && matchesShown(exported) ? exported : null
   const currentOffer = offer && matchesShown(offer) ? offer : null
   const currentUnacceptable = unacceptable && matchesShown(unacceptable) ? unacceptable : null
-  const busy = pending > 0 || editor.busy
+  const currentWrite = clipboardWrite?.item === currentExport ? clipboardWrite : null
+  const busy = pending > 0 || editor.busy || currentWrite?.status === 'pending'
 
   function clearMessages() {
     setError(null)
@@ -90,6 +101,7 @@ export function InterchangeExportPanel({ document, editor }: InterchangeExportPa
     clearMessages()
     setExported(null)
     setOffer(null)
+    setClipboardWrite(null)
     try {
       let accepted = acceptedStart
       let changed = changedStart
@@ -137,6 +149,29 @@ export function InterchangeExportPanel({ document, editor }: InterchangeExportPa
       }
     } finally {
       if (alive.current) setPending((count) => count - 1)
+    }
+  }
+
+  async function copyCdxml(item: PreparedExport) {
+    if (item.result.format !== 'cdxml' || !editor.isCurrentConversion(item.snapshot, item.generation)) {
+      setExported(null)
+      setError('The drawing or service changed. Preview the export again.')
+      return
+    }
+    const sequence = ++request.current
+    setClipboardWrite({ item, status: 'pending', message: 'Copying CDXML text…' })
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard writing is unavailable.')
+      // Use the already reviewed bytes directly in this click, before any await.
+      // Unlike downloading, this cannot re-export first without losing user activation.
+      await navigator.clipboard.writeText(item.result.content)
+      if (alive.current && request.current === sequence && editor.isCurrentConversion(item.snapshot, item.generation)) {
+        setClipboardWrite({ item, status: 'copied', message: 'CDXML text copied.' })
+      }
+    } catch (cause) {
+      if (alive.current && request.current === sequence && editor.isCurrentConversion(item.snapshot, item.generation)) {
+        setClipboardWrite({ item, status: 'failed', message: `${cause instanceof Error ? cause.message : 'Clipboard writing failed.'} Select the CDXML text and copy it manually.` })
+      }
     }
   }
 
@@ -207,6 +242,25 @@ export function InterchangeExportPanel({ document, editor }: InterchangeExportPa
       <p>Prepared {currentExport.result.format.toUpperCase()} for this drawing.</p>
       <LossList losses={currentExport.result.losses} />
       <Button size="sm" disabled={busy} onClick={() => void downloadExport(currentExport)}>Download {currentExport.result.format.toUpperCase()}</Button>
+      {currentExport.result.format === 'cdxml' && <>
+        <p>Copy the prepared whole-drawing export as plain CDXML text. It uses the first molecule placement, not the current selection. Other applications may not accept this text as a chemical object.</p>
+        <Field>
+          <FieldLabel htmlFor="interchange-cdxml-text">Prepared CDXML text</FieldLabel>
+          <Textarea id="interchange-cdxml-text" ref={text} readOnly value={currentExport.result.content}
+            className="h-36 min-h-16 max-w-full resize-y field-sizing-fixed font-mono text-xs"
+            onFocus={(event) => event.currentTarget.select()} />
+          <FieldDescription>Select and copy manually if browser clipboard access is unavailable or denied.</FieldDescription>
+        </Field>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => { text.current?.focus(); text.current?.select() }}>Select CDXML text</Button>
+          <Button size="sm" disabled={busy} onClick={() => void copyCdxml(currentExport)}>
+            {currentWrite?.status === 'pending' && <Spinner data-icon="inline-start" />}Copy CDXML to clipboard
+          </Button>
+        </div>
+        {currentWrite && (currentWrite.status === 'failed'
+          ? <Alert variant="destructive"><AlertDescription>{currentWrite.message}</AlertDescription></Alert>
+          : <p role="status">{currentWrite.message}</p>)}
+      </>}
     </div>}
   </aside>
 }

@@ -51,6 +51,8 @@ clean isolated suite30은 `scene-clipboard-forest-history`(accept)와 `scene-cli
 
 P33f는 별도 native graphics dialog로 P33e forest backend를 웹에 연결한다. 전체 선택·문서/process를 잡아 큐에서 재검증하고 mixed graph/placement 선택을 걸러내지 않는다. 명시 browser read/write와 수동 대안, frozen text/pt offset/mixed selection-before, 여러 placement 목적지·새 roots·Undo/Redo를 제공한다. client는 forest/mapping/geometry/reference와 기존 chemistry/placement 불변을 확인한다. 미확정 시 shared request/body/process gate·후속 변경 잠금·clipboard 재접근 없는 outcome check·restart reload를 따른다. parent-run 격리 targeted lint/typecheck·client444개·web build·test:browser:scene-clipboard가 통과해 OPS-01.scene-clipboard-web를 check:test:client 근거로 implemented로 기록했다. browser command를 CI에 추가했지만 CI 실행·전체 check·일반 browser 성공이나 P33 완료는 주장하지 않는다. Scene Cut·molecule clone·external graphics/custom MIME/global shortcut은 후속이며 P33은 in_progress다.
 
+P33h는 기존 CDXML export loss-consent 뒤 준비된 전체 도면 첫 배치 text에 명시 browser copy와 수동/keyboard 선택을 더한다. 직접 클릭 전에는 clipboard 접근이 없고 known full snapshot/process 변화 및 지연된 완료는 이전 UI를 복원하지 않는다. 문서 변경·CDXML clipboard import·CDX text·Cut은 추가하지 않으며 P33은 in_progress다. 새 `scripts/web-cdxml-clipboard-check.mjs`와 real-backend smoke 회귀를 작성하고 CI에 연결했으나 이번 변경의 테스트·빌드·브라우저 실행 근거는 아직 없다. 기존 실행 근거와 집계는 재사용하거나 늘리지 않았다.
+
 현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 107개(implemented 60, partial 12, unverified 2, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.

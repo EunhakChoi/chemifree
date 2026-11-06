@@ -3458,9 +3458,12 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByRole('button', { name: 'Preview CDXML export', exact: true }).click()
   await panel.getByRole('button', { name: 'Download CDXML', exact: true }).waitFor()
   assert.equal(await panel.getByTestId('interchange-export-offer').count(), 0, 'representable grouped stereo needs no loss acceptance')
+  assert.match(await panel.getByLabel('Prepared CDXML text', { exact: true }).inputValue(), /<CDXML\b/, 'the clipboard manual fallback exposes real exported CDXML')
+  await panel.getByRole('button', { name: 'Copy CDXML to clipboard', exact: true }).waitFor()
   await panel.getByRole('button', { name: 'Preview CDX export', exact: true }).click()
   await panel.getByRole('button', { name: 'Download CDX', exact: true }).waitFor()
   assert.equal(await panel.getByRole('button', { name: 'Download CDXML', exact: true }).count(), 0, 'a different format replaces the old preview')
+  assert.equal(await panel.getByRole('button', { name: 'Copy CDXML to clipboard', exact: true }).count(), 0, 'CDX is binary download only')
   const downloadReady = page.waitForEvent('download')
   await panel.getByRole('button', { name: 'Download CDX', exact: true }).click()
   const binaryFile = await downloadReady
