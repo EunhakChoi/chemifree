@@ -1705,7 +1705,7 @@
         },
         {
           "id": "RENDER-01.rest",
-          "summary": "Remaining general text, vector output, transforms and clipping beyond the editor canvas. Independent Unicode captions now include bounded run shadow/outline/underline, measured SVG bounds and native history (P35i; verification pending).",
+          "summary": "Remaining general text, vector output, transforms and clipping beyond the editor canvas. Independent Unicode captions include bounded run shadow/outline/underline, measured SVG bounds and native history. P35o adds one plain cosmetic Unicode display string on an existing retained ethyl graph, with text:null resetting Et, no parsing or chemistry/identity/formula change, chemical export display loss and native v23 current/history plus v1–22 exact-byte migration. General multistyle atom/abbreviation labels and fragment editing remain unsupported; P35 stays in_progress and execution/reviews are pending (docs/verification/p35o-display-label.md).",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

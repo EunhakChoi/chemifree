@@ -355,3 +355,13 @@ strictly checks current/history and migrates v1–21 to false with exact archive
 P35 remains `in_progress`. New browser/client/native checks are authored and
 registered; tests, builds, cargo check and browser execution were intentionally
 not run in this implementation session. See [P35n record](docs/verification/p35n-label-shadow.md).
+
+P35o adds a plain display label on an already collapsed ethyl graph: one nonempty
+Unicode line, at most 128 UTF-8 bytes; `text: null` resets it to `Et`. **Text does
+not define chemistry.** Arbitrary text is never parsed, and the retained graph,
+identity and formula stay unchanged. It uses document label typography and SVG
+bounds; chemical exports retain the full graph and report display loss. Native
+v23 stores current/history metadata and preserves exact v1–22 bytes before
+replacement/recovery. General multistyle atom/abbreviation labels and fragment
+editing remain unsupported. P35 stays `in_progress`; execution and both required
+PR reviews are pending. See [P35o record](docs/verification/p35o-display-label.md).
