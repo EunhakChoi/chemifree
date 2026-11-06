@@ -93,11 +93,14 @@ export interface InstanceView {
   positions: InstancePosition[]
 }
 
+export interface CaptionRun { text: string; script: 'baseline' | 'subscript' | 'superscript' }
+
 export type GraphicShape = 'line' | 'rectangle' | 'arrow'
 
 export type SceneObject =
   | { kind: 'instance'; id: string; parent: string | null; molecule: string }
   | { kind: 'group'; id: string; parent: string | null; children: string[] }
+  | { kind: 'caption'; id: string; parent: string | null; anchor: Position; runs: CaptionRun[] }
   | { kind: 'graphic'; id: string; parent: string | null; shape: GraphicShape; points: [Position, Position] }
 
 export interface ReferenceTarget {
@@ -678,6 +681,8 @@ export type Command =
   | { op: 'add_instance'; source?: string; offset: Position }
   | { op: 'move_instance'; instance: string; offset: Position }
   | { op: 'delete_instance'; instance: string }
+  | { op: 'add_caption'; anchor: Position; runs: CaptionRun[]; parent?: string; index?: number }
+  | { op: 'update_caption'; object: string; anchor: Position; runs: CaptionRun[] }
   | { op: 'add_graphic'; shape: GraphicShape; points: [Position, Position]; parent?: string; index?: number }
   | { op: 'group'; objects: string[] }
   | { op: 'ungroup'; group: string }
@@ -1049,6 +1054,26 @@ function isSelection(value: unknown): value is SelectionView {
   return isRecord(value) && isStringArray(value.objects) && isStringArray(value.atoms) && isStringArray(value.bonds)
 }
 
+/** Strict Unicode scalar text, preserving run order and bytes without normalization. */
+export function validCaptionRuns(value: unknown): value is CaptionRun[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 32) return false
+  let bytes = 0
+  let visible = false
+  for (const run of value) {
+    if (!isRecord(run) || typeof run.text !== 'string' || run.text.length === 0 ||
+        (typeof run.script !== 'string' || !['baseline', 'subscript', 'superscript'].includes(run.script)) ||
+        /[\p{Cc}\u2028\u2029]/u.test(run.text)) return false
+    // JSON can carry unpaired UTF-16 surrogates, which Rust String deliberately rejects.
+    for (const character of run.text) {
+      const code = character.codePointAt(0)
+      if (code !== undefined && code >= 0xd800 && code <= 0xdfff) return false
+    }
+    bytes += new TextEncoder().encode(run.text).length
+    if (/[^\p{White_Space}]/u.test(run.text)) visible = true
+  }
+  return bytes <= 16_384 && visible
+}
+
 function isSceneObject(value: unknown): value is SceneObject {
   if (!isRecord(value) || typeof value.id !== 'string' || (value.parent !== null && typeof value.parent !== 'string')) return false
   switch (value.kind) {
@@ -1056,6 +1081,8 @@ function isSceneObject(value: unknown): value is SceneObject {
       return typeof value.molecule === 'string'
     case 'group':
       return isStringArray(value.children)
+    case 'caption':
+      return isRecord(value.anchor) && isFiniteNumber(value.anchor.x) && isFiniteNumber(value.anchor.y) && validCaptionRuns(value.runs)
     case 'graphic':
       return (
         (value.shape === 'line' || value.shape === 'rectangle' || value.shape === 'arrow') &&

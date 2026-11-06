@@ -94,7 +94,14 @@ The scene can also contain ordered groups and simple line, rectangle, and arrow 
 
 If preferences could not be read when the page started, open **Preferences** and choose **Retry preferences** after the local service is available; a successful read applies the saved theme.
 
-Version 7 documents and drafts retain the scene, selection, style, the storage for stereo marks and stated configurations (shown in every snapshot and set by the stereo commands), and enhanced-stereo groups (eight commands, shown in every snapshot as `stereo.groups` and edited in the web Stereo panel; only MOL V3000 import and export reads and writes them as `COLLECTION` entries); versions 1–4 are read in memory with the default style, version 5 keeps its stored style, versions 1–5 have no stereo, and versions 1–6 have no groups. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.
+P35a adds independent single-line Unicode captions with baseline/subscript/superscript runs,
+ordinary Undo/Redo and native v8 save/recovery. Captions preserve text verbatim and do not
+change chemical graph or abbreviation meaning. Click or use Scene to select them;
+move/group/delete are supported, while caption-containing arrangement/transform/graphic
+clipboard requests refuse whole. Chemical exports require consent for caption loss.
+This candidate's new checks are written but not executed; see [scope and pending verification](docs/verification/p35a-unicode-caption.md).
+
+Version 8 documents and drafts retain the scene, selection, style, the storage for stereo marks and stated configurations (shown in every snapshot and set by the stereo commands), and enhanced-stereo groups (eight commands, shown in every snapshot as `stereo.groups` and edited in the web Stereo panel; only MOL V3000 import and export reads and writes them as `COLLECTION` entries); versions 1–4 are read in memory with the default style, version 5 keeps its stored style, versions 1–5 have no stereo, and versions 1–6 have no groups. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.
 
 The P15 numeric library provides exact-rational Real48, binary32, binary64, and 80-bit extended storage conversions, finite arithmetic, selected ordered heading and deviation boundaries, independent length and concentration unit conversions, and explicit decimal display and F32 storage policies. The numeric library does not itself enable a chemistry engine. See [the numeric boundaries](docs/NUMERICS.ko.md).
 

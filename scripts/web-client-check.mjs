@@ -9,6 +9,7 @@ import { test } from 'node:test'
 register('./lib/web-alias-hooks.mjs', import.meta.url)
 await import('./web-scene-cut-client-check.mjs')
 await import('./web-ring-client-check.mjs')
+await import('./web-caption-client-check.mjs')
 await import('./web-attach-ring-client-check.mjs')
 await import('./web-template-attachment-client-check.mjs')
 await import('./web-template-replacement-client-check.mjs')

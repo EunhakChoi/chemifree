@@ -2,6 +2,14 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P35a 독립 Unicode caption 후보
+
+- 최신 main 기반 `feat/p35a-unicode-caption` 후보. P35 전체는 in_progress다. 약어·원자 표기의 의미를 새로 정하지 않으며 caption은 그래프와 독립이다.
+- 새 Caption scene kind와 explicit 전체 run `baseline|subscript|superscript`·anchor 편집, 한 Undo 단계·no-op·원자성·request replay·native v8 문서/이력/초안·v1–7 migration을 연결했다. 이전 파일/초안의 첫 overwrite/recovery는 기존 byte 보존 규칙을 따른다. 이전 버전의 history-only caption도 거절한다.
+- 1–32개 nonempty run·총16384 UTF-8 bytes·single line·Unicode White_Space 기준을 적용하고 원문 정규화나 화학식 해석은 없다. caption을 포함한 arrange/transform/graphic clipboard는 전체 명시 거절한다. move/group/delete/reference/Scene·canvas click은 지원한다.
+- 실제 run 입력·IME gate·script 선택과 SVG natural text·loaded-font getBBox bounds를 연결했다. native text 보존과 폰트·복잡한 shaping의 시각 재현은 별개이며 run 사이 grapheme shaping은 보장하지 않는다. MOL/SDF/SMILES/CDXML/CDX drawing export는 caption 손실 동의가 필요하다.
+- Domain/Application/provider/client·HTTP=CLI와 real-backend production caption UI/browser 회귀를 작성했다. 독립 fresh-context 리뷰3건(catalog 수·White_Space FEFF·script type)을 수정했다. 테스트·빌드·브라우저·mutation·push는 사용자 지시로 실행하지 않았다. `cargo fmt --all`만 수행했다. 상세: [검증 기록](verification/p35a-unicode-caption.md).
+
 ## P34g 독립 Kekulé 6탄소 고리 후보
 
 - P34f HEAD `3b3b2a7` 기반 `feat/p34g-kekule-ring` 후보다. 구현 `12bda93` 뒤 동일 tree의 #181 main squash `f51e0ed`를 통합했다. P34 전체는 in_progress다.

@@ -38,6 +38,9 @@ function referencedIds(command: Command): string[] {
     case 'move_instance':
     case 'delete_instance':
       return [command.instance]
+    case 'update_caption':
+      return [command.object]
+    case 'add_caption':
     case 'add_graphic':
       return command.parent === undefined ? [] : [command.parent]
     case 'group':

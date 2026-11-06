@@ -49,6 +49,7 @@ pub enum SceneFragmentError {
     EmptySelection,
     UnknownSelection(ObjectId),
     InstanceUnsupported(ObjectId),
+    CaptionUnsupported(ObjectId),
     GroupTooSmall(ObjectId),
     InvalidTree,
     DepthLimit,
@@ -69,6 +70,7 @@ impl SceneFragmentError {
             Self::EmptySelection => "clipboard_scene_empty_selection",
             Self::UnknownSelection(_) => "clipboard_scene_selection_unknown",
             Self::InstanceUnsupported(_) => "clipboard_scene_instance_unsupported",
+            Self::CaptionUnsupported(_) => "clipboard_scene_caption_unsupported",
             Self::GroupTooSmall(_) => "clipboard_scene_group_too_small",
             Self::InvalidTree => "clipboard_scene_invalid_tree",
             Self::DepthLimit => "clipboard_scene_depth_limit",
@@ -87,6 +89,7 @@ impl fmt::Display for SceneFragmentError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnknownSelection(id)
+            | Self::CaptionUnsupported(id)
             | Self::InstanceUnsupported(id)
             | Self::GroupTooSmall(id) => {
                 write!(formatter, "{}: {id}", self.as_str())
@@ -124,6 +127,7 @@ fn walk(
     traversal.drawing.push(id);
     match object {
         SceneObject::Instance => return Err(SceneFragmentError::InstanceUnsupported(id)),
+        SceneObject::Caption(_) => return Err(SceneFragmentError::CaptionUnsupported(id)),
         SceneObject::Graphic(_) => {}
         SceneObject::Group { children } => {
             if children.len() < 2 {

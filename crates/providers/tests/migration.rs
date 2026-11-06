@@ -200,8 +200,8 @@ fn the_first_save_over_a_version_1_file_keeps_its_exact_bytes() {
     assert_eq!(fs::read(&kept).unwrap(), original);
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
     assert!(
-        saved.contains("\"format_version\":7"),
-        "the document is stored as version 7"
+        saved.contains("\"format_version\":8"),
+        "the document is stored as version 8"
     );
     assert_eq!(repository.load(&id()).unwrap(), Some(document.clone()));
     assert_eq!(
@@ -364,7 +364,7 @@ fn a_version_1_draft_migrates_when_it_is_recovered() {
         })
         .unwrap();
     let rewritten = String::from_utf8(fs::read(&draft_path).unwrap()).unwrap();
-    assert!(rewritten.contains("\"format_version\":7"), "{rewritten}");
+    assert!(rewritten.contains("\"format_version\":8"), "{rewritten}");
 }
 
 #[test]
@@ -922,7 +922,7 @@ fn version_4_scene_migrates_settings_without_losing_tree_references_or_history()
     assert!(
         String::from_utf8(fs::read(path).unwrap())
             .unwrap()
-            .contains("\"format_version\":7")
+            .contains("\"format_version\":8")
     );
     assert!(root.path().join("migrated").is_dir());
 }
@@ -955,7 +955,7 @@ fn version_4_draft_keeps_its_original_bytes_and_redo_after_recovery() {
     assert!(
         String::from_utf8(rewritten)
             .unwrap()
-            .contains("\"format_version\":7")
+            .contains("\"format_version\":8")
     );
     assert_eq!(fs::read(archive).unwrap(), original);
     app.save(ID, None, 5).unwrap();
@@ -1198,7 +1198,7 @@ fn the_first_save_over_a_version_2_file_keeps_its_exact_bytes_once() {
     assert_eq!(kept.file_name().unwrap(), format!("{ID}.v2.json").as_str());
     assert_eq!(fs::read(&kept).unwrap(), original);
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
-    assert!(saved.contains("\"format_version\":7"), "{saved}");
+    assert!(saved.contains("\"format_version\":8"), "{saved}");
 
     // The same version 2 bytes stored again are already kept; other bytes get the next name.
     fs::write(&path, &original).unwrap();

@@ -18,7 +18,7 @@
 //!   ends before removing it, the next lock holder settles it: the commit happened exactly
 //!   when storage no longer holds the draft's base revision.
 //! - `migrated/<id>.v<N>.json`: the exact bytes of a document file of an earlier version `N`
-//!   (1 to 5), kept by the first save that replaces it with the current version (reading and
+//!   (1 to 7), kept by the first save that replaces it with the current version (reading and
 //!   migrating a file never writes). Under the save lock, the copy is written to a temporary
 //!   file, flushed to disk, and renamed into place before the document is replaced. A copy is
 //!   never overwritten: a later version `N` file with other bytes under the same ID is kept as
@@ -1415,7 +1415,7 @@ mod tests {
 
         for corrupt in [
             "not json".to_owned(),
-            valid.replace("\"format_version\":7", "\"format_version\":99"),
+            valid.replace("\"format_version\":8", "\"format_version\":99"),
             valid.replacen("\"begin\":\"a1\"", "\"begin\":\"a9\"", 1),
             valid.replace(document.id().as_str(), "doc-0000000000000000"),
         ] {

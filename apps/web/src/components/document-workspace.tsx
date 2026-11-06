@@ -86,6 +86,7 @@ import { CtfilePanel } from '@/components/ctfile-panel'
 import { InterchangeExportPanel } from '@/components/interchange-export-panel'
 import { NativeClipboardPanel } from '@/components/native-clipboard-panel'
 import { UserTemplatePanel } from '@/components/user-template-panel'
+import { CaptionPanel } from '@/components/caption-panel'
 import { SceneClipboardPanel } from '@/components/scene-clipboard-panel'
 import { SmilesPanel } from '@/components/smiles-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
@@ -915,6 +916,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <IdentityPanel document={document} editor={editor} />
           <SubstructurePanel document={document} editor={editor} />
           <SceneControls document={document} editor={editor} activePlacement={activePlacement} />
+          <CaptionPanel key={`caption-${document.id}-${editor.serviceGeneration}`} document={document} editor={editor} />
           <SceneClipboardPanel key={`scene-clipboard-${document.id}`} document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>
@@ -1433,12 +1435,13 @@ function SceneControls({ document, editor, activePlacement }: { document: Docume
           distribute at least three with equal edge gaps and fixed endpoints. Bounds exclude labels and stroke widths.
           Rotations and reflections include selected atoms and bond endpoints in the active movement placement, around the entire selected geometry center. Horizontal reflection swaps above and below that center; vertical reflection swaps left and right.
         </p>
+        {geometry.hasCaptions && <p className="text-xs text-muted-foreground">Captions can be moved and grouped. Arrange, rotate and reflect do not yet support captions, including captions inside groups.</p>}
         {geometry.hasGraphTargets && <p className="text-xs text-muted-foreground">Alignment and distribution need scene objects only. Atom and bond targets can still be rotated or reflected.</p>}
         {geometry.hasEmptyUnits && <p className="text-xs text-muted-foreground">An empty scene unit cannot be aligned or distributed. Transforms need some selected geometry.</p>}
         <div className="flex flex-wrap gap-1">
           {SCENE_GEOMETRY_ACTIONS.map(({ label, action, minimum }) => (
             <Button key={label} size="sm" variant="outline"
-              disabled={action.kind === 'transform' ? !transformable : geometry.hasGraphTargets || geometry.hasMissingTargets || geometry.bounds === null || geometry.objects.length < minimum || geometry.hasEmptyUnits}
+              disabled={action.kind === 'transform' ? !transformable : geometry.hasCaptions || geometry.hasGraphTargets || geometry.hasMissingTargets || geometry.bounds === null || geometry.objects.length < minimum || geometry.hasEmptyUnits}
               onClick={() => {
                 const pressed = editor.selectionAtPress()
                 const placementAtPress = activePlacement

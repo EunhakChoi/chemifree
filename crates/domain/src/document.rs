@@ -20,11 +20,11 @@ use std::fmt;
 use crate::element::Element;
 use crate::scene;
 use crate::scene::{
-    ArrangementPlan, ArrangementUnit, Bounds, DeleteMode, Graphic, GraphicShape, MAX_DEPTH,
-    MAX_OBJECTS, MAX_REFERENCES, ObjectArrangement, ObjectKind, ObjectRef, ReferenceTarget,
-    SceneError, SceneObject, SceneReference, SceneTree, Selection, SelectionRequest,
-    SelectionScope, SelectionTransform, TransactionSelection, TransformPlan, TransformedGraphic,
-    TransformedPosition,
+    ArrangementPlan, ArrangementUnit, Bounds, Caption, DeleteMode, Graphic, GraphicShape,
+    MAX_DEPTH, MAX_OBJECTS, MAX_REFERENCES, ObjectArrangement, ObjectKind, ObjectRef,
+    ReferenceTarget, SceneError, SceneObject, SceneReference, SceneTree, Selection,
+    SelectionRequest, SelectionScope, SelectionTransform, TransactionSelection, TransformPlan,
+    TransformedGraphic, TransformedPosition,
 };
 use crate::settings::{Settings, SettingsEdit, SettingsError};
 use crate::states::{
@@ -483,6 +483,17 @@ pub enum Command {
     },
     /// Adds a graphic under `parent` (a group, or the page when `None`) at `index` among its
     /// children (the end when `None`).
+    /// Adds a bounded independent caption to the ordered scene.
+    AddCaption {
+        caption: Caption,
+        parent: Option<ObjectId>,
+        index: Option<usize>,
+    },
+    /// Replaces a caption's complete anchor and run state atomically.
+    UpdateCaption {
+        object: ObjectId,
+        caption: Caption,
+    },
     AddGraphic {
         graphic: Graphic,
         parent: Option<ObjectId>,
@@ -650,6 +661,8 @@ pub enum Command {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditError {
+    CaptionInvalid,
+    CaptionUnsupported(ObjectId),
     EmptyTransaction,
     TooManyCommands,
     EmptyTargetList,
@@ -754,6 +767,8 @@ impl EditError {
     /// The scene rule a command violated, when the error has a scene-specific code.
     pub fn scene_error(&self) -> Option<SceneError> {
         Some(match self {
+            Self::CaptionInvalid => SceneError::CaptionInvalid,
+            Self::CaptionUnsupported(_) => SceneError::CaptionUnsupported,
             Self::UnknownObject(_) => SceneError::ObjectUnknown,
             Self::ObjectKindMismatch { .. } => SceneError::ObjectKindMismatch,
             Self::GroupMixedParents => SceneError::GroupMixedParents,
@@ -918,6 +933,8 @@ impl fmt::Display for EditError {
                 formatter,
                 "rectangle {object} requires an exact quarter-turn rotation; arbitrary angles cannot be represented by its two axis-aligned corners"
             ),
+            Self::CaptionInvalid => formatter.write_str("Caption needs 1–32 nonempty single-line runs, at most 16384 UTF-8 bytes, and non-whitespace text."),
+            Self::CaptionUnsupported(id) => write!(formatter, "This operation cannot preserve caption {id}; nothing was changed."),
             Self::SceneTreeInvalid(detail) => formatter.write_str(detail),
             Self::InvalidState(error) => error.fmt(formatter),
             Self::Settings(error) => error.fmt(formatter),
@@ -1365,7 +1382,7 @@ impl Content {
                 SceneObject::Graphic(_) => {
                     scope.graphics.insert(*object);
                 }
-                SceneObject::Group { .. } => {}
+                SceneObject::Caption(_) | SceneObject::Group { .. } => {}
             }
         }
         let mut atoms = selection.atoms.clone();
@@ -1397,6 +1414,11 @@ impl Content {
                 },
                 None,
             )?;
+            for id in &scope.objects {
+                if matches!(self.scene.get(*id)?, SceneObject::Caption(_)) {
+                    return Err(EditError::CaptionUnsupported(*id));
+                }
+            }
             let mut points = Vec::new();
             for key in &scope.positions {
                 points.push(
@@ -1452,6 +1474,11 @@ impl Content {
         transform: SelectionTransform,
     ) -> Result<TransformPlan, EditError> {
         let scope = self.selection_scope(selection, instance)?;
+        for id in &scope.objects {
+            if matches!(self.scene.get(*id)?, SceneObject::Caption(_)) {
+                return Err(EditError::CaptionUnsupported(*id));
+            }
+        }
         let prepared = scene::PreparedTransform::new(transform)?;
         let mut positions = Vec::with_capacity(scope.positions.len());
         let mut graphics = Vec::with_capacity(scope.graphics.len());
@@ -1782,6 +1809,11 @@ impl Draft {
     fn translate_scope(&mut self, scope: &SelectionScope, delta: Vector) -> Result<(), EditError> {
         if !delta.dx.is_finite() || !delta.dy.is_finite() {
             return Err(EditError::CoordinateOutOfRange);
+        }
+        for id in &scope.objects {
+            if let Some(SceneObject::Caption(caption)) = self.content.scene.objects.get_mut(id) {
+                caption.anchor = caption.anchor.translated(delta)?;
+            }
         }
         for key in &scope.positions {
             self.translate(key.instance, [key.atom], delta)?;
@@ -2303,6 +2335,29 @@ impl Draft {
             Command::DeleteInstance { instance } => {
                 let instance = self.content.require_instance(*instance)?;
                 self.delete_objects(&BTreeSet::from([instance]), DeleteMode::ObjectOnly)?;
+            }
+            Command::AddCaption {
+                caption,
+                parent,
+                index,
+            } => {
+                caption.validate()?;
+                let id = self.allocate_object()?;
+                self.content.scene.insert(
+                    id,
+                    SceneObject::Caption(caption.clone()),
+                    *parent,
+                    *index,
+                )?;
+                created = Created::Object(id);
+            }
+            Command::UpdateCaption { object, caption } => {
+                caption.validate()?;
+                self.content.scene.require(*object, ObjectKind::Caption)?;
+                self.content
+                    .scene
+                    .objects
+                    .insert(*object, SceneObject::Caption(caption.clone()));
             }
             Command::AddGraphic {
                 graphic,

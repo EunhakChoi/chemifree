@@ -571,7 +571,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 48] = [
+const TRANSACTION_PARTS: [Entry; 50] = [
     runs("attach_ring", "Connects a fresh five/six-carbon single-bond ring to an existing atom along an explicit direction in the only placement. Ordinary bond-addition stereo clearing and group notes apply. No fusion or layout."),
     runs(
         "insert_ring",
@@ -628,6 +628,8 @@ const TRANSACTION_PARTS: [Entry; 48] = [
         "delete_instance",
         "Deletes a scene instance with its positions; the last one stays.",
     ),
+    runs("add_caption", "Adds an independent single-line Unicode caption with explicit script runs."),
+    runs("update_caption", "Replaces a caption anchor and its complete script runs."),
     runs(
         "add_graphic",
         "Adds a line, rectangle, or arrow to a page or group.",
@@ -757,6 +759,8 @@ const TRANSACTION_PARTS: [Entry; 48] = [
     )
     .carried_out_by(&[
         "add_graphic",
+        "add_caption",
+        "update_caption",
         "group",
         "ungroup",
         "reorder",

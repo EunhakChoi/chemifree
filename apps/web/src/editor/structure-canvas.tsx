@@ -1,6 +1,7 @@
 import type { RingSize } from '@/lib/document-contract'
 import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
+import { SceneCaption } from '@/editor/scene-caption'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -181,6 +182,33 @@ export function StructureCanvas({
   const [preview, setPreview] = useState<Preview>(null)
   const [hover, setHover] = useState<Located | null>(null)
   const selectedGeometry = selectionGeometry(document, selection, activePlacement)
+  const [captionMeasurement, setCaptionMeasurement] = useState<{ document: DocumentView; boxes: Map<string, Box> } | null>(null)
+  const captionBoxes = captionMeasurement?.document === document ? captionMeasurement.boxes : new Map<string, Box>()
+  useEffect(() => {
+    const svg = svgRef.current
+    if (!svg) return
+    let active = true
+    let frame = 0
+    const measure = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        if (!active) return
+        const boxes = new Map<string, Box>()
+        for (const text of svg.querySelectorAll<SVGTextElement>('[data-caption-text]')) {
+          const id = text.getAttribute('data-caption-text')
+          if (id === null) continue
+          const ink = text.getBBox()
+          boxes.set(id, { x: ink.x - 2, y: ink.y - 2, width: ink.width + 4, height: ink.height + 4 })
+        }
+        setCaptionMeasurement({ document, boxes })
+      })
+    }
+    const observer = new ResizeObserver(measure)
+    for (const text of svg.querySelectorAll('[data-caption-text]')) observer.observe(text)
+    globalThis.document.fonts.addEventListener('loadingdone', measure)
+    measure()
+    return () => { active = false; cancelAnimationFrame(frame); observer.disconnect(); globalThis.document.fonts.removeEventListener('loadingdone', measure) }
+  }, [document])
 
   function switchPlacement(instance: string) {
     cancelPointer()
@@ -239,15 +267,15 @@ export function StructureCanvas({
           ...drawings.flatMap((drawing) => drawing.view.atoms.map((atom) => atom.position)),
           ...(document.scene?.objects?.flatMap((object) => object.kind === 'graphic' ? object.points : []) ?? []),
         ],
-        drawings.flatMap((drawing) => [
+        [...captionBoxes.values(), ...drawings.flatMap((drawing) => [
           ...drawing.view.atoms.flatMap((atom) => labelBox(drawing.labels, atom.id, atom.position) ?? []),
           ...(drawing.frame ? [drawing.frame.box] : []),
           // Group labels are an overlay, but a clipped one is unreadable: they count only while drawn.
           ...groupLabelBoxes(groupLabels, document.bonds, new Map(drawing.view.atoms.map((atom) => [atom.id, atom.position]))),
-        ]),
+        ])],
         drawings[0]?.reach ?? 0,
       ),
-    [document.scene, document.bonds, drawings, groupLabels],
+    [document.scene, document.bonds, drawings, groupLabels, captionBoxes],
   )
 
   const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box)
@@ -391,7 +419,7 @@ export function StructureCanvas({
     const scope = selectionGeometry(document, current, instance)
     const positions = scope?.positions.get(instance)
     const bond = kind === 'bond' ? document.bonds.find((bond) => bond.id === id) : undefined
-    const covered = kind === 'graphic' ? scope?.graphics.has(id)
+    const covered = kind === 'graphic' ? scope?.objects.has(id)
       : kind === 'atom' ? positions?.has(id)
       : bond !== undefined && positions?.has(bond.begin) && positions.has(bond.end)
     let next = current
@@ -741,6 +769,16 @@ export function StructureCanvas({
     >
       {sceneObjects ? sceneObjects.map((object) => {
         if (object.kind === 'group') return null
+        if (object.kind === 'caption') return (
+          <SceneCaption key={object.id} object={object} box={captionBoxes.get(object.id)} settings={settingsOf(document)} selected={sceneSelected(object)}
+            delta={preview?.kind === 'move' && preview.scope.objects.has(object.id) ? preview.delta : undefined}
+            onPointerDown={(event) => {
+              if (tool !== 'select' || disabled || event.button !== 0 || pointer.current?.id !== event.pointerId) return
+              event.stopPropagation()
+              const point = toDocument(event)
+              if (point) selectTarget(object.id, 'graphic', activePlacement, point, event.shiftKey)
+            }} />
+        )
         if (object.kind === 'graphic') return (
           <SceneGraphic key={object.id} object={preview?.kind === 'move' && preview.scope.graphics.has(object.id) ? {
             ...object, points: [

@@ -1414,7 +1414,7 @@
    "acceptance": "한글·결합 문자·긴 텍스트·run 경계와 codec 인덱스를 검사한다. 텍스트 수정이 원자 의미를 바꾸는 경우를 명시한다.",
    "kind": "core",
    "id": "P35",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1423,7 +1423,8 @@
    "depends_on": [
     "P11",
     "P12"
-   ]
+   ],
+   "note": "P35a 후보는 independent Caption scene과 explicit Unicode baseline/subscript/superscript whole-run 편집·native v8 문서/이력/초안 저장 및 v1–7 byte 보존 migration이다. 원자·약어·화학 의미는 바꾸지 않는다. move/group/delete/reference와 실제 SVG bounds/selection을 연결하고 caption 포함 arrange/transform/graphic clipboard는 전체 거절한다. chemical export는 caption 손실 동의가 필요하다. Domain/Application/provider/client/HTTP=CLI/real-backend browser 회귀는 작성했으나 테스트·빌드·브라우저는 실행하지 않았다. 독립 리뷰3건을 수정했다. arbitrary text styling/alignment, chemical atom/abbreviation labels, external caption roundtrip은 후속이다. docs/verification/p35a-unicode-caption.md 참조."
   },
   {
    "phase": "editor",

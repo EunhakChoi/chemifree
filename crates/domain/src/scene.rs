@@ -84,10 +84,62 @@ impl Graphic {
     }
 }
 
+/// A run's explicit baseline treatment. Text is not parsed as a chemical formula.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CaptionScript {
+    Baseline,
+    Subscript,
+    Superscript,
+}
+
+/// Text stored verbatim: no Unicode normalization or index-based edits.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CaptionRun {
+    pub text: String,
+    pub script: CaptionScript,
+}
+
+/// A single-line independent annotation, anchored at the start of its baseline.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Caption {
+    pub anchor: Point,
+    pub runs: Vec<CaptionRun>,
+}
+
+impl Caption {
+    /// Validate edits and every restored/history state without truncating input.
+    ///
+    /// # Errors
+    /// Returns `CaptionInvalid` for empty, over-limit, multiline or control-bearing text.
+    pub fn validate(&self) -> Result<(), EditError> {
+        let bytes: usize = self.runs.iter().map(|run| run.text.len()).sum();
+        if self.runs.is_empty()
+            || self.runs.len() > 32
+            || bytes > 16_384
+            || self.runs.iter().any(|run| {
+                run.text.is_empty()
+                    || run
+                        .text
+                        .chars()
+                        .any(|ch| ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}'))
+            })
+            || !self
+                .runs
+                .iter()
+                .any(|run| run.text.chars().any(|ch| !ch.is_whitespace()))
+        {
+            return Err(EditError::CaptionInvalid);
+        }
+        Ok(())
+    }
+}
+
 /// One scene object's own state. Containment is kept here for groups (their ordered children)
 /// and by the tree for page roots.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SceneObject {
+    /// Independent text with no graph or abbreviation meaning.
+    Caption(Caption),
     /// A molecule scene instance; its atom positions are kept apart, per atom.
     Instance,
     Group {
@@ -99,6 +151,7 @@ pub enum SceneObject {
 impl SceneObject {
     pub const fn kind(&self) -> ObjectKind {
         match self {
+            Self::Caption(_) => ObjectKind::Caption,
             Self::Instance => ObjectKind::Instance,
             Self::Group { .. } => ObjectKind::Group,
             Self::Graphic(_) => ObjectKind::Graphic,
@@ -117,6 +170,7 @@ impl SceneObject {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ObjectKind {
+    Caption,
     Instance,
     Group,
     Graphic,
@@ -125,6 +179,7 @@ pub enum ObjectKind {
 impl fmt::Display for ObjectKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
+            Self::Caption => "a caption",
             Self::Instance => "a scene instance",
             Self::Group => "a group",
             Self::Graphic => "a graphic",
@@ -145,6 +200,10 @@ pub enum DeleteMode {
 /// `invalid_command`. The list is closed and documented in docs/CONTRACT.md.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SceneError {
+    /// Caption content violates the bounded text profile.
+    CaptionInvalid,
+    /// This operation cannot preserve a caption.
+    CaptionUnsupported,
     /// A command names a scene object that does not exist.
     ObjectUnknown,
     /// A command names an object of a kind it does not act on.
@@ -185,7 +244,9 @@ pub enum SceneError {
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 20] = [
+        Self::CaptionInvalid,
+        Self::CaptionUnsupported,
         Self::ObjectUnknown,
         Self::ObjectKindMismatch,
         Self::GroupMixedParents,
@@ -209,6 +270,8 @@ impl SceneError {
     /// The stable machine-readable code.
     pub const fn code(self) -> &'static str {
         match self {
+            Self::CaptionInvalid => "caption_invalid",
+            Self::CaptionUnsupported => "caption_unsupported",
             Self::ObjectUnknown => "object_unknown",
             Self::ObjectKindMismatch => "object_kind_mismatch",
             Self::GroupMixedParents => "group_mixed_parents",
@@ -449,6 +512,9 @@ impl SceneTree {
         let mut pending: Vec<(ObjectId, usize)> = self.roots.iter().map(|id| (*id, 1)).collect();
         while let Some((id, depth)) = pending.pop() {
             let object = self.get(id)?;
+            if let SceneObject::Caption(caption) = object {
+                caption.validate()?;
+            }
             if !seen.insert(id) {
                 return Err(EditError::SceneTreeInvalid(format!(
                     "scene object {id} is contained more than once"
@@ -639,6 +705,9 @@ impl SceneTree {
             match self.objects.get_mut(&id) {
                 Some(SceneObject::Instance) => instances.push(id),
                 Some(SceneObject::Graphic(graphic)) => *graphic = graphic.translated(delta)?,
+                Some(SceneObject::Caption(caption)) => {
+                    caption.anchor = caption.anchor.translated(delta)?
+                }
                 Some(SceneObject::Group { .. }) | None => {}
             }
         }

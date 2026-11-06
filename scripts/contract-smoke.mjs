@@ -1055,6 +1055,42 @@ try {
     {
       const outerHttp = httpDoc
       const outerCli = cliDoc
+      const createCaption = request('op-caption-create', 'document.create', { title: 'Caption parity' })
+      httpDoc = (await viaHttp(createCaption)).body.result.document.id
+      cliDoc = (await viaCli(createCaption)).result.document.id
+      const runs = [{ text: '한글 e\u0301 👩‍🔬 H', script: 'baseline' }, { text: '2', script: 'subscript' }, { text: '+', script: 'superscript' }]
+      const add = (id) => request('op-caption-add', 'document.transaction', { document_id: id, expected_revision: 0,
+        commands: [{ op: 'add_caption', anchor: { x: 20, y: 30 }, runs }], selection_after: { objects: ['$0'], atoms: [], bonds: [] } })
+      const caption = await both(add)
+      assert.equal(caption.outcome, 'ok')
+      assert.deepEqual(caption.result.document.scene.objects[1].runs, runs)
+      assert.deepEqual(await both(add), caption, 'caption replay returns the same snapshot')
+      const before = await both((id) => request('op-caption-before', 'document.snapshot', { document_id: id }))
+      const invalid = await both((id) => request('op-caption-invalid', 'document.transaction', { document_id: id, expected_revision: 1,
+        commands: [{ op: 'update_caption', object: 's2', anchor: { x: 0, y: 0 }, runs: [{ text: 'bad\nline', script: 'baseline' }] }] }))
+      assert.equal(invalid.diagnostics[0].details.reason, 'caption_invalid')
+      const malformed = await both((id) => request('op-caption-malformed', 'document.transaction', { document_id: id, expected_revision: 1,
+        commands: [{ op: 'update_caption', object: 's2', anchor: { x: 0, y: 0 }, runs: [{ text: 'H', script: ['baseline'] }] }] }))
+      assert.equal(malformed.diagnostics[0].code, 'invalid_request')
+      const after = await both((id) => request('op-caption-after', 'document.snapshot', { document_id: id }))
+      assert.deepEqual(after.result, before.result)
+      const moved = await both((id) => request('op-caption-move', 'document.transaction', { document_id: id, expected_revision: 1,
+        commands: [{ op: 'move_selection', selection: { objects: ['s2'], atoms: [], bonds: [] }, delta: { x: 5, y: -10 } }] }))
+      assert.deepEqual(moved.result.document.scene.objects[1].anchor, { x: 25, y: 20 })
+      const undo = await both((id) => request('op-caption-undo', 'history.undo', { document_id: id, expected_revision: 2 }))
+      assert.deepEqual(undo.result.document.scene.objects[1].anchor, { x: 20, y: 30 })
+      const redo = await both((id) => request('op-caption-redo', 'history.redo', { document_id: id, expected_revision: 3 }))
+      assert.deepEqual(redo.result.document.scene.objects[1].anchor, { x: 25, y: 20 })
+      await both((id) => request('op-caption-save', 'document.save', { document_id: id, expected_revision: 4 }))
+      await both((id) => request('op-caption-close', 'document.close', { document_id: id, expected_revision: 4, discard_unsaved: false }))
+      const reopened = await both((id) => request('op-caption-reopen', 'document.snapshot', { document_id: id }))
+      assert.deepEqual(reopened.result.document.scene.objects[1].runs, runs)
+      httpDoc = outerHttp
+      cliDoc = outerCli
+    }
+    {
+      const outerHttp = httpDoc
+      const outerCli = cliDoc
       const createRing = request('op-ring-create', 'document.create', { title: 'Independent ring parity' })
       httpDoc = (await viaHttp(createRing)).body.result.document.id
       cliDoc = (await viaCli(createRing)).result.document.id
@@ -1227,7 +1263,7 @@ try {
       const transaction = catalog.result.operations.find((operation) => operation.id === 'document.transaction')
       const commandRows = transaction.sub_operations.filter((part) => part.commands === undefined)
       const capabilityRows = transaction.sub_operations.filter((part) => part.commands !== undefined)
-      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [48, 37, 11],
+      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [50, 39, 11],
         'attach_ring is a command row; the 11 capability rows are unchanged')
       for (const command of ['set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing',
         'create_stereo_group', 'delete_stereo_group', 'set_stereo_group_kind', 'set_stereo_group_number',

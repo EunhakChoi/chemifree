@@ -1,0 +1,87 @@
+# P35a: independent Unicode caption candidate
+
+Status: implemented candidate, execution verification pending. P35 remains `in_progress`.
+Branch: `feat/p35a-unicode-caption`, isolated at `chemifree-p35a`, started from
+`origin/main` `80e3204`. This record does not claim a merged delivery or successful CI.
+
+## Delivered boundary
+
+- Independent Caption scene kind: anchor and ordered complete Unicode run values, with
+  explicit baseline/subscript/superscript. No atom/abbreviation/chemical interpretation.
+- Single line, existing document label font/size, fixed script geometry, 1–32 nonempty runs,
+  16384 UTF-8 text bytes, Unicode White_Space and control policy documented in CONTRACT.
+  Text, normalization form and run boundaries remain verbatim; no substring index protocol.
+- Shared transaction create/update, strict DTO/snapshot validation, stable scene IDs,
+  no-op/rollback/history/replay, selection, group/order/reference/delete and subtree-union
+  translation. Caption-containing arrange/transform and graphic clipboard refuse whole.
+- Native v8 document/draft/history encoding. V1–7 read without rewriting; first overwrite or
+  recovery preserves old bytes. Old-version caption states, including history-only entries,
+  are refused. Typed decoded parts are inspected without a second full JSON tree allocation.
+- Real caption form, normal text inputs/IME gate and script controls, captured target and
+  queued whole-run edits. Document/process changes invalidate the mounted form. Actual SVG
+  text and font-completion measurements provide ink bounds, hit area and view-box inclusion.
+- MOL/SDF, SMILES and bounded CDXML/CDX drawing export report consent-required caption losses.
+  Existing rich-tree codec contracts remain separate.
+
+Not delivered: general text styling, arbitrary alignment/wrapping/rotation/reflection,
+caption clipboard, atom label overrides, abbreviation entities or collapse metadata,
+external caption roundtrip, portable fonts or shaping across run boundaries. Marquee still
+has its previous atom-center/two-point-graphic scope; caption selection uses Scene/click.
+
+## Written regression paths
+
+- `crates/domain/tests/caption.rs`: scalar/run preservation, scripts, no graph change, no-op,
+  one Undo step, overlapping subtree translation, whole-union transform refusal, atomic
+  invalid-content rollback, UTF-8 byte/run limits and FEFF/White_Space policy.
+- `crates/application/tests/caption.rs`: real application operation boundary, exact request
+  replay, save/reopen, real draft recovery through a replacement application instance,
+  Undo/Redo, malformed script types, command-index refusals and five export consent paths.
+- `crates/providers/tests/caption_format.rs`: pre-caption v7 file/history and draft fixtures
+  built from the unchanged pre-caption schema, read without writes, original byte archives,
+  first v8 write, history-only caption refusal and corrupt v8 script refusal.
+- `scripts/web-caption-client-check.mjs`, imported by `test:client`: accepted/rejected runtime
+  snapshots, Unicode and byte/run boundaries, script array/object refusal, stale targets,
+  caption-only movement and refusal of groups containing captions in geometric actions.
+- `scripts/contract-smoke.mjs`: HTTP=CLI caption creation, replay, strict malformed/content
+  refusals, selection move, Undo/Redo and save/close/reopen. Existing catalog assertions now
+  explicitly list 39 command and 11 capability rows (50 total).
+- `npm run test:browser:caption`: real backend/store plus production CaptionPanel,
+  StructureCanvas and useDocumentEditor; form run creation/editing, Unicode, script offsets,
+  actual glyph/view-box bounds, canvas selection, Undo/Redo and native v8/page-reload
+  preservation. Added to browser CI. This is written coverage, not an executed result.
+
+## Review and finding dispositions
+
+One independent fresh-context review was requested and completed on 2026-11-06 UTC against
+the local implementation diff based on `80e3204`, while regression/document writing was
+still underway. Reviewer: `/root/p35_decision/caption_review`, `fork_turns: none`. The reviewer
+read the task, AGENTS and Rust/TypeScript patterns/testing skills. No implementation history
+was inherited. No tests/build/browser were run. No further review round was requested.
+
+1. P1: transaction catalog array still declared 48 after two caption rows. Fixed declaration
+   to 50 and synchronized exact command lists/count assertions to 39+11.
+2. P2: JavaScript `\s` disagreed with Rust `char::is_whitespace` for U+FEFF, allowing a native
+   document the browser would reject. Fixed browser policy to Unicode `White_Space` and wrote
+   explicit FEFF/White_Space regressions.
+3. P2: `String(run.script)` admitted an array such as `["baseline"]`. Fixed the boundary to
+   require a string and the closed vocabulary; wrote array/object/missing/unknown regressions.
+
+Codex author static review: checked scene-kind consumers and found the graphics clipboard
+client's previous `Exclude<instance>` type would now include captions. Changed it to the
+explicit graphic/group union and made its source traversal reject captions. Reviewed the
+native migration scan, caption loss consent, scope movement and stale form boundaries.
+This local author review is not a claim that the required GitHub Codex PR review happened.
+That PR review, its reviewed SHA/deadline and required CI remain pending the parent workflow.
+
+## Actual execution and remaining verification
+
+Ran `cargo fmt --all` and `git diff --check` only. Read source, docs, installed component source and official shadcn
+component documentation; inspected diffs. No Rust or JavaScript tests, mutation probes,
+lint/type gates, builds, browser sessions or push were executed, following the user's
+explicit instruction. Do not report these written regressions as passing.
+
+The verifier must run the targeted caption Rust/client/HTTP=CLI/browser paths, the normal
+`npm run check`, strict route and no-skips browser smoke, plus existing clipboard/template
+regressions that traverse scene kinds. Record first failures and fixes honestly. Native
+text preservation and platform-specific glyph accuracy are separate judgments; neither
+establishes external-application compatibility or broader scientific completeness.
