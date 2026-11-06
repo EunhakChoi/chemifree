@@ -80,3 +80,25 @@ TypeScript patterns/testing과 shadcn 스킬을 적용하고 공식 Base UI comp
   독립 기대값으로 검사한다. mixed 선택도 정확한 backend refusal reason을 먼저 검사한다.
   따라서 Origin 403이나 더 이른 stereo 거절은 단순 alert timeout으로 감춰지지 않는다.
 - 이 수정 담당자는 테스트·빌드·브라우저·push를 실행하지 않았다. 부모의 재검증 대기다.
+
+## 부모 격리 재검증의 두 번째 실패와 form 수명 수정
+
+- 부모의 `8113f0f` real-backend browser 재검증은 crossing/mixed 선택과 실제 다운로드를
+  통과해 stale-source 단계까지 진행했으나, modal이 열린 동안 `Reload drawing`을 찾는
+  role locator(`scripts/web-user-template-check.mjs:252`)에서 실패했다. 로그는 로컬
+  `/tmp/chemifree-p29d-verify-j4KjPa/p34d-browser2.log`다. 실행 성공으로 기록하지 않는다.
+- Base UI modal은 배경 toolbar를 접근성 트리에서 숨긴다. fixture는 외부 snapshot 갱신을
+  일으키려고 background harness button에 DOM event를 dispatch했지만, 그 전에 기본
+  `getByRole`이 숨겨진 button을 제외했다. harness-only 외부 갱신/navigation dispatch는
+  `includeHidden: true` helper로 명시했다. 실제 사용자 저장/선택/삽입/recovery는 계속
+  일반 role locator와 실제 click을 쓴다. 배경 toolbar를 사용자가 modal 너머 누를 수
+  있다고 주장하지 않으며 전체 editor navigation 검증도 아니다.
+- 같은 실행의 controlled→uncontrolled warning은 제품 form 수명 문제다. `close()`가
+  mode를 null로 바꿨을 때 닫히는 Dialog의 남아 있는 body가 insert 분기로 바뀌어,
+  filename의 controlled text Input과 uncontrolled file Input을 재사용할 수 있었다.
+  null mode에서는 form을 렌더하지 않고 save/insert FieldGroup에 서로 다른 key를 줘
+  입력기의 수명을 분리했다. native file Input을 controlled로 바꾸지는 않는다.
+- browser console의 controlled/uncontrolled 경고를 수집해 최종 기대값 `[]`를 추가했다.
+  실패 시 dialog/alert/current-document text도 실행 로그에 남겨 다음 실패를 상태와
+  함께 확인하게 했다. 이 수정은 읽기 전용 검토와 `git diff --check`만 수행했으며,
+  테스트·빌드·브라우저·push는 부모 재검증 대기다.
