@@ -1356,7 +1356,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, and \
              {current}"
         )),
     }
@@ -1510,7 +1510,7 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
     Ok(probe.document.revision)
 }
 
-/// The earlier version of a document file this build reads (1 to 8), which a save
+/// The earlier version of a document file this build reads (1 to 22), which a save
 /// replaces only after keeping a copy of it; `None` otherwise.
 pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
     earlier(version(bytes, FORMAT, FORMAT_VERSION, "document"))
@@ -1549,7 +1549,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
     }
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1 to 8 file
+/// Parses and fully validates a stored document, including its history; a version 1 to 22 file
 /// is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let format = version(bytes, FORMAT, FORMAT_VERSION, "document")?;
@@ -1608,7 +1608,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1 to 8 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1 to 22 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let format = version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")?;
     check_abbreviation_fields(bytes, format)?;
