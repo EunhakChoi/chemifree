@@ -1244,6 +1244,7 @@ mod tests {
                     anchor: Point::new(-99_999.999_999, 99_999.999_999).unwrap(),
                     runs: vec![
                         CaptionRun {
+                            shadow: false,
                             outline: false,
                             underline: false,
                             color: Some("#ABCDEF".into()),

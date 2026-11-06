@@ -95,7 +95,7 @@ export interface InstanceView {
 
 export type CaptionAlignment = 'left' | 'center' | 'right'
 
-export interface CaptionRun { outline?: boolean; underline?: boolean; color?: string | null; size_pt?: number | null; font?: LabelFont | null; text: string; script: 'baseline' | 'subscript' | 'superscript'; weight: 'normal' | 'bold'; style: 'normal' | 'italic' }
+export interface CaptionRun { shadow?: boolean; outline?: boolean; underline?: boolean; color?: string | null; size_pt?: number | null; font?: LabelFont | null; text: string; script: 'baseline' | 'subscript' | 'superscript'; weight: 'normal' | 'bold'; style: 'normal' | 'italic' }
 
 export type GraphicShape = 'line' | 'rectangle' | 'arrow'
 
@@ -1077,6 +1077,7 @@ export function validCaptionRuns(value: unknown): value is CaptionRun[] {
         (typeof run.script !== 'string' || !['baseline', 'subscript', 'superscript'].includes(run.script)) ||
         (run.weight !== 'normal' && run.weight !== 'bold') ||
         (run.style !== 'normal' && run.style !== 'italic') ||
+        (run.shadow !== undefined && typeof run.shadow !== 'boolean') ||
         (run.outline !== undefined && typeof run.outline !== 'boolean') ||
         (run.underline !== undefined && typeof run.underline !== 'boolean') ||
         (run.color !== undefined && run.color !== null && !isCaptionColor(run.color)) ||

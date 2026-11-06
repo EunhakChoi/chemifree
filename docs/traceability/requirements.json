@@ -1705,7 +1705,7 @@
         },
         {
           "id": "RENDER-01.rest",
-          "summary": "General Unicode text and captions, precise glyph bounds, vector output, transforms and clipping beyond the editor canvas.",
+          "summary": "Remaining general text, vector output, transforms and clipping beyond the editor canvas. Independent Unicode captions now include bounded run shadow/outline/underline, measured SVG bounds and native history (P35i; verification pending).",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

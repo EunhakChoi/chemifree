@@ -12,6 +12,7 @@ fn widest(text: char) -> Caption {
         anchor: Point::new(0.0, 0.0).unwrap(),
         runs: vec![
             CaptionRun {
+                shadow: false,
                 outline: true,
                 underline: false,
                 color: None,
@@ -145,6 +146,7 @@ fn reservations_count_utf8_bytes_and_escape_overhead_without_changing_text_limit
             alignment: Default::default(),
             anchor: Point::new(0.0, 0.0).unwrap(),
             runs: vec![CaptionRun {
+                shadow: false,
                 outline: false,
                 underline: false,
                 color: None,

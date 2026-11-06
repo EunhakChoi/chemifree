@@ -18,17 +18,19 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
     <g data-scene-object={object.id} data-caption="" onPointerDown={onPointerDown}
       transform={delta ? `translate(${delta.x} ${delta.y})` : undefined}>
       {box && <rect {...box} className={selected ? 'fill-primary/10 stroke-primary' : 'fill-transparent'} strokeWidth={selected ? 0.8 : 0} />}
-      <text x={object.anchor.x} y={object.anchor.y} xmlSpace="preserve" style={{ whiteSpace: 'pre', direction: 'ltr', unicodeBidi: 'isolate' }}
+      {[true, false].map((shadow) => <text key={String(shadow)} aria-hidden={shadow || undefined} pointerEvents={shadow ? 'none' : undefined}
+        opacity={shadow ? 0.35 : undefined} transform={shadow ? 'translate(1 1)' : undefined}
+        data-caption-shadow-text={shadow ? object.id : undefined} x={object.anchor.x} y={object.anchor.y} xmlSpace="preserve" style={{ whiteSpace: 'pre', direction: 'ltr', unicodeBidi: 'isolate' }}
         textAnchor="start" data-caption-alignment={object.alignment} data-caption-anchor-x={object.anchor.x}
         className={cn('fill-foreground stroke-foreground', settings.label_font === 'sans-serif' && 'font-sans')}
         fontFamily={settings.label_font === 'sans-serif' ? undefined : settings.label_font}
-        fontSize={size} data-caption-text={object.id} role="img"
-        aria-label={`Caption ${object.id}: ${object.runs.map((run) => run.text).join('')}`}>
+        fontSize={size} data-caption-text={shadow ? undefined : object.id} role={shadow ? undefined : "img"}
+        aria-label={shadow ? undefined : `Caption ${object.id}: ${object.runs.map((run) => run.text).join('')}`}>
         {object.runs.map((run, index) => {
           const runSize = run.size_pt ?? size
           const glyphSize = run.script === 'baseline' ? runSize : runSize * 2 / 3
           return (
-            <tspan fill={run.color ?? undefined} data-caption-outline={run.outline ? 'true' : 'false'}
+            <tspan visibility={shadow && !run.shadow ? 'hidden' : undefined} data-caption-shadow={shadow ? undefined : run.shadow ? 'true' : 'false'} fill={run.color ?? undefined} data-caption-outline={shadow ? undefined : run.outline ? 'true' : 'false'}
               style={{ fill: run.outline ? 'none' : run.color ?? undefined, stroke: run.outline ? run.color ?? 'inherit' : 'none', strokeWidth: run.outline ? glyphSize / 16 : 0, strokeLinejoin: 'round' }} key={index} data-caption-script={run.script}
               className={run.font === 'sans-serif' ? 'font-sans' : undefined}
               fontFamily={run.font === 'sans-serif' ? undefined : run.font ?? undefined} fontWeight={run.weight} fontStyle={run.style}
@@ -36,9 +38,12 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
               y={object.anchor.y + (run.script === 'subscript' ? runSize / 3 : run.script === 'superscript' ? -runSize * 5 / 12 : 0)}>{run.text}</tspan>
           )
         })}
-      </text>
+      </text>)}
       <g aria-hidden="true" pointerEvents="none" className="fill-foreground" data-caption-underlines="">
-        {object.runs.map((run, index) => run.underline && <rect key={index} data-caption-underline={index} fill={run.color ?? undefined} />)}
+        {object.runs.map((run, index) => run.underline && <g key={index}>
+          {run.shadow && <rect data-caption-underline-shadow={index} transform="translate(1 1)" opacity={0.35} fill={run.color ?? undefined} />}
+          <rect data-caption-underline={index} fill={run.color ?? undefined} />
+        </g>)}
       </g>
     </g>
   )

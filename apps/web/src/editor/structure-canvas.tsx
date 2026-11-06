@@ -211,6 +211,8 @@ export function StructureCanvas({
           const advance = text.getComputedTextLength()
           const offset = alignment === 'right' ? advance : alignment === 'center' ? advance / 2 : 0
           text.setAttribute('x', String(anchor - offset))
+          const shadowText = text.parentElement?.querySelector('[data-caption-shadow-text]')
+          shadowText?.setAttribute('x', String(anchor - offset))
           const ink = text.getBBox()
           let left = ink.x
           let top = ink.y
@@ -228,6 +230,18 @@ export function StructureCanvas({
             top = Math.min(top, glyph.y - radius)
             right = Math.max(right, glyph.x + glyph.width + radius)
             bottom = Math.max(bottom, glyph.y + glyph.height + radius)
+          }
+          // The shadow is a second browser-shaped text tree at a fixed (1,1) pt
+          // offset, with no blur. Measure foreground spans so hidden siblings do
+          // not enter the box; shadow does not alter advance or anchor alignment.
+          for (const span of text.querySelectorAll<SVGTSpanElement>('[data-caption-shadow="true"]')) {
+            const glyph = span.getBBox()
+            if (!span.textContent?.match(/\S/u) || glyph.width <= 0 || glyph.height <= 0) continue
+            const radius = span.getAttribute('data-caption-outline') === 'true' ? Number(span.getAttribute('font-size')) / 32 : 0
+            left = Math.min(left, glyph.x + 1 - radius)
+            top = Math.min(top, glyph.y + 1 - radius)
+            right = Math.max(right, glyph.x + glyph.width + 1 + radius)
+            bottom = Math.max(bottom, glyph.y + glyph.height + 1 + radius)
           }
           // SVG text getBBox does not promise decoration ink. Our underline is an
           // explicit rectangle whose geometry also enters fit, selection and hit testing.
@@ -253,11 +267,15 @@ export function StructureCanvas({
             line.setAttribute('y', String(y))
             line.setAttribute('width', String(end - start))
             line.setAttribute('height', String(height))
+            const shadow = text.parentElement?.querySelector(`[data-caption-underline-shadow="${line.getAttribute('data-caption-underline')}"]`)
+            if (shadow) {
+              for (const name of ['x', 'y', 'width', 'height']) shadow.setAttribute(name, line.getAttribute(name) ?? '0')
+            }
             if (end > start) {
               left = Math.min(left, start)
               top = Math.min(top, y)
-              right = Math.max(right, end)
-              bottom = Math.max(bottom, y + height)
+              right = Math.max(right, end + (shadow ? 1 : 0))
+              bottom = Math.max(bottom, y + height + (shadow ? 1 : 0))
             }
           }
           boxes.set(id, { x: left - 2, y: top - 2, width: right - left + 4, height: bottom - top + 4 })

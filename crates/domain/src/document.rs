@@ -72,11 +72,11 @@ pub const MAX_EDIT_REVISION: u64 = MAX_REVISION - 1;
 /// stored history, so a saved document stays within what storage providers read back.
 pub const HISTORY_CHANGE_LIMIT: usize = 100_000;
 /// Current-state admission budget when captions exist in content or history.
-/// Encoding reserves at most 11/10 of the combined content/history admission budgets.
+/// Physical encoding also reserves per-run metadata; see persistence_weight.
 pub const CAPTION_CONTENT_WEIGHT_LIMIT: usize = 48 * 1024 * 1024;
 /// Whole-history admission budget for caption-bearing documents. The latest edit must
-/// fit by itself; older undo entries make room. Runs without outline retain v15 admission
-/// weights; actual encoding reserves at most 11/10 of this budget (see persistence_weight).
+/// fit by itself; older undo entries make room. Runs without shadow retain v16 admission
+/// weights; physical encoding reserves at most 6/5 of history admission.
 pub const CAPTION_HISTORY_WEIGHT_LIMIT: usize = 8 * 1024 * 1024;
 const MAX_DOCUMENT_ID_CHARS: usize = 64;
 

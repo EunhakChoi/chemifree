@@ -188,7 +188,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.getByLabel('Run 2 color', { exact: true }).fill('#000000')
   await button('Create caption').click()
   await page.locator('[data-caption-text="s2"]').waitFor()
-  const expected = [{ outline: false, underline: false, text, script: 'baseline', weight: 'bold', style: 'normal', font: 'serif', color: '#2A7BCD', size_pt: 24 }, { outline: false, underline: false, text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace', color: '#000000', size_pt: 18 }, { outline: false, underline: false, text: '+   ', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif', color: null, size_pt: null }]
+  const expected = [{ shadow: false, outline: false, underline: false, text, script: 'baseline', weight: 'bold', style: 'normal', font: 'serif', color: '#2A7BCD', size_pt: 24 }, { shadow: false, outline: false, underline: false, text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace', color: '#000000', size_pt: 18 }, { shadow: false, outline: false, underline: false, text: '+   ', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif', color: null, size_pt: null }]
   assert.deepEqual((await caption()).runs, expected)
   assert.deepEqual(await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => [node.getAttribute('font-weight'), node.getAttribute('font-style')])), [['bold', 'normal'], ['normal', 'italic'], ['bold', 'italic']])
   const familyStyles = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fontFamily))
@@ -256,7 +256,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await button('Fit drawing').click()
   await page.waitForFunction(() => {
     const group = document.querySelector('[data-caption]')
-    const text = group?.querySelector('text')
+    const text = group?.querySelector('[data-caption-text]')
     const hit = group?.querySelector('rect')
     if (!text || !hit) return false
     const ink = text.getBBox()
@@ -415,6 +415,66 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await page.waitForFunction(() => document.querySelectorAll('[data-caption-outline="true"]').length === 0)
     assert.deepEqual((await caption()).runs, original.runs)
   }
+  stage = 'independent shadows with measured glyph and underline ink'
+  for (const sample of ['H', '   ffi office   ', '  العربية אבג  ', 'e\u0301 👩‍🔬 🧪', '   ', '\ufeff', '\u0301']) {
+    await button('Select caption').click()
+    await button('Edit selected caption…').click()
+    await page.getByLabel('Run 1 text', { exact: true }).fill(sample)
+    await button('Apply caption').click()
+    await waitForCaptionMeasurement()
+    const before = await caption(), metrics = await glyphMetrics()
+    await button('Edit selected caption…').click()
+    for (let run = 1; run <= 3; run++) await page.getByRole("group", { name: "Run " + run + " shadow", exact: true }).getByRole("button", { name: "On", exact: true }).click()
+    await page.getByRole('group', { name: 'Run 1 outline', exact: true }).getByRole('button', { name: 'On', exact: true }).click()
+    await page.getByRole('group', { name: 'Run 1 underline', exact: true }).getByRole('button', { name: 'On', exact: true }).click()
+    await button('Apply caption').click()
+    await page.waitForFunction(() => document.querySelectorAll('[data-caption-text] [data-caption-shadow="true"]').length === 3)
+    await waitForCaptionMeasurement()
+    assert.deepEqual(await glyphMetrics(), metrics, 'shadow preserves shaped advances and anchor')
+    assert.deepEqual((await caption()).runs, before.runs.map((run, index) => ({ ...run, shadow: true, outline: index === 0, underline: index === 0 })))
+    await button('Fit drawing').click()
+    await waitForCaptionMeasurement()
+    const evidence = await page.locator('[data-caption-text]').evaluate((text) => {
+      const ink = text.getBBox()
+      let left = ink.x, top = ink.y, right = ink.x + ink.width, bottom = ink.y + ink.height
+      for (const span of text.children) {
+        const b = span.getBBox(), radius = span.dataset.captionOutline === 'true' ? Number(span.getAttribute('font-size')) / 32 : 0
+        if (/\S/u.test(span.textContent) && b.width > 0 && b.height > 0) {
+          left = Math.min(left, b.x - radius); top = Math.min(top, b.y - radius)
+          right = Math.max(right, b.x + b.width + radius + 1); bottom = Math.max(bottom, b.y + b.height + radius + 1)
+        }
+      }
+      const line = text.parentElement.querySelector('[data-caption-underline]').getBBox()
+      if (line.width > 0) {
+        left = Math.min(left, line.x); top = Math.min(top, line.y)
+        right = Math.max(right, line.x + line.width + 1); bottom = Math.max(bottom, line.y + line.height + 1)
+      }
+      const shadow = text.parentElement.querySelector('[data-caption-shadow-text]'), hit = text.parentElement.querySelector('rect').getBBox(), view = text.ownerSVGElement.viewBox.baseVal
+      return { hit: [hit.x, hit.y, hit.width, hit.height], expected: [left - 2, top - 2, right - left + 4, bottom - top + 4], transform: shadow.getAttribute('transform'), opacity: shadow.getAttribute('opacity'),
+        colors: [...shadow.children].map((span) => getComputedStyle(span).stroke === 'none' ? getComputedStyle(span).fill : getComputedStyle(span).stroke),
+        fits: view.x <= hit.x && view.y <= hit.y && view.x + view.width >= hit.x + hit.width && view.y + view.height >= hit.y + hit.height }
+    })
+    assert.equal(evidence.transform, 'translate(1 1)'); assert.equal(evidence.opacity, '0.35')
+    evidence.hit.forEach((value, index) => assert.ok(Math.abs(value - evidence.expected[index]) < 0.001, "shadow ink bounds: " + sample))
+    assert.equal(evidence.fits, true)
+    if (sample === 'H') {
+      await button('Clear caption selection').click()
+      const point = await page.locator('[data-caption-text] tspan').first().evaluate((span) => {
+        const b = span.getBBox(), radius = Number(span.getAttribute('font-size')) / 32
+        const p = new DOMPoint(b.x + b.width + radius + 0.5, b.y + b.height / 2 + 1).matrixTransform(span.getScreenCTM())
+        return { x: p.x, y: p.y }
+      })
+      await page.mouse.click(point.x, point.y)
+      assert.equal(await button('Edit selected caption…').isEnabled(), true, 'translated shadow ink participates in pointer hit testing')
+    }
+    await page.evaluate(() => document.documentElement.classList.add('dark'))
+    const dark = await page.locator('[data-caption-shadow-text] tspan').evaluateAll((spans) => spans.map((span) => getComputedStyle(span).stroke === 'none' ? getComputedStyle(span).fill : getComputedStyle(span).stroke))
+    assert.deepEqual(dark.slice(0, 2), evidence.colors.slice(0, 2)); assert.notEqual(dark[2], evidence.colors[2])
+    await page.evaluate(() => document.documentElement.classList.remove('dark'))
+    await button('Undo caption').click()
+    await waitForCaptionMeasurement()
+    assert.deepEqual((await caption()).runs, before.runs)
+  }
   await button('Select caption').click()
   await button('Edit selected caption…').click()
   const readiness = JSON.parse(await page.locator('[data-caption-readiness-probe]').textContent())
@@ -482,6 +542,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   stage = 'edit through selection and preserve one undo step'
   await page.locator('[data-caption-text="s2"]').click()
   await button('Edit selected caption…').click()
+  await page.getByRole('group', { name: 'Run 1 shadow', exact: true }).getByRole('button', { name: 'On', exact: true }).click()
   const editedText = '  NFC é and NFD e\u0301 '.repeat(8)
   await page.getByLabel('Run 1 text', { exact: true }).fill(editedText)
   await page.getByRole('group', { name: 'Run 1 outline', exact: true }).getByRole('button', { name: 'On', exact: true }).click()

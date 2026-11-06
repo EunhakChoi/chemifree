@@ -179,3 +179,14 @@ for (const outline of [null, 0, 1, 'true', 'false', [], {}]) test(`caption outli
   result.document.scene.objects.at(-1).runs[0].outline = outline
   assert.equal(isDocumentResponse(result), false)
 })
+
+for (const shadow of [undefined, false, true]) test(`caption shadow accepts ${String(shadow)}`, () => {
+  const result = source()
+  result.document.scene.objects.at(-1).runs[0].shadow = shadow
+  assert.equal(isDocumentResponse(result), true)
+})
+for (const shadow of [null, 0, 1, 'true', 'false', [], {}]) test(`caption shadow rejects ${JSON.stringify(shadow)}`, () => {
+  const result = source()
+  result.document.scene.objects.at(-1).runs[0].shadow = shadow
+  assert.equal(isDocumentResponse(result), false)
+})

@@ -18,7 +18,7 @@ export function CaptionPanel({ document, editor }: { document: DocumentView; edi
   const caption = selected.length === 1 && selected[0].kind === 'caption' ? selected[0] : null
   return (
     <section aria-label="Captions" className="flex flex-col gap-2 rounded-lg border p-3">
-      <p className="text-xs text-muted-foreground">Independent text with explicit script, weight, style, outline and underline runs. Captions do not change atoms or chemical formulas. Single line with left, center or right alignment at a fixed anchor; each run follows the drawing size and font or overrides them with a size from 4–72 pt, a generic family, or an opaque #RRGGBB color. Blank color follows the current theme foreground.</p>
+      <p className="text-xs text-muted-foreground">Independent text with explicit script, weight, style, shadow, outline and underline runs. Captions do not change atoms or chemical formulas. Single line with left, center or right alignment at a fixed anchor; each run follows the drawing size and font or overrides them with a size from 4–72 pt, a generic family, or an opaque #RRGGBB color. Blank color follows the current theme foreground.</p>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" disabled={editor.busy} onClick={() => setDraft({ original: null })}>Add caption…</Button>
         <Button variant="outline" size="sm" disabled={editor.busy || caption === null} onClick={() => caption && setDraft({ original: caption })}>Edit selected caption…</Button>
@@ -35,7 +35,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
   close: () => void
 }) {
   const id = useId()
-  const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null, color: null, outline: false, underline: false }])
+  const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null, color: null, shadow: false, outline: false, underline: false }])
   const [sizes, setSizes] = useState<string[]>(original?.runs.map((run) => run.size_pt == null ? '' : String(run.size_pt)) ?? [''])
   const parsedSizes = sizes.map((size) => parseCaptionSize(size))
   const validSizes = parsedSizes.map((size) => size !== undefined)
@@ -124,6 +124,14 @@ function CaptionDialog({ documentId, original, editor, close }: {
                   <ToggleGroupItem value="normal">Normal</ToggleGroupItem><ToggleGroupItem value="bold">Bold</ToggleGroupItem>
                 </ToggleGroup>
               </Field>
+              <Field><FieldLabel id={`${id}-shadow-${index}`}>Run {index + 1} shadow</FieldLabel>
+                <ToggleGroup variant="outline" size="sm" aria-labelledby={`${id}-shadow-${index}`} value={[run.shadow ? 'on' : 'off']} onValueChange={(values) => {
+                  const value = values[0]
+                  if (value === 'on' || value === 'off') setRuns((current) => current.map((item, at) => at === index ? { ...item, shadow: value === 'on' } : item))
+                }}>
+                  <ToggleGroupItem value="off">Off</ToggleGroupItem><ToggleGroupItem value="on">On</ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
               <Field><FieldLabel id={`${id}-outline-${index}`}>Run {index + 1} outline</FieldLabel>
                 <ToggleGroup variant="outline" size="sm" aria-labelledby={`${id}-outline-${index}`} value={[run.outline ? 'on' : 'off']} onValueChange={(values) => {
                   const value = values[0]
@@ -152,7 +160,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
             </FieldGroup>
           ))}
         </FieldGroup>
-        <Button variant="outline" disabled={runs.length >= 32 || composing} onClick={() => { setRuns((current) => [...current, { text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null, color: null, outline: false, underline: false }]); setSizes((current) => [...current, '']) }}>Add run</Button>
+        <Button variant="outline" disabled={runs.length >= 32 || composing} onClick={() => { setRuns((current) => [...current, { text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null, color: null, shadow: false, outline: false, underline: false }]); setSizes((current) => [...current, '']) }}>Add run</Button>
         <p className="text-xs text-muted-foreground">1–32 nonempty runs, at most 16384 UTF-8 bytes in total. No line breaks or control characters. Move/group/delete from Scene. Arrangement, rotation, reflection and graphic clipboard do not yet support captions.</p>
         <DialogFooter><Button disabled={!valid || composing || editor.busy} onClick={submit}>{original ? 'Apply caption' : 'Create caption'}</Button></DialogFooter>
       </DialogContent>
