@@ -24,7 +24,9 @@ mod selection_scope;
 mod smiles;
 mod stereo;
 mod substructure;
+pub(crate) mod template;
 mod transform;
+pub use template::{TemplateAtom, TemplateAttachment, TemplateInspection};
 
 use chemifree_domain::budget::{Budget, Interrupt, NEVER};
 use chemifree_domain::document::Command;
@@ -245,6 +247,8 @@ pub enum OperationResult {
     TransformPlan(Box<TransformPlanResult>),
     ClipboardCopy(Box<ClipboardCopyResult>),
     ClipboardPaste(Box<ClipboardPasteResult>),
+    TemplateInspection(Box<TemplateInspection>),
+    TemplateAttachment(Box<TemplateAttachment>),
     ClipboardSceneCopy(Box<ClipboardSceneCopyResult>),
     ClipboardScenePaste(Box<ClipboardScenePasteResult>),
     /// `document.close`.
@@ -871,6 +875,27 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             runs(
                 id,
                 "Copies a bounded native induced graph fragment from an explicit placement, without editing. Scene objects, enhanced groups and stereo boundary loss are refused.",
+            ),
+            &[],
+        ),
+        Op::DocumentTemplateInspect => (
+            runs(
+                id,
+                "Read-only native template validation and explicit anchor eligibility; no mutation or ID reservation.",
+            ),
+            &[],
+        ),
+        Op::DocumentTemplatePlan => (
+            runs(
+                id,
+                "Read-only translation-only single-anchor attachment preview at an exact destination revision.",
+            ),
+            &[],
+        ),
+        Op::DocumentTemplateAttach => (
+            runs(
+                id,
+                "Atomically connects a fresh native template through one single bond; source-anchor stereo loss is refused.",
             ),
             &[],
         ),
@@ -2381,6 +2406,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Op::DocumentClipboardCopy => match parameters::<CopyParameters>(parameters_value) {
                 Ok(parameters) => self.resolve_clipboard_copy(known, parameters),
                 Err(error) => known.invalid(error),
+            },
+            Op::DocumentTemplateInspect => match parameters::<template::InspectParameters>(parameters_value) {
+                Ok(parameters)=>self.resolve_template_inspect(known,parameters),Err(error)=>known.invalid(error),
+            },
+            Op::DocumentTemplatePlan | Op::DocumentTemplateAttach => match parameters::<template::AttachParameters>(parameters_value) {
+                Ok(parameters)=>self.resolve_template_attachment(known,parameters,known.operation==Op::DocumentTemplatePlan),Err(error)=>known.invalid(error),
             },
             Op::DocumentClipboardPaste => match parameters::<PasteParameters>(parameters_value) {
                 Ok(parameters) => self.resolve_clipboard_paste(known, parameters),

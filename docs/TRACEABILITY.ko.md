@@ -2,6 +2,13 @@
 
 이 문서는 P08이 더한 추적 파일, conformance runner와 추적 검사가 무엇을 기록하고 무엇을 확인하는지 정확히 적는다. 여기 적힌 확인 범위를 넘는 성질(화학적 정확성, 다른 프로그램과의 동등성, 기능 완성도)은 이 장치들로 확인되지 않는다.
 
+P34e 후보는 명시 native template anchor의 translation-only single-bond 연결이다.
+source-anchor 저장 입체 손실·단절·style/배치/ID/한도를 거절하고 기존 paste remapping·
+AddBond destination notes/group·atomic history/replay를 재사용한다. inspect/clone plan은
+읽기 전용이며 웹은 명시 source/target/vector→preview→apply와 immutable recovery다.
+Domain/Application/HTTP=CLI/client/real-backend browser 회귀는 작성만 했으며 실행하지
+않았다. 적격 evidence나 상위 상태/집계를 승격하지 않고 [P34e 기록](verification/p34e-template-attachment.md)을 따른다.
+
 P34c 후보는 기존 원자에서 방향을 지정한 5/6 탄소 고리 연결을 더한다. shared attach_ring은
 기존 insert_bond의 stereo clearing·group prune·notes, transaction 원자성/history와 웹의
 immutable recovery를 재사용한다. Domain/Application(일반 bond-edit oracle)/HTTP=CLI/client/

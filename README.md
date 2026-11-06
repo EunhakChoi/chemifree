@@ -22,6 +22,14 @@ and uses fresh IDs with one Undo/Redo step. File selection alone changes nothing
 Crossing-bond selections, scene content and enhanced stereo groups cannot be saved as templates.
 This is file reuse, without a library, automatic attachment, rotation or layout.
 See [the P34d record](docs/verification/p34d-user-template.md); checks are written and unrun.
+P34e adds **Attach template file…**: validate one connected native file, explicitly choose
+source and destination atoms and a finite nonzero dx/dy direction, preview, then connect by
+one single bond. Geometry is translated without rotation. Source-anchor stored stereo loss
+is refused; unrelated copied stereo is remapped, and destination stereo clearing/group notes
+follow ordinary bond editing. The file is unchanged. Read-only preview reserves no IDs;
+apply uses one atomic, replayable history step with frozen recovery. P34 remains in progress.
+[P34e checks](docs/verification/p34e-template-attachment.md) are authored and unrun.
+
 
 Fusion, spiro, replacement, aromatic patterns, other sizes, abbreviation contraction/expansion and
 molecular conformations remain unimplemented. P34 is in progress; the new checks are written

@@ -124,8 +124,9 @@ pub use operations::{
     OperationResponse, OperationResult, Outcome, Priority, ProfileSupport, ScopePosition,
     SelectionScopeResult, SemanticImpact, Severity, SmilesExportResult, SmilesPreviewAtom,
     SmilesPreviewBond, SmilesPreviewResult, SpanView, StereoResult, SubstructureLimits,
-    SubstructureResult, SubstructureStereo, Support, TransformPlanResult, TransformedGraphicView,
-    TransformedPositionView, reason_sentence,
+    SubstructureResult, SubstructureStereo, Support, TemplateAtom, TemplateAttachment,
+    TemplateInspection, TransformPlanResult, TransformedGraphicView, TransformedPositionView,
+    reason_sentence,
 };
 pub use preferences::{
     ComputationChange, ComputationSetting, ComputationView, ImportPreferencesRequest,

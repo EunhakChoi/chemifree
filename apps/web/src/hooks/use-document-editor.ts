@@ -28,6 +28,7 @@ import {
   type NativeSceneClipboardPasteAttempt,
   type RingInsertionAttempt,
   type RingSize,
+  type TemplateAttachmentOffer,
   type SelectionView,
   type SettingsSource,
   type TrashListResponse,
@@ -707,6 +708,26 @@ export function useDocumentEditor() {
           generation: plan.generation,
         }
         setClipboardAction('cut')
+        await finishClipboardMutation()
+      })
+    }, [clipboardTask, finishClipboardMutation]),
+    inspectTemplate: useCallback((payload: string) => client.inspectTemplate(payload), []),
+    previewTemplateAttachment: useCallback((documentId: string, payload: string, instance: string, sourceAnchor: string, atom: string, direction: { dx: number; dy: number }) => {
+      const shown = currentRef.current?.document
+      if (!shown || shown.id !== documentId) return Promise.reject(new ApiError('template_destination_changed', 'Choose the destination again.', 0))
+      return client.previewTemplateAttachment(shown, { document_id: documentId, expected_revision: shown.revision, payload, instance,
+        source_anchor: sourceAnchor, atom, direction: { ...direction }, selection_before: selectionSnapshot(selectionRef.current, shown) })
+    }, []),
+    attachTemplate: useCallback((offer: TemplateAttachmentOffer): Promise<void> => {
+      const generation = serviceGenerationRef.current
+      const prepared = client.createTemplateAttachment(offer)
+      return clipboardTask(async () => {
+        const shown = currentRef.current?.document
+        if (!shown || !sameContent(shown, offer.source.document) || shown.revision !== offer.parameters.expected_revision || generation !== serviceGenerationRef.current) {
+          throw new ApiError('template_destination_changed', 'The destination changed. Preview the connection again.', 0)
+        }
+        clipboardAttempt.current = { kind: 'paste', documentId: shown.id, generation, attempt: prepared }
+        setClipboardAction('template')
         await finishClipboardMutation()
       })
     }, [clipboardTask, finishClipboardMutation]),

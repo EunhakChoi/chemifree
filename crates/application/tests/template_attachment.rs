@@ -1,0 +1,310 @@
+//! Inspect/plan are read-only; apply preserves native content and ordinary destination stereo notes.
+use chemifree_application::Application;
+use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
+use serde_json::{Value, json};
+type App = Application<LocalCapabilities, FileDocumentRepository>;
+fn request(app: &App, key: &str, operation: &str, parameters: Value) -> Value {
+    serde_json::to_value(app.execute(json!({"contract":1,"request_id":key,"profile":"preserve-semantics","operation":operation,"parameters":parameters}).to_string().as_bytes())).unwrap()
+}
+fn snapshot(app: &App, id: &str) -> Value {
+    request(
+        app,
+        "snapshot",
+        "document.snapshot",
+        json!({"document_id":id}),
+    )["result"]
+        .clone()
+}
+fn create(app: &App, key: &str) -> String {
+    request(app, key, "document.create", json!({}))["result"]["document"]["id"]
+        .as_str()
+        .unwrap()
+        .into()
+}
+fn seed(app: &App) -> (String, String, String) {
+    let source = create(app, "source");
+    let dest = create(app, "destination");
+    let seeded = request(
+        app,
+        "source-seed",
+        "document.transaction",
+        json!({"document_id":source,"expected_revision":0,"commands":[
+         {"op":"add_atom","element":"C","position":{"x":100,"y":200}},
+         {"op":"add_atom","element":"O","charge":-1,"isotope":18,"hydrogens":{"mode":"specified","count":0},"attachment_points":[1],"position":{"x":130,"y":200},"bond_to":{"atom":"a1","order":"single"}},
+         {"op":"add_atom","element":"N","position":{"x":160,"y":200},"bond_to":{"atom":"a2","order":"double"}},
+         {"op":"set_bond_mark","bond":"b1","mark":{"kind":"wedge","narrow":"begin"}},
+         {"op":"set_bond_configuration","bond":"b2","configuration":{"kind":"unknown"}}
+        ]}),
+    );
+    assert_eq!(seeded["outcome"], "ok", "{seeded}");
+    let seeded = request(
+        app,
+        "dest-seed",
+        "document.transaction",
+        json!({"document_id":dest,"expected_revision":0,"commands":[
+         {"op":"add_atom","element":"C","position":{"x":0,"y":0}},
+         {"op":"add_atom","element":"C","position":{"x":30,"y":0},"bond_to":{"atom":"a1","order":"double"}},
+         {"op":"add_atom","element":"F","position":{"x":0,"y":30},"bond_to":{"atom":"a1","order":"single"}},
+         {"op":"add_atom","element":"Cl","position":{"x":-30,"y":0},"bond_to":{"atom":"a1","order":"single"}},
+         {"op":"set_atom_configuration","atom":"a1","configuration":{"kind":"tetrahedral","neighbors":["a2","a3","a4","implicit_hydrogen"],"turn":"clockwise"}},
+         {"op":"set_bond_configuration","bond":"b1","configuration":{"kind":"unknown"}},
+         {"op":"set_bond_mark","bond":"b1","mark":{"kind":"crossed"}},
+         {"op":"create_stereo_group","kind":"absolute","number":null,"atoms":["a1"]},
+         {"op":"add_graphic","shape":"line","points":[{"x":0,"y":70},{"x":30,"y":70}]},
+         {"op":"add_reference","source":"s2","target":{"kind":"atom","id":"a1"}}
+        ]}),
+    );
+    assert_eq!(seeded["outcome"], "ok", "{seeded}");
+    let copied = request(
+        app,
+        "copy",
+        "document.clipboard_copy",
+        json!({"document_id":source,"instance":"s1","selection":{"atoms":["a1","a2","a3"],"bonds":[],"objects":[]}}),
+    );
+    assert_eq!(copied["outcome"], "ok", "{copied}");
+    (
+        source,
+        dest,
+        copied["result"]["payload"].as_str().unwrap().into(),
+    )
+}
+fn parameters(dest: &str, payload: &str) -> Value {
+    json!({"document_id":dest,"expected_revision":1,"payload":payload,"instance":"s1","source_anchor":"a1","atom":"a1","direction":{"dx":2,"dy":0},"selection_before":{"objects":["s2"],"atoms":["a1"],"bonds":["b1"]}})
+}
+#[test]
+fn inspection_plan_atomic_apply_notes_replay_and_persistence_preserve_both_sources() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let (source, dest, payload) = seed(&app);
+    let source_before = snapshot(&app, &source);
+    let before = snapshot(&app, &dest);
+    let inspect = request(
+        &app,
+        "inspect",
+        "document.template_inspect",
+        json!({"payload":payload}),
+    );
+    assert_eq!(inspect["outcome"], "ok", "{inspect}");
+    assert_eq!(
+        inspect["result"]["atoms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|atom| (
+                atom["id"].as_str().unwrap(),
+                atom["supported"].as_bool().unwrap()
+            ))
+            .collect::<Vec<_>>(),
+        vec![("a1", true), ("a2", false), ("a3", false)]
+    );
+    let input = parameters(&dest, &payload);
+    let plan = request(&app, "plan", "document.template_plan", input.clone());
+    assert_eq!(plan["outcome"], "partial", "{plan}");
+    assert_eq!(
+        plan["document_revision"], 1,
+        "read-only envelope names the current source, not the candidate"
+    );
+    assert_eq!(
+        snapshot(&app, &dest),
+        before,
+        "preview reserves no IDs/history/selection"
+    );
+    assert_eq!(plan["result"]["source"]["document"], before["document"]);
+    let applied = request(&app, "attach", "document.template_attach", input.clone());
+    assert_eq!(applied["outcome"], "partial", "{applied}");
+    for field in ["document", "notes"] {
+        assert_eq!(
+            applied["result"]["snapshot"][field],
+            plan["result"]["snapshot"][field]
+        );
+    }
+    assert_eq!(applied["result"]["mapping"], plan["result"]["mapping"]);
+    assert_eq!(applied["result"]["connection"], "b6");
+    let after = &applied["result"]["snapshot"]["document"];
+    assert_eq!(after["atoms"].as_array().unwrap().len(), 7);
+    assert_eq!(after["bonds"].as_array().unwrap().len(), 6);
+    assert_eq!(
+        after["selection"],
+        json!({"objects":[],"atoms":["a5","a6","a7"],"bonds":["b4","b5"]})
+    );
+    assert_eq!(
+        &after["atoms"].as_array().unwrap()[..4],
+        before["document"]["atoms"].as_array().unwrap()
+    );
+    assert_eq!(
+        &after["bonds"].as_array().unwrap()[..3],
+        before["document"]["bonds"].as_array().unwrap()
+    );
+    for field in ["objects", "roots", "references"] {
+        assert_eq!(after["scene"][field], before["document"]["scene"][field]);
+    }
+    for (index, x) in [(4, 30), (5, 60), (6, 90)] {
+        assert_eq!(
+            after["atoms"][index]["position"],
+            json!({"x":x as f64,"y":0.0})
+        );
+    }
+    for field in [
+        "element",
+        "kind",
+        "charge",
+        "isotope",
+        "hydrogens",
+        "radical",
+        "attachment_points",
+    ] {
+        assert_eq!(
+            after["atoms"][5][field], source_before["document"]["atoms"][1][field],
+            "{field}"
+        );
+    }
+    assert_eq!(after["stereo"]["atoms"], json!([]));
+    assert_eq!(after["stereo"]["groups"], json!([]));
+    assert_eq!(
+        after["stereo"]["bonds"],
+        json!([{"bond":"b5","configuration":{"kind":"unknown"}}])
+    );
+    assert_eq!(applied["loss_report"].as_array().unwrap().len(), 4);
+    // Compare destination notes against ordinary native paste followed by AddBond. Their two
+    // history steps are deliberately not used as the atomic attachment's history oracle.
+    let oracle_directory = tempfile::tempdir().unwrap();
+    let oracle = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(oracle_directory.path()),
+    );
+    let (_, oracle_dest, _) = seed(&oracle);
+    let pasted = request(
+        &oracle,
+        "oracle-paste",
+        "document.clipboard_paste",
+        json!({"document_id":oracle_dest,
+        "expected_revision":1,"payload":payload,"offset":{"x":-70,"y":-200}}),
+    );
+    assert_eq!(pasted["outcome"], "ok", "{pasted}");
+    let linked = request(
+        &oracle,
+        "oracle-link",
+        "document.transaction",
+        json!({"document_id":oracle_dest,
+        "expected_revision":2,"commands":[{"op":"add_bond","begin":"a1","end":"a5","order":"single"}]}),
+    );
+    assert_eq!(linked["outcome"], "partial", "{linked}");
+    assert_eq!(
+        linked["result"]["notes"],
+        applied["result"]["snapshot"]["notes"]
+    );
+    for field in ["atoms", "bonds", "stereo", "scene", "settings", "selection"] {
+        assert_eq!(
+            linked["result"]["document"][field], after[field],
+            "ordinary AddBond oracle {field}"
+        );
+    }
+
+    assert_eq!(
+        request(&app, "attach", "document.template_attach", input.clone()),
+        applied
+    );
+    let mut changed = input.clone();
+    changed["direction"] = json!({"dx":0,"dy":1});
+    assert_eq!(
+        request(&app, "attach", "document.template_attach", changed)["diagnostics"][0]["code"],
+        "request_id_reused"
+    );
+    let undone = request(
+        &app,
+        "undo",
+        "history.undo",
+        json!({"document_id":dest,"expected_revision":2}),
+    );
+    for field in ["atoms", "bonds", "stereo", "scene"] {
+        assert_eq!(
+            undone["result"]["document"][field],
+            before["document"][field]
+        );
+    }
+    assert_eq!(
+        undone["result"]["document"]["selection"],
+        input["selection_before"]
+    );
+    assert_eq!(
+        request(&app, "attach", "document.template_attach", input),
+        applied
+    );
+    let redo = request(
+        &app,
+        "redo",
+        "history.redo",
+        json!({"document_id":dest,"expected_revision":3}),
+    );
+    for field in ["atoms", "bonds", "stereo", "scene", "selection"] {
+        assert_eq!(redo["result"]["document"][field], after[field]);
+    }
+    assert_eq!(snapshot(&app, &source), source_before);
+    assert_eq!(
+        request(
+            &app,
+            "save",
+            "document.save",
+            json!({"document_id":dest,"expected_revision":4})
+        )["outcome"],
+        "ok"
+    );
+    let stored = snapshot(&app, &dest)["document"].clone();
+    drop(app);
+    let reopened = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    assert_eq!(snapshot(&reopened, &dest)["document"], stored);
+}
+#[test]
+fn anchor_stereo_disconnected_style_target_direction_and_stale_requests_do_not_edit() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let (_, dest, payload) = seed(&app);
+    let before = snapshot(&app, &dest);
+    let mut cases = Vec::new();
+    for anchor in ["a2", "a3", "a99"] {
+        let mut input = parameters(&dest, &payload);
+        input["source_anchor"] = json!(anchor);
+        cases.push(input);
+    }
+    let mut input = parameters(&dest, &payload);
+    input["direction"] = json!({"dx":0,"dy":0});
+    cases.push(input);
+    let mut input = parameters(&dest, &payload);
+    input["atom"] = json!("a99");
+    cases.push(input);
+    let mut input = parameters(&dest, &payload);
+    input["expected_revision"] = json!(0);
+    cases.push(input);
+    let mut value: Value = serde_json::from_str(&payload).unwrap();
+    value["bonds"].as_array_mut().unwrap().remove(0);
+    let mut input = parameters(&dest, &value.to_string());
+    cases.push(input.clone());
+    value = serde_json::from_str(&payload).unwrap();
+    value["settings"]["bond_length_pt"] = json!(40);
+    input["payload"] = json!(value.to_string());
+    cases.push(input);
+    for (index, input) in cases.iter().enumerate() {
+        for (suffix, operation) in [
+            ("plan", "document.template_plan"),
+            ("apply", "document.template_attach"),
+        ] {
+            let reply = request(
+                &app,
+                &format!("reject-{index}-{suffix}"),
+                operation,
+                input.clone(),
+            );
+            assert_eq!(reply["outcome"], "error", "{reply}");
+            assert_eq!(snapshot(&app, &dest), before);
+        }
+    }
+}

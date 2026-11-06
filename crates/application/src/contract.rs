@@ -944,7 +944,7 @@ fn ring_size<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RingSize, D::
 }
 
 /// Finite nonzero attachment direction, normalized by the Domain; magnitude is ignored.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RingDirectionDto {
     pub dx: f64,
