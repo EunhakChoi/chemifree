@@ -20,17 +20,19 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
       {box && <rect {...box} className={selected ? 'fill-primary/10 stroke-primary' : 'fill-transparent'} strokeWidth={selected ? 0.8 : 0} />}
       <text x={object.anchor.x} y={object.anchor.y} xmlSpace="preserve" style={{ whiteSpace: 'pre', direction: 'ltr', unicodeBidi: 'isolate' }}
         textAnchor="start" data-caption-alignment={object.alignment} data-caption-anchor-x={object.anchor.x}
-        className={cn('fill-foreground', settings.label_font === 'sans-serif' && 'font-sans')}
+        className={cn('fill-foreground stroke-foreground', settings.label_font === 'sans-serif' && 'font-sans')}
         fontFamily={settings.label_font === 'sans-serif' ? undefined : settings.label_font}
         fontSize={size} data-caption-text={object.id} role="img"
         aria-label={`Caption ${object.id}: ${object.runs.map((run) => run.text).join('')}`}>
         {object.runs.map((run, index) => {
           const runSize = run.size_pt ?? size
+          const glyphSize = run.script === 'baseline' ? runSize : runSize * 2 / 3
           return (
-            <tspan fill={run.color ?? undefined} key={index} data-caption-script={run.script}
+            <tspan fill={run.color ?? undefined} data-caption-outline={run.outline ? 'true' : 'false'}
+              style={{ fill: run.outline ? 'none' : run.color ?? undefined, stroke: run.outline ? run.color ?? 'inherit' : 'none', strokeWidth: run.outline ? glyphSize / 16 : 0, strokeLinejoin: 'round' }} key={index} data-caption-script={run.script}
               className={run.font === 'sans-serif' ? 'font-sans' : undefined}
               fontFamily={run.font === 'sans-serif' ? undefined : run.font ?? undefined} fontWeight={run.weight} fontStyle={run.style}
-              fontSize={run.script === 'baseline' ? runSize : runSize * 2 / 3}
+              fontSize={glyphSize}
               y={object.anchor.y + (run.script === 'subscript' ? runSize / 3 : run.script === 'superscript' ? -runSize * 5 / 12 : 0)}>{run.text}</tspan>
           )
         })}

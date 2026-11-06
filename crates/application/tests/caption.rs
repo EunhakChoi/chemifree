@@ -37,7 +37,7 @@ fn setup() -> (App, tempfile::TempDir, String) {
     (app, root, id)
 }
 fn runs() -> Value {
-    json!([{"text":"한글 e\u{301} 👩‍🔬 H","script":"baseline","weight":"bold","style":"normal","font":"serif","size_pt":null,"color":null,"underline":true},{"text":"2","script":"subscript","weight":"normal","style":"italic","font":"monospace","size_pt":null,"color":null,"underline":false},{"text":"+","script":"superscript","weight":"bold","style":"italic","font":"sans-serif","size_pt":null,"color":null,"underline":false}])
+    json!([{"text":"한글 e\u{301} 👩‍🔬 H","script":"baseline","weight":"bold","style":"normal","font":"serif","size_pt":null,"color":null,"underline":true,"outline":true},{"text":"2","script":"subscript","weight":"normal","style":"italic","font":"monospace","size_pt":null,"color":null,"underline":false,"outline":false},{"text":"+","script":"superscript","weight":"bold","style":"italic","font":"sans-serif","size_pt":null,"color":null,"underline":false,"outline":false}])
 }
 fn commands() -> Value {
     json!([
@@ -351,6 +351,7 @@ fn a_small_wire_request_cannot_create_an_oversized_caption_history_entry() {
                 anchor: Point::new(0.0, 0.0).unwrap(),
                 runs: vec![
                     CaptionRun {
+                        outline: false,
                         underline: false,
                         color: None,
                         size_pt: None,
@@ -440,7 +441,7 @@ fn invalid_caption_styles_refuse_the_whole_transaction_and_omissions_default_to_
     assert_eq!(
         added["result"]["document"]["scene"]["objects"][1]["runs"],
         json!([
-            {"text":"H","script":"baseline","weight":"normal","style":"normal","font":null,"size_pt":null,"color":null,"underline":false}
+            {"text":"H","script":"baseline","weight":"normal","style":"normal","font":null,"size_pt":null,"color":null,"underline":false,"outline":false}
         ])
     );
 }
@@ -784,6 +785,63 @@ fn underline_only_edit_replays_and_omission_resets_and_invalid_values_roll_back(
     let undone = app.undo(&id, Some("underline-undo"), 3).unwrap();
     assert_eq!(
         serde_json::to_value(undone.document).unwrap()["scene"]["objects"][1]["runs"][0]["underline"],
+        true
+    );
+}
+
+#[test]
+fn outline_only_edit_replays_and_omission_resets_and_invalid_values_roll_back() {
+    let (app, _root, id) = setup();
+    let added = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[{"op":"add_caption","anchor":{"x":0,"y":0},"runs":[{"text":"e\u{301} 👩‍🔬 H","script":"baseline"}]}]}),
+    );
+    assert_eq!(
+        added["result"]["document"]["scene"]["objects"][1]["runs"][0]["outline"],
+        false
+    );
+    let params = json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_caption","object":"s2","anchor":{"x":0,"y":0},"runs":[{"text":"e\u{301} 👩‍🔬 H","script":"baseline","outline":true}]}]});
+    let changed = send(&app, "outline-only", "document.transaction", params.clone());
+    assert_eq!(
+        changed["result"]["document"]["scene"]["objects"][1]["runs"][0]["outline"],
+        true
+    );
+    assert_eq!(
+        send(&app, "outline-only", "document.transaction", params.clone()),
+        changed
+    );
+    let mut different = params;
+    different["commands"][0]["runs"][0]["outline"] = json!(false);
+    assert_eq!(
+        send(&app, "outline-only", "document.transaction", different)["diagnostics"][0]["code"],
+        "request_id_reused"
+    );
+    let before = snapshot(&app, &id);
+    for outline in [Value::Null, json!(0), json!("true"), json!([]), json!({})] {
+        let refused = call(
+            &app,
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":2,"commands":[{"op":"rename","title":"rollback"},{"op":"update_caption","object":"s2","anchor":{"x":0,"y":0},"runs":[{"text":"H","script":"baseline","outline":outline}]}]}),
+        );
+        assert_eq!(
+            refused["diagnostics"][0]["code"], "invalid_request",
+            "{refused}"
+        );
+        assert_eq!(snapshot(&app, &id), before);
+    }
+    let reset = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":2,"commands":[{"op":"update_caption","object":"s2","anchor":{"x":0,"y":0},"runs":[{"text":"e\u{301} 👩‍🔬 H","script":"baseline"}]}]}),
+    );
+    assert_eq!(
+        reset["result"]["document"]["scene"]["objects"][1]["runs"][0]["outline"],
+        false
+    );
+    let undone = app.undo(&id, Some("outline-undo"), 3).unwrap();
+    assert_eq!(
+        serde_json::to_value(undone.document).unwrap()["scene"]["objects"][1]["runs"][0]["outline"],
         true
     );
 }

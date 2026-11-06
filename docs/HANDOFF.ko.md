@@ -510,3 +510,7 @@ Native v15 current/history는 strict bool이며 v8–14는 false로 이동하고
 zero advance는 폭0, text advance/anchor는 바꾸지 않는다. metadata 최대154로 기존160 예약 유지.
 P35는 in_progress다. 구현 agent는 build/test/cargo check/browser를 실행하지 않았다.
 격리 검증과 리뷰 결과는 [P35g 기록](verification/p35g-caption-run-underline.md)에 후속 기록한다.
+
+### P35h 후보: 독립 caption run outline
+
+outline bool(생략 false)과 기존 run 속성/advance/anchor 보존, 효과 색상의 hollow SVG glyph stroke(실효 크기/16, round join)를 구현했다. 이 치수는 Chemifree 독립 정책이며 밑줄은 기존 filled rectangle이다. stroke를 제외하는 getBBox 대신 run별 bbox에 stroke/2를 합친 ink bounds를 fit/selection/hit에서 공유한다. native v16 strict current/history, v8–15 false migration와 exact-byte document/draft archive, metadata170≤192 예약 및8MiB106/107 경계를 반영했다. 최대999 caption content<48MiB 및64MiB 저장/초안 회귀를 작성했다. UI/HTTP/CLI/replay/undo/redo/save/draft 및 Unicode/RTL/ligature/emoji/공백/zero advance 실제 브라우저 회귀는 작성했으나 구현 에이전트는 테스트·빌드·cargo check·브라우저·skill gate를 실행하지 않았다. 부모의 격리 검증과 두 리뷰는 대기 중이다. P35는 in_progress, external caption roundtrip은 미지원이다. docs/verification/p35h-caption-run-outline.md 참조.

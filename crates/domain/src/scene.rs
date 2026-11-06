@@ -121,7 +121,9 @@ pub enum CaptionStyle {
 /// Text stored verbatim: no Unicode normalization or index-based edits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CaptionRun {
-    /// Independent appearance flag; does not change text advance or chemical meaning.
+    /// Hollow glyphs; independent of underline, text advance and chemical meaning.
+    pub outline: bool,
+    /// Independent decoration; does not change text advance or chemical meaning.
     pub underline: bool,
     /// None inherits the current foreground; overrides are opaque canonical sRGB #RRGGBB.
     pub color: Option<String>,

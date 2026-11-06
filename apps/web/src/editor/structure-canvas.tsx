@@ -216,6 +216,19 @@ export function StructureCanvas({
           let top = ink.y
           let right = ink.x + ink.width
           let bottom = ink.y + ink.height
+          // SVG getBBox excludes strokes. Expand each outlined run independently;
+          // filled siblings, empty/whitespace runs and zero-ink formatting characters
+          // must not acquire a stroke margin. Zero advance alone does not mean no ink
+          // (combining marks); use the browser's shaped run box, including RTL/ligatures.
+          for (const span of text.querySelectorAll<SVGTSpanElement>('[data-caption-outline="true"]')) {
+            const glyph = span.getBBox()
+            if (!span.textContent?.match(/\S/u) || glyph.width <= 0 || glyph.height <= 0) continue
+            const radius = Number(span.getAttribute('font-size')) / 32
+            left = Math.min(left, glyph.x - radius)
+            top = Math.min(top, glyph.y - radius)
+            right = Math.max(right, glyph.x + glyph.width + radius)
+            bottom = Math.max(bottom, glyph.y + glyph.height + radius)
+          }
           // SVG text getBBox does not promise decoration ink. Our underline is an
           // explicit rectangle whose geometry also enters fit, selection and hit testing.
           for (const line of text.parentElement?.querySelectorAll<SVGRectElement>('[data-caption-underline]') ?? []) {

@@ -168,3 +168,14 @@ for (const underline of [null, 0, 1, 'true', 'false', [], {}]) test(`caption und
   result.document.scene.objects.at(-1).runs[0].underline = underline
   assert.equal(isDocumentResponse(result), false)
 })
+
+for (const outline of [undefined, false, true]) test(`caption outline accepts ${String(outline)}`, () => {
+  const result = source()
+  result.document.scene.objects.at(-1).runs[0].outline = outline
+  assert.equal(isDocumentResponse(result), true)
+})
+for (const outline of [null, 0, 1, 'true', 'false', [], {}]) test(`caption outline rejects ${JSON.stringify(outline)}`, () => {
+  const result = source()
+  result.document.scene.objects.at(-1).runs[0].outline = outline
+  assert.equal(isDocumentResponse(result), false)
+})
