@@ -571,7 +571,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 50] = [
+const TRANSACTION_PARTS: [Entry; 52] = [
     runs("attach_ring", "Connects a fresh regular carbon ring to an existing atom along an explicit direction in the only placement (size 5 or 6, default 6; pattern single by default, or explicit kekule for size 6). Connector stays single. Ordinary bond-addition stereo clearing and group notes apply. No fusion, aromaticity inference or layout."),
 
     runs(
@@ -629,6 +629,8 @@ const TRANSACTION_PARTS: [Entry; 50] = [
         "delete_instance",
         "Deletes a scene instance with its positions; the last one stays.",
     ),
+    runs("collapse_ethyl", "Displays a checked existing terminal ethyl graph as Et; chemistry and positions are retained."),
+    runs("expand_ethyl", "Reveals the original stored ethyl drawing."),
     runs("add_caption", "Adds an independent single-line Unicode caption with explicit script runs."),
     runs("update_caption", "Replaces a caption anchor and its complete script runs."),
     runs(

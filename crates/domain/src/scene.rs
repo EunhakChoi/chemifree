@@ -200,6 +200,8 @@ pub enum DeleteMode {
 /// `invalid_command`. The list is closed and documented in docs/CONTRACT.md.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SceneError {
+    /// Unsupported or invalid Et display.
+    AbbreviationInvalid,
     /// Caption content violates the bounded text profile.
     CaptionInvalid,
     /// An edit would exceed the caption-safe persistence/history reservation.
@@ -246,10 +248,11 @@ pub enum SceneError {
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::CaptionInvalid,
         Self::CaptionPersistenceLimit,
         Self::CaptionUnsupported,
+        Self::AbbreviationInvalid,
         Self::ObjectUnknown,
         Self::ObjectKindMismatch,
         Self::GroupMixedParents,
@@ -276,6 +279,7 @@ impl SceneError {
             Self::CaptionInvalid => "caption_invalid",
             Self::CaptionPersistenceLimit => "caption_persistence_limit",
             Self::CaptionUnsupported => "caption_unsupported",
+            Self::AbbreviationInvalid => "abbreviation_invalid",
             Self::ObjectUnknown => "object_unknown",
             Self::ObjectKindMismatch => "object_kind_mismatch",
             Self::GroupMixedParents => "group_mixed_parents",

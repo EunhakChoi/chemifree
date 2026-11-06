@@ -168,6 +168,55 @@ checks have not been executed in this implementation session; see
 [the P34b verification plan](verification/p34b-five-ring.md), and
 [the P34g verification plan](verification/p34g-kekule-ring.md).
 
+## Existing ethyl display contraction and expansion (P34i)
+
+This bounded candidate implements the approved **real graph retained, display contracted**
+policy. A transaction accepts `{ "op":"collapse_ethyl", "instance":"s1", "anchor":"a2", "terminal":"a3" }`
+or `{ "op":"expand_ethyl", "instance":"s1", "anchor":"a2" }`.
+There must be exactly one placement, explicitly named. The existing, distinct member atoms
+must be neutral natural-abundance C with inferred hydrogens, no radical or attachment points;
+they have one internal unmarked single bond and exactly one unmarked single boundary bond
+from the anchor. The terminal has no other bond. Overlapping member sets refuse. Marks,
+stored centers, stored double configurations or stereo-group members touching either member
+or its immediate outside neighbor refuse contraction. Unrelated stereo remains supported.
+A refused shape has `invalid_command`, reason `abbreviation_invalid`, and its command index;
+malformed wire fields are `invalid_request`. No eligibility or valence correction is inferred.
+
+Snapshots always contain `abbreviations: [{ instance, anchor, terminal }]`, empty when expanded.
+Earlier services may omit it. This separate display map neither replaces graph atoms nor
+creates caption/scene objects or graph IDs. Contracting and expanding change no atom/bond
+state, ID, coordinate, mark, stored configuration or group. Each effective action is one
+ordinary Undo step; an identical collapse or already-expanded existing anchor is a no-op.
+Selection before/after, request replay, revision gates and uncertain transaction recovery use
+the normal edit path. Formulas, masses, identity, substructure and every chemical export use
+the full underlying graph; no pseudo atom is introduced.
+
+The canvas shows Et at the anchor, hides the terminal and internal bond from ink, underlays
+and hit tests, and trims the external bond at the label box. Click/Shift-click/marquee use the
+whole member pair and internal bond; a marquee around only the hidden terminal selects no
+part of that display. Whole-pair drag translates both retained coordinates. Whole-union rigid
+moves/transforms retain the display. Partial geometry moves expand it. An edit changing member
+or boundary bonds, member/outside atom states, local marks/stereo, or placement multiplicity
+removes affected display entries within that same transaction. Deletion likewise removes
+invalid entries. Undo restores the prior graph, geometry and display together. Expanding
+reveals the stored geometry verbatim; it performs no layout or collision avoidance.
+Canvas label/view/hit extents use visible ink; domain arrangement/transform bounds continue to
+use all stored atom positions under the existing geometry-only contract.
+
+MOL/SDF, SMILES and bounded CDXML/CDX exports write the complete graph and existing coordinates
+where the format supports them. Each Et display has a dropped `abbreviation_display` rendering
+loss; that display loss alone needs no consent and changes no chemistry. Existing unrelated
+loss-consent rules still apply. Native graph clipboard v1, native Cut preparation and native
+template export refuse selections intersecting a compact member with
+`clipboard_abbreviation_display_unsupported`; expand explicitly before those actions. Other
+native fragments and chemical text export paths retain their existing rules.
+
+The UI provides explicit anchor buttons for a selected pair and explicit Expand buttons.
+This slice has no text-to-graph parser, user label override, automatic abbreviation detection,
+provider/legacy-template activation, multi-boundary or nested abbreviation, rich-text Et,
+multiple-placement contraction or layout engine. P34 remains in progress. See
+[authorship/review and pending checks](verification/p34i-ethyl-display.md).
+
 ## User graph template files (P34d)
 
 The web **User graph templates** panel saves complete selected graph components through
@@ -1715,7 +1764,16 @@ Allowed web origins default to `http://127.0.0.1:5173`, `http://localhost:5173`,
 
 ## Document file format
 
-`<data-dir>/documents/<id>.json` is owner-only on Unix. Version 8 is compact JSON with a final newline. It contains `format: "chemifree.document"`, `format_version: 8`, `document`, and `history`. The document contains its `id`, `revision`, `title`, molecule and one page, ordered `roots`, typed `objects`, directed `references`, instance/atom `positions`, `stereo`, `stereo_groups`, `selection`, `settings`, and `next_atom`, `next_bond`, `next_object`, and `next_group` counters. Instances name `m1`; groups contain ordered child IDs; graphics contain their shape and two points. Atom and bond states are as in the API, except that a bond state may also hold a stereo `mark` (below). `stereo_groups` is a required list of enhanced-stereo groups `{ "id": "e<n>", "state": { "kind": "absolute" | "and" | "or", "number": <integer> | null, "members": [atom IDs] } }` in ID order (written ascending, read in any order like every list in the file; a member listed twice is refused); `number` is always present and is stored as stated (the full 32-bit integer range, `0` and negatives included, `null` for none), `next_group` is at least one above every group ID in the document or its history, and each history entry holds a required `stereo_groups` list of `{ "id", "before", "after" }` with the whole group or `null`. A document that does not satisfy the stored-group rules is unreadable: every member is an atom with a stored tetrahedral configuration (not `unknown`), a group has at least one member and no member twice, an atom is in at most one group, an `absolute` group has no number and there is at most one, and per kind (`and`, `or`) no two groups have the same number, where no number counts as `0`. The groups are edited and shown as described under [Stereo groups](#stereo-groups).
+`<data-dir>/documents/<id>.json` is owner-only on Unix. Version 9 is compact JSON with a final newline. It contains `format: "chemifree.document"`, `format_version: 9`, `document`, and `history`. The document contains its `id`, `revision`, `title`, molecule and one page, ordered `roots`, typed `objects`, directed `references`, instance/atom `positions`, `stereo`, `stereo_groups`, `selection`, `settings`, and `next_atom`, `next_bond`, `next_object`, and `next_group` counters. Instances name `m1`; groups contain ordered child IDs; graphics contain their shape and two points. Atom and bond states are as in the API, except that a bond state may also hold a stereo `mark` (below). `stereo_groups` is a required list of enhanced-stereo groups `{ "id": "e<n>", "state": { "kind": "absolute" | "and" | "or", "number": <integer> | null, "members": [atom IDs] } }` in ID order (written ascending, read in any order like every list in the file; a member listed twice is refused); `number` is always present and is stored as stated (the full 32-bit integer range, `0` and negatives included, `null` for none), `next_group` is at least one above every group ID in the document or its history, and each history entry holds a required `stereo_groups` list of `{ "id", "before", "after" }` with the whole group or `null`. A document that does not satisfy the stored-group rules is unreadable: every member is an atom with a stored tetrahedral configuration (not `unknown`), a group has at least one member and no member twice, an atom is in at most one group, an `absolute` group has no number and there is at most one, and per kind (`and`, `or`) no two groups have the same number, where no number counts as `0`. The groups are edited and shown as described under [Stereo groups](#stereo-groups).
+
+The v9 document also requires `abbreviations: [{ instance, anchor, terminal }]`, including
+an empty list when no Et display exists. Every history entry requires `abbreviations` changes
+`[{ instance, anchor, before: terminalID|null, after: terminalID|null }]`. Both nullable sides
+are mandatory. Duplicate keys/member overlap, invalid current or history-only displays, and
+unreplayable display history are unreadable. v1–8 files/drafts migrate with empty display maps
+and empty display diffs; v8 captions and caption history remain unchanged. Abbreviation fields
+are forbidden behind v1–8 headers even when empty or present only in history. Reading writes
+nothing; v8 original bytes receive the same first-overwrite/recovery archive as earlier versions.
 
 Stereo is stored and shown, and the four stereo commands set, clear and (from the drawing, when sent) derive it over HTTP, the CLI and operation contract 1 (see Stereo marks and configurations); the web editor draws marks and sets them with its bond tool and bond inspector (see Web editor). One command, `set_configuration_from_drawing`, stores a configuration read off the marks and positions when it is sent (a stored record is an ordinary record, so the file format is unchanged), the read-only operation `chem.stereo` compares the stored configurations with the drawing, the read-only operation `chem.cip` computes CIP descriptors from the stored configurations (Rules 1a, 1b, 2 and 3 only, see [CIP labels](#cip-labels)), and chemical stereo is otherwise unimplemented (no stereogenicity judgement beyond those labels, SMILES `@` and `@@` and CXSMILES `a:`, `o<n>:`, `&<n>:` are read and supported configurations and groups are written in recorded SMILES (see the SMILES section); enhanced-stereo groups are stored, edited by eight commands and shown in the snapshot over HTTP, the CLI and operation contract 1 (see [Stereo groups](#stereo-groups)), and CIP, identity and substructure ignore them; MOL V3000 reads and writes the groups (as `COLLECTION` entries, see Enhanced stereo collections) and CDXML and CDX import reads them and bounded drawing export writes groups whose members derive from the output drawing (see CDXML interchange); V2000 carries none, recorded SMILES writes supported groups as CXSMILES while canonical SMILES and V2000 export require consent to drop them; MOL import reads V3000 marks and derives configurations, CDXML import reads marks and derives configurations too, MOL export writes marks, and export drops or asks consent for stereo and groups as stated under MOL and SMILES). A `mark` is `{"kind": "wedge" | "hash", "narrow": "begin" | "end"}`, `{"kind": "wavy"}`, or `{"kind": "crossed"}`; the narrow end is recorded in the mark and a bond's `begin` and `end` are never swapped. A wedge, hash, or wavy mark is allowed only on a single bond and a crossed mark only on a double bond. `stereo` is a required list of `{ "id", "state" }` records in key order (centers first, then double bonds, each ascending), at most one per stereo center (an atom ID) or double bond (a bond ID). A center state is `{"kind": "center", "state": {"mode": "tetrahedral", "neighbors": [four slots], "turn": "clockwise" | "anticlockwise"}}` or the same with `"mode": "unknown"` and no `turn`; a slot is an atom ID, `implicit_hydrogen`, or `lone_pair`, and the four slots are distinct, in canonical order (atom IDs ascending, then `implicit_hydrogen`, then `lone_pair`), with the turn seen from the first slot (`anticlockwise` is the OpenSMILES `@` handedness). A double-bond state is `{"kind": "double_bond", "state": {"mode": "relative", "begin_ref", "end_ref", "relation": "same_side" | "opposite_sides"}}` or `{"mode": "unknown"}`; each reference is the lowest-ID other neighbor of its end, or `implicit_hydrogen` where the end has none. The two positions of an sp2 end other than the double bond are complementary, not interchangeable labels: with one other atom `n`, the hydrogen (or lone pair) is the other position, so a state naming it is stored as `n` with the relation flipped; with none, a lone pair is stored as `implicit_hydrogen` with the relation flipped. One older form is accepted and normalized on load: the first version 6 build also stored a `lone_pair` reference at an end with no other atom, so a version 6 document, draft, or history entry (before or after side) that holds one is read as `implicit_hydrogen` with the relation flipped for each such end, the same rule as above; reading does not rewrite the file, and the format version does not change. Any other stored record that is not in this form is rejected on load, and the domain refuses to state a hydrogen or lone pair at an end with two other atoms. Whether a position is a hydrogen or a lone pair is a label derived when a configuration is derived, not stored. The file's names differ from the snapshot's: `mode` is `kind`, `begin_ref` and `end_ref` are `begin_neighbor` and `end_neighbor`, and the file's wrapper `kind` (`center` or `double_bond`) and `id` are the snapshot's `atoms[].atom` and `bonds[].bond` lists; the words `tetrahedral`, `unknown`, `relative`, `same_side`, `opposite_sides`, `clockwise`, `anticlockwise` and the slot names are the same. When a transaction changes the neighbors of an atom (adding, deleting, or reconnecting a bond, or deleting a neighbor), or deletes an atom or bond, the records of that atom as a center and of double bonds that end at it, and the record of a deleted bond, are removed in the same transaction, and undo restores them. A mark goes away with its bond, and changing the order of a bond so that its mark or its stored record no longer fits is refused with the rule it breaks. A mark and a stated configuration are separate statements and are never validated against each other when written: a crossed mark may sit on a double bond that has a stated relative configuration, and a wedge or hash on a bond at a stated center, whichever is set first, and `set_bond_mark`, `set_atom_configuration`, `set_bond_configuration` and any other edit never refuse or remove one because of the other. The one command that reads marks, `set_configuration_from_drawing`, replaces the stored record of each item it processes with what the drawing shows (a configuration stated by hand, `unknown` and a different label included) and writes nothing for an item it skips. Comparing the drawn mark with the stated configuration is not done when anything is written; it is the read-only operation `chem.stereo`, which edits and stores nothing.
 
@@ -1723,11 +1781,11 @@ Each history change set records the title, atoms, bonds, page roots, scene objec
 
 Loading rejects unknown fields or versions, files over 64 MiB, invalid atom and bond states, a mark on a bond order that cannot carry it, stereo records whose atoms, bonds, neighbors, or order do not fit the graph they are stored with, repeated or dangling entities and references, malformed trees, incorrect positions, counters that could reuse IDs, and history that cannot replay in both directions. It also rejects a stored selection that matches neither the newest undo entry after an edit or redo nor the nearest redo entry before an undo. Both boundaries can be valid after undo, undo, redo. History cannot change a scene object kind or graphic shape or reuse a deleted entity ID. History beyond the limits is trimmed oldest undo first and then farthest redo; when every undo entry is trimmed, selection follows the nearest redo boundary. A rejected file is listed as unreadable and left untouched. Finite floats round-trip bit-exactly. This is a working format, not MOL, SDF, CDXML, or SMILES.
 
-Versions 1–7 documents and drafts are read and migrated in memory, including history. Version 7 has no captions. Captions in a v1–7 current or history state are refused, rather than reinterpreted as a newer file. Version 1 combined atoms and their single positions; migration separates graph and `s1` positions. Version 2 had only element atoms and single/double/triple bonds; migration fills recorded-state defaults. Version 3 already holds those recorded states and separate instances. Versions 2 and 3 reconstruct page roots at each historical boundary in instance ID order; all three start with empty selection and references. Version 4 already holds the scene tree, references and selection; migration preserves those and adds the built-in style. Version 5 already holds the settings; migration adds no marks and no stereo records, and a version 5 file that contains either is refused. Version 6 already holds those; migration adds an empty group list and `next_group` 1, and a version 6 file that contains `stereo_groups` or `next_group`, in the document or in a history entry, is refused (as is a version 7 file that omits them). History that exceeds the current change limit is trimmed as above. Reading never writes.
+Versions 1–8 documents and drafts are read and migrated in memory, including history. Version 7 has no captions. Captions in a v1–7 current or history state are refused, rather than reinterpreted as a newer file. Version 1 combined atoms and their single positions; migration separates graph and `s1` positions. Version 2 had only element atoms and single/double/triple bonds; migration fills recorded-state defaults. Version 3 already holds those recorded states and separate instances. Versions 2 and 3 reconstruct page roots at each historical boundary in instance ID order; all three start with empty selection and references. Version 4 already holds the scene tree, references and selection; migration preserves those and adds the built-in style. Version 5 already holds the settings; migration adds no marks and no stereo records, and a version 5 file that contains either is refused. Version 6 already holds those; migration adds an empty group list and `next_group` 1, and a version 6 file that contains `stereo_groups` or `next_group`, in the document or in a history entry, is refused (as is a version 7 file that omits them). History that exceeds the current change limit is trimmed as above. Reading never writes.
 
-Before the first save over a version 1–7 document, under the save lock, the provider writes and flushes the exact old bytes to `migrated/<id>.v<version>.json` before replacing the document. A failed copy fails the save and preserves the old file. A different old file with the same ID gets the next free numbered name; identical bytes are not copied again. These backups are not listed or treated as documents. Unknown versions are refused and left untouched.
+Before the first save over a version 1–8 document, under the save lock, the provider writes and flushes the exact old bytes to `migrated/<id>.v<version>.json` before replacing the document. A failed copy fails the save and preserves the old file. A different old file with the same ID gets the next free numbered name; identical bytes are not copied again. These backups are not listed or treated as documents. Unknown versions are refused and left untouched.
 
-A recovery draft uses `format: "chemifree.draft"`, version 8, `base_revision`, `saved_at_ms`, and the same `document` and `history` shapes. Old drafts migrate in memory and inspection writes nothing. Recovery can retain an already complete draft in its earlier version; an autosave with no new undrafted edit does not rewrite it. The next actual draft write uses the current version. Before recovery or recovery as a copy can rewrite or remove an old draft, the provider keeps the exact bytes it claimed under `migrated/<id>.draft.v<version>.json`; different bytes get numbered copies and identical bytes are not duplicated. If preservation fails, recovery fails and the draft stays abandoned. Explicit discard removes the draft without creating a copy. An old draft left as `drafts/<id>.committing` by an interrupted successful save is preserved before cleanup. Other files include `trash/<id>.json` and `trash/<id>.deleted`, migrated copies, `locks/<id>.lock`, `drafts/<id>.owner`, `drafts/<id>.committing`, and abandoned temporary files. Draft ownership and save locking remain distinct.
+A recovery draft uses `format: "chemifree.draft"`, version 9, `base_revision`, `saved_at_ms`, and the same `document` and `history` shapes. Old drafts migrate in memory and inspection writes nothing. Recovery can retain an already complete draft in its earlier version; an autosave with no new undrafted edit does not rewrite it. The next actual draft write uses the current version. Before recovery or recovery as a copy can rewrite or remove an old draft, the provider keeps the exact bytes it claimed under `migrated/<id>.draft.v<version>.json`; different bytes get numbered copies and identical bytes are not duplicated. If preservation fails, recovery fails and the draft stays abandoned. Explicit discard removes the draft without creating a copy. An old draft left as `drafts/<id>.committing` by an interrupted successful save is preserved before cleanup. Other files include `trash/<id>.json` and `trash/<id>.deleted`, migrated copies, `locks/<id>.lock`, `drafts/<id>.owner`, `drafts/<id>.committing`, and abandoned temporary files. Draft ownership and save locking remain distinct.
 
 ## Independent Unicode captions (P35a)
 
@@ -1739,8 +1797,9 @@ CLI text output lists the caption ID, parent, anchor and each ordered `script("t
 Run text uses Rust ASCII escapes (including Unicode scalar escapes), so quotes, backslashes
 and directional/format characters cannot disguise terminal output. JSON output retains the
 original Unicode strings and script fields without that presentation escaping.
-The transaction catalog adds `add_caption` and `update_caption` (39 commands and 11
-capabilities, 50 sub-operation rows; no new top-level operation).
+The transaction catalog includes `add_caption` and `update_caption`; with the Et display
+commands it contains 41 commands and 11 capabilities, 52 sub-operation rows and no new
+top-level operation.
 
 - `add_caption`: required `anchor`, required `runs`, optional group `parent` and insertion
   `index`, with the same meaning as `add_graphic`. It can be selected as `$N` in
@@ -1801,7 +1860,7 @@ Caption-bearing documents (a caption in current content, undo or redo) additiona
 conservative persistence reservation: current content at most 48 MiB and both history stacks
 at most 8 MiB combined, below the native 64 MiB file limit even with document/draft envelopes.
 The reservation accounts for all entity kinds, IDs, floats, roots, references, both selections
-and complete before/after states. Caption/title strings reserve twice their UTF-8 bytes for
+and complete before/after states, including current Et displays and their history diffs. Caption/title strings reserve twice their UTF-8 bytes for
 JSON quote/backslash escaping; every run also reserves metadata. It is an upper bound, not
 an exact file/memory size. The existing 100-entry/100000-change limits also apply.
 Older undo entries are dropped first; restore then drops farthest redo entries when needed.
@@ -1813,7 +1872,7 @@ Use smaller edit scopes. Text is never truncated. Undo/Redo move the same budget
 between stacks. Loading looser v8 history applies the same trimming in memory without writing;
 caption-free v1–7 migrations and their existing history limits remain unchanged.
 
-Native documents, history and drafts are v8. Earlier versions remain readable without
+P35a introduced native v8 captions; the current v9 format additionally records Et display metadata. Earlier versions remain readable without
 rewriting; the first overwrite/recovery keeps original bytes under the existing migration
 rules. Captions currently have no chemical-format mapping. MOL/SDF, SMILES and bounded
 CDXML/CDX drawing export report each caption as a dropped `caption` rendering loss and

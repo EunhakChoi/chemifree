@@ -297,7 +297,11 @@ export const LABEL_FONTS: readonly LabelFont[] = ['sans-serif', 'serif', 'monosp
 export const CARBON_LABELS: readonly CarbonLabels[] = ['default', 'all']
 export const DISPLAY_UNITS: readonly DisplayUnit[] = ['pt', 'mm', 'cm', 'in']
 
+export interface AbbreviationView { instance: string; anchor: string; terminal: string }
+
 export interface DocumentView {
+  /** Et presentation only; atoms, bonds and coordinates remain complete. */
+  abbreviations?: AbbreviationView[]
   id: string
   title: string
   revision: number
@@ -681,6 +685,8 @@ export type Command =
   | { op: 'add_instance'; source?: string; offset: Position }
   | { op: 'move_instance'; instance: string; offset: Position }
   | { op: 'delete_instance'; instance: string }
+  | { op: 'collapse_ethyl'; instance: string; anchor: string; terminal: string }
+  | { op: 'expand_ethyl'; instance: string; anchor: string }
   | { op: 'add_caption'; anchor: Position; runs: CaptionRun[]; parent?: string; index?: number }
   | { op: 'update_caption'; object: string; anchor: Position; runs: CaptionRun[] }
   | { op: 'add_graphic'; shape: GraphicShape; points: [Position, Position]; parent?: string; index?: number }
@@ -1144,6 +1150,52 @@ function isSceneTree(document: Record<string, unknown>, atoms: AtomView[], bonds
     selection.atoms.every((id) => atomIds.has(id)) && selection.bonds.every((id) => bondIds.has(id))
 }
 
+/** Reject stale or overlapping compact metadata rather than hiding real graph content. */
+function isAbbreviations(document: Record<string, unknown>, atoms: AtomView[], bonds: BondView[]): boolean {
+  const value = document.abbreviations
+  if (value === undefined) return true
+  if (!Array.isArray(value)) return false
+  if (value.length === 0) return true
+  if (!isRecord(document.scene) || !Array.isArray(document.scene.instances) || document.scene.instances.length !== 1) return false
+  const placement = document.scene.instances[0]
+  if (!isRecord(placement)) return false
+  const members = new Set<string>()
+  for (const item of value) {
+    if (!isRecord(item) || item.instance !== placement.id || typeof item.anchor !== 'string' || typeof item.terminal !== 'string' || item.anchor === item.terminal) return false
+    const pair = [item.anchor, item.terminal]
+    if (pair.some((id) => members.has(id))) return false
+    for (const id of pair) {
+      const atom = atoms.find((atom) => atom.id === id)
+      if (!atom || atom.kind !== 'element' || atom.element !== 'C' || atom.charge !== 0 || atom.isotope !== null || atom.hydrogens?.mode !== 'inferred' || atom.radical !== 'none' || atom.attachment_points?.length !== 0) return false
+      members.add(id)
+    }
+    let internal = 0
+    let boundary = 0
+    const local = new Set(pair)
+    for (const bond of bonds) {
+      const begin = pair.includes(bond.begin)
+      const end = pair.includes(bond.end)
+      if (!begin && !end) continue
+      if (bond.order !== 'single' || bond.mark != null) return false
+      if (begin && end) internal += 1
+      else {
+        if ((begin && bond.begin !== item.anchor) || (end && bond.end !== item.anchor)) return false
+        boundary += 1
+        local.add(begin ? bond.end : bond.begin)
+      }
+    }
+    if (internal !== 1 || boundary !== 1) return false
+    if (bonds.some((bond) => bond.mark != null && (local.has(bond.begin) || local.has(bond.end)))) return false
+    if (isRecord(document.stereo)) {
+      const stereo = document.stereo
+      if (Array.isArray(stereo.atoms) && stereo.atoms.some((record) => isRecord(record) && typeof record.atom === 'string' && local.has(record.atom))) return false
+      if (Array.isArray(stereo.bonds) && stereo.bonds.some((record) => isRecord(record) && bonds.some((bond) => bond.id === record.bond && (local.has(bond.begin) || local.has(bond.end))))) return false
+      if (Array.isArray(stereo.groups) && stereo.groups.some((group) => isRecord(group) && Array.isArray(group.members) && group.members.some((id) => typeof id === 'string' && local.has(id)))) return false
+    }
+  }
+  return true
+}
+
 /** Rejects malformed snapshots, including bonds that name atoms the snapshot lacks. */
 export function isDocumentResponse(value: unknown): value is DocumentResponse {
   if (!isRecord(value) || value.api_version !== API_VERSION) return false
@@ -1169,6 +1221,7 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     statesAgree(document.atoms, document.bonds) &&
     (document.stereo === undefined || isStereoView(document.stereo, document.atoms, document.bonds)) &&
     isScene(document, document.atoms) &&
+    isAbbreviations(document, document.atoms, document.bonds) &&
     isSceneTree(document, document.atoms, document.bonds) &&
     (document.settings === undefined || isSettings(document.settings, true)) &&
     isRecord(session) &&

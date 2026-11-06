@@ -153,6 +153,17 @@ fn drawing_losses(view: &DocumentView) -> Vec<Loss> {
             );
         }
     }
+    for abbreviation in &view.abbreviations {
+        push(
+            format!(
+                "document.abbreviations[{}:{}]",
+                abbreviation.instance, abbreviation.anchor
+            ),
+            "abbreviation_display",
+            SemanticImpact::Rendering,
+            "Et display is expanded to the complete stored chemical graph; compact appearance is not written.",
+        );
+    }
     for item in &view.scene.objects {
         match item {
             SceneObjectView::Caption { id, .. } => push(

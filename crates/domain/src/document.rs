@@ -14,6 +14,7 @@
 //! instance, bounded values, valid state combinations). The drawing model does not alter
 //! recorded states to perform chemistry; interpretation belongs to separate domain rules.
 
+mod abbreviation;
 mod persistence;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
@@ -419,6 +420,17 @@ fn ring_offsets(length: f64, size: RingSize) -> Vec<(f64, f64)> {
 /// One edit. A transaction applies an ordered list of commands all-or-nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
+    /// Hides an existing, checked terminal ethyl graph in one explicit placement.
+    CollapseEthyl {
+        instance: ObjectId,
+        anchor: AtomId,
+        terminal: AtomId,
+    },
+    /// Reveals the stored atoms and coordinates without changing chemistry.
+    ExpandEthyl {
+        instance: ObjectId,
+        anchor: AtomId,
+    },
     /// Appends an independent regular carbon ring in the only placement.
     /// Uses the current document bond length; creates no transaction-local `$N` target.
     InsertRing {
@@ -670,6 +682,7 @@ pub enum Command {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditError {
+    AbbreviationInvalid,
     CaptionInvalid,
     CaptionPersistenceLimit,
     CaptionUnsupported(ObjectId),
@@ -777,6 +790,7 @@ impl EditError {
     /// The scene rule a command violated, when the error has a scene-specific code.
     pub fn scene_error(&self) -> Option<SceneError> {
         Some(match self {
+            Self::AbbreviationInvalid => SceneError::AbbreviationInvalid,
             Self::CaptionInvalid => SceneError::CaptionInvalid,
             Self::CaptionPersistenceLimit => SceneError::CaptionPersistenceLimit,
             Self::CaptionUnsupported(_) => SceneError::CaptionUnsupported,
@@ -945,6 +959,7 @@ impl fmt::Display for EditError {
                 "rectangle {object} requires an exact quarter-turn rotation; arbitrary angles cannot be represented by its two axis-aligned corners"
             ),
             Self::CaptionPersistenceLimit => formatter.write_str("The caption edit exceeds the persistence budget; reduce text or transaction size."),
+            Self::AbbreviationInvalid => formatter.write_str("Et needs a disjoint neutral default two-carbon terminal graph, one unmarked single boundary, no local stereo, and one explicit placement."),
             Self::CaptionInvalid => formatter.write_str("Caption needs 1–32 nonempty single-line runs, at most 16384 UTF-8 bytes, and non-whitespace text."),
             Self::CaptionUnsupported(id) => write!(formatter, "This operation cannot preserve caption {id}; nothing was changed."),
             Self::SceneTreeInvalid(detail) => formatter.write_str(detail),
@@ -1055,6 +1070,8 @@ pub struct Change<T> {
 /// replays all of them as one step.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChangeSet {
+    /// Per-placement Et display changes; the graph is retained.
+    pub abbreviations: Vec<(PositionKey, Change<Option<AtomId>>)>,
     pub title: Option<Change<String>>,
     pub settings: Option<Change<Settings>>,
     pub atoms: Vec<(AtomId, Change<Option<Atom>>)>,
@@ -1077,6 +1094,7 @@ pub struct ChangeSet {
 impl ChangeSet {
     fn between(before: &Content, after: &Content, selection: Change<Selection>) -> Self {
         Self {
+            abbreviations: diff_maps(&before.abbreviations, &after.abbreviations),
             title: (before.title != after.title).then(|| Change {
                 before: before.title.clone(),
                 after: after.title.clone(),
@@ -1102,7 +1120,8 @@ impl ChangeSet {
 
     /// Whether the content is unchanged; the selection does not count.
     pub fn is_empty(&self) -> bool {
-        self.title.is_none()
+        self.abbreviations.is_empty()
+            && self.title.is_none()
             && self.settings.is_none()
             && self.atoms.is_empty()
             && self.bonds.is_empty()
@@ -1116,7 +1135,8 @@ impl ChangeSet {
 
     /// Entity changes counted against [`HISTORY_CHANGE_LIMIT`].
     fn size(&self) -> usize {
-        usize::from(self.title.is_some())
+        self.abbreviations.len()
+            + usize::from(self.title.is_some())
             + usize::from(self.settings.is_some())
             + self.atoms.len()
             + self.bonds.len()
@@ -1163,6 +1183,7 @@ impl ChangeSet {
                 .roots
                 .as_ref()
                 .is_none_or(|change| change.before != change.after)
+            && entries_valid(&self.abbreviations)
             && entries_valid(&self.atoms)
             && entries_valid(&self.bonds)
             && entries_valid(&self.objects)
@@ -1246,6 +1267,7 @@ fn replay<K: Copy + Ord, V: Clone + PartialEq>(
 
 #[derive(Clone, Debug, PartialEq)]
 struct Content {
+    abbreviations: BTreeMap<PositionKey, AtomId>,
     title: String,
     settings: Settings,
     atoms: BTreeMap<AtomId, Atom>,
@@ -1561,6 +1583,7 @@ impl Content {
 
     /// Checks every structural invariant; used for restored and replayed states.
     fn validate(&self) -> Result<(), EditError> {
+        self.validate_abbreviations()?;
         validate_title(&self.title)?;
         self.settings.validate()?;
         if self.atoms.len() > MAX_ATOMS {
@@ -2120,8 +2143,37 @@ impl Draft {
 
     /// Applies one command and records what, if anything, it created.
     fn apply(&mut self, command: &Command) -> Result<(), EditError> {
+        let display_before = (!self.content.abbreviations.is_empty()).then(|| self.content.clone());
         let mut created = Created::Nothing;
         match command {
+            Command::CollapseEthyl {
+                instance,
+                anchor,
+                terminal,
+            } => {
+                let key = PositionKey {
+                    instance: *instance,
+                    atom: *anchor,
+                };
+                self.content.check_ethyl(key, *terminal)?;
+                if self.content.abbreviations.iter().any(|(other, end)| {
+                    *other != key
+                        && [other.atom, *end]
+                            .iter()
+                            .any(|id| [*anchor, *terminal].contains(id))
+                }) {
+                    return Err(EditError::AbbreviationInvalid);
+                }
+                self.content.abbreviations.insert(key, *terminal);
+            }
+            Command::ExpandEthyl { instance, anchor } => {
+                self.content.require_instance(*instance)?;
+                self.content.require_atom(*anchor)?;
+                self.content.abbreviations.remove(&PositionKey {
+                    instance: *instance,
+                    atom: *anchor,
+                });
+            }
             Command::InsertRing {
                 instance,
                 center,
@@ -2570,6 +2622,9 @@ impl Draft {
             | Command::MergeStereoGroups { .. }
             | Command::SplitStereoGroup { .. } => created = self.apply_group_command(command)?,
         }
+        if let Some(before) = display_before {
+            self.content.reconcile_abbreviations(&before, command);
+        }
         self.created.push(created);
         Ok(())
     }
@@ -2627,6 +2682,8 @@ impl Numbering {
 /// `redo` is a stack whose last entry is redone next.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DocumentParts {
+    /// `(instance, anchor)` to the hidden terminal carbon of an Et display.
+    pub abbreviations: Vec<(PositionKey, AtomId)>,
     pub id: DocumentId,
     pub revision: u64,
     pub title: String,
@@ -2697,6 +2754,7 @@ impl Document {
             id,
             revision: 0,
             content: Content {
+                abbreviations: BTreeMap::new(),
                 title: title.to_owned(),
                 settings,
                 atoms: BTreeMap::new(),
@@ -2752,6 +2810,7 @@ impl Document {
             return Err(invalid("revision exceeds the largest revision"));
         }
         let counts = (
+            parts.abbreviations.len(),
             parts.atoms.len(),
             parts.bonds.len(),
             parts.objects.len(),
@@ -2761,6 +2820,7 @@ impl Document {
             parts.stereo_groups.len(),
         );
         let content = Content {
+            abbreviations: parts.abbreviations.into_iter().collect(),
             title: parts.title,
             settings: parts.settings,
             atoms: parts.atoms.into_iter().collect(),
@@ -2776,6 +2836,7 @@ impl Document {
         };
         if counts
             != (
+                content.abbreviations.len(),
                 content.atoms.len(),
                 content.bonds.len(),
                 content.scene.objects.len(),
@@ -2943,6 +3004,7 @@ impl Document {
 
     pub fn to_parts(&self) -> DocumentParts {
         DocumentParts {
+            abbreviations: self.abbreviations().collect(),
             id: self.id.clone(),
             revision: self.revision,
             title: self.content.title.clone(),
@@ -2984,6 +3046,14 @@ impl Document {
             undo: self.undo.iter().cloned().collect(),
             redo: self.redo.clone(),
         }
+    }
+
+    /// The display map never replaces atoms, bonds, or coordinates.
+    pub fn abbreviations(&self) -> impl Iterator<Item = (PositionKey, AtomId)> + '_ {
+        self.content
+            .abbreviations
+            .iter()
+            .map(|(key, terminal)| (*key, *terminal))
     }
 
     pub fn id(&self) -> &DocumentId {
@@ -3420,6 +3490,7 @@ fn step(content: &mut Content, set: &ChangeSet, direction: Direction) -> Result<
         }
         next.scene.roots.clone_from(to);
     }
+    replay(&mut next.abbreviations, &set.abbreviations, direction)?;
     replay(&mut next.atoms, &set.atoms, direction)?;
     replay(&mut next.bonds, &set.bonds, direction)?;
     replay(&mut next.scene.objects, &set.objects, direction)?;

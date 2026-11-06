@@ -15,6 +15,8 @@ const POSITION: usize = 192;
 const REFERENCE: usize = 128;
 const STEREO: usize = 256;
 const SETTINGS: usize = 256;
+// Three IDs in content; the history form also carries both optional terminal IDs.
+const ABBREVIATION: usize = 192;
 
 fn text_weight(text: &str) -> usize {
     128_usize.saturating_add(text.len().saturating_mul(2))
@@ -77,6 +79,7 @@ impl Content {
             + self.positions.len() * POSITION
             + self.references.len() * REFERENCE
             + self.stereo.len() * STEREO
+            + self.abbreviations.len() * ABBREVIATION
             + ids_weight(self.scene.roots.len())
             + self
                 .scene
@@ -124,6 +127,7 @@ impl ChangeSet {
             .saturating_add(changed_weight(&self.stereo_groups, group_weight))
             .saturating_add(changed_weight(&self.objects, object_weight))
             .saturating_add(self.references.len().saturating_mul(REFERENCE))
+            .saturating_add(self.abbreviations.len().saturating_mul(ABBREVIATION))
     }
 }
 
