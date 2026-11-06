@@ -2,6 +2,13 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P33h 명시적 CDXML-text 복사 후보 인계
+
+- 기존 CDXML/CDX export panel에서 CDXML 도면 export의 loss-consent가 끝난 결과에만 Copy CDXML to clipboard·Select CDXML text·read-only text를 제공한다. transient 선택과 무관한 전체 도면 첫 배치 projection이며 손실 보고·입체/그룹 거절·digest 재동의는 기존 그대로다.
+- 직접 클릭에서 준비된 문자열을 plain text로 쓰며 backend await 뒤 자동 write를 하지 않는다. 권한 거절/API 부재는 수동 선택·keyboard 복사를 남긴다. known snapshot/settings/format/process 변화는 이전 text와 버튼을 숨기고 지연된 완료가 새 panel을 채우지 않는다. 클릭에서 네트워크 재검증은 없으므로 미감지 restart를 알아내지는 못하며 시작한 OS write는 문서 전환 뒤 완료될 수 있다. Download의 기존 재-export 검증은 그대로다.
+- CDXML clipboard 읽기/import·Cut·CDX base64 text·custom MIME·shortcut은 추가하지 않는다. 기존 CDXML file import는 page/molecule을 골라 새 도면을 만드는 mode:create이며 MOL/SMILES append가 아니다. 복사는 문서·selection·history를 수정하지 않는다. P33은 in_progress다.
+- `scripts/web-cdxml-clipboard-check.mjs`에 실제 panel/hook/client와 HTTP·clipboard 경계만 대체한 명시 activation·동의 digest 갱신·권한/부재 fallback·keyboard 전체 선택·390px 폭·stale snapshot/process/지연 완료 검사를 작성했다. 기존 real-backend smoke에는 CDXML 수동 text/CDX 버튼 부재 회귀를 더했다. `npm run test:browser:cdxml-clipboard`를 CI에 연결했으나 이번 작업에서는 테스트·빌드·브라우저를 실행하지 않았고 성공 근거로 주장하지 않는다.
+
 ## P32 제한된 선택·기하 납품 완료
 
 - [#161](https://github.com/EunhakChoi/chemifree/pull/161)의 병합2c7a51847cd316b73a2324cb8a8152f95ee3ecc3과 [최종 PR CI](https://github.com/EunhakChoi/chemifree/actions/runs/42115749139)·[병합 main CI](https://github.com/EunhakChoi/chemifree/actions/runs/42117006940)의 성공을 근거로 bounded P32를 done으로 기록한다. 이 완료 문서 PR 자체의 CI는 아직 대기다.
