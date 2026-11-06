@@ -17,7 +17,7 @@ use chemifree_application::{
 use chemifree_domain::settings::{Settings, SettingsEdit};
 use serde::{Deserialize, Serialize};
 
-use crate::file_format::{StoredCarbonLabels, StoredFont, StoredUnit};
+use crate::file_format::{StoredCarbonLabels, StoredFont, StoredLabelWeight, StoredUnit};
 use crate::file_store::{
     prune_stale_temporaries_in, unavailable, wait_for_lock, write_atomically, write_failed,
 };
@@ -184,6 +184,8 @@ struct StoredNewDocuments {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     label_font: Option<StoredFont>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    label_weight: Option<StoredLabelWeight>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     label_size_pt: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     carbon_labels: Option<StoredCarbonLabels>,
@@ -208,6 +210,7 @@ fn encode(preferences: &Preferences) -> Vec<u8> {
             bond_length_pt: edit.bond_length_pt,
             line_width_pt: edit.line_width_pt,
             label_font: edit.label_font.map(StoredFont::from),
+            label_weight: edit.label_weight.map(StoredLabelWeight::from),
             label_size_pt: edit.label_size_pt,
             carbon_labels: edit.carbon_labels.map(StoredCarbonLabels::from),
             display_unit: edit.display_unit.map(StoredUnit::from),
@@ -242,6 +245,7 @@ fn decode(bytes: &[u8]) -> Result<Preferences, String> {
         bond_length_pt: new_documents.bond_length_pt,
         line_width_pt: new_documents.line_width_pt,
         label_font: new_documents.label_font.map(Into::into),
+        label_weight: new_documents.label_weight.map(Into::into),
         label_size_pt: new_documents.label_size_pt,
         carbon_labels: new_documents.carbon_labels.map(Into::into),
         display_unit: new_documents.display_unit.map(Into::into),

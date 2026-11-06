@@ -73,7 +73,7 @@ try {
   const page = await context.newPage()
   const pageErrors = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
-  const settings = { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'sans-serif', label_size_pt: 12, carbon_labels: 'default', display_unit: 'pt' }
+  const settings = { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'sans-serif', label_weight: 'normal', label_size_pt: 12, carbon_labels: 'default', display_unit: 'pt' }
   function snapshot(id) {
     const atoms = [0, 30].map((x, index) => ({ id: `a${index + 1}`, element: 'C', kind: 'element', query: null, charge: 0, isotope: null,
       hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], position: { x, y: 0 } }))

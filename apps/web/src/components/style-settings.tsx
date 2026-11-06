@@ -36,6 +36,7 @@ import {
   CARBON_LABELS,
   DISPLAY_UNITS,
   LABEL_FONTS,
+  LABEL_WEIGHTS,
   SETTING_RANGES,
   THEMES,
   type CarbonLabels,
@@ -44,12 +45,14 @@ import {
   type DocumentSettings,
   type DocumentView,
   type LabelFont,
+  type LabelWeight,
   type NumericSetting,
   type SettingsEdit,
   type Theme,
 } from '@/lib/document-contract'
 
 const FONT_NAMES: Record<LabelFont, string> = { 'sans-serif': 'Sans-serif', serif: 'Serif', monospace: 'Monospace' }
+const WEIGHT_NAMES: Record<LabelWeight, string> = { normal: 'Normal', bold: 'Bold' }
 const CARBON_NAMES: Record<CarbonLabels, string> = {
   default: 'Only carbons that need one',
   all: 'Every carbon',
@@ -241,6 +244,14 @@ function SettingsFields({
         options={LABEL_FONTS}
         names={FONT_NAMES}
         onChange={(label_font) => void onSet({ label_font })}
+      />
+      <ChoiceSetting
+        id={`${idPrefix}-label-weight`}
+        label="Label weight"
+        value={settings.label_weight}
+        options={LABEL_WEIGHTS}
+        names={WEIGHT_NAMES}
+        onChange={(label_weight) => void onSet({ label_weight })}
       />
       <ChoiceSetting
         id={`${idPrefix}-carbon-labels`}

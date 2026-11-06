@@ -274,6 +274,16 @@ v8–11 문서·draft·history를 상속으로 migration하며 읽기 시 미기
 P35는 in_progress. 구현과 회귀만 작성했고 테스트·빌드·브라우저·리뷰는 부모 통합 작업에서 진행한다.
 세부 근거: [P35d 기록](verification/p35d-caption-font-family.md).
 
+## P35j 후보 인계
+
+문서 label_weight normal/bold(기본 normal)를 기존 settings 경로 전체와 chemical label/Et 렌더링에 연결했다.
+normal 400/500은 유지하고 bold 700은 실제 mounted SVG 자연 advance/overhang/수직 ink를 측정하여 trim/fit/hit/selection 공유 레이아웃을 재구성한다.
+radical·독립 caption·chemical graph와 검사/계산 모델은 바꾸지 않는다.
+native document/draft는 v18 strict이며 v1–17 normal migration/원본 bytes archive와 기존 v16/v17 caption admission 및64 MiB 경계를 유지한다.
+이전 graph template/graphics clipboard payload는 weight 누락 시 normal, 명시 null/unknown은 거절하며 새 payload는 명시값을 쓴다.
+P35는 in_progress다. 구현 에이전트는 테스트·빌드·cargo check·browser·skill gate를 실행하지 않았다.
+검증/리뷰의 실제 결과는 부모 격리 검증 후 갱신해야 한다. [상세 기록](verification/p35j-chemical-label-weight.md).
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.

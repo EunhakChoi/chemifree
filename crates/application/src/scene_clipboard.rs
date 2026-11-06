@@ -110,6 +110,7 @@ fn settings(value: SettingsDto) -> Result<Settings, ApplicationError> {
             bond_length_pt: Some(value.bond_length_pt),
             line_width_pt: Some(value.line_width_pt),
             label_font: Some(value.label_font),
+            label_weight: Some(value.label_weight),
             label_size_pt: Some(value.label_size_pt),
             carbon_labels: Some(value.carbon_labels),
             display_unit: Some(value.display_unit),
@@ -283,7 +284,7 @@ mod tests {
     fn payload() -> Value {
         json!({
             "format":"chemifree.clipboard","version":2,"kind":"graphics",
-            "settings":{"bond_length_pt":30.0,"line_width_pt":1.2,"label_font":"sans-serif",
+            "settings":{"bond_length_pt":30.0,"line_width_pt":1.2,"label_font":"sans-serif","label_weight":"normal",
                 "label_size_pt":12.0,"carbon_labels":"default","display_unit":"pt"},
             "roots":["s10","s3"],
             "objects":[

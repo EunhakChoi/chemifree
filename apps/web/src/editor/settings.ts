@@ -91,6 +91,7 @@ export function changed(settings: Readonly<DocumentSettings>, edit: SettingsEdit
     if (!inRange(field, value)) return null
     result[field] = value
   }
+  if (edit.label_weight !== undefined && edit.label_weight !== settings.label_weight) result.label_weight = edit.label_weight
   if (edit.label_font !== undefined && edit.label_font !== settings.label_font) result.label_font = edit.label_font
   if (edit.carbon_labels !== undefined && edit.carbon_labels !== settings.carbon_labels) {
     result.carbon_labels = edit.carbon_labels

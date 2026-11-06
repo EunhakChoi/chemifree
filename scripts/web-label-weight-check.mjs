@@ -1,0 +1,188 @@
+// Production canvas/editor and backend: actual SVG 700 ink, geometry, weight UI and native history.
+import assert from 'node:assert/strict'
+import { execFileSync, spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createServer } from 'vite'
+import { chromium } from 'playwright-core'
+
+const work = mkdtempSync(join(tmpdir(), 'chemifree-label-weight-'))
+let api
+let server
+let browser
+let log = ''
+let stage = 'build'
+let passed = false
+try {
+  execFileSync('cargo', ['build', '--locked', '--package', 'chemifree-api'], { stdio: 'inherit' })
+  const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1', '--locked'], { encoding: 'utf8' }))
+  const env = { ...process.env, CHEMIFREE_DATA_DIR: work }
+  delete env.CHEMIFREE_MODEL_DATA_ROOT
+  delete env.CHEMIFREE_MODEL_TRUSTED_REGISTRY
+  api = spawn(resolve(metadata.target_directory, 'debug', `chemifree-api${process.platform === 'win32' ? '.exe' : ''}`), ['--port', '0'], { env, stdio: ['ignore', 'ignore', 'pipe'] })
+  const base = await new Promise((ready, reject) => {
+    const timer = setTimeout(() => reject(new Error(`API startup timed out: ${log}`)), 15_000)
+    api.once('error', (error) => { clearTimeout(timer); reject(error) })
+    api.once('exit', (code) => { clearTimeout(timer); reject(new Error(`API exited (${code}): ${log}`)) })
+    api.stderr.on('data', (data) => {
+      log += data.toString()
+      const match = log.match(/listening on (http:\/\/127\.0\.0\.1:\d+)/)
+      if (match) { clearTimeout(timer); ready(match[1]) }
+    })
+  })
+  const token = await (await fetch(`${base}/api/v1/session`)).json()
+  async function write(path, body) {
+    const response = await fetch(`${base}/api/v1${path}`, { method: 'POST', headers: { 'content-type': 'application/json', [token.header]: token.token, origin: base }, body: JSON.stringify(body) })
+    assert.ok(response.ok, await response.clone().text())
+    return response.json()
+  }
+  const id = (await write('/documents', { request_id: 'weight-create', title: 'Chemical label ink' })).document.id
+  const seeded = await write(`/documents/${id}/transactions`, { request_id: 'weight-seed', expected_revision: 0, commands: [
+    { op: 'add_atom', element: 'O', position: { x: -300, y: 0 } },
+    { op: 'add_atom', element: 'C', position: { x: 0, y: 0 }, bond_to: { atom: '$0', order: 'single' } },
+    { op: 'add_atom', element: 'C', position: { x: 40, y: 40 }, bond_to: { atom: '$1', order: 'single' } },
+    { op: 'add_atom', element: 'N', position: { x: -400, y: 220 }, isotope: 15, charge: 2, hydrogens: { mode: 'specified', count: 3 }, radical: 'unknown', attachment_points: [1] },
+    { op: 'add_atom', element: 'C', position: { x: -100, y: 220 }, bond_to: { atom: '$3', order: 'single' } },
+    { op: 'add_atom', query: { kind: 'list', negated: true, elements: ['C', 'Cl', 'Br', 'I'] }, position: { x: 600, y: 220 } },
+    { op: 'add_caption', anchor: { x: -300, y: 600 }, alignment: 'left', runs: [{ text: 'Independent caption', script: 'baseline', weight: 'normal' }] },
+  ] })
+  await write(`/documents/${id}/transactions`, { request_id: 'weight-compact', expected_revision: 1, commands: [{ op: 'collapse_ethyl', instance: 's1', anchor: 'a2', terminal: 'a3' }] })
+  const fixture = `
+import React, { useEffect } from 'react'
+import { createRoot } from 'react-dom/client'
+import { StructureCanvas } from '/src/editor/structure-canvas.tsx'
+import { DocumentStyleButton } from '/src/components/style-settings.tsx'
+import { TooltipProvider } from '/src/components/ui/tooltip.tsx'
+import { settingsOf } from '/src/lib/document-contract.ts'
+import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
+import '/src/index.css'
+function Harness() {
+  const editor = useDocumentEditor()
+  useEffect(() => { void editor.open(${JSON.stringify(id)}) }, [])
+  return <main>
+    {['sans-serif', 'serif', 'monospace'].flatMap((font) => [4,72].map((size) => <button key={font+size} disabled={editor.busy} onClick={() => void editor.apply([{op:'update_settings',label_weight:'bold',label_font:font,label_size_pt:size}])}>Bold {font} {size}</button>))}
+    <button disabled={editor.busy} onClick={() => void editor.undo()}>Undo weight</button>
+    <button disabled={editor.busy} onClick={() => void editor.redo()}>Redo weight</button>
+    <button disabled={editor.busy} onClick={() => void editor.save()}>Save weight</button>
+    <output aria-label="Weight snapshot">{JSON.stringify(editor.current)}</output>
+    <output aria-label="Weight selection">{JSON.stringify([...editor.selection])}</output>
+    <output aria-label="Weight error">{editor.error?.message}</output>
+    {editor.current && <>
+      <DocumentStyleButton document={editor.current.document} settings={settingsOf(editor.current.document)} editor={editor} />
+      <div style={{width:1000,height:650}}><StructureCanvas document={editor.current.document} tool="select" element="C" bondKind="single"
+        selection={editor.selection} onSelectionChange={editor.setSelection} activePlacement="s1" onActivePlacementChange={() => {}}
+        onCommands={(commands) => void editor.apply(commands)} onMark={() => {}} disabled={editor.busy}/></div>
+    </>}
+  </main>
+}
+createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /></TooltipProvider>)
+`
+  server = await createServer({
+    root: fileURLToPath(new URL('../apps/web', import.meta.url)),
+    configFile: fileURLToPath(new URL('../apps/web/vite.config.ts', import.meta.url)),
+    server: { host: '127.0.0.1', port: 5173, strictPort: true, proxy: { '/api': base } },
+    plugins: [{ name: 'label-weight-check', configureServer(vite) {
+      vite.middlewares.use('/label-weight-check', async (_request, response) => {
+        response.setHeader('content-type', 'text/html')
+        response.end(await vite.transformIndexHtml('/label-weight-check', '<!doctype html><html><head><title>Label weight</title></head><body><div id="root"></div><script type="module" src="/weight-harness.tsx"></script></body></html>'))
+      })
+    }, resolveId(path) { if (path === '/weight-harness.tsx') return path }, load(path) { if (path === '/weight-harness.tsx') return fixture } }],
+  })
+  await server.listen()
+  browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
+  const page = await browser.newPage()
+  const errors = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  const button = (name) => page.getByRole('button', { name, exact: true })
+  const snapshot = async () => JSON.parse(await page.getByLabel('Weight snapshot', { exact: true }).textContent())
+  await page.goto('http://127.0.0.1:5173/label-weight-check')
+  await page.locator('[data-atom-label="a2"]').waitFor()
+  await page.evaluate(() => document.fonts.ready)
+  const original = (await snapshot()).document
+  const normalWeights = await page.locator('[data-atom-label="a4"] [data-chunk="text"] tspan').evaluateAll((spans) => spans.map((span) => span.getAttribute('font-weight')))
+  assert.deepEqual(normalWeights, ['500', '400', '400', '500', '400'])
+  for (const font of ['sans-serif', 'serif', 'monospace']) {
+    for (const size of [4, 72]) {
+      stage = `actual 700 ink and shared geometry: ${font} ${size}pt`
+      await button(`Bold ${font} ${size}`).click()
+      await page.waitForFunction(({ font, size }) => {
+        const current = JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent)
+        const svg = document.querySelector('svg[data-structure-canvas]')
+        return current.document.settings.label_font === font && current.document.settings.label_size_pt === size && svg.dataset.captionBoundsReady === 'true'
+      }, { font, size })
+      await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+      await page.waitForFunction(() => document.querySelector('svg[data-structure-canvas]').dataset.captionBoundsReady === 'true')
+      const geometry = await page.locator('svg[data-structure-canvas]').evaluate((svg) => {
+        const box = (value) => { const [x,y,width,height] = value.split(' ').map(Number); return {x,y,width,height} }
+        const rect = (r) => ({x:r.x,y:r.y,width:r.width,height:r.height})
+        const labels = [...svg.querySelectorAll('[data-atom-label]')].map((label) => ({ id: label.dataset.atomLabel, box: box(label.dataset.box),
+          ink: rect(label.getBBox()), runs: [...label.querySelectorAll('[data-chunk="text"] tspan')].map((span) => ({weight:span.getAttribute('font-weight'),text:span.textContent,size:Number(span.getAttribute('font-size')),advance:span.getComputedTextLength()})),
+          chunks: [...label.querySelectorAll('[data-chunk="text"]')].map((chunk) => ({box:box(chunk.dataset.box),ink:rect(chunk.getBBox())})) }))
+        return {labels, viewBox:rect(svg.viewBox.baseVal), strokes:[...svg.querySelectorAll('[data-bond="b1"], [data-bond="b3"]')].map((line) => ({x1:Number(line.getAttribute('x1')),y1:Number(line.getAttribute('y1')),x2:Number(line.getAttribute('x2')),y2:Number(line.getAttribute('y2'))})),captionWeights:[...svg.querySelectorAll('[data-caption-text] tspan')].map((span) => span.getAttribute('font-weight'))}
+      })
+      const inside = (inner, outer, message) => {
+        assert.ok(inner.x >= outer.x - 0.05 && inner.y >= outer.y - 0.05 && inner.x+inner.width <= outer.x+outer.width+0.05 && inner.y+inner.height <= outer.y+outer.height+0.05, `${message}: ${JSON.stringify({inner,outer})}`)
+      }
+      for (const label of geometry.labels) {
+        inside(label.ink, label.box, `${stage} ${label.id} ink`)
+        inside(label.box, geometry.viewBox, `${stage} ${label.id} fit`)
+        assert.ok(label.runs.every((run) => run.weight === '700'), JSON.stringify(label))
+        for (const chunk of label.chunks) inside(chunk.ink, chunk.box, `${stage} ${label.id} natural chunk`)
+      }
+      assert.ok(geometry.labels.some((label) => label.runs.some((run) => run.text === 'Et')))
+      assert.ok(geometry.labels.some((label) => label.runs.some((run) => run.text.includes('['))))
+      assert.deepEqual(geometry.captionWeights, ['normal'], 'independent caption never inherits chemical bold')
+      for (const stroke of geometry.strokes) {
+        for (const end of [{x:stroke.x1,y:stroke.y1},{x:stroke.x2,y:stroke.y2}]) {
+          assert.ok(geometry.labels.every(({box}) => !(end.x > box.x && end.x < box.x+box.width && end.y > box.y && end.y < box.y+box.height)), 'bond trim endpoints stay outside every chemical label')
+        }
+      }
+      const label = geometry.labels.find((item) => item.id === 'a4')
+      const screen = await page.locator('svg[data-structure-canvas]').evaluate((svg, box) => {
+        const point=svg.createSVGPoint(); point.x=box.x+box.width-0.5; point.y=box.y+box.height/2
+        const screen=point.matrixTransform(svg.getScreenCTM()); return {x:screen.x,y:screen.y}
+      }, label.box)
+      await page.mouse.click(screen.x, screen.y)
+      assert.ok(JSON.parse(await page.getByLabel('Weight selection', { exact:true }).textContent()).includes('a4'), 'right edge of the measured label is pickable')
+      const selectedBox = await page.locator('[data-instance="s1"] > g').first().locator('rect').evaluateAll((rects) => rects.map((rect) => ({x:Number(rect.getAttribute('x')),y:Number(rect.getAttribute('y')),width:Number(rect.getAttribute('width')),height:Number(rect.getAttribute('height'))})))
+      assert.ok(selectedBox.some((box) => ['x','y','width','height'].every((key) => Math.abs(box[key]-label.box[key]) < 0.05)), 'selection highlight uses the same measured label box')
+      const current = (await snapshot()).document
+      for (const field of ['atoms','bonds','scene','stereo','abbreviations']) assert.deepEqual(current[field], original[field], `appearance keeps ${field}`)
+    }
+  }
+  stage = 'production style selector, undo/redo, save and reopen'
+  await button('Document style').click()
+  await page.getByLabel('Label weight', {exact:true}).click()
+  await page.getByRole('option', {name:'Normal',exact:true}).click()
+  await page.getByRole('button', {name:'Done',exact:true}).click()
+  await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent).document.settings.label_weight === 'normal')
+  await button('Undo weight').click()
+  await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent).document.settings.label_weight === 'bold')
+  await button('Redo weight').click()
+  await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent).document.settings.label_weight === 'normal')
+  await button('Undo weight').click()
+  await button('Save weight').click()
+  await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent).session.unsaved_changes === false)
+  const native = JSON.parse(readFileSync(join(work,'documents',`${id}.json`),'utf8'))
+  assert.equal(native.format_version,18)
+  assert.equal(native.document.settings.label_weight,'bold')
+  await page.reload()
+  await page.waitForFunction(() => document.querySelector('svg[data-structure-canvas]')?.dataset.captionBoundsReady === 'true')
+  assert.equal((await snapshot()).document.settings.label_weight,'bold')
+  assert.deepEqual((await snapshot()).document.atoms,seeded.document.atoms)
+  assert.equal(await page.getByLabel('Weight error',{exact:true}).textContent(),'')
+  assert.deepEqual(errors,[])
+  passed=true
+  console.log('Chemical label weights: 3 families × 4/72pt measured SVG/fit/trim/hit, graph, caption, UI/history/native checks passed.')
+} finally {
+  await browser?.close()
+  await server?.close()
+  if(api?.pid && api.exitCode===null && api.signalCode===null){
+    const exited=once(api,'exit'); api.kill('SIGTERM'); const force=setTimeout(()=>api.kill('SIGKILL'),5000); await exited;clearTimeout(force)
+  }
+  if(passed)rmSync(work,{recursive:true,force:true})
+  else console.error(`Label-weight browser failed at ${stage}; artifacts: ${work}\n${log}`)
+}

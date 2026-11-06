@@ -38,6 +38,7 @@ fn a_new_document_has_the_built_in_defaults() {
             bond_length_pt: 30.0,
             line_width_pt: 1.2,
             label_font: LabelFont::SansSerif,
+            label_weight: chemifree_domain::settings::LabelWeight::Normal,
             label_size_pt: 12.0,
             carbon_labels: CarbonLabels::Default,
             display_unit: DisplayUnit::Pt,
@@ -274,6 +275,7 @@ fn an_edit_overlays_settings_and_a_full_edit_reproduces_them() {
         bond_length_pt: 25.0,
         line_width_pt: 2.0,
         label_font: LabelFont::Monospace,
+        label_weight: chemifree_domain::settings::LabelWeight::Bold,
         label_size_pt: 9.5,
         carbon_labels: CarbonLabels::All,
         display_unit: DisplayUnit::In,
@@ -362,4 +364,54 @@ fn restoring_refuses_invalid_settings_in_the_document_or_its_history() {
         Document::restore(parts).is_err(),
         "a settings change that changes nothing is not a well-formed entry"
     );
+}
+
+#[test]
+fn label_weight_is_only_a_style_edit_and_full_settings_edits_keep_it() {
+    use chemifree_domain::settings::LabelWeight;
+
+    let mut document = empty();
+    document
+        .apply(&[Command::AddAtom {
+            atom: Atom::from(Element::from_symbol("N").unwrap()),
+            positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+            bond_to: None,
+        }])
+        .unwrap();
+    let before = document.to_parts();
+    document
+        .apply(&[update(SettingsEdit {
+            label_weight: Some(LabelWeight::Bold),
+            ..SettingsEdit::default()
+        })])
+        .unwrap();
+    let after = document.to_parts();
+    assert_eq!(document.settings().label_weight, LabelWeight::Bold);
+    assert_eq!(after.atoms, before.atoms);
+    assert_eq!(after.bonds, before.bonds);
+    assert_eq!(after.positions, before.positions);
+    assert_eq!(after.stereo, before.stereo);
+    assert_eq!(after.stereo_groups, before.stereo_groups);
+    assert_eq!(after.objects, before.objects);
+    assert_eq!(
+        Settings::default()
+            .edited(&document.settings().to_edit())
+            .unwrap(),
+        *document.settings()
+    );
+    document.undo().unwrap();
+    assert_eq!(document.settings().label_weight, LabelWeight::Normal);
+    document.redo().unwrap();
+    assert_eq!(document.settings().label_weight, LabelWeight::Bold);
+    let revision = document.revision();
+    assert_eq!(
+        document
+            .apply(&[update(SettingsEdit {
+                label_weight: Some(LabelWeight::Bold),
+                ..SettingsEdit::default()
+            })])
+            .unwrap(),
+        Outcome::Unchanged
+    );
+    assert_eq!(document.revision(), revision);
 }

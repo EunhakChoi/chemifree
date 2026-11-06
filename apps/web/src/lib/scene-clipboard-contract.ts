@@ -95,7 +95,7 @@ function payloadOf(text: string): GraphicPayload | null {
     references.push({ source: item.source, target: { kind: 'object', id: item.target.id } })
   }
   if (!sameReferences(references, references)) return null
-  return { settings: value.settings, roots: value.roots, objects, references }
+  return { settings: 'label_weight' in value.settings ? value.settings : { ...value.settings, label_weight: 'normal' }, roots: value.roots, objects, references }
 }
 
 /** Checks the entire copied forest against the requested source scope without following references. */

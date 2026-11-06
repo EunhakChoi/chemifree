@@ -613,3 +613,89 @@ fn native_list_queries_require_explicit_negation_and_round_trip_both_values() {
         "an omitted negation must never default to a different query or partially paste"
     );
 }
+
+#[test]
+fn native_fragment_and_template_style_comparison_includes_label_weight() {
+    let (app, _directory) = application();
+    let source_id = source(&app);
+    let normal = copy(&app, &source_id);
+    let target = create(&app, "Bold destination");
+    let before = edit(
+        &app,
+        &target,
+        json!([{"op":"update_settings","label_weight":"bold"}]),
+    );
+    let refused = call(
+        &app,
+        "document.clipboard_paste",
+        paste_parameters(&target, 1, normal["payload"].as_str().unwrap()),
+    );
+    assert_refusal(&refused, "clipboard_style_mismatch");
+    assert_eq!(snapshot(&app, &target), before);
+    edit(
+        &app,
+        &source_id,
+        json!([{"op":"update_settings","label_weight":"bold"}]),
+    );
+    let bold = copy(&app, &source_id);
+    let payload: Value = serde_json::from_str(bold["payload"].as_str().unwrap()).unwrap();
+    assert_eq!(payload["settings"]["label_weight"], "bold");
+    let pasted = call(
+        &app,
+        "document.clipboard_paste",
+        paste_parameters(&target, 1, bold["payload"].as_str().unwrap()),
+    );
+    assert_eq!(pasted["outcome"], "ok", "{pasted}");
+    assert_eq!(
+        snapshot(&app, &target)["document"]["settings"]["label_weight"],
+        "bold"
+    );
+}
+
+#[test]
+fn old_normal_templates_paste_as_normal_but_do_not_match_bold_destinations() {
+    let (app, _directory) = application();
+    let source_id = source(&app);
+    let copied = copy(&app, &source_id);
+    let mut old: Value = serde_json::from_str(copied["payload"].as_str().unwrap()).unwrap();
+    old["settings"]
+        .as_object_mut()
+        .unwrap()
+        .remove("label_weight");
+    let normal = create(&app, "Old normal template");
+    let pasted = call(
+        &app,
+        "document.clipboard_paste",
+        paste_parameters(&normal, 0, &old.to_string()),
+    );
+    assert_eq!(pasted["outcome"], "ok", "{pasted}");
+    assert_eq!(
+        snapshot(&app, &normal)["document"]["settings"]["label_weight"],
+        "normal"
+    );
+    let bold = create(&app, "Old template into bold");
+    let before = edit(
+        &app,
+        &bold,
+        json!([{"op":"update_settings","label_weight":"bold"}]),
+    );
+    let refused = call(
+        &app,
+        "document.clipboard_paste",
+        paste_parameters(&bold, 1, &old.to_string()),
+    );
+    assert_refusal(&refused, "clipboard_style_mismatch");
+    assert_eq!(snapshot(&app, &bold), before);
+    for invalid in [Value::Null, json!("heavy"), json!(700)] {
+        let mut malformed = old.clone();
+        malformed["settings"]["label_weight"] = invalid;
+        let before = snapshot(&app, &normal);
+        let result = call(
+            &app,
+            "document.clipboard_paste",
+            paste_parameters(&normal, 1, &malformed.to_string()),
+        );
+        assert_refusal(&result, "clipboard_fragment_invalid");
+        assert_eq!(snapshot(&app, &normal), before);
+    }
+}

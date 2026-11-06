@@ -169,7 +169,7 @@ fn groups_and_their_history_round_trip_in_version_7_with_deterministic_bytes() {
 #[test]
 fn the_stored_shape_keeps_numbers_as_stated_in_identifier_order() {
     let file = saved_file();
-    assert_eq!(file["format_version"], 17);
+    assert_eq!(file["format_version"], 18);
     assert_eq!(file["document"]["next_group"], 5);
     assert_eq!(
         file["document"]["stereo_groups"],
@@ -222,7 +222,7 @@ fn a_version_6_file_reads_with_no_groups_and_its_first_save_keeps_the_original_b
             .unwrap(),
         format!("{ID}.v6.json")
     );
-    assert_eq!(read_json(&path)["format_version"], 17);
+    assert_eq!(read_json(&path)["format_version"], 18);
     assert_eq!(repository.load(&id()).unwrap(), Some(document));
     assert!(root.path().join("migrated").is_dir());
 }
@@ -244,7 +244,7 @@ fn a_version_6_draft_is_recovered_and_its_bytes_are_kept() {
     let revision = recovered.document.revision;
     app.redo(ID, None, revision).unwrap();
     app.autosave(ID, None).unwrap();
-    assert_eq!(read_json(&draft_path)["format_version"], 17);
+    assert_eq!(read_json(&draft_path)["format_version"], 18);
     assert_eq!(fs::read(archive).unwrap(), original, "never overwritten");
 }
 
@@ -261,7 +261,7 @@ fn a_draft_in_version_7_carries_groups_and_recovers_them() {
     };
     repository.write_draft(&draft).unwrap();
     let file = read_json(&root.path().join("drafts").join(format!("{ID}.json")));
-    assert_eq!(file["format_version"], 17);
+    assert_eq!(file["format_version"], 18);
     assert_eq!(
         file["document"]["stereo_groups"].as_array().unwrap().len(),
         4
@@ -275,6 +275,7 @@ fn version_6_cannot_hold_groups_and_version_7_cannot_omit_them() {
     let file = saved_file();
 
     let mut v6_with_groups = file.clone();
+    strip_label_weights(&mut v6_with_groups);
     v6_with_groups["format_version"] = json!(6);
     // Isolate forbidden group fields from later Et metadata, which v6 also forbids.
     v6_with_groups["document"]
@@ -430,4 +431,21 @@ fn lists_are_read_in_any_order_as_for_every_other_list_so_members_are_not_refuse
     let mut twice = written;
     twice["document"]["stereo_groups"][2]["state"]["members"] = json!(["a3", "a3"]);
     assert_unreadable(&twice, "a repeated member is still refused");
+}
+
+fn strip_label_weights(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            object.remove("label_weight");
+            for child in object.values_mut() {
+                strip_label_weights(child);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                strip_label_weights(child);
+            }
+        }
+        _ => {}
+    }
 }
