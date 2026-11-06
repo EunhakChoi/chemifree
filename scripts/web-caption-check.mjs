@@ -32,7 +32,7 @@ async function captionDiagnostics(target) {
         editorError: document.querySelector('[aria-label="Caption error"]')?.textContent,
         canvases: [...document.querySelectorAll('[data-structure-canvas]')].map((canvas) => ({
           viewBox: canvas.getAttribute('viewBox'), scale: canvas.dataset.viewportScale,
-          ready: canvas.dataset.captionBoundsReady, pixels: box(canvas.getBoundingClientRect()),
+          ready: canvas.dataset.captionBoundsReady, measuredViewBox: canvas.dataset.captionMeasuredViewBox, pixels: box(canvas.getBoundingClientRect()),
         })),
         captions: [...document.querySelectorAll('[data-caption-text]')].map((text) => ({
           id: text.getAttribute('data-caption-text'), text: text.textContent,
@@ -77,12 +77,28 @@ try {
   const alternateSave = await fetch(`${base}/api/v1/documents/${alternateId}/save`, { method: 'POST', headers: { 'content-type': 'application/json', [token.header]: token.token, origin: base }, body: JSON.stringify({ request_id: 'caption-browser-alternate-save', expected_revision: 1 }) })
   assert.equal(alternateSave.status, 200)
   const fixture = `
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CaptionPanel } from '/src/components/caption-panel.tsx'
 import { StructureCanvas } from '/src/editor/structure-canvas.tsx'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
+import { useCanvasViewport } from '/src/hooks/use-canvas-viewport.ts'
 import '/src/index.css'
+const probeContent = {}
+function ViewportProbe() {
+  const [identity, setIdentity] = useState(0)
+  const [measurement, setMeasurement] = useState<{ ready: boolean; width: number; at?: string }>({ ready: false, width: 100 })
+  const view = useCanvasViewport('probe-' + identity, { x: 0, y: 0, width: measurement.width, height: 100 },
+    { boundsReady: measurement.ready, measuredViewBox: measurement.at, contentIdentity: probeContent })
+  return <section aria-label="Viewport measurement boundary">
+    <div ref={view.containerRef} style={{ width: 200, height: 100 }}><output aria-label="Probe viewBox">{view.viewBox}</output></div>
+    <button onClick={() => setMeasurement({ ready: true, width: 200, at: view.viewBox })}>Probe first measurement</button>
+    <button onClick={() => setMeasurement({ ready: true, width: 400, at: view.viewBox })}>Probe post-fit measurement</button>
+    <button onClick={() => setMeasurement({ ready: true, width: 800, at: view.viewBox })}>Probe later measurement</button>
+    <button onClick={() => view.pan({ x: 10, y: 0 })}>Probe pan</button>
+    <button onClick={() => { setMeasurement({ ready: false, width: 100 }); setIdentity((value) => value + 1) }}>Reset probe document</button>
+  </section>
+}
 function Harness() {
   const editor = useDocumentEditor()
   useEffect(() => { void editor.open(${JSON.stringify(id)}) }, [])
@@ -103,6 +119,7 @@ function Harness() {
         onCommands={(commands, selected) => void editor.apply(commands, selected ? { kind: 'gesture', before: selected } : undefined)}
         onMark={() => {}} disabled={editor.busy} /></div>
     </>}
+    <ViewportProbe />
   </main>
 }
 createRoot(document.getElementById('root')).render(<Harness />)
@@ -189,7 +206,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
       const text = document.querySelector('[data-caption-text]')
       if (!text) return false
       const canvas = text.ownerSVGElement
-      if (canvas.dataset.captionBoundsReady !== 'true') return false
+      if (canvas.dataset.captionBoundsReady !== 'true' || canvas.dataset.captionMeasuredViewBox !== canvas.getAttribute('viewBox')) return false
       const ink = text.getBBox()
       const view = canvas.viewBox.baseVal
       const drawn = text.getBoundingClientRect()
@@ -252,6 +269,24 @@ createRoot(document.getElementById('root')).render(<Harness />)
   stage = 'font completion fits the latest document but preserves explicit viewport input'
   await fontRace(false)
   await fontRace(true)
+
+  stage = 'deterministic viewport measurement provenance and user authority'
+  const probe = page.getByLabel('Probe viewBox', { exact: true })
+  await button('Probe first measurement').click()
+  await page.waitForFunction(() => document.querySelector('[aria-label="Probe viewBox"]')?.textContent === '0 0 200 100')
+  await button('Probe post-fit measurement').click()
+  await page.waitForFunction(() => document.querySelector('[aria-label="Probe viewBox"]')?.textContent === '0 -50 400 200')
+  // Confirm in the resulting viewport, then later unrelated measurements cannot auto-fit.
+  await button('Probe post-fit measurement').click()
+  await button('Probe later measurement').click()
+  assert.equal(await probe.textContent(), '0 -50 400 200')
+  await button('Reset probe document').click()
+  await button('Probe first measurement').click()
+  await page.waitForFunction(() => document.querySelector('[aria-label="Probe viewBox"]')?.textContent === '0 0 200 100')
+  await button('Probe pan').click()
+  assert.equal(await probe.textContent(), '-10 0 200 100')
+  await button('Probe post-fit measurement').click()
+  assert.equal(await probe.textContent(), '-10 0 200 100', 'a pending correction loses authority after user navigation')
 
   assert.equal(await page.getByLabel('Caption error', { exact: true }).textContent(), '')
   assert.deepEqual(errors, [])

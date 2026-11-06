@@ -251,3 +251,32 @@ and each script run's position/size/ink. Cold-font pages also dump their state b
 This makes future failures reviewable even if the sandbox removes temp files. No product
 behavior, timeouts or assertions were weakened. This agent has not run the browser or other
 execution checks for the corrected fixture; only static source/diff inspection was performed.
+
+## Browser rerun: realized metrics outgrew the initial fitted bounds
+
+The parent's `p35a-browser2.log` for `1e62ac7` reaches save/reopen but fails strict visibility.
+Its diagnostic proves a product defect: actual caption ink ends at x=2010.982 and the current
+hit box at x=2012.982, while the retained viewport ends at x=2002.425. Fonts and the readiness
+flag are loaded/true. Thus current hit geometry already reflects newer metrics, but the
+viewport was fixed from an earlier measurement. Font readiness alone did not establish that
+the bounds were measured in the viewport being finalized. Browser realized glyph metrics or
+layout settling across the fit can change the measured extent; the exact lower-level cause
+is not established by this log.
+
+Measurements now record their actual SVG viewBox. A viewport-attribute observer schedules a
+new real SVG measurement after fitting changes scale. The opening fit remains pending until
+bounds measured in that resulting viewport fit inside it. Only this opening phase can widen
+the accumulated observed bounds and correct the fit; observed bounds never shrink during
+correction. A current-view measurement confirming containment ends that authority. Explicit
+Fit/pan/zoom, a changed edit snapshot or a document switch prevents obsolete corrections;
+a scale-clamped unchanged fit also terminates rather than render-looping.
+
+Kept the strict actual SVG/pixel visibility checks and cold-font/document/user-navigation
+races. Visibility additionally requires measurement/viewBox provenance agreement. Added a
+deterministic fixture around the actual viewport hook: supply bounds measured before the
+first fit, then larger bounds measured in the resulting viewport, confirm that viewport,
+and verify later changes cannot refit it. A second sequence pans during the pending phase
+and verifies post-fit measurements cannot overwrite the chosen viewport. These are explicit
+measurement-boundary inputs, not mocked hook/layout code. Failure diagnostics now include
+the measured viewBox. No tests/build/browser/push were executed by this agent; the corrected
+snapshot requires the parent's isolated rerun.

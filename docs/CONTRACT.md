@@ -1787,9 +1787,12 @@ minus five-twelfths. These are explicit Chemifree display choices, not vendor-de
 The SVG keeps text at natural advance, preserves whitespace and uses text nodes. The canvas
 measures actual SVG glyph ink after rendering and font loading for view-box inclusion,
 selection indication and hit area. A new document's first fit waits for its current caption
-measurements, font completion and positive canvas size. Document switches discard the old
-pending fit. Once a viewport is fitted or a user chooses Fit/pan/zoom (even while measurements
-are pending), later measurements, font completion and edits preserve that viewport. Font fallback, glyph availability, complex shaping and
+measurements, font completion and positive canvas size. The opening fit records the SVG
+viewBox of each measurement and confirms containment using a measurement in its resulting
+viewport; if realized glyph metrics expanded, only this initial phase widens the union of
+observed bounds and fits again. Document switches discard the old pending fit. Confirmation,
+a new edit snapshot or a user choosing Fit/pan/zoom ends that initial correction authority;
+later measurements and font completion then preserve the chosen viewport. Font fallback, glyph availability, complex shaping and
 cross-run combining/emoji shaping are not portable visual-roundtrip guarantees. Avoid
 splitting such sequences across runs. Native persistence preserves the exact scalar/run
 sequence independently of visual accuracy in a given environment.

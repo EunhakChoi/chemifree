@@ -184,7 +184,7 @@ export function StructureCanvas({
   const [preview, setPreview] = useState<Preview>(null)
   const [hover, setHover] = useState<Located | null>(null)
   const selectedGeometry = selectionGeometry(document, selection, activePlacement)
-  const [captionMeasurement, setCaptionMeasurement] = useState<{ document: DocumentView; boxes: Map<string, Box>; fontsReady: boolean } | null>(null)
+  const [captionMeasurement, setCaptionMeasurement] = useState<{ document: DocumentView; boxes: Map<string, Box>; fontsReady: boolean; viewBox: string | undefined } | null>(null)
   const captionBoxes = useMemo<ReadonlyMap<string, Box>>(
     () => captionMeasurement?.document === document ? captionMeasurement.boxes : new Map<string, Box>(),
     [captionMeasurement, document],
@@ -205,11 +205,14 @@ export function StructureCanvas({
           const ink = text.getBBox()
           boxes.set(id, { x: ink.x - 2, y: ink.y - 2, width: ink.width + 4, height: ink.height + 4 })
         }
-        setCaptionMeasurement({ document, boxes, fontsReady: globalThis.document.fonts.status === 'loaded' })
+        setCaptionMeasurement({ document, boxes, fontsReady: globalThis.document.fonts.status === 'loaded', viewBox: svg.getAttribute('viewBox') ?? undefined })
       })
     }
     const observer = new ResizeObserver(measure)
     for (const text of svg.querySelectorAll('[data-caption-text]')) observer.observe(text)
+    // Text metrics can change after a fit changes the rendered scale, even with fonts loaded.
+    const viewportObserver = new MutationObserver(measure)
+    viewportObserver.observe(svg, { attributes: true, attributeFilter: ['viewBox'] })
     globalThis.document.fonts.addEventListener('loadingdone', measure)
     globalThis.document.fonts.addEventListener('loadingerror', measure)
     measure()
@@ -217,6 +220,7 @@ export function StructureCanvas({
       active = false
       cancelAnimationFrame(frame)
       observer.disconnect()
+      viewportObserver.disconnect()
       globalThis.document.fonts.removeEventListener('loadingdone', measure)
       globalThis.document.fonts.removeEventListener('loadingerror', measure)
     }
@@ -293,7 +297,11 @@ export function StructureCanvas({
   const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
   const captionBoundsReady = captionCount === 0 || (captionMeasurement?.document === document &&
     captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount)
-  const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box, captionBoundsReady)
+  const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box, {
+    boundsReady: captionBoundsReady,
+    measuredViewBox: captionCount > 0 && captionMeasurement?.document === document ? captionMeasurement.viewBox : undefined,
+    contentIdentity: document,
+  })
   const unitsPerPixel = 1 / viewport.scale
 
   function drawingOf(instance: string | null) {
@@ -761,6 +769,7 @@ export function StructureCanvas({
       role="group"
       data-structure-canvas=""
       data-caption-bounds-ready={captionBoundsReady}
+      data-caption-measured-view-box={captionMeasurement?.document === document ? captionMeasurement.viewBox : undefined}
       aria-label={`${document.title}: ${document.atoms.length} atoms and ${document.bonds.length} bonds`}
       viewBox={canvasViewBox}
       data-viewport-scale={viewport.scale}
