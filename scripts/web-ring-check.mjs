@@ -255,7 +255,7 @@ try {
   assert.equal(await singlePattern.getAttribute('aria-pressed'), 'true')
   await kekulePattern.click()
   await page.getByRole('button', { name: 'Attach to atom', exact: true }).click()
-  await kekulePattern.waitFor({ state: 'hidden' })
+  assert.equal(await singlePattern.getAttribute('aria-pressed'), 'true')
   await page.getByRole('button', { name: 'Independent', exact: true }).click()
   assert.equal(await singlePattern.getAttribute('aria-pressed'), 'true')
   await kekulePattern.click()

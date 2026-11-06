@@ -19,7 +19,7 @@ export function attachSource() {
   return source
 }
 
-export function attachAfter(size = 6) {
+export function attachAfter(size = 6, pattern = 'single') {
   const result = attachSource()
   const positions = size === 5
     ? [[30, 0], [47.6335575687742, -24.27050983124842], [76.1652530576288, -15],
@@ -29,7 +29,7 @@ export function attachAfter(size = 6) {
   const atoms = positions.map(([x, y], index) => ({ ...structuredClone(result.document.atoms[0]), id: `a${index + 5}`, position: { x, y } }))
   result.document.atoms.push(...atoms)
   result.document.bonds.push(...atoms.map((atom, index) => ({ id: `b${index + 4}`, begin: atom.id,
-    end: atoms[(index + 1) % size].id, order: 'single', query: null, mark: null })),
+    end: atoms[(index + 1) % size].id, order: pattern === 'kekule' && index % 2 === 0 ? 'double' : 'single', query: null, mark: null })),
   { id: `b${size + 4}`, begin: 'a1', end: 'a5', order: 'single', query: null, mark: null })
   result.document.scene.instances[0].positions.push(...atoms.map(({ id, position }) => ({ atom: id, ...position })))
   result.document.stereo = { atoms: [], bonds: [], groups: [] }

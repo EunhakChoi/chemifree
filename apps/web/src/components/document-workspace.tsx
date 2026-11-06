@@ -825,7 +825,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         <ToggleGroupItem value="5" aria-label="Five-member carbon ring">5</ToggleGroupItem>
         <ToggleGroupItem value="6" aria-label="Six-member carbon ring">6</ToggleGroupItem>
       </ToggleGroup>}
-      {tool === 'ring' && ringMode === 'independent' && ringSize === 6 && <ToggleGroup
+      {tool === 'ring' && ringSize === 6 && <ToggleGroup
         aria-label="Ring bond pattern"
         variant="outline"
         size="sm"
@@ -840,7 +840,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
       </ToggleGroup>}
       {tool === 'ring' && <p className="text-xs text-muted-foreground">
         {ringMode === 'independent' ? `Click a center to add an independent ${ringSize}-carbon ${ringPattern === 'kekule' ? 'alternating single/double-bond' : 'single-bond'} ring.`
-          : `Drag from an atom toward the new ${ringSize}-carbon ring. One single bond connects it; ordinary bond-addition stereo clearing applies.`}
+          : `Drag from an atom toward the new ${ringSize}-carbon ${ringPattern === 'kekule' ? 'alternating single/double-bond' : 'single-bond'} ring. One single bond connects it; ordinary bond-addition stereo clearing applies.`}
         {' '}Current bond length; one placement only. No fusion, collision avoidance or conformation calculation.
       </p>}
       {editor.clipboardPending && editor.clipboardAction === 'ring' && <Alert>
@@ -873,7 +873,8 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             onMark={(intent) => void editor.markBond((latest) => buildMark(latest, intent))}
             ringMode={ringMode}
             ringSize={ringSize}
-            onAttachRing={(instance, atom, direction, size) => void editor.attachRing(document.id, instance, atom, direction, size)}
+            ringPattern={ringPattern}
+            onAttachRing={(instance, atom, direction, size, pattern) => void editor.attachRing(document.id, instance, atom, direction, size, pattern)}
             onRing={(instance, center) => void editor.insertRing(document.id, instance, center, ringSize, ringPattern)}
             rings={rings}
             cipLabels={labels}

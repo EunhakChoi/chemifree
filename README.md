@@ -40,10 +40,14 @@ checks are written and unrun in this implementation session.
 
 The independent six-carbon ring additionally offers an explicit **Kekulé alternating bonds**
 pattern (three double and three single bonds). The existing all-single default and five-carbon
-recipe are unchanged; attached rings remain all single. This states bond orders without
+recipe are unchanged. Attached six-carbon rings now offer the same explicit pattern, with
+one additional single connector and ordinary bond-addition stereo clearing. Enter Attach to
+atom, then choose Kekulé alternating bonds explicitly; the pressed size/pattern remain fixed
+through the gesture and uncertain-outcome recovery. This states bond orders without
 aromaticity inference. Pattern choice is retained through lost-reply recovery and is not
 saved as a tool setting. Its checks are written and unrun; see the
-[P34g record](docs/verification/p34g-kekule-ring.md).
+[P34g record](docs/verification/p34g-kekule-ring.md) and
+[P34h record](docs/verification/p34h-attached-kekule-ring.md).
 
 Fusion, spiro, non-terminal replacement, aromatic-bond patterns, other sizes, abbreviation contraction/expansion and
 molecular conformations remain unimplemented. P34 is in progress; the new checks are written

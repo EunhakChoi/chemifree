@@ -1134,6 +1134,29 @@ try {
       assert.deepEqual(undoKekule.result.document.bonds, attached.result.document.bonds)
       const redoKekule = await both((id) => request('op-ring-kekule-redo', 'history.redo', { document_id: id, expected_revision: 11 }))
       assert.deepEqual(redoKekule.result.document.bonds, alternating.result.document.bonds)
+      const attachKekule = (id) => request('op-attach-kekule', 'document.transaction', { document_id: id, expected_revision: 12,
+        commands: [{ op: 'attach_ring', instance: 's1', atom: 'a1', direction: { dx: 1, dy: 0 }, pattern: 'kekule' }] })
+      const phenyl = await both(attachKekule)
+      assert.equal(phenyl.outcome, 'ok')
+      assert.equal(phenyl.result.document.atoms.length, 29)
+      assert.equal(phenyl.result.document.bonds.length, 31)
+      assert.deepEqual(phenyl.result.document.bonds.slice(-7).map((bond) => bond.order), ['double', 'single', 'double', 'single', 'double', 'single', 'single'])
+      assert.deepEqual(phenyl.result.document.bonds.slice(0, 24), alternating.result.document.bonds)
+      assert.deepEqual(await both(attachKekule), phenyl)
+      for (const [index, pattern] of [null, 'aromatic', 'Kekule', true].entries()) {
+        const refused = await both((id) => request(`op-attach-pattern-${index}`, 'document.transaction', { document_id: id, expected_revision: 13,
+          commands: [{ op: 'attach_ring', instance: 's1', atom: 'a1', direction: { dx: 1, dy: 0 }, pattern }] }))
+        assert.equal(refused.diagnostics[0].code, 'invalid_request')
+      }
+      const fiveAttachKekule = await both((id) => request('op-attach-five-kekule', 'document.transaction', { document_id: id, expected_revision: 13,
+        commands: [{ op: 'attach_ring', instance: 's1', atom: 'a1', direction: { dx: 1, dy: 0 }, size: 5, pattern: 'kekule' }] }))
+      assert.equal(fiveAttachKekule.diagnostics[0].code, 'invalid_command')
+      assert.equal(fiveAttachKekule.diagnostics[0].details.reason, 'ring_pattern_invalid')
+      assert.equal(fiveAttachKekule.diagnostics[0].details.command_index, 0)
+      const undoPhenyl = await both((id) => request('op-attach-kekule-undo', 'history.undo', { document_id: id, expected_revision: 13 }))
+      assert.deepEqual(undoPhenyl.result.document.bonds, alternating.result.document.bonds)
+      const redoPhenyl = await both((id) => request('op-attach-kekule-redo', 'history.redo', { document_id: id, expected_revision: 14 }))
+      assert.deepEqual(redoPhenyl.result.document.bonds, phenyl.result.document.bonds)
       httpDoc = outerHttp
       cliDoc = outerCli
     }

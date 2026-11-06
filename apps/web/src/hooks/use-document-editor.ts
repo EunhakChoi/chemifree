@@ -837,7 +837,7 @@ export function useDocumentEditor() {
         await finishClipboardMutation()
       })
     }, [run, finishClipboardMutation]),
-    attachRing: useCallback((documentId: string, instance: string | null, atom: string, direction: { dx: number; dy: number }, size: RingSize = 6) => {
+    attachRing: useCallback((documentId: string, instance: string | null, atom: string, direction: { dx: number; dy: number }, size: RingSize = 6, pattern: RingPattern = 'single') => {
       const pressed = new Set(selectionRef.current)
       const generation = serviceGenerationRef.current
       const vector = { ...direction }
@@ -852,7 +852,7 @@ export function useDocumentEditor() {
           throw new ApiError('ring_selection_changed', 'The captured selection no longer exists. Click again to insert the ring.', 0)
         }
         clipboardAttempt.current = { kind: 'ring', documentId, generation,
-          attempt: client.createRingAttachment(shown, instance, atom, vector, before, size) }
+          attempt: client.createRingAttachment(shown, instance, atom, vector, before, size, pattern) }
         setClipboardAction('ring')
         await finishClipboardMutation()
       })
