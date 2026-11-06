@@ -120,6 +120,8 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
   await page.goto('http://127.0.0.1:5173/label-underline-check')
   await page.locator('[data-atom-label="a2"]').waitFor()
   await page.evaluate(() => document.fonts.ready)
+  // Load diagnostics before the matrix, so sampling itself has no async gap.
+  await page.evaluate(async () => { window.__chemicalLabelMeasure = (await import('/src/editor/label.ts')).measureChemicalLabels })
   const original = (await snapshot()).document
   const normalWeights = await page.locator('[data-atom-label="a4"] [data-chunk="text"] tspan').evaluateAll((spans) => spans.map((span) => span.getAttribute('font-weight')))
   assert.deepEqual(normalWeights, ['500', '400', '400', '500', '400'])
@@ -128,15 +130,26 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
   for (const font of ['sans-serif', 'serif', 'monospace']) {
     for (const size of [4, 72]) {
       stage = `actual underline ${style} ${weight} ink and shared geometry: ${font} ${size}pt`
+      const beforeRevision = (await snapshot()).document.revision
       await button(`Underline ${style} ${weight} ${font} ${size}`).click()
-      await page.waitForFunction(({ font, size }) => {
+      await page.waitForFunction(({ font, size, style, weight, beforeRevision }) => {
         const current = JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent)
         const svg = document.querySelector('svg[data-structure-canvas]')
-        return current.document.settings.label_font === font && current.document.settings.label_size_pt === size && svg.dataset.captionBoundsReady === 'true'
-      }, { font, size })
+        return current.document.revision > beforeRevision && current.document.settings.label_font === font && current.document.settings.label_size_pt === size && current.document.settings.label_style === style && current.document.settings.label_weight === weight && current.document.settings.label_underline === true && !svg.classList.contains('cursor-progress') && svg.dataset.captionMeasuredViewBox === svg.getAttribute('viewBox') && svg.dataset.captionBoundsReady === 'true'
+      }, { font, size, style, weight, beforeRevision })
       await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
-      await page.waitForFunction(() => document.querySelector('svg[data-structure-canvas]').dataset.captionBoundsReady === 'true')
+      await page.waitForFunction(() => {
+        const svg = document.querySelector('svg[data-structure-canvas]')
+        return svg.dataset.captionBoundsReady === 'true' && svg.dataset.captionMeasuredViewBox === svg.getAttribute('viewBox') && !svg.classList.contains('cursor-progress')
+      })
       const geometry = await page.locator('svg[data-structure-canvas]').evaluate((svg) => {
+        // Capture all evidence in one JS turn. Fresh metrics are diagnostic only:
+        // production rectangles and bounds remain the subject of every assertion.
+        const fresh = window.__chemicalLabelMeasure(svg)
+        const current = JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent)
+        const context = { documentId:current.document.id,revision:current.document.revision,settings:current.document.settings,
+          ready:svg.dataset.captionBoundsReady,measuredViewBox:svg.dataset.captionMeasuredViewBox,paintedViewBox:svg.getAttribute('viewBox'),
+          fonts:document.fonts.status,busy:svg.classList.contains('cursor-progress') }
         const box = (value) => { const [x,y,width,height] = value.split(' ').map(Number); return {x,y,width,height} }
         const rect = (r) => ({x:r.x,y:r.y,width:r.width,height:r.height})
         const labels = [...svg.querySelectorAll('[data-atom-label]')].map((label) => ({ id: label.dataset.atomLabel, box: box(label.dataset.box),
@@ -146,15 +159,25 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
             const size = Number(span.getAttribute('font-size'))
             return {x:start,y:positions[0].y+size/12,width:end-start,height:size/16}
           }), runs: [...label.querySelectorAll('[data-chunk="text"] tspan')].map((span) => ({style:span.getAttribute('font-style'),weight:span.getAttribute('font-weight'),text:span.textContent,size:Number(span.getAttribute('font-size')),advance:span.getComputedTextLength()})),
-          chunks: [...label.querySelectorAll('[data-chunk="text"]')].map((chunk) => ({box:box(chunk.dataset.box),ink:rect(chunk.getBBox())})),
+          chunks: [...label.querySelectorAll('[data-chunk="text"]')].map((chunk) => ({box:box(chunk.dataset.box),ink:rect(chunk.getBBox()),key:chunk.dataset.labelMetricKey,
+            fresh:fresh.chunks.get(chunk.dataset.labelMetricKey),font:getComputedStyle(chunk).font,
+            characters:[...chunk.querySelectorAll('tspan')].map((span)=>({text:span.textContent,computedFont:getComputedStyle(span).font,
+              positions:Array.from({length:span.getNumberOfChars()},(_,index)=>{ const start=span.getStartPositionOfChar(index),end=span.getEndPositionOfChar(index);return {start:{x:start.x,y:start.y},end:{x:end.x,y:end.y}} })}))})),
           marks: [...label.querySelectorAll('text[data-mark]')].map((mark) => ({part:mark.dataset.mark,box:box(mark.dataset.box),ink:rect(mark.getBBox()),weights:[...mark.querySelectorAll('tspan')].map((span)=>span.getAttribute('font-weight')),styles:[...mark.querySelectorAll('tspan')].map((span)=>span.getAttribute('font-style'))})) }))
-        return {labels, viewBox:rect(svg.viewBox.baseVal), strokes:[...svg.querySelectorAll('[data-bond="b1"], [data-bond="b3"]')].map((line) => ({x1:Number(line.getAttribute('x1')),y1:Number(line.getAttribute('y1')),x2:Number(line.getAttribute('x2')),y2:Number(line.getAttribute('y2'))})),captionWeights:[...svg.querySelectorAll('[data-caption-text] tspan')].map((span) => span.getAttribute('font-weight')),captionStyles:[...svg.querySelectorAll('[data-caption-text] tspan')].map((span) => getComputedStyle(span).fontStyle),stretched:svg.querySelectorAll('[data-atom-label] [textLength]').length}
+        return {context, labels, viewBox:rect(svg.viewBox.baseVal), strokes:[...svg.querySelectorAll('[data-bond="b1"], [data-bond="b3"]')].map((line) => ({x1:Number(line.getAttribute('x1')),y1:Number(line.getAttribute('y1')),x2:Number(line.getAttribute('x2')),y2:Number(line.getAttribute('y2'))})),captionWeights:[...svg.querySelectorAll('[data-caption-text] tspan')].map((span) => span.getAttribute('font-weight')),captionStyles:[...svg.querySelectorAll('[data-caption-text] tspan')].map((span) => getComputedStyle(span).fontStyle),stretched:svg.querySelectorAll('[data-atom-label] [textLength]').length}
       })
+      assert.equal(geometry.context.ready,'true',JSON.stringify({stage,context:geometry.context}))
+      assert.equal(geometry.context.measuredViewBox,geometry.context.paintedViewBox,JSON.stringify({stage,context:geometry.context}))
+      assert.equal(geometry.context.fonts,'loaded',JSON.stringify({stage,context:geometry.context}))
+      assert.equal(geometry.context.settings.label_underline,true,JSON.stringify({stage,context:geometry.context}))
+      assert.equal(geometry.context.busy,false,JSON.stringify({stage,context:geometry.context}))
+      assert.deepEqual([geometry.context.settings.label_font,geometry.context.settings.label_size_pt,geometry.context.settings.label_style,geometry.context.settings.label_weight],
+        [font,size,style,weight],JSON.stringify({stage,context:geometry.context}))
       const inside = (inner, outer, message) => {
         assert.ok(inner.x >= outer.x - 0.05 && inner.y >= outer.y - 0.05 && inner.x+inner.width <= outer.x+outer.width+0.05 && inner.y+inner.height <= outer.y+outer.height+0.05, `${message}: ${JSON.stringify({inner,outer})}`)
       }
       for (const label of geometry.labels) {
-        assert.equal(label.underlines.length, label.runs.length, 'each chemical run gets exactly one rect, marks get none')
+        assert.equal(label.underlines.length, label.runs.length, `each chemical run gets exactly one rect, marks get none: ${JSON.stringify({stage,context:geometry.context,label})}`)
         for (let index = 0; index < label.underlines.length; index++) {
           const line = label.underlines[index], expected = label.expectedUnderlines[index]
           for (const field of ['x','y','width','height']) assert.ok(Math.abs(line[field]-expected[field]) < 0.05, `${stage} underline ${field}: ${JSON.stringify({line,expected})}`)
