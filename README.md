@@ -338,3 +338,10 @@ v20 persistence; v1–19 migrate to false with exact old-byte archival. Existing
 external `drawing_settings` losses remain. P35 is still in progress. The added
 checks (`npm run test:browser:label-underline`, client and Rust suites) are authored
 but were not executed in this implementation session.
+
+Chemical label outline (P35m, in progress) adds a default-off **Outline labels**
+document setting, shared by preferences, HTTP/CLI, undo, save and recovery. Only
+chemical glyphs and Et become hollow strokes; underlines stay filled and
+caption/state marks remain independent. Native v21 migrates v1–20 as false with
+exact byte archives. Browser coverage is registered in CI but was not run in
+this session. See the contract for bounded rendering and format rules.

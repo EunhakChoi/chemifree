@@ -371,7 +371,7 @@ export function StructureCanvas({
   )
 
   const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
-  const measuredLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic' || settingsOf(document).label_underline
+  const measuredLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic' || settingsOf(document).label_underline || settingsOf(document).label_outline
   const chemicalMeasurementComplete = !measuredLabels || drawings.every((drawing) =>
     [...drawing.labels.values()].every((label) => label === null || label.chunks.every((chunk) => chunk.measured)))
   const captionMeasurementComplete = chemicalMeasurementComplete && ((captionCount === 0 && !measuredLabels) || (captionMeasurement?.document === document &&
@@ -1087,6 +1087,11 @@ function ChunkText({ chunk, at, ...rest }: { chunk: LabelChunk; at: Position; cl
               fontSize={run.size}
               fontWeight={run.weight}
               fontStyle={run.style}
+              fill={run.outline ? 'none' : undefined}
+              stroke={run.outline ? 'currentColor' : undefined}
+              strokeWidth={run.outline ? run.size / 16 : undefined}
+              strokeLinejoin={run.outline ? 'round' : undefined}
+              data-label-outline={String(run.outline)}
               dominantBaseline="central"
               data-part={run.part}
             >

@@ -23,6 +23,7 @@ fn strip_underlines(value: &mut Value) {
     match value {
         Value::Object(object) => {
             object.remove("label_underline");
+            object.remove("label_outline");
             for child in object.values_mut() {
                 strip_underlines(child);
             }
@@ -44,7 +45,7 @@ fn document_and_draft_require_underline_in_current_and_both_history_directions()
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/label-underline.json");
     let template: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(template["format_version"], 20);
+    assert_eq!(template["format_version"], 21);
     for location in [
         "/document/settings",
         "/history/undo/0/settings/before",
@@ -98,14 +99,14 @@ fn document_and_draft_require_underline_in_current_and_both_history_directions()
 }
 
 #[test]
-fn old_headers_forbid_underline_even_in_history_and_future_21_is_untouched() {
+fn old_headers_forbid_underline_even_in_history_and_future_22_is_untouched() {
     let root = tempfile::tempdir().unwrap();
     let repo = FileDocumentRepository::new(root.path());
     let doc = document();
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/label-underline.json");
     let template: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    for version in [16, 17, 18, 19, 21] {
+    for version in [16, 17, 18, 19, 22] {
         for location in [
             "/document/settings",
             "/history/undo/0/settings/before",
@@ -149,8 +150,8 @@ fn old_headers_forbid_underline_even_in_history_and_future_21_is_untouched() {
                     repo.load(doc.id()).unwrap_err().to_string()
                 };
                 assert!(
-                    reason.contains(if version == 21 {
-                        "version 21"
+                    reason.contains(if version == 22 {
+                        "version 22"
                     } else {
                         "label_underline"
                     }),

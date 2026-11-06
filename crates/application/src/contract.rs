@@ -220,6 +220,8 @@ pub struct SettingsDto {
     pub label_style: LabelStyleDto,
     #[serde(default)]
     pub label_underline: bool,
+    #[serde(default)]
+    pub label_outline: bool,
     pub label_size_pt: f64,
     pub carbon_labels: CarbonLabelsDto,
     pub display_unit: DisplayUnitDto,
@@ -242,6 +244,8 @@ pub struct SettingsEditDto {
     pub label_style: Option<LabelStyleDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_underline: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_outline: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_size_pt: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -664,6 +668,8 @@ pub enum CommandDto {
         label_style: Option<LabelStyleDto>,
         #[serde(default)]
         label_underline: Option<bool>,
+        #[serde(default)]
+        label_outline: Option<bool>,
         #[serde(default)]
         label_size_pt: Option<f64>,
         #[serde(default)]
@@ -1328,6 +1334,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             label_weight,
             label_style,
             label_underline,
+            label_outline,
             label_size_pt,
             carbon_labels,
             display_unit,
@@ -1338,6 +1345,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             label_weight: *label_weight,
             label_style: *label_style,
             label_underline: *label_underline,
+            label_outline: *label_outline,
             label_size_pt: *label_size_pt,
             carbon_labels: *carbon_labels,
             display_unit: *display_unit,
@@ -1526,6 +1534,7 @@ pub(crate) fn to_settings_edit(edit: &SettingsEditDto) -> SettingsEdit {
             LabelStyleDto::Italic => LabelStyle::Italic,
         }),
         label_underline: edit.label_underline,
+        label_outline: edit.label_outline,
         label_size_pt: edit.label_size_pt,
         carbon_labels: edit.carbon_labels.map(|labels| match labels {
             CarbonLabelsDto::Default => CarbonLabels::Default,
@@ -1548,6 +1557,7 @@ pub(crate) fn settings_edit_view(edit: &SettingsEdit) -> SettingsEditDto {
         label_weight: edit.label_weight.map(weight_view),
         label_style: edit.label_style.map(style_view),
         label_underline: edit.label_underline,
+        label_outline: edit.label_outline,
         label_size_pt: edit.label_size_pt,
         carbon_labels: edit.carbon_labels.map(carbon_labels_view),
         display_unit: edit.display_unit.map(unit_view),
@@ -1562,6 +1572,7 @@ pub(crate) fn settings_view(settings: &Settings) -> SettingsDto {
         label_weight: weight_view(settings.label_weight),
         label_style: style_view(settings.label_style),
         label_underline: settings.label_underline,
+        label_outline: settings.label_outline,
         label_size_pt: settings.label_size_pt,
         carbon_labels: carbon_labels_view(settings.carbon_labels),
         display_unit: unit_view(settings.display_unit),
