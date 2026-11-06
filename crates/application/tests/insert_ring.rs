@@ -426,7 +426,7 @@ fn unsupported_ring_patterns_preserve_revision_selection_and_redo() {
         "document.transaction",
         json!({
         "document_id":id,"expected_revision":2,"commands":[
-        {"op":"attach_ring","instance":"s1","atom":"a1","direction":{"dx":1,"dy":0},"pattern":"kekule"}]}),
+        {"op":"attach_ring","instance":"s1","atom":"a1","direction":{"dx":1,"dy":0},"pattern":"aromatic"}]}),
     );
     assert_eq!(
         attached["diagnostics"][0]["code"], "invalid_request",

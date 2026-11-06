@@ -52,7 +52,15 @@ fn seed(app: &App, id: &str, singleton: bool) -> Value {
 
 #[test]
 fn attachment_clears_only_touched_stereo_and_prunes_groups_with_undo_replay_and_reopen() {
-    for (size, singleton) in [(5, false), (6, false), (5, true)] {
+    for (size, singleton, pattern) in [
+        (5, false, None),
+        (6, false, None),
+        (5, true, None),
+        (5, false, Some("single")),
+        (6, false, Some("single")),
+        (6, false, Some("kekule")),
+        (6, true, Some("kekule")),
+    ] {
         let directory = tempfile::tempdir().unwrap();
         let app = Application::new(
             LocalCapabilities,
@@ -62,12 +70,16 @@ fn attachment_clears_only_touched_stereo_and_prunes_groups_with_undo_replay_and_
         let id = created["result"]["document"]["id"].as_str().unwrap();
         let before = seed(&app, id, singleton)["result"]["document"].clone();
         let before_state = snapshot(&app, id);
+        let mut command = json!({"op":"attach_ring","instance":"s1","atom":"a1","direction":{"dx":1,"dy":0},"size":size});
+        if let Some(pattern) = pattern {
+            command["pattern"] = json!(pattern);
+        }
         let late = request(
             &app,
             "late-rollback",
             "document.transaction",
             json!({"document_id":id,"expected_revision":1,"commands":[
-                {"op":"attach_ring","instance":"s1","atom":"a1","direction":{"dx":1,"dy":0},"size":size},
+                command.clone(),
                 {"op":"move_atoms","atoms":["a2"],"instance":"s1","delta":{"x":100000,"y":0}}
             ]}),
         );
@@ -78,7 +90,7 @@ fn attachment_clears_only_touched_stereo_and_prunes_groups_with_undo_replay_and_
             before_state,
             "stereo/group clearing must roll back with a later command"
         );
-        let parameters = json!({"document_id":id,"expected_revision":1,"commands":[{"op":"attach_ring","instance":"s1","atom":"a1","direction":{"dx":1,"dy":0},"size":size}]});
+        let parameters = json!({"document_id":id,"expected_revision":1,"commands":[command]});
         let attached = request(&app, "attach", "document.transaction", parameters.clone());
         assert_eq!(attached["outcome"], "partial", "{attached}");
         let after = &attached["result"]["document"];
@@ -143,12 +155,17 @@ fn attachment_clears_only_touched_stereo_and_prunes_groups_with_undo_replay_and_
         let oracle_id = oracle_created["result"]["document"]["id"].as_str().unwrap();
         seed(&oracle, oracle_id, singleton);
         let fresh = &after["atoms"].as_array().unwrap()[8..];
+        let orders = if pattern == Some("kekule") {
+            vec!["double", "single", "double", "single", "double", "single"]
+        } else {
+            vec!["single"; size]
+        };
         let mut commands: Vec<Value> = fresh
             .iter()
             .map(|atom| json!({"op":"add_atom","element":"C","position":atom["position"]}))
             .collect();
         for index in 0..size {
-            commands.push(json!({"op":"add_bond","begin":fresh[index]["id"],"end":fresh[(index+1)%size]["id"],"order":"single"}));
+            commands.push(json!({"op":"add_bond","begin":fresh[index]["id"],"end":fresh[(index+1)%size]["id"],"order":orders[index]}));
         }
         commands.push(json!({"op":"add_bond","begin":"a1","end":fresh[0]["id"],"order":"single"}));
         let reference = request(
@@ -160,10 +177,22 @@ fn attachment_clears_only_touched_stereo_and_prunes_groups_with_undo_replay_and_
         assert_eq!(reference["outcome"], "partial", "{reference}");
         assert_eq!(reference["result"]["notes"], attached["result"]["notes"]);
         assert_eq!(reference["result"]["document"]["stereo"], after["stereo"]);
+        assert_eq!(reference["result"]["document"]["bonds"], after["bonds"]);
 
         assert_eq!(
             request(&app, "attach", "document.transaction", parameters.clone()),
             attached
+        );
+        let mut changed = parameters.clone();
+        changed["commands"][0]["pattern"] = json!(if pattern == Some("kekule") {
+            "single"
+        } else {
+            "kekule"
+        });
+        let reused = request(&app, "attach", "document.transaction", changed);
+        assert_eq!(
+            reused["diagnostics"][0]["code"], "request_id_reused",
+            "{reused}"
         );
         let undone = request(
             &app,
@@ -248,4 +277,79 @@ fn malformed_target_size_and_direction_requests_preserve_the_complete_snapshot()
         assert_eq!(reply["diagnostics"][0]["code"], code, "{reply}");
         assert_eq!(snapshot(&app, id), before);
     }
+}
+
+#[test]
+fn attachment_patterns_reject_malformed_and_five_kekule_without_losing_redo() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let created = request(&app, "create", "document.create", json!({}));
+    let id = created["result"]["document"]["id"].as_str().unwrap();
+    seed(&app, id, false);
+    let undone = request(
+        &app,
+        "undo",
+        "history.undo",
+        json!({"document_id":id,"expected_revision":1}),
+    );
+    assert_eq!(undone["outcome"], "ok", "{undone}");
+    let before = snapshot(&app, id);
+    for (index, pattern) in [
+        json!(null),
+        json!("aromatic"),
+        json!("Kekule"),
+        json!(""),
+        json!(true),
+        json!(6),
+        json!({}),
+        json!([]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let refused = request(
+            &app,
+            &format!("pattern-{index}"),
+            "document.transaction",
+            json!({
+            "document_id":id,"expected_revision":2,"commands":[
+            {"op":"rename","title":"Rollback"},
+            {"op":"attach_ring","instance":"s1","atom":"a1","direction":{"dx":1,"dy":0},"pattern":pattern}]}),
+        );
+        assert_eq!(
+            refused["diagnostics"][0]["code"], "invalid_request",
+            "{refused}"
+        );
+        assert_eq!(snapshot(&app, id), before);
+    }
+    let five = request(
+        &app,
+        "five-kekule",
+        "document.transaction",
+        json!({
+        "document_id":id,"expected_revision":2,"commands":[
+        {"op":"rename","title":"Rollback"},
+        {"op":"attach_ring","instance":"s1","atom":"a1","direction":{"dx":1,"dy":0},"size":5,"pattern":"kekule"}]}),
+    );
+    assert_eq!(five["diagnostics"][0]["code"], "invalid_command", "{five}");
+    assert_eq!(
+        five["diagnostics"][0]["details"]["reason"],
+        "ring_pattern_invalid"
+    );
+    assert_eq!(five["diagnostics"][0]["details"]["command_index"], 1);
+    assert_eq!(snapshot(&app, id), before);
+}
+
+#[test]
+fn omitted_and_explicit_single_attachment_patterns_have_identical_dtos() {
+    use chemifree_application::CommandDto;
+    let omitted: CommandDto = serde_json::from_value(
+        json!({"op":"attach_ring","instance":"s1","atom":"a1","direction":{"dx":1,"dy":0}}),
+    )
+    .unwrap();
+    let explicit: CommandDto = serde_json::from_value(json!({"op":"attach_ring","instance":"s1","atom":"a1","direction":{"dx":1,"dy":0},"size":6,"pattern":"single"})).unwrap();
+    assert_eq!(omitted, explicit);
 }

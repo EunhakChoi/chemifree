@@ -2,6 +2,14 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P34h 기존 원자에 Kekulé 6탄소 고리 연결 후보
+
+- #182 main `80e3204` 기반 별도 `feat/p34h-attach-kekule-ring` 후보다. P34 전체는 in_progress이며 약어 표시 모델은 사용자 결정 대기다.
+- `attach_ring`도 optional `pattern:single|kekule`을 받는다. 생략/single·size5/6는 기존 graph/geometry/notes를 유지하고 kekule은 size6만 가능하다. 내부 edge0/2/4 double·1/3/5 single, 외부 connector는 single이다. null/unknown/non-string은 invalid_request, size5+kekule은 ring_pattern_invalid다.
+- 기존 single connector의 target stereo clearing·group prune/notes·atomic rollback·history/replay/save를 재사용한다. 새 과학 추론·H/valence 보정·약어·schema·provider·fusion/spiro는 없다.
+- 실제 Attach size6에 패턴 선택을 보이고 기존 Attach 진입 single reset을 유지한다. canvas gesture press의 pattern/size가 prop rerender나 queue/recovery 중에도 바뀌지 않는다. client는 phase·single connector와 notes를 검사한다.
+- Domain/Application·client·HTTP=CLI·production UI/gesture/frozen recovery browser 회귀와 문서를 작성했다. 부모 지시로 테스트·빌드·브라우저·push는 실행하지 않았다. [P34h 기록](verification/p34h-attached-kekule-ring.md)의 리뷰·미실행 검증을 따른다.
+
 ## P34g 독립 Kekulé 6탄소 고리 후보
 
 - P34f HEAD `3b3b2a7` 기반 `feat/p34g-kekule-ring` 후보다. 구현 `12bda93` 뒤 동일 tree의 #181 main squash `f51e0ed`를 통합했다. P34 전체는 in_progress다.

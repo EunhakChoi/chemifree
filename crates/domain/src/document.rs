@@ -358,9 +358,9 @@ pub enum NewAtomPositions {
 /// Supported independently defined regular carbon-ring recipes.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum RingSize {
-    /// Five carbon atoms and five single bonds.
+    /// Five carbon vertices using regular pentagon geometry.
     Five,
-    /// Six carbon atoms and six single bonds; the original recipe.
+    /// Six carbon vertices using the original regular hexagon geometry.
     #[default]
     Six,
 }
@@ -371,7 +371,7 @@ pub enum RingPattern {
     /// All five or six bonds are single; the original recipe.
     #[default]
     Single,
-    /// Six bonds alternate double/single, starting at the rightmost vertex clockwise.
+    /// Six bonds alternate double/single in recipe vertex order, starting with double.
     Kekule,
 }
 
@@ -426,6 +426,7 @@ pub enum Command {
         atom: AtomId,
         direction: Vector,
         size: RingSize,
+        pattern: RingPattern,
     },
     /// Adds an atom with the given state, optionally bonded from another atom (`bond_to.atom`
     /// is the bond's `begin`, so the donor of a dative bond).
@@ -667,7 +668,7 @@ pub enum EditError {
     CoordinateOutOfRange,
     /// Ring attachment needs a finite nonzero direction.
     RingDirectionInvalid,
-    /// Kekulé is defined only for the independent six-carbon recipe.
+    /// Kekulé is defined only for six-carbon ring recipes.
     RingPatternInvalid,
     ChargeOutOfRange(i8),
     IsotopeOutOfRange(u16),
@@ -2104,7 +2105,11 @@ impl Draft {
                 atom,
                 direction,
                 size,
+                pattern,
             } => {
+                if *pattern == RingPattern::Kekule && *size != RingSize::Six {
+                    return Err(EditError::RingPatternInvalid);
+                }
                 self.content.require_instance(*instance)?;
                 let instances = self.content.instance_count();
                 if instances != 1 {
@@ -2137,7 +2142,7 @@ impl Draft {
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let first = self.insert_carbon_ring(*instance, &positions, RingPattern::Single)?;
+                let first = self.insert_carbon_ring(*instance, &positions, *pattern)?;
                 self.insert_bond(*atom, first, BondOrder::Single)?;
             }
             Command::AddAtom {
