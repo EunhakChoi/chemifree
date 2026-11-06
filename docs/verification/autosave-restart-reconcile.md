@@ -57,6 +57,27 @@ generation/timer guard 제거는 replacement-process draft 부재와 원본 snap
 late reply guard 제거는 held draft 응답 뒤 추가 read 부재 단정이 실패해야 한다.
 이 mutation 계획은 미실행이며 통과로 주장하지 않는다.
 
+## PR #176 Codex P1: flush의 false success
+
+[Codex P1](https://github.com/EunhakChoi/chemifree/pull/176#discussion_r4488873718)은
+새 process와 아직 reconcile하지 않은 unsaved snapshot에서 `save.current()`가 전송
+없이 끝나 `flush()`가 null을 반환하는 경로를 지적했다. 이전 show는 Open/Create로
+화면을 바꾸고 `draft_not_written`도 보고하지 않아 page-only 변경을 잃을 수 있었다.
+
+flush는 draft가 덮지 못한 미저장 작업에 대해 전송 전과 완료 뒤 process generation을
+확인하고 unresolved이면 non-null restart 사유를 반환하도록 수정했다. 이 경우 show는
+destination HTTP 전에 거절해 원본 snapshot을 화면에 남긴다. `service_restarted`를
+유지하므로 실제 UI의 Reload 버튼이 남으며, 교체 process에 원본이 남아 있다고 말하지
+않는다. 정상 process의 draft 실패는 기존 전환+`draft_not_written` 경로를 유지하고,
+clean/already-drafted navigation과 명시 Reload/reconcile은 그대로다.
+
+실제 hook browser 회귀에 blocked flush의 non-null·Open/Create 요청 부재·원본 전체
+보존·Reload 유지, 명시 Reload와 완료 draft 뒤 Open 허용, clean 이전 세대 Open 허용,
+정상 process의 draft 실패 뒤 destination 전환+`draft_not_written`을 추가했다.
+flush의 새 guard나 show의 전송 전 거절을 제거하면 이 단정이 실패해야 한다.
+이번 수정과 추가 회귀는 테스트·빌드·브라우저·mutation을 실행하지 않았다.
+부모가 실행 중인 이전 `1931415` snapshot의 full 검사는 이 추가 수정의 근거가 아니다.
+
 ## 리뷰
 
 - Codex 작성자 정적 검토: restart notification·token 재학습·snapshot 채택·autosave
@@ -69,5 +90,6 @@ late reply guard 제거는 held draft 응답 뒤 추가 read 부재 단정이 �
   수정했다. obsolete read 실패도 새 세대 snapshot을 stop하지 않도록 제한했고,
   held edit 뒤의 queued-refresh·same-content recovery·drafting 재개 회귀를 추가했다.
   이 지적은 정적 수정으로 처리했으며 추가 테스트/빌드/브라우저는 실행하지 않았다.
+- PR #176 Codex review의 P1은 위 false-success 수정과 추가 회귀로 처리했다.
 - TypeScript patterns/testing skills를 적용했다. 실행 gate와 mutation proof는 부모의
-  명시 지시로 미실행이며 pending이다. PR Codex review와 CI는 아직 없다.
+  명시 지시로 미실행이며 pending이다. 현재 수정 HEAD의 full 검증과 CI는 pending이다.

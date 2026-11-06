@@ -15,6 +15,7 @@ export const AUTOSAVE_MAX_WAIT_MS = 5000
 const RETRY_DELAYS_MS = [2000, 5000, 15_000, 30_000]
 /** How long after the service's retry is due the page reads the document to see its outcome. */
 const OUTCOME_READ_AFTER_MS = 1000
+const RESTART_MESSAGE = 'The local service restarted. Reload the drawing before autosaving again.'
 
 export type AutosaveState =
   | { kind: 'clean' }
@@ -215,7 +216,7 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
         return
       }
       if (hostRef.current.processGeneration() === null) {
-        setState({ kind: 'stopped', message: 'The local service restarted. Reload the drawing before autosaving again.' })
+        setState({ kind: 'stopped', message: RESTART_MESSAGE })
         return
       }
       const stopped = stoppedOn.current
@@ -350,8 +351,10 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
     const { session, recovery, document } = shown
     const drafted = session.draft_revision
     if (!session.unsaved_changes || (drafted !== null && drafted >= document.revision)) return null
+    if (hostRef.current.processGeneration() === null) return RESTART_MESSAGE
     if (recovery || stoppedOn.current?.view === shown) return null
     await save.current()
+    if (hostRef.current.processGeneration() === null) return RESTART_MESSAGE
     return failure.current?.message ?? stoppedOn.current?.message ?? null
   }, [])
 

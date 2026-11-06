@@ -4,7 +4,7 @@
 
 ## Autosave 재시작·명시 재조회 보강 후보
 
-- 별도 `fix/autosave-restart-reconcile` 후보는 main `71321a9`에서 분리했다. background refresh 성공/실패가 editor 오류를 지우지 않으며, 화면 snapshot의 서비스 세대가 달라지면 autosave timer·수동 retry·늦은 draft 응답·대기 중 refresh가 새 process를 무단 채택하지 않는다. 명시 Reload/reconcile과 기존 same-content edit recovery의 snapshot 채택 뒤에만 재개한다.
+- 별도 `fix/autosave-restart-reconcile` 후보는 main `71321a9`에서 분리했다. background refresh 성공/실패가 editor 오류를 지우지 않으며, 화면 snapshot의 서비스 세대가 달라지면 autosave timer·수동 retry·늦은 draft 응답·대기 중 refresh가 새 process를 무단 채택하지 않는다. 명시 Reload/reconcile과 기존 same-content edit recovery의 snapshot 채택 뒤에만 재개한다. PR #176 Codex P1을 반영해 undrafted 이전 세대의 flush는 실패 사유를 반환하며 Open/Create는 HTTP 전송 전에 원본을 화면에 남기고 Reload를 안내한다. clean/already-drafted navigation과 정상 process draft 실패의 기존 `draft_not_written` 경로는 유지한다.
 - 실제 editor/autosave hook·client를 사용하는 `npm run test:browser:autosave-restart`를 작성해 CI에 연결했다. HTTP·브라우저 시간만 제어하며 실제 backend crash 검증은 아니다. 기존 smoke에는 aromaticity block의 누락된 step 이름만 보강했다. 부모 지시로 테스트·빌드·브라우저를 실행하지 않았고 current full/CI는 pending이다. 원인·리뷰·검증 대기는 [기록](verification/autosave-restart-reconcile.md)을 따른다.
 
 ## P34a 독립 탄소 6원 고리 후보

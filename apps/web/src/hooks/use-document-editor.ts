@@ -487,11 +487,16 @@ export function useDocumentEditor() {
   /**
    * Shows another document. The one on screen is drafted first, so pending work it leaves
    * open in the service survives a crash; if that fails, the switch still happens and says so.
+   * A restarted process cannot retain undrafted work, so that case keeps the drawing shown.
    */
   const show = useCallback(
     async (next: () => Promise<DocumentResponse>) => {
       const left = currentRef.current?.document.title
       const unwritten = await flush()
+      if (unwritten !== null && shownGenerationRef.current !== serviceGenerationRef.current) {
+        throw new ApiError('service_restarted',
+          `Unsaved changes to “${left}” could not be autosaved (${unwritten}). The drawing remains on screen. Reload it before opening or creating another drawing.`, 0)
+      }
       setCurrent(await next())
       if (unwritten !== null) {
         throw new ApiError(

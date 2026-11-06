@@ -52,7 +52,7 @@ try {
   assert.ok(address && typeof address !== 'string')
   browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
 
-  async function scenario({ restart, heldDraft = false, failedRead = false, restartDuringRead = false }) {
+  async function scenario({ restart, heldDraft = false, failedRead = false, restartDuringRead = false, clean = false }) {
     const context = await browser.newContext()
     try {
       await keepRequestInterception(context)
@@ -63,8 +63,8 @@ try {
       await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'))
       const source = ringSource()
       source.document.title = 'Unsaved original'
-      source.session.unsaved_changes = true
-      source.session.saved_revision = 2
+      source.session.unsaved_changes = !clean
+      source.session.saved_revision = clean ? source.document.revision : 2
       source.session.undo_depth = 1
       const replacement = structuredClone(source)
       replacement.document.title = 'Replacement process'
@@ -74,10 +74,17 @@ try {
       savedReplacement.session.draft_revision = replacement.document.revision
       const savedSource = structuredClone(source)
       savedSource.session.draft_revision = source.document.revision
+      const other = structuredClone(source)
+      other.document.id = 'other'
+      other.document.title = 'Other drawing'
+      other.session.unsaved_changes = false
+      other.session.saved_revision = other.document.revision
       let token = 'process-1'
       let editing = false
       let reads = 0
       let drafts = 0
+      let denyDraft = false
+      const navigation = []
       const draftArrived = deferred()
       const releaseDraft = deferred()
       const draftFinished = deferred()
@@ -88,8 +95,18 @@ try {
         const request = route.request()
         const path = new URL(request.url()).pathname
         if (path === '/api/v1/session') return json(route, { header: 'x-chemifree-token', token })
-        if (path === '/api/v1/documents') return json(route, { api_version: 'v1', documents: [] })
+        if (path === '/api/v1/documents') {
+          if (request.method() === 'POST') {
+            navigation.push('create')
+            return json(route, other)
+          }
+          return json(route, { api_version: 'v1', documents: [] })
+        }
         if (path === '/api/v1/trash') return json(route, { api_version: 'v1', documents: [] })
+        if (path === '/api/v1/documents/other') {
+          navigation.push('open')
+          return json(route, other)
+        }
         if (path === '/api/v1/operations' && restartDuringRead) {
           token = 'process-2'
           return json(route, { api_version: 'v1', code: 'unauthorized', message: 'Old process token' }, 401)
@@ -104,6 +121,7 @@ try {
         }
         if (path.endsWith('/autosave')) {
           drafts += 1
+          if (denyDraft) return json(route, { api_version: 'v1', code: 'storage_failed', message: 'Draft failed' }, 503)
           draftArrived.resolve()
           if (heldDraft && drafts === 1) await releaseDraft.promise
           // A different same-revision reply makes the old hook re-read automatically.
@@ -129,7 +147,7 @@ try {
       })
       await page.goto(`http://127.0.0.1:${address.port}/autosave-check`)
       await page.getByLabel('Drawing', { exact: true }).filter({ hasText: 'Unsaved original' }).waitFor()
-      await page.getByLabel('Autosave', { exact: true }).filter({ hasText: 'waiting' }).waitFor()
+      await page.getByLabel('Autosave', { exact: true }).filter({ hasText: clean ? 'clean' : 'waiting' }).waitFor()
       if (heldDraft) {
         await page.clock.runFor(1000)
         await draftArrived.promise
@@ -137,6 +155,17 @@ try {
       await page.getByRole('button', { name: 'Edit', exact: true }).click()
       const error = restart ? 'service_restarted' : 'revision_conflict'
       await page.getByLabel('Editor error', { exact: true }).filter({ hasText: error }).waitFor()
+      if (clean) {
+        assert.equal(await page.evaluate(() => window.autosaveHarness.autosave.flush()), null,
+          'a clean old-process drawing has no page-only changes to preserve')
+        await page.evaluate(() => window.autosaveHarness.open('other'))
+        await page.getByLabel('Drawing', { exact: true }).filter({ hasText: 'Other drawing' }).waitFor()
+        assert.deepEqual(navigation, ['open'], 'clean navigation remains available after restart')
+        assert.equal(drafts, 0)
+        assert.equal(await page.getByLabel('Editor error', { exact: true }).textContent(), 'none')
+        assert.deepEqual(errors, [])
+        return
+      }
       if (restart) {
         const afterEditReads = reads
         if (heldDraft) {
@@ -152,6 +181,17 @@ try {
         assert.equal(await page.getByLabel('Editor error', { exact: true }).textContent(), error)
         assert.deepEqual(await page.evaluate(() => window.autosaveHarness.current.document), source.document,
           'restart and late draft replies preserve the entire unsaved drawing')
+        assert.match(await page.evaluate(() => window.autosaveHarness.autosave.flush()), /service restarted/,
+          'flush reports undrafted work instead of returning a false success')
+        await page.evaluate(async () => {
+          await window.autosaveHarness.open('other')
+          await window.autosaveHarness.create('New drawing')
+        })
+        assert.deepEqual(navigation, [], 'blocked Open/Create send no destination requests')
+        assert.deepEqual(await page.evaluate(() => window.autosaveHarness.current.document), source.document,
+          'blocked navigation keeps the only page-held unsaved copy on screen')
+        assert.equal(await page.getByLabel('Editor error', { exact: true }).textContent(), error,
+          'the restart error keeps the explicit Reload action available')
         assert.equal(await page.getByRole('button', { name: 'Reload', exact: true }).count(), 1)
         await page.getByRole('button', { name: 'Reload', exact: true }).click()
         await page.getByLabel('Drawing', { exact: true }).filter({ hasText: 'Replacement process' }).waitFor()
@@ -162,6 +202,9 @@ try {
         await nextDraft
         await page.getByLabel('Autosave', { exact: true }).filter({ hasText: 'saved' }).waitFor()
         assert.equal(drafts, heldDraft ? 2 : 1)
+        await page.evaluate(() => window.autosaveHarness.open('other'))
+        await page.getByLabel('Drawing', { exact: true }).filter({ hasText: 'Other drawing' }).waitFor()
+        assert.deepEqual(navigation, ['open'], 'Reload and completed drafting permit navigation')
       } else {
         await page.clock.runFor(1000)
         if (restartDuringRead) {
@@ -183,6 +226,13 @@ try {
         assert.equal(await page.getByLabel('Editor error', { exact: true }).textContent(), restartDuringRead ? 'service_restarted' : error,
           'background refresh success and failure preserve the existing page error')
         assert.deepEqual(await page.evaluate(() => window.autosaveHarness.current.document), source.document)
+        if (failedRead) {
+          denyDraft = true
+          await page.evaluate(() => window.autosaveHarness.open('other'))
+          await page.getByLabel('Drawing', { exact: true }).filter({ hasText: 'Other drawing' }).waitFor()
+          await page.getByLabel('Editor error', { exact: true }).filter({ hasText: 'draft_not_written' }).waitFor()
+          assert.deepEqual(navigation, ['open'], 'ordinary current-process draft failure retains the existing navigation path')
+        }
       }
       assert.deepEqual(errors, [])
     } finally {
@@ -191,6 +241,7 @@ try {
   }
   await scenario({ restart: true })
   await scenario({ restart: true, heldDraft: true })
+  await scenario({ restart: true, clean: true })
   await scenario({ restart: false })
   await scenario({ restart: false, failedRead: true })
   await scenario({ restart: false, restartDuringRead: true })
