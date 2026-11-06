@@ -90,6 +90,8 @@ jobs:
         run: npm run test:browser:scene-cut
       - name: Native clipboard across documents with the real backend
         run: npm run test:browser:clipboard-integration
+      - name: Et display, hidden hit, whole-pair movement and native roundtrip
+        run: npm run test:browser:abbreviation
       - name: Unicode caption form, canvas and native roundtrip
         run: npm run test:browser:caption
       - name: Independent ring insertion and uncertain outcome recovery

@@ -1055,6 +1055,53 @@ try {
     {
       const outerHttp = httpDoc
       const outerCli = cliDoc
+      const createEt = request('op-et-create', 'document.create', { title: 'Et parity' })
+      httpDoc = (await viaHttp(createEt)).body.result.document.id
+      cliDoc = (await viaCli(createEt)).result.document.id
+      const drawn = await both((id) => request('op-et-draw', 'document.transaction', { document_id: id, expected_revision: 0, commands: [
+        { op: 'add_atom', element: 'O', position: { x: 0, y: 0 } },
+        { op: 'add_atom', element: 'C', position: { x: 30, y: 0 }, bond_to: { atom: '$0', order: 'single' } },
+        { op: 'add_atom', element: 'C', position: { x: 45, y: 25 }, bond_to: { atom: '$1', order: 'single' } },
+      ] }))
+      const parameters = (id) => request('op-et-collapse', 'document.transaction', { document_id: id, expected_revision: 1,
+        commands: [{ op: 'collapse_ethyl', instance: 's1', anchor: 'a2', terminal: 'a3' }] })
+      const compact = await both(parameters)
+      assert.equal(compact.outcome, 'ok')
+      assert.deepEqual(compact.result.document.abbreviations, [{ instance: 's1', anchor: 'a2', terminal: 'a3' }])
+      assert.deepEqual(compact.result.document.atoms, drawn.result.document.atoms)
+      assert.deepEqual(compact.result.document.bonds, drawn.result.document.bonds)
+      assert.deepEqual(compact.result.document.scene, drawn.result.document.scene)
+      assert.deepEqual(await both(parameters), compact, 'Et replay does not add history')
+      const bad = await both((id) => request('op-et-boundary', 'document.transaction', { document_id: id, expected_revision: 2,
+        commands: [{ op: 'rename', title: 'must roll back' }, { op: 'collapse_ethyl', instance: 's1', anchor: 'a3', terminal: 'a2' }] }))
+      assert.equal(bad.diagnostics[0].details.reason, 'abbreviation_invalid')
+      assert.equal(bad.diagnostics[0].details.command_index, 1)
+      const malformed = await both((id) => request('op-et-null', 'document.transaction', { document_id: id, expected_revision: 2,
+        commands: [{ op: 'collapse_ethyl', instance: null, anchor: 'a2', terminal: 'a3' }] }))
+      assert.equal(malformed.diagnostics[0].code, 'invalid_request')
+      const copy = await both((id) => request('op-et-copy', 'document.clipboard_copy', { document_id: id, instance: 's1', selection: { atoms: ['a2', 'a3'], bonds: ['b2'] } }))
+      assert.equal(copy.outcome, 'error')
+      assert.equal(copy.diagnostics[0].code, 'invalid_command')
+      assert.equal(copy.diagnostics[0].details.reason, 'clipboard_abbreviation_display_unsupported')
+      const formula = await both((id) => request('op-et-formula', 'chem.properties', { document_id: id, scope: 'molecule', property: 'formula' }))
+      assert.equal(formula.result.components[0].formula, 'C2H6O')
+      const moved = await both((id) => request('op-et-move', 'document.transaction', { document_id: id, expected_revision: 2,
+        commands: [{ op: 'move_selection', instance: 's1', selection: { atoms: ['a2', 'a3'], bonds: ['b2'] }, delta: { x: 7, y: -2 } }] }))
+      assert.deepEqual(moved.result.document.abbreviations, compact.result.document.abbreviations)
+      const changed = await both((id) => request('op-et-charge', 'document.transaction', { document_id: id, expected_revision: 3, commands: [{ op: 'update_atom', atom: 'a3', charge: 1 }] }))
+      assert.deepEqual(changed.result.document.abbreviations, [])
+      const restored = await both((id) => request('op-et-undo', 'history.undo', { document_id: id, expected_revision: 4 }))
+      assert.deepEqual(restored.result.document.abbreviations, compact.result.document.abbreviations)
+      await both((id) => request('op-et-save', 'document.save', { document_id: id, expected_revision: 5 }))
+      await both((id) => request('op-et-close', 'document.close', { document_id: id, expected_revision: 5, discard_unsaved: false }))
+      const reopened = await both((id) => request('op-et-reopen', 'document.snapshot', { document_id: id }))
+      assert.deepEqual(reopened.result.document, restored.result.document)
+      httpDoc = outerHttp
+      cliDoc = outerCli
+    }
+    {
+      const outerHttp = httpDoc
+      const outerCli = cliDoc
       const createCaption = request('op-caption-create', 'document.create', { title: 'Caption parity' })
       httpDoc = (await viaHttp(createCaption)).body.result.document.id
       cliDoc = (await viaCli(createCaption)).result.document.id
@@ -1286,8 +1333,8 @@ try {
       const transaction = catalog.result.operations.find((operation) => operation.id === 'document.transaction')
       const commandRows = transaction.sub_operations.filter((part) => part.commands === undefined)
       const capabilityRows = transaction.sub_operations.filter((part) => part.commands !== undefined)
-      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [50, 39, 11],
-        'attach_ring is a command row; the 11 capability rows are unchanged')
+      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [52, 41, 11],
+        'Et collapse/expand are command rows; the 11 capability rows are unchanged')
       for (const command of ['set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing',
         'create_stereo_group', 'delete_stereo_group', 'set_stereo_group_kind', 'set_stereo_group_number',
         'add_stereo_group_members', 'remove_stereo_group_members', 'merge_stereo_groups', 'split_stereo_group']) {
@@ -1756,7 +1803,7 @@ try {
     const savedV1 = await write('/api/v1/documents/doc-00000000000000a1/save', { request_id: 'v1-save', expected_revision: 5 })
     assert.equal(savedV1.status, 200)
     assert.equal(readFileSync(kept('doc-00000000000000a1'), 'utf8'), viaHttp.bytes, 'the first save kept the exact version 1 bytes')
-    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 8)
+    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 9)
     assert.deepEqual(cli('documents', 'show', 'doc-00000000000000a1', '--json').body.document, savedV1.body.document)
 
     const viaCli = placed('v1-document.json', 'doc-00000000000000a2')
@@ -1799,10 +1846,10 @@ try {
     const savedV2 = await write('/api/v1/documents/doc-00000000000000b2/save', { request_id: 'v2-save', expected_revision: 7 })
     assert.equal(savedV2.status, 200)
     assert.equal(readFileSync(keptV2('doc-00000000000000b2'), 'utf8'), v2.bytes, 'the first save kept the exact version 2 bytes')
-    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 8)
+    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 9)
     assert.equal(cli('documents', 'show', 'doc-00000000000000b2', '--json').body.document.atoms[0].radical, 'doublet')
     const undoneV2 = cli('documents', 'undo', 'doc-00000000000000b2', '--expected-revision', '7', '--json')
-    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 8')
+    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 9')
 
     // Both entry adapters preserve an old draft's exact bytes before recovering it as a copy.
     const oldDraft = (documentId) => {
@@ -1844,19 +1891,19 @@ try {
     const savedV4 = await write(`/api/v1/documents/${v4Id}/save`, { request_id: 'v4-save', expected_revision: 3 })
     assert.equal(savedV4.status, 200)
     assert.equal(readFileSync(join(dataDir, 'migrated', `${v4Id}.v4.json`), 'utf8'), v4.bytes)
-    assert.equal(JSON.parse(readFileSync(v4.path, 'utf8')).format_version, 8)
+    assert.equal(JSON.parse(readFileSync(v4.path, 'utf8')).format_version, 9)
     const undoneV4 = cli('documents', 'undo', v4Id, '--expected-revision', '3', '--json')
     assert.equal(undoneV4.body.document.settings.label_font, 'sans-serif')
     assert.deepEqual(undoneV4.body.document.scene.references, openedV4.body.document.scene.references)
 
     const newer = placed('v4-document.json', 'doc-00000000000000a3')
-    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 9')
+    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 10')
     writeFileSync(newer.path, newer.bytes)
     const refused = await call('/api/v1/documents/doc-00000000000000a3')
     assert.deepEqual([refused.status, refused.body.code], [500, 'document_unreadable'])
-    assert.match(refused.body.message, /version 9/)
+    assert.match(refused.body.message, /version 10/)
     const unreadable = (await call('/api/v1/documents')).body.unreadable.find((item) => item.id === 'doc-00000000000000a3')
-    assert.match(unreadable?.message ?? '', /version 9; this build reads versions 1, 2, 3, 4, 5, 6, 7, and 8/)
+    assert.match(unreadable?.message ?? '', /version 10; this build reads versions 1, 2, 3, 4, 5, 6, 7, 8, and 9/)
     assert.equal(cli('documents', 'show', 'doc-00000000000000a3', '--json').body.code, 'document_unreadable')
     assert.equal(readFileSync(newer.path, 'utf8'), newer.bytes, 'a newer file is left untouched')
     assert.equal(existsSync(kept('doc-00000000000000a3')), false)

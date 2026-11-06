@@ -10,6 +10,10 @@ const namedAtoms = (neighbors: string[]) => neighbors.filter((id) => id !== IMPL
 
 function referencedIds(command: Command): string[] {
   switch (command.op) {
+    case 'collapse_ethyl':
+      return [command.instance, command.anchor, command.terminal]
+    case 'expand_ethyl':
+      return [command.instance, command.anchor]
     case 'attach_ring':
       return [command.instance, command.atom]
     case 'insert_ring':

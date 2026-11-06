@@ -1,3 +1,4 @@
+import { AbbreviationPanel } from '@/components/abbreviation-panel'
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   ArchiveRestoreIcon,
@@ -917,6 +918,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <IdentityPanel document={document} editor={editor} />
           <SubstructurePanel document={document} editor={editor} />
           <SceneControls document={document} editor={editor} activePlacement={activePlacement} />
+          <AbbreviationPanel document={document} editor={editor} />
           <CaptionPanel key={`caption-${document.id}-${editor.serviceGeneration}`} document={document} editor={editor} />
           <SceneClipboardPanel key={`scene-clipboard-${document.id}`} document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}

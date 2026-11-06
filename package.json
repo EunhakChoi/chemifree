@@ -33,6 +33,7 @@
     "test:browser:cdxml-clipboard": "node scripts/web-cdxml-clipboard-check.mjs",
     "test:browser:cdxml-import": "node scripts/web-cdxml-import-check.mjs",
     "test:browser:scene-cut": "node scripts/web-scene-cut-check.mjs",
+    "test:browser:abbreviation": "node scripts/web-abbreviation-check.mjs",
     "test:browser:caption": "node scripts/web-caption-check.mjs",
     "test:browser:ring": "node scripts/web-ring-check.mjs",
     "test:browser:attach-ring": "node scripts/web-attach-ring-check.mjs",

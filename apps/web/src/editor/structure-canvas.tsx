@@ -1,3 +1,4 @@
+import { abbreviationsIn, abbreviationTargets, compactView, ethylLabel } from '@/editor/abbreviation'
 import type { RingPattern, RingSize } from '@/lib/document-contract'
 import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
@@ -258,10 +259,11 @@ export function StructureCanvas({
       return layouts.get(key) ?? null
     }
     return all.map((placement) => {
-      const view = placedView(document, placement)
+      const view = compactView(placedView(document, placement), placement.id)
+      const compactAnchors = new Set(abbreviationsIn(document, placement.id).map((item) => item.anchor))
       const index = atomIndex(view)
       const left = leaningRight(view)
-      const labels = new Map<string, AtomLabel | null>(view.atoms.map((atom) => [atom.id, layoutOf(atom, left.has(atom.id))]))
+      const labels = new Map<string, AtomLabel | null>(view.atoms.map((atom) => [atom.id, compactAnchors.has(atom.id) ? ethylLabel(style) : layoutOf(atom, left.has(atom.id))]))
       const sides = bondSides(view, index, rings)
       const frame =
         all.length > 1 && placement.id !== null && view.atoms.length > 0
@@ -446,12 +448,19 @@ export function StructureCanvas({
       : kind === 'atom' ? positions?.has(id)
       : bond !== undefined && positions?.has(bond.begin) && positions.has(bond.end)
     let next = current
-    const deselected = additive && next.has(id)
+    const targets = kind === 'atom' ? abbreviationTargets(document, instance, id) : [id]
+    const compact = kind === 'atom' ? abbreviationsIn(document, instance).find((item) => item.anchor === id) : undefined
+    // Collapse preserves the atom-pair selection; its internal bond may be implicit.
+    const targetSelected = compact ? next.has(compact.anchor) && next.has(compact.terminal) : next.has(id)
+    const deselected = additive && targetSelected
     if (additive) {
-      if (deselected) next.delete(id)
-      else next.add(id)
+      if (deselected) targets.forEach((target) => { next.delete(target) })
+      else targets.forEach((target) => { next.add(target) })
     } else if (!covered) {
-      next = new Set([id])
+      next = new Set(targets)
+    } else if (targets.length > 1) {
+      // A selected boundary bond covers the anchor geometrically, but not its hidden pair.
+      targets.forEach((target) => { next.add(target) })
     }
     onSelectionChange(next)
     const moving = selectionGeometry(document, next, instance)
@@ -618,7 +627,10 @@ export function StructureCanvas({
 
   function clickCommands(hit: Hit, instance: string | null, point: Position): Command[] {
     if (tool === 'erase') {
-      if (hit?.kind === 'atom') return [{ op: 'delete_atoms', atoms: [hit.id] }]
+      if (hit?.kind === 'atom') {
+        const item = abbreviationsIn(document, instance).find((item) => item.anchor === hit.id)
+        return [{ op: 'delete_atoms', atoms: item ? [item.anchor, item.terminal] : [hit.id] }]
+      }
       if (hit?.kind === 'bond') return [{ op: 'delete_bonds', bonds: [hit.id] }]
       return []
     }
@@ -711,14 +723,14 @@ export function StructureCanvas({
     <g key={drawing.id ?? 'atoms'} data-instance={drawing.id ?? undefined}>
       {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
       <g className="fill-primary/15 stroke-primary/40">
-        {document.bonds
+        {drawing.view.bonds
           .filter((bond) => (drawing.id === activePlacement && selection.has(bond.id)) || (selectedGeometry?.positions.get(drawing.id)?.has(bond.begin) && selectedGeometry.positions.get(drawing.id)?.has(bond.end)) || hovered(drawing, 'bond', bond.id))
           .map((bond) => {
             const a = position(drawing, bond.begin)
             const b = position(drawing, bond.end)
             return <line key={bond.id} data-underlay={bond.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={bondUnderlay(bond.order, drawing.lineWidth, drawing.spacing, unitsPerPixel, bond.mark)} strokeLinecap="round" />
           })}
-        {document.atoms
+        {drawing.view.atoms
           .filter((atom) => selectedGeometry?.positions.get(drawing.id)?.has(atom.id) || hovered(drawing, 'atom', atom.id))
           .map((atom) => {
             const p = position(drawing, atom.id)
@@ -959,7 +971,7 @@ const DrawingLayer = memo(function DrawingLayer({
         {drawing.view.atoms.map((atom) => {
           const label = drawing.labels.get(atom.id)
           return label ? (
-            <AtomMark key={atom.id} id={atom.id} name={atomName(atom, placement)} label={label} at={position(atom.id)} />
+            <AtomMark key={atom.id} id={atom.id} name={abbreviationsIn(drawing.view, drawing.id).some((item) => item.anchor === atom.id) ? `Et abbreviation at ${atom.id}; retained ethyl graph` : atomName(atom, placement)} label={label} at={position(atom.id)} />
           ) : null
         })}
       </g>

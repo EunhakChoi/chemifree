@@ -78,6 +78,7 @@ pub struct PastePlan {
 /// A refusal changes neither source nor destination.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FragmentError {
+    AbbreviationDisplay,
     SceneSelection,
     EmptySelection,
     UnknownSelection,
@@ -98,6 +99,7 @@ impl FragmentError {
     /// Stable reason for the application boundary.
     pub const fn as_str(&self) -> &'static str {
         match self {
+            Self::AbbreviationDisplay => "clipboard_abbreviation_display_unsupported",
             Self::SceneSelection => "clipboard_scene_selection_unsupported",
             Self::EmptySelection => "clipboard_empty_selection",
             Self::UnknownSelection => "clipboard_selection_unknown",
@@ -131,7 +133,7 @@ impl std::error::Error for FragmentError {}
 ///
 /// # Errors
 /// Refuses scene-object targets, absent targets/placement, empty selections, selected enhanced
-/// group members, non-self-contained stereo and fragments exceeding the transaction budget.
+/// group members, compact Et displays, non-self-contained stereo and fragments exceeding the transaction budget.
 pub fn copy_fragment(
     document: &Document,
     selection: &Selection,
@@ -152,6 +154,11 @@ pub fn copy_fragment(
         let bond = document.bond(*id).ok_or(FragmentError::UnknownSelection)?;
         atoms.insert(bond.begin);
         atoms.insert(bond.end);
+    }
+    if document.abbreviations().any(|(key, terminal)| {
+        key.instance == instance && (atoms.contains(&key.atom) || atoms.contains(&terminal))
+    }) {
+        return Err(FragmentError::AbbreviationDisplay);
     }
     if atoms.is_empty() {
         return Err(FragmentError::EmptySelection);

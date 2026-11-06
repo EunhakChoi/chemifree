@@ -1550,9 +1550,11 @@ mod tests {
         let path = repository.path(document.id());
         let valid = fs::read_to_string(&path).unwrap();
 
+        let mut future: serde_json::Value = serde_json::from_str(&valid).unwrap();
+        future["format_version"] = 99.into();
         for corrupt in [
             "not json".to_owned(),
-            valid.replace("\"format_version\":8", "\"format_version\":99"),
+            serde_json::to_string(&future).unwrap(),
             valid.replacen("\"begin\":\"a1\"", "\"begin\":\"a9\"", 1),
             valid.replace(document.id().as_str(), "doc-0000000000000000"),
         ] {

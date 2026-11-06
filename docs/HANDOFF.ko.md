@@ -8,6 +8,15 @@
 - PR 병합과 정확한 topic branch/head를 확인하고(squash/rebase 포함), 이후 미병합 커밋이나 의존 작업이 없으면 완료된 일회성 worktree와 로컬·원격 topic branch를 삭제한다. main과 장기 유지 브랜치는 보존한다.
 - 사용자 데이터, 기존 수정·untracked 파일, dirty하거나 사용 중인 worktree와 진행 중인 작업은 보존한다. 소유권·사용 여부·완료 여부가 불명확하면 삭제하지 않고 경로/브랜치와 보류 이유를 인계한다. 자세한 절차는 [.github/CONTRIBUTING.md](../.github/CONTRIBUTING.md#clean-up-completed-work)를 따른다.
 
+## P34i 기존 ethyl 그래프의 Et 표시 축약 후보
+
+- 사용자 결정은 실제 그래프 유지·화면만 축약이다. P35a `ed52406`에서 별도 `feat/p34i-ethyl-display`를 시작했다. P35a #184 squash main `cadec8e`를 통합했다. P34 전체는 in_progress다.
+- `collapse_ethyl`/`expand_ethyl` transaction command와 별도 `(instance, anchor)→terminal` 표시 map이다. 단일 명시 배치·중성 기본 C2·내부 single·anchor 외부 single 경계1개만 지원하고 인접 mark/stereo/group·겹침을 거절한다. graph/ID/state/좌표/stereo를 변경하지 않는다.
+- Et label·visible projection을 draw/hit/underlay·marquee에 적용하고 클릭은 pair/internal bond 전체를 선택한다. 전체 rigid move/transform은 유지하며 관련 chemistry·부분 geometry·배치 수 변화는 같은 Undo 단계에서 자동 펼친다. 펼침은 원래 좌표 그대로다.
+- P35a native v8 caption을 보존하는 v9 document/draft/history migration이며 old header 뒤 current/history-only 표시 필드도 거절한다. 기존 byte archive·replay/recovery 경로를 재사용한다. caption 현재48MiB·이력8MiB 예산에 Et 현재 표시와 before/after 이력도 포함한다. v8 복구 후 무변경 autosave는 원본을 유지하고 다음 실제 편집 초안만 v9로 쓴다.
+- MOL/SDF/SMILES/CDXML/CDX는 전체 graph와 `abbreviation_display` rendering loss다. native graph copy/Cut/template export는 compact member와 교차하면 명시 거절한다. DATA/provider·약어 parser·자동 인식·다중 boundary/배치·rich-text 약어·layout은 없다.
+- Domain/Application/provider/client/HTTP=CLI/실제 production browser 회귀를 작성했다. 독립 fresh-context 리뷰의 covered boundary selection P2를 전체 pair selection 합치기와 browser 회귀로 수정했다. 사용자 지시로 테스트·빌드·브라우저·push는 실행하지 않았다. rustfmt만 실행했으며 CI/실행 검증은 pending이다. [검증 기록](verification/p34i-ethyl-display.md)을 따른다.
+
 ## P35a 독립 Unicode caption 후보
 
 - PR #184 CI `42201768786`의 미래 버전 거절 회귀는 현재 v8을 미래 버전으로 꾸민 낡은 fixture가 원인이다. provider/header 거절은 유지하고 미래 입력만 v9·지원 목록1–8로 수정했다. HTTP/CLI smoke의 동일 거절 및 migration 저장 결과 세 곳도 v8에 맞췄다. schema를 v9로 올린 변경이 아니다. 사용자 cleanup 중 테스트·빌드·브라우저·push는 실행하지 않았고 재실행 대기다.

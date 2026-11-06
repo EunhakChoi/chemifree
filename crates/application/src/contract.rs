@@ -556,6 +556,15 @@ pub enum CommandDto {
     DeleteInstance {
         instance: String,
     },
+    CollapseEthyl {
+        instance: String,
+        anchor: String,
+        terminal: String,
+    },
+    ExpandEthyl {
+        instance: String,
+        anchor: String,
+    },
     AddCaption {
         anchor: PointDto,
         runs: Vec<CaptionRunDto>,
@@ -1177,6 +1186,19 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
         CommandDto::DeleteInstance { instance } => Command::DeleteInstance {
             instance: instance_id(instance)?,
         },
+        CommandDto::CollapseEthyl {
+            instance,
+            anchor,
+            terminal,
+        } => Command::CollapseEthyl {
+            instance: instance_id(instance)?,
+            anchor: atom_id(anchor)?,
+            terminal: atom_id(terminal)?,
+        },
+        CommandDto::ExpandEthyl { instance, anchor } => Command::ExpandEthyl {
+            instance: instance_id(instance)?,
+            anchor: atom_id(anchor)?,
+        },
         CommandDto::AddCaption {
             anchor,
             runs,
@@ -1759,6 +1781,8 @@ pub enum RecoveryState {
 /// `atoms` and `bonds` are the chemical graph, `molecule`; `scene` places it on the page.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DocumentView {
+    /// Et is display metadata; all graph IDs and coordinates remain present.
+    pub abbreviations: Vec<AbbreviationView>,
     pub id: String,
     pub title: String,
     pub revision: u64,
@@ -1772,6 +1796,14 @@ pub struct DocumentView {
     /// configuration is stated. No record means "unspecified": it says nothing about whether an
     /// atom or bond is stereogenic.
     pub stereo: StereoView,
+}
+
+/// The two real graph atoms represented by a per-placement Et label.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct AbbreviationView {
+    pub instance: String,
+    pub anchor: String,
+    pub terminal: String,
 }
 
 impl DocumentView {
@@ -2245,6 +2277,14 @@ impl DocumentResponse {
         Self {
             api_version: API_VERSION,
             document: DocumentView {
+                abbreviations: document
+                    .abbreviations()
+                    .map(|(key, terminal)| AbbreviationView {
+                        instance: key.instance.to_string(),
+                        anchor: key.atom.to_string(),
+                        terminal: terminal.to_string(),
+                    })
+                    .collect(),
                 id: document.id().to_string(),
                 title: document.title().to_owned(),
                 revision: document.revision(),

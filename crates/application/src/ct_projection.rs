@@ -443,6 +443,17 @@ pub(crate) fn drawing_losses(
             },
         );
     }
+    for abbreviation in &doc.abbreviations {
+        push(
+            &format!(
+                ".abbreviations[{}:{}]",
+                abbreviation.instance, abbreviation.anchor
+            ),
+            "abbreviation_display",
+            SemanticImpact::Rendering,
+            "Et display is expanded to the complete stored chemical graph; compact appearance is not written.",
+        );
+    }
     for object in &doc.scene.objects {
         match object {
             SceneObjectView::Caption { id, .. } => push(
