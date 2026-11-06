@@ -116,13 +116,24 @@ request/process 재생성→immutable/restart 회귀로 수행해야 한다. 아
 
 ## 리뷰
 
+- [PR #177 Codex P1](https://github.com/EunhakChoi/chemifree/pull/177#discussion_r4489284027):
+  HTTP=CLI contract smoke의 stereo catalog cardinality가 이전 `[47,36,11]`을 유지해
+  attach_ring 추가 후 실제 catalog `[48,37,11]`을 거절하는 지적을 수용했다.
+  `TRANSACTION_PARTS: [Entry;48]`의 attach_ring command row와 기존 Rust catalog 검사의
+  37 command/11 capability 기대값을 정적으로 대조했다. smoke는 `commands` 필드 유무로
+  command/capability를 나누어 정확한 개수를 검사하는 원래 취지를 유지하면서 기대값을
+  `[48,37,11]`로 고쳤다. 개수 검사를 제거하거나 완화하지 않았다. 이 수정에서는 부모의
+  진행 중 격리 실행과 겹치지 않도록 테스트·빌드·브라우저·push를 실행하지 않았으며,
+  기존 targeted 통과를 이 수정/최종 HEAD의 full·CI 통과로 세지 않는다. 확인은 대기다.
+
 - Codex 작성자 정적 검토: 기존6 arithmetic, finite direction scaling, fresh graph/link,
   Domain draft/history/ID rollback, ordinary insert_bond/stereo/group 경로, DTO/catalog,
   client의 정확한 허용 diff/notes와 immutable body/process, hook queue, 실제 UI gesture와
   독립 기하·일반 편집 oracle·문서의 bounded 범위를 대조했다. 정적 검토 중 private/public
   API·identifier 거절 유형·preview의 이전 wedge/snap 상속과 unlabeled-C browser selector를
   바로잡았다. 마지막 정적 API 대조에서 DocumentParts.atoms가 Vec임을 확인해 새 검사의
-  AtomId map-index를 tuple Vec index로 수정했다. 실행 근거는 없으며 PR Codex review도 아직 대기다.
+  AtomId map-index를 tuple Vec index로 수정했다. 이 작성자 검토는 정적이며, 실행 근거와
+  이후 PR Codex 지적 처분은 위의 별도 기록을 따른다.
 - 독립 fresh-context `/root/p34b_decision/p34c_review`: base `86c584c`의 latest tracked diff와
   새 파일을 읽기 전용으로 검토했다. Domain/Application 기하·fresh topology·atomic
   rollback/history·기존 insert_bond clearing/group notes, client validation/recovery,

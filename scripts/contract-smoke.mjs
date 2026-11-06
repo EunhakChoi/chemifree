@@ -1118,7 +1118,8 @@ try {
       const transaction = catalog.result.operations.find((operation) => operation.id === 'document.transaction')
       const commandRows = transaction.sub_operations.filter((part) => part.commands === undefined)
       const capabilityRows = transaction.sub_operations.filter((part) => part.commands !== undefined)
-      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [47, 36, 11])
+      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [48, 37, 11],
+        'attach_ring is a command row; the 11 capability rows are unchanged')
       for (const command of ['set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing',
         'create_stereo_group', 'delete_stereo_group', 'set_stereo_group_kind', 'set_stereo_group_number',
         'add_stereo_group_members', 'remove_stereo_group_members', 'merge_stereo_groups', 'split_stereo_group']) {
