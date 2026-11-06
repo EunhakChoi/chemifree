@@ -4,15 +4,17 @@
 
 ## P34i 기존 ethyl 그래프의 Et 표시 축약 후보
 
-- 사용자 결정은 실제 그래프 유지·화면만 축약이다. P35a `ed52406`에서 별도 `feat/p34i-ethyl-display`를 시작했다. P35a의 선행 검증·수정 후 main 통합이 필요하며 P34 전체는 in_progress다.
+- 사용자 결정은 실제 그래프 유지·화면만 축약이다. P35a `ed52406`에서 별도 `feat/p34i-ethyl-display`를 시작했다. P35a #184 squash main `cadec8e`를 통합했다. P34 전체는 in_progress다.
 - `collapse_ethyl`/`expand_ethyl` transaction command와 별도 `(instance, anchor)→terminal` 표시 map이다. 단일 명시 배치·중성 기본 C2·내부 single·anchor 외부 single 경계1개만 지원하고 인접 mark/stereo/group·겹침을 거절한다. graph/ID/state/좌표/stereo를 변경하지 않는다.
 - Et label·visible projection을 draw/hit/underlay·marquee에 적용하고 클릭은 pair/internal bond 전체를 선택한다. 전체 rigid move/transform은 유지하며 관련 chemistry·부분 geometry·배치 수 변화는 같은 Undo 단계에서 자동 펼친다. 펼침은 원래 좌표 그대로다.
-- P35a native v8 caption을 보존하는 v9 document/draft/history migration이며 old header 뒤 current/history-only 표시 필드도 거절한다. 기존 byte archive·replay/recovery 경로를 재사용한다.
+- P35a native v8 caption을 보존하는 v9 document/draft/history migration이며 old header 뒤 current/history-only 표시 필드도 거절한다. 기존 byte archive·replay/recovery 경로를 재사용한다. caption 현재48MiB·이력8MiB 예산에 Et 현재 표시와 before/after 이력도 포함한다. v8 복구 후 무변경 autosave는 원본을 유지하고 다음 실제 편집 초안만 v9로 쓴다.
 - MOL/SDF/SMILES/CDXML/CDX는 전체 graph와 `abbreviation_display` rendering loss다. native graph copy/Cut/template export는 compact member와 교차하면 명시 거절한다. DATA/provider·약어 parser·자동 인식·다중 boundary/배치·rich-text 약어·layout은 없다.
 - Domain/Application/provider/client/HTTP=CLI/실제 production browser 회귀를 작성했다. 독립 fresh-context 리뷰의 covered boundary selection P2를 전체 pair selection 합치기와 browser 회귀로 수정했다. 사용자 지시로 테스트·빌드·브라우저·push는 실행하지 않았다. rustfmt만 실행했으며 CI/실행 검증은 pending이다. [검증 기록](verification/p34i-ethyl-display.md)을 따른다.
 
 ## P35a 독립 Unicode caption 후보
 
+- PR #184 CI `42201768786`의 미래 버전 거절 회귀는 현재 v8을 미래 버전으로 꾸민 낡은 fixture가 원인이다. provider/header 거절은 유지하고 미래 입력만 v9·지원 목록1–8로 수정했다. HTTP/CLI smoke의 동일 거절 및 migration 저장 결과 세 곳도 v8에 맞췄다. schema를 v9로 올린 변경이 아니다. 사용자 cleanup 중 테스트·빌드·브라우저·push는 실행하지 않았고 재실행 대기다.
+- Codex P1 후속: caption이 현재/이력에 있으면 current48MiB+history8MiB 보수적 persistence weight를 적용한다. 최근 transaction 자체가 한도를 넘으면 `caption_persistence_limit`로 원자 거절하고, 기존 undo부터 trim해 accepted edit의 최근 Undo를 남긴다. native64MiB 상한·escaped UTF-8/run metadata·문서/초안 wrapper 및 bulk save/reopen/Undo 회귀를 작성했으며 실행 대기다.
 - 최신 main 기반 `feat/p35a-unicode-caption` 후보. P35 전체는 in_progress다. 약어·원자 표기의 의미를 새로 정하지 않으며 caption은 그래프와 독립이다.
 - 새 Caption scene kind와 explicit 전체 run `baseline|subscript|superscript`·anchor 편집, 한 Undo 단계·no-op·원자성·request replay·native v8 문서/이력/초안·v1–7 migration을 연결했다. 이전 파일/초안의 첫 overwrite/recovery는 기존 byte 보존 규칙을 따른다. 이전 버전의 history-only caption도 거절한다.
 - 1–32개 nonempty run·총16384 UTF-8 bytes·single line·Unicode White_Space 기준을 적용하고 원문 정규화나 화학식 해석은 없다. caption을 포함한 arrange/transform/graphic clipboard는 전체 명시 거절한다. move/group/delete/reference/Scene·canvas click은 지원한다.

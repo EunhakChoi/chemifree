@@ -14,8 +14,19 @@ import {
 interface CanvasState {
   documentId: string
   size: ViewportSize
-  /** Initial fit waits until both dimensions are positive. */
+  /** Null means the initial fit still awaits positive size and complete bounds. */
   viewport: Viewport | null
+  initialFitPending: boolean
+  automaticBounds: ViewBox | null
+  fitContent: object | null
+}
+
+interface FitReadiness {
+  boundsReady?: boolean
+  /** The actual SVG viewBox used for this text measurement. */
+  measuredViewBox?: string
+  /** An edit must not gain authority to refit the opening snapshot. */
+  contentIdentity?: object
 }
 
 export interface CanvasViewport {
@@ -32,30 +43,67 @@ function positive(size: ViewportSize): boolean {
   return size.width > 0 && size.height > 0
 }
 
-function resized(current: CanvasState, documentId: string, bounds: ViewBox, width: number, height: number): CanvasState {
+function resized(current: CanvasState, documentId: string, width: number, height: number): CanvasState {
   if (current.documentId !== documentId) return current
   const size = {
     width: Number.isFinite(width) && width > 0 ? width : 0,
     height: Number.isFinite(height) && height > 0 ? height : 0,
   }
-  const viewport = current.viewport ?? (positive(size) ? fitViewport(bounds, size) : null)
-  if (current.size.width === size.width && current.size.height === size.height && current.viewport === viewport) return current
-  return { documentId, size, viewport }
+  return current.size.width === size.width && current.size.height === size.height ? current : { ...current, size }
+}
+
+function viewBoxText(viewport: Viewport, size: ViewportSize): string {
+  const box = svgViewBox(viewport, size)
+  return `${box.x} ${box.y} ${box.width} ${box.height}`
+}
+
+function contains(outer: ViewBox, inner: ViewBox): boolean {
+  return outer.x <= inner.x && outer.y <= inner.y && outer.x + outer.width >= inner.x + inner.width && outer.y + outer.height >= inner.y + inner.height
+}
+
+/** Expand only: fitting at a different scale may change the browser's realized glyph metrics. */
+function enclosing(first: ViewBox, second: ViewBox): ViewBox {
+  const x = Math.min(first.x, second.x)
+  const y = Math.min(first.y, second.y)
+  return { x, y, width: Math.max(first.x + first.width, second.x + second.width) - x,
+    height: Math.max(first.y + first.height, second.y + second.height) - y }
 }
 
 /**
  * Owns transient presentation state only. Resize preserves scale and center; edits preserve
- * the viewport. Document identity changes and explicit Fit use the latest complete bounds.
+ * the viewport. The opening fit is confirmed using bounds measured in its resulting SVG
+ * viewport, expanding only if needed. Explicit Fit/pan/zoom ends that initial authority.
  */
-export function useCanvasViewport(documentId: string, bounds: ViewBox): CanvasViewport {
+export function useCanvasViewport(documentId: string, bounds: ViewBox, readiness: FitReadiness = {}): CanvasViewport {
+  const { boundsReady = true, measuredViewBox, contentIdentity } = readiness
   const fitBounds = useMemo(() => ({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }),
     [bounds.x, bounds.y, bounds.width, bounds.height])
   const [element, setElement] = useState<Element | null>(null)
-  const [state, setState] = useState<CanvasState>(() => ({ documentId, size: { width: 0, height: 0 }, viewport: null }))
+  const [state, setState] = useState<CanvasState>(() => ({ documentId, size: { width: 0, height: 0 }, viewport: null,
+    initialFitPending: true, automaticBounds: null, fitContent: null }))
   // Adjust this component's own identity state during render, so a new drawing never paints
   // with the previous drawing's viewport while waiting for an effect.
-  const active = state.documentId === documentId ? state : {
-    documentId, size: state.size, viewport: positive(state.size) ? fitViewport(fitBounds, state.size) : null,
+  let active: CanvasState = state.documentId === documentId ? state : {
+    documentId, size: state.size, viewport: null, initialFitPending: true, automaticBounds: null, fitContent: null,
+  }
+  if (active.viewport === null && boundsReady && positive(active.size)) {
+    const pending = active.initialFitPending && measuredViewBox !== undefined
+    active = { ...active, viewport: fitViewport(fitBounds, active.size), initialFitPending: pending,
+      automaticBounds: pending ? fitBounds : null, fitContent: contentIdentity ?? null }
+  } else if (active.viewport !== null && active.initialFitPending) {
+    if (active.fitContent !== (contentIdentity ?? null)) {
+      active = { ...active, initialFitPending: false, automaticBounds: null }
+    } else if (boundsReady && measuredViewBox === viewBoxText(active.viewport, active.size)) {
+      if (contains(svgViewBox(active.viewport, active.size), fitBounds)) {
+        active = { ...active, initialFitPending: false, automaticBounds: null }
+      } else {
+        const expanded = enclosing(active.automaticBounds ?? fitBounds, fitBounds)
+        const fitted = fitViewport(expanded, active.size)
+        // A clamped scale can make larger content impossible to fit. Do not render-loop.
+        const moved = fitted.scale !== active.viewport.scale || fitted.center.x !== active.viewport.center.x || fitted.center.y !== active.viewport.center.y
+        active = { ...active, viewport: fitted, initialFitPending: moved, automaticBounds: moved ? expanded : null }
+      }
+    }
   }
   if (active !== state) setState(active)
 
@@ -63,12 +111,12 @@ export function useCanvasViewport(documentId: string, bounds: ViewBox): CanvasVi
     setElement(node)
     if (node !== null) {
       const rect = node.getBoundingClientRect()
-      setState((current) => resized(current, documentId, fitBounds, rect.width, rect.height))
+      setState((current) => resized(current, documentId, rect.width, rect.height))
     }
-  }, [documentId, fitBounds])
+  }, [documentId])
 
   const recordSize = useEffectEvent((width: number, height: number) => {
-    setState((current) => resized(current, documentId, fitBounds, width, height))
+    setState((current) => resized(current, documentId, width, height))
   })
   useEffect(() => {
     if (element === null) return
@@ -92,21 +140,23 @@ export function useCanvasViewport(documentId: string, bounds: ViewBox): CanvasVi
   const fit = useCallback(() => {
     setState((current) => current.documentId === documentId ? {
       ...current, viewport: positive(current.size) ? fitViewport(fitBounds, current.size) : null,
+      initialFitPending: false, automaticBounds: null,
     } : current)
   }, [documentId, fitBounds])
   const pan = useCallback((delta: ViewportPoint) => {
-    setState((current) => current.documentId === documentId && current.viewport !== null && positive(current.size) ? {
-      ...current, viewport: panViewport(current.viewport, delta),
+    setState((current) => current.documentId === documentId && positive(current.size) ? {
+      ...current, viewport: panViewport(current.viewport ?? fitViewport(fitBounds, current.size), delta),
+      initialFitPending: false, automaticBounds: null,
     } : current)
-  }, [documentId])
+  }, [documentId, fitBounds])
   const zoom = useCallback((factor: number, anchor?: ViewportPoint) => {
     setState((current) => {
-      if (current.documentId !== documentId || current.viewport === null || !positive(current.size)) return current
+      if (current.documentId !== documentId || !positive(current.size)) return current
       const at = anchor ?? { x: current.size.width / 2, y: current.size.height / 2 }
-      return { ...current, viewport: zoomViewport(current.viewport, factor, at, current.size) }
+      return { ...current, viewport: zoomViewport(current.viewport ?? fitViewport(fitBounds, current.size), factor, at, current.size),
+        initialFitPending: false, automaticBounds: null }
     })
-  }, [documentId])
+  }, [documentId, fitBounds])
   const viewport = active.viewport ?? fitViewport(fitBounds, active.size)
-  const box = svgViewBox(viewport, active.size)
-  return { containerRef, size: active.size, viewport, viewBox: `${box.x} ${box.y} ${box.width} ${box.height}`, fit, pan, zoom }
+  return { containerRef, size: active.size, viewport, viewBox: viewBoxText(viewport, active.size), fit, pan, zoom }
 }

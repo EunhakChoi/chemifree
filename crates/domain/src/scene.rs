@@ -204,6 +204,8 @@ pub enum SceneError {
     AbbreviationInvalid,
     /// Caption content violates the bounded text profile.
     CaptionInvalid,
+    /// An edit would exceed the caption-safe persistence/history reservation.
+    CaptionPersistenceLimit,
     /// This operation cannot preserve a caption.
     CaptionUnsupported,
     /// A command names a scene object that does not exist.
@@ -248,6 +250,7 @@ impl SceneError {
     /// Every code, in documentation order.
     pub const ALL: [Self; 21] = [
         Self::CaptionInvalid,
+        Self::CaptionPersistenceLimit,
         Self::CaptionUnsupported,
         Self::AbbreviationInvalid,
         Self::ObjectUnknown,
@@ -274,6 +277,7 @@ impl SceneError {
     pub const fn code(self) -> &'static str {
         match self {
             Self::CaptionInvalid => "caption_invalid",
+            Self::CaptionPersistenceLimit => "caption_persistence_limit",
             Self::CaptionUnsupported => "caption_unsupported",
             Self::AbbreviationInvalid => "abbreviation_invalid",
             Self::ObjectUnknown => "object_unknown",

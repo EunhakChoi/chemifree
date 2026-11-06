@@ -2,8 +2,8 @@
 
 Status: implemented candidate; execution verification pending. P34 remains `in_progress`.
 Branch: `feat/p34i-ethyl-display`, isolated at `chemifree-p34i`, based on P35a HEAD
-`ed52406`. P35a is still under verification. Integrate its fixes before merging this work
-with main; this record claims neither a merged delivery nor successful CI.
+`ed52406`, now integrated with P35a PR #184 squash main `cadec8e`.
+This record claims neither merged P34i delivery nor successful integration CI.
 
 ## Authorized boundary
 
@@ -94,3 +94,27 @@ checks, lint/type/client gates, the complete existing check suite and browser su
 caption and Et, then PR CI and required Codex review. Planned mutation checks should remove the
 hidden-member filter, covered-target normalization, graph invalidation or required-v9 guard
 and show their corresponding tests fail before restoring the code.
+
+
+## P35a main integration
+
+Integrated main `cadec8e` after PR #184. Kept its caption validation, measured canvas bounds,
+viewport correction, wire checks, CLI text output, persistence budgets, compact serializer,
+and recovery regressions. Applied only the original P34i feature diff over that final main
+content to avoid restoring obsolete P35a candidates through the squash merge conflicts.
+
+- v9 keeps v8 captions and the caption-safe 48 MiB current / 8 MiB combined history
+  reservations. The reservations now include the current Et map and complete before/after
+  display diffs. A bulk 100-display regression compares the added content and isolated
+  undo/redo history reservations against actual native JSON bytes, so unrelated graph
+  reservations cannot conceal missing display accounting.
+- Updated old document/draft fixture construction to omit v9 fields and future-version
+  refusals to use v10 while preserving current/history-only schema rejection.
+- Kept the final P35a recovery rule: unchanged recovered old drafts stay byte-identical;
+  only the next actual edit is written as v9. The v8-caption migration regression now checks
+  unchanged autosave, an actual collapse edit, v9 rewrite, exact v8 archive, and recovery
+  Undo/Redo through both the new display and original title history.
+
+Read-only inspection and formatting/whitespace checks only in this integration pass.
+Tests, builds, clippy, browser, mutations and push remain explicitly deferred to the parent
+verification task; neither the new assertions nor the integrated full suite have been run.

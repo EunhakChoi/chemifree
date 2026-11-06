@@ -1785,7 +1785,7 @@ Versions 1–8 documents and drafts are read and migrated in memory, including h
 
 Before the first save over a version 1–8 document, under the save lock, the provider writes and flushes the exact old bytes to `migrated/<id>.v<version>.json` before replacing the document. A failed copy fails the save and preserves the old file. A different old file with the same ID gets the next free numbered name; identical bytes are not copied again. These backups are not listed or treated as documents. Unknown versions are refused and left untouched.
 
-A recovery draft uses `format: "chemifree.draft"`, version 9, `base_revision`, `saved_at_ms`, and the same `document` and `history` shapes. Old drafts migrate in memory and inspection writes nothing. Before recovery or recovery as a copy can rewrite or remove an old draft, the provider keeps the exact bytes it claimed under `migrated/<id>.draft.v<version>.json`; different bytes get numbered copies and identical bytes are not duplicated. If preservation fails, recovery fails and the draft stays abandoned. Explicit discard removes the draft without creating a copy. An old draft left as `drafts/<id>.committing` by an interrupted successful save is preserved before cleanup. Other files include `trash/<id>.json` and `trash/<id>.deleted`, migrated copies, `locks/<id>.lock`, `drafts/<id>.owner`, `drafts/<id>.committing`, and abandoned temporary files. Draft ownership and save locking remain distinct.
+A recovery draft uses `format: "chemifree.draft"`, version 9, `base_revision`, `saved_at_ms`, and the same `document` and `history` shapes. Old drafts migrate in memory and inspection writes nothing. Recovery can retain an already complete draft in its earlier version; an autosave with no new undrafted edit does not rewrite it. The next actual draft write uses the current version. Before recovery or recovery as a copy can rewrite or remove an old draft, the provider keeps the exact bytes it claimed under `migrated/<id>.draft.v<version>.json`; different bytes get numbered copies and identical bytes are not duplicated. If preservation fails, recovery fails and the draft stays abandoned. Explicit discard removes the draft without creating a copy. An old draft left as `drafts/<id>.committing` by an interrupted successful save is preserved before cleanup. Other files include `trash/<id>.json` and `trash/<id>.deleted`, migrated copies, `locks/<id>.lock`, `drafts/<id>.owner`, `drafts/<id>.committing`, and abandoned temporary files. Draft ownership and save locking remain distinct.
 
 ## Independent Unicode captions (P35a)
 
@@ -1793,6 +1793,10 @@ A caption is a new independent scene object, not an atom, abbreviation, chemical
 CIP overlay or graph replacement. Its snapshot is
 `{ kind: "caption", id, parent, anchor: { x, y }, runs: [{ text, script }] }`.
 It shares `sN` IDs, ordered containment, references and selection with other scene objects.
+CLI text output lists the caption ID, parent, anchor and each ordered `script("text")` run.
+Run text uses Rust ASCII escapes (including Unicode scalar escapes), so quotes, backslashes
+and directional/format characters cannot disguise terminal output. JSON output retains the
+original Unicode strings and script fields without that presentation escaping.
 The transaction catalog adds `add_caption` and `update_caption` (39 commands and 11
 capabilities, 50 sub-operation rows; no new top-level operation).
 
@@ -1840,10 +1844,32 @@ anchor. Script runs use two-thirds size, subscript +one-third label size in y an
 minus five-twelfths. These are explicit Chemifree display choices, not vendor-derived metrics.
 The SVG keeps text at natural advance, preserves whitespace and uses text nodes. The canvas
 measures actual SVG glyph ink after rendering and font loading for view-box inclusion,
-selection indication and hit area. Font fallback, glyph availability, complex shaping and
+selection indication and hit area. A new document's first fit waits for its current caption
+measurements, font completion and positive canvas size. The opening fit records the SVG
+viewBox of each measurement and confirms containment using a measurement in its resulting
+viewport; if realized glyph metrics expanded, only this initial phase widens the union of
+observed bounds and fits again. Document switches discard the old pending fit. Confirmation,
+a new edit snapshot or a user choosing Fit/pan/zoom ends that initial correction authority;
+later measurements and font completion then preserve the chosen viewport. Font fallback, glyph availability, complex shaping and
 cross-run combining/emoji shaping are not portable visual-roundtrip guarantees. Avoid
 splitting such sequences across runs. Native persistence preserves the exact scalar/run
 sequence independently of visual accuracy in a given environment.
+
+Caption-bearing documents (a caption in current content, undo or redo) additionally use a
+conservative persistence reservation: current content at most 48 MiB and both history stacks
+at most 8 MiB combined, below the native 64 MiB file limit even with document/draft envelopes.
+The reservation accounts for all entity kinds, IDs, floats, roots, references, both selections
+and complete before/after states, including current Et displays and their history diffs. Caption/title strings reserve twice their UTF-8 bytes for
+JSON quote/backslash escaping; every run also reserves metadata. It is an upper bound, not
+an exact file/memory size. The existing 100-entry/100000-change limits also apply.
+Older undo entries are dropped first; restore then drops farthest redo entries when needed.
+A latest transaction whose own history cannot fit is refused atomically as `invalid_command`
+with `reason: "caption_persistence_limit"` and no command index; no accepted newest edit is
+silently made non-undoable. Thus 500 commands is an independent ceiling, not permission for
+500 maximal caption changes; even a small group-move request can exceed the byte reservation.
+Use smaller edit scopes. Text is never truncated. Undo/Redo move the same budgeted entries
+between stacks. Loading looser v8 history applies the same trimming in memory without writing;
+caption-free v1–7 migrations and their existing history limits remain unchanged.
 
 P35a introduced native v8 captions; the current v9 format additionally records Et display metadata. Earlier versions remain readable without
 rewriting; the first overwrite/recovery keeps original bytes under the existing migration

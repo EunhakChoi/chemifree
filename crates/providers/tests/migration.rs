@@ -357,7 +357,7 @@ fn a_version_1_draft_migrates_when_it_is_recovered() {
         "reading wrote nothing"
     );
 
-    // The recovered session's next draft is version 7.
+    // The recovered session's next draft is version 8.
     repository
         .write_draft(&Draft {
             saved_at_ms: 1_767_225_700_000,

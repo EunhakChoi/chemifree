@@ -1918,7 +1918,10 @@ impl From<&CaptionRun> for CaptionRunDto {
     }
 }
 
-fn caption(anchor: PointDto, runs: &[CaptionRunDto]) -> Result<Caption, ApplicationError> {
+// Coordinate conversion follows the other scene commands: its String becomes a Refusal
+// at to_command, and to_commands supplies the failing command index. Caption content is
+// validated by the Domain so its typed caption_invalid reason is preserved there.
+fn caption(anchor: PointDto, runs: &[CaptionRunDto]) -> Result<Caption, String> {
     Ok(Caption {
         anchor: point(anchor)?,
         runs: runs

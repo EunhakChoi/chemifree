@@ -1192,6 +1192,12 @@ mod tests {
     fn assert_within_read_limit(document: &Document) {
         let bytes = file_format::encode(document);
         assert!(
+            bytes.len() <= document.persistence_weight(),
+            "native document exceeded its Domain reservation: {} > {}",
+            bytes.len(),
+            document.persistence_weight()
+        );
+        assert!(
             (bytes.len() as u64) < MAX_DOCUMENT_BYTES,
             "{} bytes exceed {MAX_DOCUMENT_BYTES}",
             bytes.len()
@@ -1204,11 +1210,142 @@ mod tests {
         };
         let draft_bytes = file_format::encode_draft(&draft);
         assert!(
+            draft_bytes.len() <= document.persistence_weight(),
+            "native draft envelope exceeded its Domain reservation: {} > {}",
+            draft_bytes.len(),
+            document.persistence_weight()
+        );
+        assert!(
             (draft_bytes.len() as u64) < MAX_DOCUMENT_BYTES,
             "the draft's {} bytes exceed {MAX_DOCUMENT_BYTES}",
             draft_bytes.len()
         );
         assert_eq!(file_format::decode_draft(&draft_bytes).unwrap(), draft);
+    }
+
+    #[test]
+    fn maximal_caption_text_with_full_graph_scene_metadata_and_history_stays_persistable() {
+        use chemifree_domain::document::{
+            CAPTION_CONTENT_WEIGHT_LIMIT, CAPTION_HISTORY_WEIGHT_LIMIT,
+        };
+        use chemifree_domain::scene::{
+            Caption, CaptionRun, CaptionScript, MAX_OBJECTS, MAX_REFERENCES, ReferenceTarget,
+            SceneReference, Selection, TransactionSelection,
+        };
+        use chemifree_domain::stereo::{AtomConfiguration, SlotRef, Turn};
+        use chemifree_domain::stereo_group::GroupKind;
+
+        let mut document = at_every_limit();
+        let count = MAX_OBJECTS - document.scene_objects().len();
+        let captions: Vec<_> = (0..count)
+            .map(|_| Command::AddCaption {
+                caption: Caption {
+                    anchor: Point::new(-99_999.999_999, 99_999.999_999).unwrap(),
+                    runs: vec![
+                        CaptionRun {
+                            text: "\"".repeat(512),
+                            script: CaptionScript::Superscript
+                        };
+                        32
+                    ],
+                },
+                parent: None,
+                index: None,
+            })
+            .collect();
+        // 500 maximal captions exceed the single-edit history budget; these accepted batches
+        // reach the same maximum current content while retaining their latest Undo step.
+        for batch in captions.chunks(100) {
+            document.apply(batch).unwrap();
+        }
+        let centers: Vec<_> = (3..=MAX_ATOMS - 2)
+            .map(|serial| Command::SetAtomConfiguration {
+                atom: atom_ref(serial),
+                configuration: Some(AtomConfiguration::Tetrahedral {
+                    neighbors: [serial - 2, serial - 1, serial + 1, serial + 2]
+                        .map(|neighbor| SlotRef::Atom(atom_ref(neighbor))),
+                    turn: Turn::Anticlockwise,
+                }),
+            })
+            .collect();
+        for batch in centers.chunks(MAX_COMMANDS) {
+            document.apply(batch).unwrap();
+        }
+        let groups: Vec<_> = (3..=MAX_ATOMS - 2)
+            .map(|serial| Command::CreateStereoGroup {
+                kind: GroupKind::Or,
+                number: Some(serial as i32),
+                atoms: vec![atom_ref(serial)],
+            })
+            .collect();
+        for batch in groups.chunks(MAX_COMMANDS) {
+            document.apply(batch).unwrap();
+        }
+        let targets = document
+            .atoms()
+            .map(|(id, _)| ReferenceTarget::Atom(id))
+            .chain(document.bonds().map(|(id, _)| ReferenceTarget::Bond(id)));
+        let references: Vec<_> = targets
+            .take(MAX_REFERENCES)
+            .map(|target| Command::AddReference {
+                reference: SceneReference {
+                    source: ObjectId::from_serial(1).unwrap(),
+                    target,
+                },
+            })
+            .collect();
+        for batch in references.chunks(MAX_COMMANDS) {
+            document.apply(batch).unwrap();
+        }
+        let selected = Selection {
+            objects: document
+                .scene_objects()
+                .into_iter()
+                .map(|(id, _, _)| id)
+                .collect(),
+            atoms: document.atoms().map(|(id, _)| id).collect(),
+            bonds: document.bonds().map(|(id, _)| id).collect(),
+        };
+        document
+            .apply_selecting(
+                &[Command::Rename {
+                    title: "\"".repeat(200),
+                }],
+                &TransactionSelection {
+                    before: Some(selected),
+                    after: None,
+                },
+            )
+            .unwrap();
+        // Isolate the maximal current state, then nearly fill its separate history budget
+        // with both complete caption states and the maximal before/after selections.
+        let mut parts = document.to_parts();
+        parts.undo.clear();
+        parts.redo.clear();
+        document = Document::restore(parts).unwrap();
+        document
+            .apply(&[Command::MoveObjects {
+                objects: (MAX_INSTANCES + 1..MAX_INSTANCES + 113)
+                    .map(|serial| ObjectId::from_serial(serial as u32).unwrap())
+                    .collect(),
+                delta: Vector {
+                    dx: 0.123,
+                    dy: -0.321,
+                },
+            }])
+            .unwrap();
+        assert_eq!(document.scene_objects().len(), MAX_OBJECTS);
+        assert_eq!(document.references().len(), MAX_REFERENCES);
+        assert_eq!(document.stereo_groups().len(), MAX_ATOMS - 4);
+        assert!(
+            document.persistence_weight()
+                <= CAPTION_CONTENT_WEIGHT_LIMIT + CAPTION_HISTORY_WEIGHT_LIMIT
+        );
+        assert_within_read_limit(&document);
+        document.undo().unwrap();
+        assert_within_read_limit(&document);
+        document.redo().unwrap();
+        assert_within_read_limit(&document);
     }
 
     /// Entity and history limits together must keep every document within the read limit,

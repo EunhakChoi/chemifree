@@ -67,3 +67,26 @@ test('caption-containing groups refuse complete arrange/transform actions withou
   assert.equal(sceneGeometryCommands(document, new Set(['s3', 's1']), { kind: 'arrange', mode: 'align_left' }), null)
   assert.deepEqual(selectionMove(document, new Set(['s3', 's8']), null, { x: 3, y: 4 })[0].selection.objects, ['s3', 's8'])
 })
+
+test('an empty group does not become movable because it references an outside caption', () => {
+  const result = source()
+  const { document } = result
+  document.scene.roots.push('s9')
+  document.scene.objects.push({ kind: 'group', id: 's9', parent: null, children: [] })
+  document.scene.references.push({ source: 's9', target: { kind: 'object', id: 's8' } })
+  assert.equal(isDocumentResponse(result), true)
+  assert.equal(selectionMove(document, new Set(['s9']), null, { x: 3, y: 4 }), null)
+})
+
+test('a group containing only a caption still has a movable anchor', () => {
+  const result = source()
+  const { document } = result
+  const caption = document.scene.objects.pop()
+  document.scene.roots = document.scene.roots.filter((id) => id !== 's8')
+  document.scene.roots.push('s9')
+  document.scene.objects.push({ kind: 'group', id: 's9', parent: null, children: ['s8'] }, { ...caption, parent: 's9' })
+  assert.equal(isDocumentResponse(result), true)
+  assert.deepEqual(selectionMove(document, new Set(['s9']), null, { x: 3, y: 4 }), [{
+    op: 'move_selection', selection: { objects: ['s9'], atoms: [], bonds: [] }, delta: { x: 3, y: 4 },
+  }])
+})

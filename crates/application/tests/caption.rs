@@ -153,8 +153,73 @@ fn malformed_runs_and_unsupported_caption_operations_leave_the_snapshot_unchange
         json!({"document_id":id,"selection":{"objects":["s2"]}}),
     );
     assert_eq!(
-        copied["diagnostics"][0]["code"], "clipboard_scene_caption_unsupported",
+        copied["diagnostics"][0]["code"], "invalid_command",
         "{copied}"
+    );
+    assert_eq!(copied["outcome"], "error");
+    assert_eq!(copied["result"], Value::Null);
+    assert_eq!(
+        copied["diagnostics"][0]["details"]["reason"],
+        "clipboard_scene_caption_unsupported"
+    );
+    assert_eq!(copied["diagnostics"][0]["details"]["current_revision"], 1);
+    assert_eq!(snapshot(&app, &id), before);
+}
+
+#[test]
+fn caption_coordinate_conversion_matches_existing_scene_command_errors() {
+    let (app, _root, id) = setup();
+    let added = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":commands()}),
+    );
+    assert_eq!(added["outcome"], "ok", "{added}");
+    let before = snapshot(&app, &id);
+    let bad_anchor = json!({"x":100001,"y":0});
+    let graphic = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[
+            {"op":"rename","title":"must stay unchanged"},
+            {"op":"add_graphic","shape":"line","points":[bad_anchor,{"x":0,"y":0}]}
+        ]}),
+    );
+    assert_eq!(
+        graphic["diagnostics"][0]["code"], "invalid_command",
+        "{graphic}"
+    );
+    assert_eq!(graphic["diagnostics"][0]["details"]["command_index"], 1);
+    assert_eq!(graphic["diagnostics"][0]["details"].get("reason"), None);
+    for command in [
+        json!({"op":"add_caption","anchor":bad_anchor,"runs":runs()}),
+        json!({"op":"update_caption","object":"s2","anchor":bad_anchor,"runs":runs()}),
+    ] {
+        let refused = call(
+            &app,
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":1,"commands":[
+                {"op":"rename","title":"must stay unchanged"},command
+            ]}),
+        );
+        assert_eq!(refused["diagnostics"], graphic["diagnostics"]);
+        assert_eq!(snapshot(&app, &id), before);
+    }
+    let invalid_content = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[
+            {"op":"rename","title":"must stay unchanged"},
+            {"op":"update_caption","object":"s2","anchor":{"x":0,"y":0},"runs":[{"text":"","script":"baseline"}]}
+        ]}),
+    );
+    assert_eq!(
+        invalid_content["diagnostics"][0]["details"]["reason"],
+        "caption_invalid"
+    );
+    assert_eq!(
+        invalid_content["diagnostics"][0]["details"]["command_index"],
+        1
     );
     assert_eq!(snapshot(&app, &id), before);
 }
@@ -169,15 +234,58 @@ fn every_chemical_export_requires_explicit_consent_for_caption_loss() {
     );
     assert_eq!(added["outcome"], "ok", "{added}");
     let before = snapshot(&app, &id);
-    for format in ["mol", "sdf", "smiles", "cdxml", "cdx"] {
-        let refused = call(
-            &app,
-            "document.export",
-            json!({"document_id":id,"format":format}),
+    for (case, mut parameters, source_path) in [
+        (
+            "MOL V2000",
+            json!({"format":"mol","ctab":"v2000","records":[{"document_id":id}]}),
+            "records[1].scene.objects[s2]",
+        ),
+        (
+            "MOL V3000",
+            json!({"format":"mol","ctab":"v3000","records":[{"document_id":id}]}),
+            "records[1].scene.objects[s2]",
+        ),
+        (
+            "SDF V2000",
+            json!({"format":"sdf","ctab":"v2000","records":[{"document_id":id}]}),
+            "records[1].scene.objects[s2]",
+        ),
+        (
+            "SDF V3000",
+            json!({"format":"sdf","ctab":"v3000","records":[{"document_id":id}]}),
+            "records[1].scene.objects[s2]",
+        ),
+        (
+            "recorded SMILES",
+            json!({"format":"smiles","style":"recorded","document_id":id}),
+            "document.scene.objects[s2]",
+        ),
+        (
+            "canonical SMILES",
+            json!({"format":"smiles","style":"canonical","document_id":id}),
+            "document.scene.objects[s2]",
+        ),
+        (
+            "CDXML drawing",
+            json!({"format":"cdxml","document_id":id}),
+            "document.scene.objects[s2]",
+        ),
+        (
+            "CDX drawing",
+            json!({"format":"cdx","document_id":id}),
+            "document.scene.objects[s2]",
+        ),
+    ] {
+        let refused = call(&app, "document.export", parameters.clone());
+        assert_eq!(refused["outcome"], "error", "{case}: {refused}");
+        assert_eq!(
+            refused["result"],
+            Value::Null,
+            "no bytes without consent: {case}"
         );
         assert_eq!(
             refused["diagnostics"][0]["code"], "loss_consent_required",
-            "{format}: {refused}"
+            "{case}: {refused}"
         );
         let losses = refused["diagnostics"][0]["details"]["losses"]
             .as_array()
@@ -186,16 +294,96 @@ fn every_chemical_export_requires_explicit_consent_for_caption_loss() {
             .iter()
             .filter(|loss| loss["feature"] == "caption")
             .collect();
-        assert_eq!(caption.len(), 1, "{format}: {refused}");
-        assert_eq!(caption[0]["disposition"], "dropped");
-        assert_eq!(caption[0]["semantic_impact"], "rendering");
+        let expected = json!({
+            "feature":"caption", "source_path":source_path, "disposition":"dropped", "semantic_impact":"rendering",
+            "reason":"Independent caption text and script styles are not written by this export profile."
+        });
+        assert_eq!(caption, vec![&expected], "{case}: {refused}");
         let digest = refused["diagnostics"][0]["details"]["loss_digest"].clone();
-        let accepted = call(
-            &app,
-            "document.export",
-            json!({"document_id":id,"format":format,"accepted_losses":digest}),
+        assert_eq!(digest.as_str().unwrap().len(), 64, "{case}");
+        parameters["accepted_losses"] = json!("0".repeat(64));
+        let wrong_digest = call(&app, "document.export", parameters.clone());
+        assert_eq!(
+            wrong_digest["diagnostics"][0]["code"], "loss_consent_changed",
+            "{case}: {wrong_digest}"
         );
-        assert_eq!(accepted["outcome"], "partial", "{format}: {accepted}");
+        assert_eq!(wrong_digest["result"], Value::Null, "{case}");
+        parameters["accepted_losses"] = digest;
+        let accepted = call(&app, "document.export", parameters);
+        assert_eq!(accepted["outcome"], "partial", "{case}: {accepted}");
+        assert!(
+            !accepted["result"]["content"].as_str().unwrap().is_empty(),
+            "{case}"
+        );
+        let accepted_caption: Vec<_> = accepted["loss_report"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|loss| loss["feature"] == "caption")
+            .collect();
+        assert_eq!(accepted_caption, vec![&expected], "{case}");
         assert_eq!(snapshot(&app, &id), before);
     }
+}
+
+#[test]
+fn a_small_wire_request_cannot_create_an_oversized_caption_history_entry() {
+    use chemifree_application::DocumentRepository;
+    use chemifree_domain::document::{Command, Document, DocumentId, ObjectId, Point};
+    use chemifree_domain::scene::{Caption, CaptionRun, CaptionScript};
+
+    let root = tempfile::tempdir().unwrap();
+    let repository = FileDocumentRepository::new(root.path());
+    let mut document =
+        Document::new(DocumentId::parse("caption-wire-budget").unwrap(), "Budget").unwrap();
+    let captions: Vec<_> = (0..117)
+        .map(|_| Command::AddCaption {
+            caption: Caption {
+                anchor: Point::new(0.0, 0.0).unwrap(),
+                runs: vec![
+                    CaptionRun {
+                        text: "\"".repeat(512),
+                        script: CaptionScript::Superscript,
+                    };
+                    32
+                ],
+            },
+            parent: None,
+            index: None,
+        })
+        .collect();
+    document.apply(&captions).unwrap();
+    document
+        .apply(&[Command::Group {
+            objects: (2..119)
+                .map(|serial| ObjectId::from_serial(serial).unwrap())
+                .collect(),
+        }])
+        .unwrap();
+    repository.save(&document, None).unwrap();
+    let app = Application::new(LocalCapabilities, repository);
+    let before = snapshot(&app, "caption-wire-budget");
+    // One short group move duplicates the stored complete states of all its caption leaves.
+    let refused = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":"caption-wire-budget",
+        "expected_revision":before["document"]["revision"], "commands":[
+            {"op":"rename","title":"must roll back"},
+            {"op":"move_objects","objects":["s119"],"delta":{"x":1,"y":0}}
+        ]}),
+    );
+    assert_eq!(refused["outcome"], "error", "{refused}");
+    assert_eq!(refused["diagnostics"][0]["code"], "invalid_command");
+    assert_eq!(
+        refused["diagnostics"][0]["details"]["reason"],
+        "caption_persistence_limit"
+    );
+    assert_eq!(
+        refused["diagnostics"][0]["details"].get("command_index"),
+        None,
+        "whole-transaction budget"
+    );
+    assert_eq!(refused["result"], Value::Null);
+    assert_eq!(snapshot(&app, "caption-wire-budget"), before);
 }

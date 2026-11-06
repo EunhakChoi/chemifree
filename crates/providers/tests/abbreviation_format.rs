@@ -4,8 +4,8 @@ use std::fs;
 
 use chemifree_application::{Application, DocumentRepository, Draft, StorageError};
 use chemifree_domain::document::{
-    Atom, AtomRef, BondOrder, BondTo, Command, Document, DocumentId, NewAtomPositions, ObjectId,
-    Point,
+    Atom, AtomId, AtomRef, BondOrder, BondTo, Command, Document, DocumentId, NewAtomPositions,
+    ObjectId, Point,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{Caption, CaptionRun, CaptionScript};
@@ -205,8 +205,117 @@ fn v8_drafts_migrate_with_caption_and_keep_original_bytes_before_recovery() {
         fs::read(repo.migrated_draft_path(doc.id(), 8)).unwrap(),
         original
     );
+    // A recovered complete draft needs no rewrite until there is another edit.
+    app.autosave("ethyl-native", Some("unchanged-v8-ethyl"))
+        .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), original);
+    let command: chemifree_application::CommandDto = serde_json::from_value(json!({
+        "op":"collapse_ethyl", "instance":"s1", "anchor":"a2", "terminal":"a3"
+    }))
+    .unwrap();
+    let edited = app
+        .apply_transaction(
+            "ethyl-native",
+            Some("collapse-after-recovery"),
+            recovered.document.revision,
+            vec![command],
+        )
+        .unwrap();
     app.autosave("ethyl-native", Some("rewrite-v9-ethyl"))
         .unwrap();
-    let rewritten: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     assert_eq!(rewritten["format_version"], 9);
+    assert_eq!(rewritten["document"]["revision"], edited.document.revision);
+    assert_eq!(
+        fs::read(repo.migrated_draft_path(doc.id(), 8)).unwrap(),
+        original
+    );
+    drop(app);
+    let mut restored = repo
+        .claim_draft(doc.id())
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .document;
+    assert_eq!(restored.abbreviations().count(), 1);
+    restored.undo().unwrap();
+    assert_eq!(restored.abbreviations().count(), 0);
+    assert_eq!(restored.title(), "Recovered Et caption");
+    restored.undo().unwrap();
+    assert_eq!(restored.title(), "Et");
+    restored.redo().unwrap();
+    restored.redo().unwrap();
+    assert_eq!(restored.abbreviations().count(), 1);
+}
+
+#[test]
+fn caption_persistence_reserves_current_and_both_history_display_records() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = drawing();
+    let mut commands = Vec::new();
+    for _ in 1..100 {
+        let first = commands.len();
+        for offset in 0..3 {
+            commands.push(Command::AddAtom {
+                atom: Atom::from(
+                    Element::from_symbol(if offset == 0 { "O" } else { "C" }).unwrap(),
+                ),
+                positions: NewAtomPositions::Single(Point::new(offset as f64 * 30.0, 0.0).unwrap()),
+                bond_to: (offset > 0).then(|| BondTo {
+                    atom: AtomRef::Created(first + offset - 1),
+                    order: BondOrder::Single,
+                }),
+            });
+        }
+    }
+    doc.apply(&commands).unwrap();
+    let without_history = |document: &Document| {
+        let mut parts = document.to_parts();
+        parts.undo.clear();
+        parts.redo.clear();
+        Document::restore(parts).unwrap()
+    };
+    let before_weight = without_history(&doc).persistence_weight();
+    repo.save(&doc, None).unwrap();
+    let path = root.path().join("documents/ethyl-native.json");
+    let before: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let before_revision = doc.revision();
+    let collapses: Vec<_> = (0..100)
+        .map(|fragment| Command::CollapseEthyl {
+            instance: ObjectId::from_serial(1).unwrap(),
+            anchor: AtomId::from_serial(fragment * 3 + 2).unwrap(),
+            terminal: AtomId::from_serial(fragment * 3 + 3).unwrap(),
+        })
+        .collect();
+    doc.apply(&collapses).unwrap();
+    repo.save(&doc, Some(before_revision)).unwrap();
+    let stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let current_growth = serde_json::to_vec(&stored["document"]).unwrap().len()
+        - serde_json::to_vec(&before["document"]).unwrap().len();
+    assert!(
+        without_history(&doc).persistence_weight() - before_weight >= current_growth,
+        "current display records must fit their additional persistence reservation"
+    );
+    // Retain just the display edit, so unrelated graph/caption reservations cannot hide
+    // missing history accounting. Undo moves that same record into the other stack.
+    let mut parts = doc.to_parts();
+    let latest = parts.undo.pop().unwrap();
+    parts.undo = vec![latest];
+    doc = Document::restore(parts).unwrap();
+    let mut saved_revision = doc.revision();
+    for undo in [false, true] {
+        if undo {
+            doc.undo().unwrap();
+        }
+        repo.save(&doc, Some(saved_revision)).unwrap();
+        saved_revision = doc.revision();
+        let stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let history_bytes = serde_json::to_vec(&stored["history"]).unwrap().len();
+        assert!(
+            doc.persistence_weight() - without_history(&doc).persistence_weight() >= history_bytes,
+            "display history must fit its reservation in undo and redo (undo={undo})"
+        );
+        assert_eq!(repo.load(doc.id()).unwrap(), Some(doc.clone()));
+    }
 }
