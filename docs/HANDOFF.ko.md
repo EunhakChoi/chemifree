@@ -9,6 +9,7 @@
 - geometry·현재 bond length·fresh IDs·한 Undo 단계·atomic rollback·replay/save/reopen과 immutable ring recovery를 재사용한다. client는 패턴별 정확한 bond order를 확인한다. UI는 독립6에서만 패턴을 보이고5/Attach 전환시 single로 되돌리며 busy/drag 중 잠근다. 클릭 시 패턴은 큐에 고정된다.
 - Domain/Application·HTTP=CLI/client·실제 production UI recovery browser 회귀를 작성했다. 부모 지시로 테스트·빌드·브라우저·push는 실행하지 않았다. [P34g 기록](verification/p34g-kekule-ring.md)의 리뷰·미실행 검증을 따른다.
 - 약어는 사용자 의미 결정 대기이며 collapsed entity·저장 schema·DATA/provider·fusion/spiro·입체 유도·방향족 판정/layout은 추가하지 않는다.
+- 부모 실행의 `7ce6021` targeted에서 Domain12개는 통과했으나 Application4/5에서 size5+kekule의 reason이 누락됐다. Domain의 ring reason을 ApplicationError로 전달하지 않은 제품 mapping 누락을 typed RingRefusal로 수정하고 기존 단정·v1/operation reason/index 비교·direction 동종 경계를 보강했다. 수정본 테스트·빌드·브라우저는 미실행이다.
 
 ## P34f 말단 atom template replacement 후보
 

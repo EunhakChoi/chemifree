@@ -1107,6 +1107,7 @@ try {
       const zero = await both((id) => request('op-ring-attach-zero', 'document.transaction', { document_id: id, expected_revision: 7,
         commands: [{ op: 'attach_ring', instance: 's1', atom: 'a1', direction: { dx: 0, dy: 0 } }] }))
       assert.equal(zero.diagnostics[0].code, 'invalid_command')
+      assert.equal(zero.diagnostics[0].details.reason, 'ring_direction_invalid')
       const undoAttach = await both((id) => request('op-ring-attach-undo', 'history.undo', { document_id: id, expected_revision: 7 }))
       assert.deepEqual(undoAttach.result.document.atoms, five.result.document.atoms)
       assert.deepEqual(undoAttach.result.document.bonds, five.result.document.bonds)

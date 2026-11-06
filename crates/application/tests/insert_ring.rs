@@ -1,6 +1,6 @@
 //! The bounded recipe shares ordinary transaction replay, persistence and refusal semantics.
 
-use chemifree_application::Application;
+use chemifree_application::{Application, CommandDto};
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde_json::{Value, json};
 
@@ -319,7 +319,6 @@ fn malformed_ring_sizes_preserve_revision_history_and_redo() {
 
 #[test]
 fn omitted_and_explicit_six_have_identical_command_semantics() {
-    use chemifree_application::CommandDto;
     let omitted: CommandDto =
         serde_json::from_value(json!({"op":"insert_ring","instance":"s1","center":{"x":0,"y":0}}))
             .unwrap();
@@ -402,6 +401,23 @@ fn unsupported_ring_patterns_preserve_revision_selection_and_redo() {
     assert_eq!(
         five["diagnostics"][0]["details"]["reason"],
         "ring_pattern_invalid"
+    );
+    assert_eq!(five["diagnostics"][0]["details"]["command_index"], 1);
+    let commands: Vec<CommandDto> = serde_json::from_value(json!([
+        {"op":"rename","title":"Must roll back"},
+        {"op":"insert_ring","instance":"s1","center":{"x":0,"y":0},"size":5,"pattern":"kekule"},
+    ]))
+    .unwrap();
+    let direct = app
+        .apply_transaction(id, Some("v1-five-kekule"), 2, commands)
+        .unwrap_err();
+    let envelope = serde_json::to_value(direct.to_response()).unwrap();
+    assert_eq!(envelope["code"], "invalid_command");
+    assert_eq!(envelope["command_index"], 1);
+    assert_eq!(envelope["reason"], "ring_pattern_invalid");
+    assert_eq!(
+        envelope["reason"],
+        five["diagnostics"][0]["details"]["reason"]
     );
     assert_eq!(snapshot(&app, id), before);
     let attached = request(

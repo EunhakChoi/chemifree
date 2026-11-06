@@ -352,6 +352,9 @@ See [P34f record](verification/p34f-template-replacement.md).
 ## Attached carbon ring (P34c)
 
 `attach_ring` is `{ op: "attach_ring", instance, atom, direction: { dx, dy }, size?: 5 | 6 }`.
+An invalid zero/non-finite direction reports `invalid_command` with
+`reason:"ring_direction_invalid"` in the v1 envelope and `details.reason` in the operation
+envelope. Ring recipe refusals preserve their failing `command_index` in both envelopes.
 It connects the existing explicit atom to a fresh regular five/six-carbon single-bond cycle
 by one additional single bond: N new atoms and N+1 new bonds, without sharing or replacing
 any existing atom or bond. Size omission is 6; null, unsupported values and unknown fields

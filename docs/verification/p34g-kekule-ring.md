@@ -80,3 +80,26 @@ README/handoff/roadmap JSON·HTML의 공통 ancestor 문맥 충돌은 이미 동
 P34g 추가분을 모두 가진 구현본으로 해결했다. 자동 병합 뒤 staged source 차이가 없음을
 대조했으며 P34f의40개 catalog/tests와 P34g 변경을 그대로 보존했다. `git diff --check`는
 공백 오류 없이 끝났다. 새 통합 snapshot의 테스트·빌드·브라우저·push는 실행하지 않았다.
+
+## 부모 targeted 실패와 ring refusal mapping 수정
+
+- 부모 실행 담당자의 `/tmp/chemifree-p29d-verify-j4KjPa/p34g-targeted.log`에서 통합
+  `7ce6021`의 Domain insert_ring은12/12 통과했다. Application insert_ring은4/5로 실패했고
+  `unsupported_ring_patterns_preserve_revision_selection_and_redo`의 size5+kekule 진단에
+  기대한 `details.reason:"ring_pattern_invalid"`이 없었다. JSON 인덱싱의 actual null은
+  필드 누락을 뜻한다. 이후 검사 실행이나 전체 성공을 주장하지 않는다.
+- 제품 오류다. Domain `EditError::reason()`은 코드를 주지만 `documents::rejected_edit`는
+  state/scene/settings/stereo만 ApplicationError에 실었다. `operations::failure`는
+  `ApplicationError::reason_code()`가 준 값만 details에 넣으므로 reason이 사라졌다.
+  동일 경로의 기존 RingDirectionInvalid도 누락됐다. 거절 자체와 rollback은 유지됐다.
+- 작은 closed `RingRefusal::{Pattern,Direction}`를 ApplicationError에 넣고 transaction
+  mapper에서 Domain의 두 variant를 명시 전달한다. 추가 문자열 포인터 대신 두 값만 갖는
+  작은 enum을 쓰며 기존 typed reason과 public code/index 의미는 유지한다. 두 public
+  envelope가 같은 reason_code를 사용하므로 v1/operation 모두 같은 코드를 받는다.
+- 실패한 기존 단정을 유지하고 command_index1, 직접 Application transaction의 v1
+  `to_response()` reason/index 및 operation 진단과의 일치를 추가했다. mapper의 두 ring
+  reason 회귀와 실제 HTTP=CLI zero-direction reason 단정도 작성했다. 단정을 완화하거나
+  거절을 다른 code로 바꾸지 않았다.
+- 수정은 정적 검토와 rustfmt 소스 서식 편집만 했다. 부모 지시로 수정본 테스트·빌드·
+  브라우저·mutation·push는 미실행이다. 실패 근거는 원본대로 보존하며 재실행은 부모의
+  실행 담당자 단계다. finding 수정은 추가 독립 리뷰 라운드를 요구하지 않는다.

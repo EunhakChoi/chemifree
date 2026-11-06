@@ -112,6 +112,25 @@ pub struct ClipboardRefusal {
     pub reason: &'static str,
 }
 
+/// Closed ring-recipe refusals forwarded from the Domain transaction boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RingRefusal {
+    /// The requested size does not support the explicit bond pattern.
+    Pattern,
+    /// The attachment direction is zero or non-finite.
+    Direction,
+}
+
+impl RingRefusal {
+    /// Stable reason shared by the v1 and operation envelopes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pattern => "ring_pattern_invalid",
+            Self::Direction => "ring_direction_invalid",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplicationError {
     pub code: ErrorCode,
@@ -139,6 +158,8 @@ pub struct ApplicationError {
     pub invalid_aromaticity: Option<&'static str>,
     /// A bounded native clipboard refusal.
     pub invalid_clipboard: Option<Box<ClipboardRefusal>>,
+    /// Set with `InvalidCommand` when a ring recipe or attachment direction was refused.
+    pub invalid_ring: Option<RingRefusal>,
     /// Set with `TimeLimit`: the time limit, in milliseconds, that stopped the computation.
     pub limit_ms: Option<u64>,
 }
@@ -159,6 +180,7 @@ impl ApplicationError {
             invalid_stereo_group: None,
             invalid_aromaticity: None,
             invalid_clipboard: None,
+            invalid_ring: None,
             limit_ms: None,
         }
     }
@@ -182,7 +204,7 @@ impl ApplicationError {
         }
     }
 
-    /// The envelope's `reason`: why storage failed, or which combination of states was refused.
+    /// The public refusal reason, shared by v1 responses and operation diagnostics.
     pub fn reason_code(&self) -> Option<&'static str> {
         self.reason
             .map(StorageReason::as_str)
@@ -194,6 +216,7 @@ impl ApplicationError {
             .or(self.invalid_stereo_group)
             .or(self.invalid_aromaticity)
             .or(self.invalid_clipboard.as_deref().map(|error| error.reason))
+            .or(self.invalid_ring.map(RingRefusal::as_str))
     }
 }
 
@@ -217,7 +240,7 @@ pub struct ErrorResponse {
     pub command_index: Option<usize>,
     /// With `storage_failed`, a [`StorageReason`]; with `invalid_command`, a [`StateError`] code
     /// when a combination of recorded states was refused, or a [`StereoError`] code when a
-    /// stereo mark or configuration was.
+    /// stereo mark or configuration was. Ring recipe refusals use a [`RingRefusal`] code.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'static str>,
 }
