@@ -54,7 +54,7 @@ fn created(app: &App, title: &str) -> String {
 
 fn defaults() -> Value {
     json!({
-        "bond_length_pt": 30.0, "line_width_pt": 1.2, "label_font": "sans-serif", "label_weight": "normal", "label_style": "normal",
+        "bond_length_pt": 30.0, "line_width_pt": 1.2, "label_font": "sans-serif", "label_weight": "normal", "label_style": "normal", "label_underline": false,
         "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"
     })
 }
@@ -93,7 +93,7 @@ fn update_settings_is_an_undoable_edit_and_refused_values_carry_their_reason() {
     assert_eq!(
         serde_json::to_value(&edited.document.settings).unwrap(),
         json!({
-            "bond_length_pt": 30.0, "line_width_pt": 2.5, "label_font": "serif", "label_weight": "normal", "label_style": "normal",
+            "bond_length_pt": 30.0, "line_width_pt": 2.5, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_underline": false,
             "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"
         })
     );
@@ -864,6 +864,67 @@ fn italic_preferences_copy_once_and_style_edit_replay_and_persistence_preserve_s
             )
             .is_err(),
             "style must be normal or italic"
+        );
+    }
+}
+
+#[test]
+fn underline_preferences_copy_once_and_edit_replay_and_persistence_preserve_underline() {
+    let (app, data) = application();
+    let earlier = created(&app, "Earlier normal document");
+    app.set_preferences(
+        None,
+        0,
+        change(json!({"ui":{"theme":"system"},"new_documents":{"label_underline":true}})),
+    )
+    .unwrap();
+    let id = created(&app, "Italic from preferences");
+    assert_eq!(settings(&app, &earlier)["label_underline"], false);
+    assert_eq!(settings(&app, &id)["label_underline"], true);
+    let reset = app
+        .reset_settings(&id, Some("style-reset"), 0, SettingsSource::Defaults)
+        .unwrap();
+    assert!(!reset.document.settings.label_underline);
+    assert_eq!(reset.session.undo_depth, 1);
+    assert_eq!(
+        app.reset_settings(&id, Some("style-reset"), 0, SettingsSource::Defaults)
+            .unwrap(),
+        reset
+    );
+    app.undo(&id, None, 1).unwrap();
+    assert_eq!(settings(&app, &id)["label_underline"], true);
+    app.redo(&id, None, 2).unwrap();
+    assert_eq!(settings(&app, &id)["label_underline"], false);
+    app.apply_transaction(
+        &id,
+        Some("style-italic"),
+        3,
+        commands(json!([{"op":"update_settings","label_underline":true}])),
+    )
+    .unwrap();
+    app.save(&id, None, 4).unwrap();
+    drop(app);
+    let reopened = process(data.path());
+    let saved = reopened.document(&id).unwrap();
+    assert!(saved.document.settings.label_underline);
+    reopened.undo(&id, None, 4).unwrap();
+    assert_eq!(settings(&reopened, &id)["label_underline"], false);
+    reopened.redo(&id, None, 5).unwrap();
+    assert_eq!(settings(&reopened, &id)["label_underline"], true);
+    assert!(
+        reopened
+            .preferences()
+            .unwrap()
+            .new_document_settings
+            .label_underline
+    );
+    for value in [json!("true"), json!(700), json!([]), json!({})] {
+        assert!(
+            serde_json::from_value::<Vec<CommandDto>>(
+                json!([{"op":"update_settings","label_underline":value}])
+            )
+            .is_err(),
+            "underline must be a boolean"
         );
     }
 }

@@ -24,6 +24,7 @@ fn strip_weights(value: &mut Value) {
         Value::Object(object) => {
             object.remove("label_weight");
             object.remove("label_style");
+            object.remove("label_underline");
             for child in object.values_mut() {
                 strip_weights(child);
             }
@@ -45,7 +46,7 @@ fn document_and_draft_require_weight_in_current_and_both_history_directions() {
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/label-weight.json");
     let template: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(template["format_version"], 19);
+    assert_eq!(template["format_version"], 20);
     for location in [
         "/document/settings",
         "/history/undo/0/settings/before",
@@ -99,14 +100,14 @@ fn document_and_draft_require_weight_in_current_and_both_history_directions() {
 }
 
 #[test]
-fn old_headers_forbid_weight_even_in_history_and_future_20_is_untouched() {
+fn old_headers_forbid_weight_even_in_history_and_future_21_is_untouched() {
     let root = tempfile::tempdir().unwrap();
     let repo = FileDocumentRepository::new(root.path());
     let doc = document();
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/label-weight.json");
     let template: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    for version in [16, 17, 20] {
+    for version in [16, 17, 21] {
         for location in [
             "/document/settings",
             "/history/undo/0/settings/before",
@@ -144,8 +145,8 @@ fn old_headers_forbid_weight_even_in_history_and_future_20_is_untouched() {
                     repo.load(doc.id()).unwrap_err().to_string()
                 };
                 assert!(
-                    reason.contains(if version == 20 {
-                        "version 20"
+                    reason.contains(if version == 21 {
+                        "version 21"
                     } else {
                         "label_weight"
                     }),

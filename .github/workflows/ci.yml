@@ -96,6 +96,8 @@ jobs:
         run: npm run test:browser:label-weight
       - name: Chemical label italic SVG geometry and font loading
         run: npm run test:browser:label-style
+      - name: Chemical label underline, actual run advances and shared bounds
+        run: npm run test:browser:label-underline
       - name: Unicode caption form, canvas and native roundtrip
         run: npm run test:browser:caption
       - name: Independent ring insertion and uncertain outcome recovery

@@ -72,7 +72,7 @@ fn old_document_bytes_and_history_survive_read_and_first_v9_save() {
     let path = root.path().join("documents/caption-native.json");
     let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     strip_caption_shadows(&mut stored);
-    assert_eq!(stored["format_version"], 19);
+    assert_eq!(stored["format_version"], 20);
     strip_abbreviations(&mut stored);
     strip_label_weights(&mut stored);
     stored["format_version"] = json!(7);
@@ -169,7 +169,7 @@ fn old_draft_bytes_are_preserved_before_the_first_changed_v9_draft() {
         Some(edited.document.revision)
     );
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 19);
+    assert_eq!(rewritten["format_version"], 20);
     assert_eq!(rewritten["document"]["revision"], edited.document.revision);
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 7)).unwrap(),
@@ -1838,8 +1838,8 @@ fn shadow_is_strict_in_current_and_history_for_documents_and_drafts() {
 }
 
 #[test]
-fn v16_and_v17_maximum_metadata_109_caption_edit_preserves_undo_redo_and_original_bytes() {
-    for version in [16, 17] {
+fn v16_through_v19_maximum_metadata_109_caption_edit_preserves_undo_redo_and_original_bytes() {
+    for version in [16, 17, 18, 19] {
         for undone in [false, true] {
             for draft in [false, true] {
                 let root = tempfile::tempdir().unwrap();
@@ -1907,6 +1907,8 @@ fn v16_and_v17_maximum_metadata_109_caption_edit_preserves_undo_redo_and_origina
                     strip_caption_shadows(&mut stored);
                 }
                 strip_label_weights(&mut stored);
+                // v18 already requires weight; v19 also requires style in every state.
+                restore_settings_fields(&mut stored, version);
                 stored["format_version"] = json!(version);
                 let original = serde_json::to_vec(&stored).unwrap();
                 fs::write(&path, &original).unwrap();
@@ -1993,6 +1995,7 @@ fn strip_label_weights(value: &mut serde_json::Value) {
         serde_json::Value::Object(object) => {
             object.remove("label_weight");
             object.remove("label_style");
+            object.remove("label_underline");
             for child in object.values_mut() {
                 strip_label_weights(child);
             }
@@ -2000,6 +2003,30 @@ fn strip_label_weights(value: &mut serde_json::Value) {
         serde_json::Value::Array(values) => {
             for child in values {
                 strip_label_weights(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn restore_settings_fields(value: &mut Value, version: u32) {
+    match value {
+        Value::Object(object) => {
+            if object.contains_key("label_font") && object.contains_key("bond_length_pt") {
+                if version >= 18 {
+                    object.insert("label_weight".into(), json!("normal"));
+                }
+                if version >= 19 {
+                    object.insert("label_style".into(), json!("normal"));
+                }
+            }
+            for child in object.values_mut() {
+                restore_settings_fields(child, version);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                restore_settings_fields(child, version);
             }
         }
         _ => {}

@@ -328,3 +328,13 @@ old bytes; bounded external exports report drawing-style loss. SVG measurements
 for italic include effective family, weight, size and viewport. P35 remains in
 progress. [P35k checks](docs/verification/p35k-label-style.md) are authored and
 unrun in this implementation session.
+
+
+P35l adds optional chemical label underlining (`label_underline`, default false),
+with measured per-run SVG rectangles and shared trim/pick/selection/fit bounds.
+Radical/attachment marks and caption styling stay independent; graph, stereo and
+coordinates are preserved. Settings and preferences share HTTP/CLI/UI and native
+v20 persistence; v1–19 migrate to false with exact old-byte archival. Existing
+external `drawing_settings` losses remain. P35 is still in progress. The added
+checks (`npm run test:browser:label-underline`, client and Rust suites) are authored
+but were not executed in this implementation session.

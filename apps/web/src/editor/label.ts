@@ -51,6 +51,12 @@ export interface LabelChunk {
   y: number
   runs: LabelRun[]
   box: Box
+  /** Explicit underline ink, relative to the atom, one rectangle per chemical run. */
+  underlines: Box[]
+  /** True only when actual SVG chunk ink and advances were found for this layout. */
+  measured: boolean
+  /** Exact source identity passed through SVG, without reconstructing relative dy shifts. */
+  metricKey: string
 }
 
 /** A dot of a radical mark, relative to the atom; a hollow one is drawn as a ring. */
@@ -81,17 +87,18 @@ export interface LabelStyle {
   carbons: CarbonLabels
   weight: LabelWeight
   style: ChemicalLabelStyle
-  /** Browser measurements of all text in bold or italic labels, including normal-weight marks. */
+  underline: boolean
+  /** Browser measurements of label text and shaped underline advances. */
   metrics?: LabelMetrics
 }
 
 /** The built-in label size, at which a layout is made before it is scaled. */
 export const LABEL_SIZE = 12
-export const DEFAULT_LABEL_STYLE: Readonly<LabelStyle> = Object.freeze({ font: 'sans-serif', size: LABEL_SIZE, carbons: 'default', weight: 'normal', style: 'normal' })
+export const DEFAULT_LABEL_STYLE: Readonly<LabelStyle> = Object.freeze({ font: 'sans-serif', size: LABEL_SIZE, carbons: 'default', weight: 'normal', style: 'normal', underline: false })
 
 export function labelStyleOf(settings: Readonly<DocumentSettings>, metrics?: LabelMetrics): LabelStyle {
   return { font: settings.label_font, size: settings.label_size_pt, carbons: settings.carbon_labels,
-    weight: settings.label_weight, style: settings.label_style, ...(metrics ? { metrics } : {}) }
+    weight: settings.label_weight, style: settings.label_style, underline: settings.label_underline, ...(metrics ? { metrics } : {}) }
 }
 
 const SMALL_SIZE = 8
@@ -210,20 +217,63 @@ interface LabelMetric {
   top: number
   bottom: number
 }
-export type LabelMetrics = ReadonlyMap<string, LabelMetric>
+interface ChunkMetric {
+  box: Box
+  underlines: Box[]
+}
+export interface LabelMetrics {
+  runs: ReadonlyMap<string, LabelMetric>
+  chunks: ReadonlyMap<string, ChunkMetric>
+}
+
+function chunkMetricKey(runs: LabelRun[], font: LabelFont, anchor: LabelChunk['anchor'], scale = 1): string {
+  return JSON.stringify([font, anchor, runs.map((item) => [item.text, item.size * scale, item.shift * scale, item.weight, item.style])])
+}
 
 function labelMetricKey(text: string, size: number, font: LabelFont, weight: LabelRun['weight'], style: ChemicalLabelStyle): string {
   return JSON.stringify([text, size, font, weight, style])
 }
 
-/** Actual SVG ink for bold or italic labels, including their unchanged 400 radical/attachment marks. */
+/** Actual SVG ink and shaped run advances, including unchanged 400 radical/attachment marks. */
 export function measureChemicalLabels(svg: SVGSVGElement): LabelMetrics {
   const metrics = new Map<string, LabelMetric>()
+  const chunks = new Map<string, ChunkMetric>()
   for (const group of svg.querySelectorAll<SVGGElement>('[data-labels]')) {
     const font = group.getAttribute('data-labels')
     if (font !== 'sans-serif' && font !== 'serif' && font !== 'monospace') continue
+    for (const text of group.querySelectorAll<SVGTextElement>('[data-atom-label] text')) {
+      const key = text.getAttribute('data-label-metric-key')
+      if (key === null) continue
+      const spans = Array.from(text.querySelectorAll<SVGTSpanElement>('tspan'))
+      const underlines: Box[] = []
+      const x = Number(text.getAttribute('x'))
+      const y = Number(text.getAttribute('y'))
+      let shift = 0
+      for (const span of spans) {
+        const size = Number(span.getAttribute('font-size'))
+        const weight = Number(span.getAttribute('font-weight'))
+        if (weight !== 400 && weight !== 500 && weight !== 700) continue
+        shift += Number(span.getAttribute('dy') ?? 0)
+        let start = Infinity
+        let end = -Infinity
+        let baseline = y + shift
+        // SVG character indices, rather than JS string indices, include shaped ligatures,
+        // surrogate pairs and bidi ordering. Spaces contribute their full advance.
+        for (let index = 0; index < span.getNumberOfChars(); index++) {
+          const a = span.getStartPositionOfChar(index)
+          const b = span.getEndPositionOfChar(index)
+          start = Math.min(start, a.x, b.x)
+          end = Math.max(end, a.x, b.x)
+          baseline = a.y
+        }
+        underlines.push(Number.isFinite(start) && end > start
+          ? { x: start - x, y: baseline - y + size / 12, width: end - start, height: size / 16 }
+          : { x: 0, y: 0, width: 0, height: 0 })
+      }
+      const ink = text.getBBox()
+      chunks.set(key, { box: { x: ink.x - x - 0.5, y: ink.y - y - 0.5, width: ink.width + 1, height: ink.height + 1 }, underlines })
+    }
     for (const span of group.querySelectorAll<SVGTSpanElement>('[data-atom-label] tspan')) {
-      if (!span.closest('[data-atom-label]')?.querySelector('tspan[font-weight="700"], tspan[font-style="italic"]')) continue
       const style = span.getAttribute('font-style') === 'italic' ? 'italic' : 'normal'
       const weight = Number(span.getAttribute('font-weight'))
       if (weight !== 400 && weight !== 500 && weight !== 700) continue
@@ -250,11 +300,11 @@ export function measureChemicalLabels(svg: SVGSVGElement): LabelMetrics {
       })
     }
   }
-  return metrics
+  return { runs: metrics, chunks }
 }
 
 function runMetric(item: LabelRun, font: LabelFont, metrics?: LabelMetrics, scale = 1): LabelMetric {
-  const measured = metrics?.get(labelMetricKey(item.text, item.size * scale, font, item.weight, item.style))
+  const measured = metrics?.runs.get(labelMetricKey(item.text, item.size * scale, font, item.weight, item.style))
   if (measured) return { advance: measured.advance / scale, left: measured.left / scale, right: measured.right / scale, top: measured.top / scale, bottom: measured.bottom / scale }
   if (item.weight === 700 || item.style === 'italic') {
     // Provisional bounds until the mounted SVG is measured; never used as bold/italic font evidence.
@@ -362,6 +412,7 @@ function chunk(
   runs: LabelRun[],
   metrics?: LabelMetrics,
   scale = 1,
+  underline = false,
 ): LabelChunk {
   const measured = runs.map((item) => runMetric(item, font, metrics, scale))
   const advance = measured.reduce((total, item) => total + item.advance, 0)
@@ -370,13 +421,27 @@ function chunk(
   const start = anchor === 'start' ? x : anchor === 'end' ? x - advance : x - advance / 2
   const top = Math.min(...runs.map((item, index) => item.shift + measured[index].top))
   const bottom = Math.max(...runs.map((item, index) => item.shift + measured[index].bottom))
+  const metricKey = chunkMetricKey(runs, font, anchor, scale)
+  const actual = underline || runs.some((item) => item.weight === 700 || item.style === 'italic')
+    ? metrics?.chunks.get(metricKey) : undefined
+  const measuredBox = actual ? {
+    x: x + actual.box.x / scale, y: y + actual.box.y / scale,
+    width: actual.box.width / scale, height: actual.box.height / scale,
+  } : undefined
+  const underlines = underline && role === 'text' && actual
+    ? actual.underlines.filter((line) => line.width > 0).map((line) => ({ x: x + line.x / scale, y: y + line.y / scale, width: line.width / scale, height: line.height / scale }))
+    : []
+  const ink = measuredBox ?? { x: start - left, y: y + top, width: advance + left + right, height: bottom - top }
   return {
     role,
     anchor,
     x,
     y,
     runs,
-    box: { x: start - left, y: y + top, width: left === right ? advance + 2 * left : advance + left + right, height: bottom - top },
+    box: underlines.length ? union([ink, ...underlines]) : ink,
+    underlines,
+    measured: actual !== undefined,
+    metricKey,
   }
 }
 
@@ -415,11 +480,11 @@ export function atomLabel(
     style.font,
     style.size,
   ])
-  const known = style.weight === 'bold' || style.style === 'italic' ? undefined : layouts.get(key)
+  const known = style.weight === 'bold' || style.style === 'italic' || style.underline ? undefined : layouts.get(key)
   if (known !== undefined) return known
   const made = scaled(layout(atom, hydrogensLeft, style), style.size / LABEL_SIZE)
   if (layouts.size >= MAX_LAYOUTS) layouts.clear()
-  if (style.weight !== 'bold' && style.style !== 'italic') layouts.set(key, made)
+  if (style.weight !== 'bold' && style.style !== 'italic' && !style.underline) layouts.set(key, made)
   return made
 }
 
@@ -437,6 +502,7 @@ function scaled(label: AtomLabel, factor: number): AtomLabel {
     y: item.y * factor,
     runs: item.runs.map((part) => ({ ...part, size: part.size * factor, shift: part.shift * factor })),
     box: box(item.box),
+    underlines: item.underlines.map(box),
   })
   return Object.freeze({
     chunks: label.chunks.map(text),
@@ -454,7 +520,7 @@ function layout(atom: AtomView, hydrogensLeft: boolean, style: Readonly<LabelSty
   const chemicalRun = (text: string, size: number, shift: number, part: LabelPart, weight: 400 | 500 = 400) =>
     run(text, size, shift, part, style.weight === 'bold' ? 700 : weight, style.style)
   const chunkOf = (role: LabelChunk['role'], anchor: LabelChunk['anchor'], x: number, y: number, runs: LabelRun[]) =>
-    chunk(font, role, anchor, x, y, runs, metrics, scale)
+    chunk(font, role, anchor, x, y, runs, metrics, scale, style.underline)
   const symbolText = atom.kind === 'query' && atom.query ? queryLabel(atom.query) : atom.element
   const symbolRun = chemicalRun(symbolText, LABEL_SIZE, 0, 'symbol', 500)
   // The symbol's reserved box, centred on the atom: radical dots go above it, marks below.
@@ -527,13 +593,13 @@ function layout(atom: AtomView, hydrogensLeft: boolean, style: Readonly<LabelSty
 
 /** Graph-preserving Et uses the same weight and geometry as a chemical symbol. */
 export function compactLabel(text: string, style: Readonly<LabelStyle>): AtomLabel {
-  if (style.weight !== 'bold' && style.style !== 'italic') {
+  if (style.weight !== 'bold' && style.style !== 'italic' && !style.underline) {
     const width = textWidth(text, style.size, style.font)
     const box = { x: -width / 2 - 1, y: -style.size * 0.65, width: width + 2, height: style.size * 1.3 }
-    return { chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0, runs: [run(text, style.size, 0, 'symbol', 500)], box }], marks: [], dots: [], box, font: style.font }
+    return { chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0, runs: [run(text, style.size, 0, 'symbol', 500)], box, underlines: [], measured: false, metricKey: chunkMetricKey([run(text, style.size, 0, 'symbol', 500)], style.font, 'middle') }], marks: [], dots: [], box, font: style.font }
   }
   const item = run(text, style.size, 0, 'symbol', style.weight === 'bold' ? 700 : 500, style.style)
-  const content = chunk(style.font, 'text', 'middle', 0, 0, [item], style.metrics)
+  const content = chunk(style.font, 'text', 'middle', 0, 0, [item], style.metrics, 1, style.underline)
   const padding = style.size / LABEL_SIZE
   return {
     chunks: [content], marks: [], dots: [], font: style.font,

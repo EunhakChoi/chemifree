@@ -371,9 +371,11 @@ export function StructureCanvas({
   )
 
   const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
-  const measuredLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic'
-  const captionMeasurementComplete = (captionCount === 0 && !measuredLabels) || (captionMeasurement?.document === document &&
-    captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount)
+  const measuredLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic' || settingsOf(document).label_underline
+  const chemicalMeasurementComplete = !measuredLabels || drawings.every((drawing) =>
+    [...drawing.labels.values()].every((label) => label === null || label.chunks.every((chunk) => chunk.measured)))
+  const captionMeasurementComplete = chemicalMeasurementComplete && ((captionCount === 0 && !measuredLabels) || (captionMeasurement?.document === document &&
+    captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount))
   const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box, {
     // Opening fit needs the first complete measurement, even though fitting will
     // change the viewport and require a second measurement there.
@@ -1065,32 +1067,38 @@ const boxAttribute = (box: Box) => `${round(box.x)} ${round(box.y)} ${round(box.
 /** A chunk of label text flowing from its anchor; each run is drawn at its natural width. */
 function ChunkText({ chunk, at, ...rest }: { chunk: LabelChunk; at: Position; className?: string } & Record<`data-${string}`, string>) {
   return (
-    <text
-      x={round(at.x + chunk.x)}
-      y={round(at.y + chunk.y)}
-      textAnchor={chunk.anchor}
-      dominantBaseline="central"
-      aria-hidden="true"
-      data-box={boxAttribute(placed(chunk.box, at))}
-      {...rest}
-    >
-      {chunk.runs.map((run, index) => {
-        const shift = run.shift - (index === 0 ? 0 : chunk.runs[index - 1].shift)
-        return (
-          <tspan
-            key={index}
-            dy={shift === 0 ? undefined : shift}
-            fontSize={run.size}
-            fontWeight={run.weight}
-            fontStyle={run.style}
-            dominantBaseline="central"
-            data-part={run.part}
-          >
-            {run.text}
-          </tspan>
-        )
-      })}
-    </text>
+    <>
+      <text
+        x={round(at.x + chunk.x)}
+        y={round(at.y + chunk.y)}
+        textAnchor={chunk.anchor}
+        dominantBaseline="central"
+        aria-hidden="true"
+        data-box={boxAttribute(placed(chunk.box, at))}
+        data-label-metric-key={chunk.metricKey}
+        {...rest}
+      >
+        {chunk.runs.map((run, index) => {
+          const shift = run.shift - (index === 0 ? 0 : chunk.runs[index - 1].shift)
+          return (
+            <tspan
+              key={index}
+              dy={shift === 0 ? undefined : shift}
+              fontSize={run.size}
+              fontWeight={run.weight}
+              fontStyle={run.style}
+              dominantBaseline="central"
+              data-part={run.part}
+            >
+              {run.text}
+            </tspan>
+          )
+        })}
+      </text>
+      {chunk.underlines.map((line, index) => <rect key={index} data-label-underline={String(index)}
+        x={at.x + line.x} y={at.y + line.y} width={line.width} height={line.height}
+        aria-hidden="true" pointerEvents="none" />)}
+    </>
   )
 }
 
