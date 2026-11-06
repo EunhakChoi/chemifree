@@ -5780,3 +5780,287 @@ test('clipboard MOL import enforces first MOL record, preview digest and UTF-8 i
   client.createClipboardMolImport({ ...input, source: 'x'.repeat(200 * 1024) })
   assert.equal(writes, 0)
 })
+
+/** Two unchanged molecule placements beside a nested, internally linked graphics forest. */
+function sceneClipboardFixture() {
+  const source = drawnTwice()
+  source.document.settings = { ...DEFAULT_SETTINGS }
+  source.notes = []
+  source.document.scene.roots = ['s1', 's2', 's8', 's4']
+  source.document.scene.objects = [
+    { kind: 'instance', id: 's1', parent: null, molecule: 'm1' },
+    { kind: 'instance', id: 's2', parent: null, molecule: 'm1' },
+    { kind: 'group', id: 's8', parent: null, children: ['s5', 's7'] },
+    { kind: 'graphic', id: 's5', parent: 's8', shape: 'rectangle', points: [{ x: 0, y: 0 }, { x: 20, y: 30 }] },
+    { kind: 'group', id: 's7', parent: 's8', children: ['s6', 's3'] },
+    { kind: 'graphic', id: 's6', parent: 's7', shape: 'arrow', points: [{ x: 5, y: 10 }, { x: 15, y: 20 }] },
+    { kind: 'graphic', id: 's3', parent: 's7', shape: 'line', points: [{ x: -5, y: -10 }, { x: 0, y: 0 }] },
+    { kind: 'graphic', id: 's4', parent: null, shape: 'line', points: [{ x: 40, y: 0 }, { x: 60, y: 10 }] },
+  ]
+  source.document.scene.references = [
+    { source: 's1', target: { kind: 'object', id: 's5' } },
+    { source: 's8', target: { kind: 'object', id: 's3' } },
+    { source: 's3', target: { kind: 'object', id: 's8' } },
+    { source: 's5', target: { kind: 'object', id: 's5' } },
+  ]
+  source.document.selection = { objects: ['s2'], atoms: ['a1'], bonds: ['b1'] }
+  const selection = { objects: ['s8', 's6', 's4'], atoms: [], bonds: [] }
+  const payload = JSON.stringify({
+    format: 'chemifree.clipboard', version: 2, kind: 'graphics', settings: { ...DEFAULT_SETTINGS },
+    roots: ['s8', 's4'],
+    objects: [
+      { kind: 'group', id: 's8', children: ['s5', 's7'] },
+      { kind: 'graphic', id: 's5', shape: 'rectangle', points: [{ x: 0, y: 0 }, { x: 20, y: 30 }] },
+      { kind: 'group', id: 's7', children: ['s6', 's3'] },
+      { kind: 'graphic', id: 's6', shape: 'arrow', points: [{ x: 5, y: 10 }, { x: 15, y: 20 }] },
+      { kind: 'graphic', id: 's3', shape: 'line', points: [{ x: -5, y: -10 }, { x: 0, y: 0 }] },
+      { kind: 'graphic', id: 's4', shape: 'line', points: [{ x: 40, y: 0 }, { x: 60, y: 10 }] },
+    ],
+    references: [
+      { source: 's8', target: { kind: 'object', id: 's3' } },
+      { source: 's3', target: { kind: 'object', id: 's8' } },
+      { source: 's5', target: { kind: 'object', id: 's5' } },
+    ],
+  })
+  const pasted = structuredClone(source)
+  pasted.document.revision = 3
+  pasted.session.undo_depth = 3
+  pasted.document.scene.roots.push('s20', 's18')
+  pasted.document.scene.objects.push(
+    { kind: 'group', id: 's20', parent: null, children: ['s16', 's19'] },
+    { kind: 'graphic', id: 's16', parent: 's20', shape: 'rectangle', points: [{ x: 10, y: 20 }, { x: 30, y: 50 }] },
+    { kind: 'group', id: 's19', parent: 's20', children: ['s17', 's15'] },
+    { kind: 'graphic', id: 's17', parent: 's19', shape: 'arrow', points: [{ x: 15, y: 30 }, { x: 25, y: 40 }] },
+    { kind: 'graphic', id: 's15', parent: 's19', shape: 'line', points: [{ x: 5, y: 10 }, { x: 10, y: 20 }] },
+    { kind: 'graphic', id: 's18', parent: null, shape: 'line', points: [{ x: 50, y: 20 }, { x: 70, y: 30 }] },
+  )
+  pasted.document.scene.references.push(
+    { source: 's20', target: { kind: 'object', id: 's15' } },
+    { source: 's15', target: { kind: 'object', id: 's20' } },
+    { source: 's16', target: { kind: 'object', id: 's16' } },
+  )
+  pasted.document.selection = { objects: ['s18', 's20'], atoms: [], bonds: [] }
+  return {
+    source, selection, payload,
+    copied: { snapshot: source, copied: { objects: ['s8', 's5', 's7', 's6', 's3', 's4'], atoms: [], bonds: [] }, roots: ['s8', 's4'], payload },
+    pasted: { snapshot: pasted, mapping: { objects: [
+      { source: 's8', target: 's20' }, { source: 's5', target: 's16' },
+      { source: 's7', target: 's19' }, { source: 's6', target: 's17' },
+      { source: 's3', target: 's15' }, { source: 's4', target: 's18' },
+    ] } },
+  }
+}
+
+function scenePasteAttempt(client, fixture, offset = { x: 10, y: 20 }, before = fixture.source.document.selection) {
+  return client.createClipboardScenePaste('doc-1', 2, fixture.payload, offset, before, fixture.source.document)
+}
+
+test('scene copy keeps outermost paint order, nested children and internal references without placement context', async () => {
+  const fixture = sceneClipboardFixture()
+  const sourceBefore = structuredClone(fixture.source)
+  const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_copy', fixture.copied, 2))] })
+  const copied = await new DocumentClient().clipboardSceneCopy('doc-1', fixture.selection)
+  assert.deepEqual(copied.roots, ['s8', 's4'])
+  assert.deepEqual(copied.copied, { objects: ['s8', 's5', 's7', 's6', 's3', 's4'], atoms: [], bonds: [] })
+  assert.equal(copied.payload, fixture.payload)
+  assert.deepEqual(JSON.parse(copied.payload).references, [
+    { source: 's8', target: { kind: 'object', id: 's3' } },
+    { source: 's3', target: { kind: 'object', id: 's8' } },
+    { source: 's5', target: { kind: 'object', id: 's5' } },
+  ])
+  assert.deepEqual(scripted.writes[0].parameters, { document_id: 'doc-1', selection: fixture.selection })
+  assert.deepEqual(fixture.source, sourceBefore)
+})
+
+for (const [name, change] of [
+  ['foreign document', (reply) => { reply.snapshot.document.id = 'another-document' }],
+  ['missing descendant', (reply) => { reply.copied.objects.splice(3, 1) }],
+  ['reversed root painting order', (reply) => { reply.roots.reverse() }],
+  ['unpreserved point', (reply) => { const payload = JSON.parse(reply.payload); payload.objects[1].points[0].x = 9; reply.payload = JSON.stringify(payload) }],
+  ['missing internal reference', (reply) => { const payload = JSON.parse(reply.payload); payload.references.pop(); reply.payload = JSON.stringify(payload) }],
+  ['unexpected graph selection', (reply) => { reply.copied.atoms.push('a1') }],
+  ['graph profile payload', (reply) => { reply.payload = nativeClipboardFixture().payload }],
+  ['oversized UTF-8 payload', (reply) => { reply.payload = '한'.repeat(22000) }],
+]) {
+  test(`scene copy refuses a successful reply with ${name}`, async () => {
+    const fixture = sceneClipboardFixture()
+    change(fixture.copied)
+    const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_copy', fixture.copied, 2))] })
+    await assert.rejects(new DocumentClient().clipboardSceneCopy('doc-1', fixture.selection), { code: 'incompatible_response' })
+  })
+}
+
+test('scene paste accepts multiple placements, mapped root paint order and preserved chemistry', async () => {
+  const fixture = sceneClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_paste', fixture.pasted))] })
+  const confirmed = await scenePasteAttempt(new DocumentClient(), fixture).send()
+  assert.deepEqual(confirmed.mapping, fixture.pasted.mapping)
+  assert.deepEqual(confirmed.snapshot.document.scene.roots, ['s1', 's2', 's8', 's4', 's20', 's18'])
+  assert.deepEqual(confirmed.snapshot.document.selection, { objects: ['s18', 's20'], atoms: [], bonds: [] })
+  assert.deepEqual(confirmed.snapshot.document.scene.instances, fixture.source.document.scene.instances)
+  assert.deepEqual(confirmed.snapshot.document.atoms.map(({ id, element, position }) => ({ id, element, position })), [
+    { id: 'a1', element: 'C', position: { x: 0, y: 0 } },
+    { id: 'a2', element: 'O', position: { x: 30, y: 0 } },
+  ])
+  assert.equal(confirmed.snapshot.document.bonds[0].id, 'b1')
+  assert.deepEqual(scripted.writes[0].parameters, {
+    document_id: 'doc-1', expected_revision: 2, payload: fixture.payload, offset: { x: 10, y: 20 },
+    selection_before: { objects: ['s2'], atoms: ['a1'], bonds: ['b1'] },
+  })
+})
+
+test('scene paste derives paint order from roots and children when payload object records are shuffled', async () => {
+  const fixture = sceneClipboardFixture()
+  const payload = JSON.parse(fixture.payload)
+  payload.objects.reverse()
+  fixture.payload = JSON.stringify(payload)
+  const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_paste', fixture.pasted))] })
+  const confirmed = await scenePasteAttempt(new DocumentClient(), fixture).send()
+  assert.deepEqual(confirmed.mapping, { objects: [
+    { source: 's8', target: 's20' }, { source: 's5', target: 's16' },
+    { source: 's7', target: 's19' }, { source: 's6', target: 's17' },
+    { source: 's3', target: 's15' }, { source: 's4', target: 's18' },
+  ] })
+  assert.equal(scripted.writes[0].parameters.payload, fixture.payload)
+})
+
+for (const [name, change] of [
+  ['wrong selected roots', (reply) => { reply.snapshot.document.selection.objects = ['s20'] }],
+  ['duplicate mapping target', (reply) => { reply.mapping.objects[1].target = 's20' }],
+  ['missing mapping', (reply) => { reply.mapping.objects.pop() }],
+  ['wrong mapping source', (reply) => { reply.mapping.objects[0].source = 's999' }],
+  ['changed translated graphic point', (reply) => { reply.snapshot.document.scene.objects[9].points[0].x = 11 }],
+  ['changed graphic shape', (reply) => { reply.snapshot.document.scene.objects[9].shape = 'line' }],
+  ['changed child order', (reply) => {
+    reply.snapshot.document.scene.objects[10].children.reverse()
+    const objects = reply.snapshot.document.scene.objects
+    ;[objects[11], objects[12]] = [objects[12], objects[11]]
+  }],
+  ['missing remapped reference', (reply) => { reply.snapshot.document.scene.references.pop() }],
+  ['reference to an existing object', (reply) => { reply.snapshot.document.scene.references.at(-1).target.id = 's5' }],
+  ['changed existing graphic', (reply) => { reply.snapshot.document.scene.objects[3].points[0].x = 7 }],
+  ['changed existing graph', (reply) => { reply.snapshot.document.atoms[0].element = 'N' }],
+  ['changed existing placement', (reply) => { reply.snapshot.document.scene.instances[1].positions[0].x = 51 }],
+  ['reordered existing roots', (reply) => {
+    const scene = reply.snapshot.document.scene
+    ;[scene.roots[0], scene.roots[1]] = [scene.roots[1], scene.roots[0]]
+    ;[scene.objects[0], scene.objects[1]] = [scene.objects[1], scene.objects[0]]
+  }],
+]) {
+  test(`scene paste keeps ${name} response uncertain until the same request confirms its exact forest`, async () => {
+    const fixture = sceneClipboardFixture()
+    const malformed = structuredClone(fixture.pasted)
+    change(malformed)
+    const scripted = service({ '/api/v1/operations': [
+      () => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_paste', malformed)),
+      () => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_paste', fixture.pasted)),
+    ] })
+    const attempt = scenePasteAttempt(new DocumentClient(), fixture)
+    await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_unconfirmed' })
+    assert.deepEqual((await attempt.send()).mapping, fixture.pasted.mapping)
+    assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+    assert.deepEqual(scripted.writes[0].parameters, scripted.writes[1].parameters)
+  })
+}
+
+test('scene clipboard refuses a successful loss-bearing reply instead of asking to drop graphic content', async () => {
+  const fixture = sceneClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [() => {
+    const reply = nativeClipboardReply(scripted, 'document.clipboard_scene_copy', fixture.copied, 2)
+    reply.outcome = 'partial'
+    reply.loss_report = [{ code: 'omitted_reference', message: 'A reference was omitted.', field: 'references' }]
+    return json(200, reply)
+  }] })
+  await assert.rejects(new DocumentClient().clipboardSceneCopy('doc-1', fixture.selection), { code: 'incompatible_response' })
+})
+
+for (const [name, change] of [
+  ['operation', (reply) => { reply.operation = 'document.clipboard_copy' }],
+  ['request ID', (reply) => { reply.request_id = 'another-request' }],
+  ['contract version', (reply) => { reply.contract = 2 }],
+  ['profile', (reply) => { reply.profile = 'guess-graphics' }],
+]) {
+  test(`scene copy binds the ${name} in its operation envelope`, async () => {
+    const fixture = sceneClipboardFixture()
+    const scripted = service({ '/api/v1/operations': [() => {
+      const reply = nativeClipboardReply(scripted, 'document.clipboard_scene_copy', fixture.copied, 2)
+      change(reply)
+      return json(200, reply)
+    }] })
+    await assert.rejects(new DocumentClient().clipboardSceneCopy('doc-1', fixture.selection), { code: 'incompatible_response' })
+  })
+}
+
+test('a loss-bearing scene paste success remains uncertain until an intact forest confirms the same attempt', async () => {
+  const fixture = sceneClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [
+    () => {
+      const reply = nativeClipboardReply(scripted, 'document.clipboard_scene_paste', fixture.pasted)
+      reply.outcome = 'partial'
+      reply.loss_report = [{ code: 'omitted_reference', message: 'A reference was omitted.', field: 'references' }]
+      return json(200, reply)
+    },
+    () => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_paste', fixture.pasted)),
+  ] })
+  const attempt = scenePasteAttempt(new DocumentClient(), fixture)
+  await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_unconfirmed' })
+  assert.deepEqual((await attempt.send()).mapping, fixture.pasted.mapping)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+test('unconfirmed scene paste freezes bytes, offsets, mixed selection and destination for exact outcome replay', async () => {
+  const fixture = sceneClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [lost, lost, () => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_paste', fixture.pasted))] })
+  const offset = { x: 10, y: 20 }
+  const before = { objects: ['s2'], atoms: ['a1'], bonds: ['b1'] }
+  const attempt = scenePasteAttempt(new DocumentClient(), fixture, offset, before)
+  await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_unconfirmed' })
+  offset.x = 999
+  before.objects.push('s8')
+  fixture.source.document.scene.objects[3].points[0].x = 999
+  const confirmed = await attempt.send()
+  assert.deepEqual(confirmed.mapping, fixture.pasted.mapping)
+  assert.deepEqual(scripted.writes.map((write) => write.requestId), Array(3).fill(scripted.writes[0].requestId))
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), Array(3).fill({
+    document_id: 'doc-1', expected_revision: 2, payload: fixture.payload, offset: { x: 10, y: 20 },
+    selection_before: { objects: ['s2'], atoms: ['a1'], bonds: ['b1'] },
+  }))
+  assert.equal(await attempt.send(), confirmed)
+  assert.equal(scripted.writes.length, 3)
+})
+
+test('scene paste checks share one in-flight request and cache its confirmation', async () => {
+  const fixture = sceneClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_paste', fixture.pasted))] })
+  const attempt = scenePasteAttempt(new DocumentClient(), fixture)
+  const first = attempt.send()
+  assert.equal(attempt.send(), first)
+  const confirmed = await first
+  assert.deepEqual(confirmed.mapping, fixture.pasted.mapping)
+  assert.equal(await attempt.send(), confirmed)
+  assert.equal(scripted.writes.length, 1)
+})
+
+test('scene paste does not resend to a replacement service after another request discovers its restart', async () => {
+  const fixture = sceneClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [lost, lost] })
+  const client = new DocumentClient()
+  const attempt = scenePasteAttempt(client, fixture)
+  await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_unconfirmed' })
+  scripted.restart()
+  await noticeRestart(client)
+  await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_restarted' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_restarted' })
+  assert.deepEqual(scripted.writes.filter((write) => write.path.endsWith('/operations')).map((write) => write.token), ['token-1', 'token-1'])
+})
+
+test('scene paste reconciles terminal revision conflict after unknown outcome without issuing another paste', async () => {
+  const fixture = sceneClipboardFixture()
+  const scripted = service({ '/api/v1/operations': [lost, lost, () => error(409, 'revision_conflict')] })
+  const attempt = scenePasteAttempt(new DocumentClient(), fixture)
+  await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_unconfirmed' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_reconcile' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_reconcile' })
+  assert.equal(scripted.writes.length, 3)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[2].requestId)
+})

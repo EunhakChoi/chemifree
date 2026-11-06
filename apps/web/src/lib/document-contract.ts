@@ -1,5 +1,6 @@
 /** Hand-maintained mirror of the v1 document contract in crates/application/src/contract.rs. */
 import { API_VERSION } from '@/lib/contract'
+import { sceneClipboardCopyMatches, sceneClipboardPasteMapping } from '@/lib/scene-clipboard-contract'
 import { readCipFailure, readCipReply, type CipBody, type CipScope } from '@/lib/cip-contract'
 import { ctabParameters, ctRefusalSentence, DEFAULT_CTAB, writtenDialectMatches, type CtabChoice, type CtDirection } from '@/lib/ct-conversion'
 import {
@@ -129,6 +130,23 @@ export interface NativeClipboardCopy {
 export interface NativeClipboardPaste {
   snapshot: DocumentResponse
   mapping: { atoms: NativeClipboardIdMapping[]; bonds: NativeClipboardIdMapping[] }
+}
+
+export interface NativeSceneClipboardCopy {
+  snapshot: DocumentResponse
+  copied: SelectionView
+  roots: string[]
+  payload: string
+}
+
+export interface NativeSceneClipboardPaste {
+  snapshot: DocumentResponse
+  mapping: { objects: NativeClipboardIdMapping[] }
+}
+
+/** Retain one scene paste attempt until its original process confirms the outcome. */
+export interface NativeSceneClipboardPasteAttempt {
+  send(): Promise<NativeSceneClipboardPaste>
 }
 
 export interface NativeClipboardIdMapping {
@@ -836,25 +854,29 @@ function statesAgree(atoms: readonly object[], bonds: readonly object[]) {
 
 /** A document whose atoms and bonds carry every recorded-state field, defaults filled in. */
 function withStates(response: DocumentResponse): DocumentResponse {
-  const atoms = response.document.atoms as Array<AtomView | Omit<AtomView, (typeof ATOM_STATE_FIELDS)[number]>>
-  const bonds = response.document.bonds as Array<BondView | Omit<BondView, 'query' | 'mark'> | Omit<BondView, 'mark'>>
   return {
     ...response,
     notes: response.notes ?? [],
-    document: {
-      ...response.document,
-      stereo: stereoOf(response.document),
-      atoms: atoms.map((atom) =>
-        'kind' in atom
-          ? atom
-          : { ...atom, kind: 'element', query: null, hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [] },
-      ),
-      bonds: bonds.map((bond) => ({
-        ...bond,
-        query: 'query' in bond ? bond.query : null,
-        mark: 'mark' in bond ? bond.mark : null,
-      })),
-    },
+    document: withDocumentStates(response.document),
+  }
+}
+
+function withDocumentStates(document: DocumentView): DocumentView {
+  const atoms = document.atoms as Array<AtomView | Omit<AtomView, (typeof ATOM_STATE_FIELDS)[number]>>
+  const bonds = document.bonds as Array<BondView | Omit<BondView, 'query' | 'mark'> | Omit<BondView, 'mark'>>
+  return {
+    ...document,
+    stereo: stereoOf(document),
+    atoms: atoms.map((atom) =>
+      'kind' in atom
+        ? atom
+        : { ...atom, kind: 'element', query: null, hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [] },
+    ),
+    bonds: bonds.map((bond) => ({
+      ...bond,
+      query: 'query' in bond ? bond.query : null,
+      mark: 'mark' in bond ? bond.mark : null,
+    })),
   }
 }
 
@@ -1977,14 +1999,32 @@ export class DocumentClient {
     return { snapshot, instance, copied, boundaryBonds: result.boundary_bonds, payload: result.payload }
   }
 
+  /** Copies only the captured graphic/group forest; mixed graph targets are never filtered out. */
+  async clipboardSceneCopy(id: string, selection: SelectionView): Promise<NativeSceneClipboardCopy> {
+    const requested = clipboardSelection(selection)
+    const request = requestId()
+    const { result, revision, losses } = clipboardReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: request, profile: 'preserve-semantics', operation: 'document.clipboard_scene_copy',
+      parameters: { document_id: id, selection: requested },
+    }, 'reload'), request, 'document.clipboard_scene_copy')
+    if (!isRecord(result.snapshot) || !isSelection(result.copied) || !isStringArray(result.roots) ||
+        typeof result.payload !== 'string' || !clipboardTextFits(result.payload) || losses.length !== 0) throw clipboardIncompatible()
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot })
+    if (snapshot.document.id !== id || snapshot.document.revision !== revision || snapshot.notes?.length ||
+        !sceneClipboardCopyMatches(result.payload, result.copied, result.roots, requested, snapshot.document, settingsOf(snapshot.document))) {
+      throw clipboardIncompatible()
+    }
+    return { snapshot, copied: result.copied, roots: result.roots, payload: result.payload }
+  }
+
   /** Freeze one clipboard mutation body, process generation and request ID for every outcome check. */
   private clipboardAttempt<T>(
-    kind: 'paste' | 'cut' | 'mol_import',
+    kind: 'paste' | 'cut' | 'mol_import' | 'scene_paste',
     path: string,
     body: Record<string, unknown>,
     parse: (value: unknown, request: string) => T,
   ): { send(): Promise<T> } {
-    const action = kind === 'mol_import' ? 'MOL import' : kind
+    const action = kind === 'mol_import' ? 'MOL import' : kind === 'scene_paste' ? 'graphics paste' : kind
     const request = requestId()
     const preparedSession = this.token
     let sentTo: string | undefined
@@ -2069,6 +2109,33 @@ export class DocumentClient {
             return !bond || bond.begin !== mappedAtom.get(sourceBond.begin) || bond.end !== mappedAtom.get(sourceBond.end)
           })) throw clipboardIncompatible()
       return { snapshot, mapping: { atoms, bonds } }
+    })
+  }
+
+  /** Freeze exact graphics text and destination content; retries ask only about this attempt. */
+  createClipboardScenePaste(
+    id: string, expectedRevision: number, payload: string, offset: Position, selectionBefore: SelectionView, destination: DocumentView,
+  ): NativeSceneClipboardPasteAttempt {
+    if (!clipboardTextFits(payload)) throw new ApiError('invalid_command', 'Native clipboard text exceeds 64 KiB.', 400, { stateReason: 'clipboard_byte_limit' })
+    if (!Number.isFinite(offset.x) || !Number.isFinite(offset.y)) {
+      throw new ApiError('invalid_command', 'Graphics paste offsets must be finite numbers in points.', 400)
+    }
+    if (destination.id !== id || destination.revision !== expectedRevision) throw clipboardIncompatible()
+    const before = structuredClone(withDocumentStates(destination))
+    const parameters = { document_id: id, expected_revision: expectedRevision, payload,
+      offset: { x: offset.x, y: offset.y }, selection_before: clipboardSelection(selectionBefore) }
+    return this.clipboardAttempt('scene_paste', '/api/v1/operations', {
+      contract: 1, profile: 'preserve-semantics', operation: 'document.clipboard_scene_paste', parameters,
+    }, (value, request) => {
+      const { result, revision, losses } = clipboardReply(value, request, 'document.clipboard_scene_paste')
+      if (!isRecord(result.snapshot) || losses.length !== 0) throw clipboardIncompatible()
+      const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot })
+      if (snapshot.document.id !== id || revision !== expectedRevision + 1 || snapshot.document.revision !== revision || snapshot.notes?.length) {
+        throw clipboardIncompatible()
+      }
+      const objects = sceneClipboardPasteMapping(payload, result.mapping, parameters.offset, before, snapshot.document, settingsOf(before))
+      if (!objects) throw clipboardIncompatible()
+      return { snapshot, mapping: { objects } }
     })
   }
 
