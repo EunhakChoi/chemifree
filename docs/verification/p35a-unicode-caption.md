@@ -93,3 +93,25 @@ Kept the caption catalog size 50 and the newer attach-ring pattern description, 
 both handoff sections, and synchronized embedded roadmap data from the merged JSON.
 The P34h pattern/gesture/recovery changes and caption scene changes are both preserved.
 No tests/build/browser were run for the integrated tree; its execution verification is pending.
+
+## First parent-run targeted failure and DTO conversion fix
+
+The parent verifier ran the integrated `ed52406` snapshot in isolation. Its
+`/tmp/chemifree-p29d-verify-j4KjPa/p35a-targeted.log` reports domain caption **5 passed**, then
+application compilation failed with three E0277 errors: the `caption` helper returned
+`ApplicationError`, but both command conversion callers require `Refusal`, while `point`
+inside the helper returns `String`. Targeted exit was 101; application tests did not run.
+This was an implementation error, not an environment or test failure.
+
+Changed the helper to return `Result<Caption, String>`, matching its sole fallible operation
+and the existing graphic/atom point-conversion helpers. The existing `From<String> for
+Refusal` and indexed `to_commands` mapping now apply. No broad error conversion or string
+mapping of typed caption-content refusals was added: Domain validation retains
+`caption_invalid` and the command index. Inspected both caption callers, the adjacent
+graphic point conversions, and other `ApplicationError` helpers in `contract.rs`; the other
+helper is the intentional top-level transaction-selection boundary.
+
+Added an application regression comparing add/update caption coordinate errors with the
+existing graphic-command error, including complete diagnostics, index and atomic snapshot
+preservation; a content-invalid case separately pins `caption_invalid`. This follow-up has
+not run tests/build/browser or push. Only formatting and diff inspection were performed.

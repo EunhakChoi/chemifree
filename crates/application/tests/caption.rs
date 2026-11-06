@@ -160,6 +160,64 @@ fn malformed_runs_and_unsupported_caption_operations_leave_the_snapshot_unchange
 }
 
 #[test]
+fn caption_coordinate_conversion_matches_existing_scene_command_errors() {
+    let (app, _root, id) = setup();
+    let added = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":commands()}),
+    );
+    assert_eq!(added["outcome"], "ok", "{added}");
+    let before = snapshot(&app, &id);
+    let bad_anchor = json!({"x":100001,"y":0});
+    let graphic = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[
+            {"op":"rename","title":"must stay unchanged"},
+            {"op":"add_graphic","shape":"line","points":[bad_anchor,{"x":0,"y":0}]}
+        ]}),
+    );
+    assert_eq!(
+        graphic["diagnostics"][0]["code"], "invalid_command",
+        "{graphic}"
+    );
+    assert_eq!(graphic["diagnostics"][0]["details"]["command_index"], 1);
+    assert_eq!(graphic["diagnostics"][0]["details"].get("reason"), None);
+    for command in [
+        json!({"op":"add_caption","anchor":bad_anchor,"runs":runs()}),
+        json!({"op":"update_caption","object":"s2","anchor":bad_anchor,"runs":runs()}),
+    ] {
+        let refused = call(
+            &app,
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":1,"commands":[
+                {"op":"rename","title":"must stay unchanged"},command
+            ]}),
+        );
+        assert_eq!(refused["diagnostics"], graphic["diagnostics"]);
+        assert_eq!(snapshot(&app, &id), before);
+    }
+    let invalid_content = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[
+            {"op":"rename","title":"must stay unchanged"},
+            {"op":"update_caption","object":"s2","anchor":{"x":0,"y":0},"runs":[{"text":"","script":"baseline"}]}
+        ]}),
+    );
+    assert_eq!(
+        invalid_content["diagnostics"][0]["details"]["reason"],
+        "caption_invalid"
+    );
+    assert_eq!(
+        invalid_content["diagnostics"][0]["details"]["command_index"],
+        1
+    );
+    assert_eq!(snapshot(&app, &id), before);
+}
+
+#[test]
 fn every_chemical_export_requires_explicit_consent_for_caption_loss() {
     let (app, _root, id) = setup();
     let added = call(
