@@ -3,8 +3,8 @@
 ## 결정과 지원 경계
 
 P34a PR HEAD `5a8c20e`에서 분리한 `feat/p34b-five-ring` 후보다. P34a squash
-병합 `71321a9`를 이 브랜치에 합쳤다. 최종 통합본의 전체 격리 검증과 현재 PR CI는
-아직 pending이다. P34는 in_progress이며 이 문서는 납품 완료를 주장하지 않는다.
+병합 `71321a9`를 이 브랜치에 합쳤다. 통합본 `6d84d85`의 전체 격리 검증은 통과했고
+현재 PR CI는 pending이다. P34는 in_progress이며 이 문서는 납품 완료를 주장하지 않는다.
 
 기존 `insert_ring`에 optional `size:5|6`을 더한다. 생략과 explicit6은 같은 Domain
 RingSize::Six로 매핑하고 기존6 좌표 산술을 유지한다. explicit null·0/4/7/음수·
@@ -77,7 +77,23 @@ peak anon 1124 MiB·page cache 2929 MiB·cap 6144 MiB·swap 0이다.
 이 targeted 검증은 전체 `npm run check`, HTTP=CLI 계약 smoke, standard browser,
 mutation 검증이나 현재 PR CI의 통과 근거가 아니다. 전용 ring browser는 scripted
 HTTP 경계의 production canvas/hook/client 검사이며 실제 backend canvas 통합을
-입증하지 않는다. 최종 main 통합본의 full 검증과 PR CI는 pending이다.
+입증하지 않는다.
+
+이후 실행 담당자가 main 통합 HEAD `6d84d85`의 전체 격리 검증을 통과시켰다.
+로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34b-full.log`이며 `sandbox-run: exit=0`,
+peak anon 1640 MiB·page cache 5879 MiB·cap 6144 MiB·swap 0이다.
+
+- `npm run check`: lint/typecheck·client 515 passed/0 failed·production web build,
+  Rust fmt/clippy/workspace tests, HTTP=CLI 계약 smoke, conformance 109/109
+  (accept 79·reject 30, failed 0·not_run 0), traceability와 검사 자체 시험 42/42 통과.
+- `npm run test:browser`: standard smoke 통과, `skipped_steps=[]`.
+- `npm run test:browser:clipboard`, `mol-clipboard`, `scene-clipboard`, `smiles-clipboard`,
+  `cdxml-clipboard`, `cdxml-import`, `scene-cut`, `clipboard-integration`, `ring` 모두 통과.
+  real-API clipboard integration은 native graph/graphic forest 문서 간 전송의 한정된
+  증거이며 ring 전용 browser의 scripted HTTP 경계를 실제 backend로 바꾸지 않는다.
+
+현재 PR CI는 pending이다. 로컬 격리 성공을 PR CI·병합·납품 완료로 확대하지 않는다.
+mutation proof는 아직 미실행이다.
 
 P34a squash `71321a9`와 기존 분기점 `5a8c20e`의 tree 차이는 P34a 검증 문서 한
 개뿐이었다. squash로 생긴 19개 중복 이력 충돌은 P34b의 5원 변경을 유지하고
@@ -85,15 +101,8 @@ P34a squash `71321a9`와 기존 분기점 `5a8c20e`의 tree 차이는 P34a 검�
 채택해 해결했다. 코드와 CI는 P34a 분기점 이후 main에 추가 차이가 없었으며 기존6
 구현과 CI 연결을 보존했다. 통합 담당자는 테스트·빌드·브라우저·push를 실행하지 않았다.
 
-실행 담당자의 남은 명령:
-
-```sh
-cargo test --locked -p chemifree-domain --test insert_ring
-cargo test --locked -p chemifree-application --test insert_ring
-npm run check
-npm run test:browser:ring
-npm run test:browser
-```
+남은 검증은 현재 PR CI 확인과 위 미실행 mutation proof이며, 이 문서 수정 담당자는
+테스트·빌드·브라우저·push를 실행하지 않았다.
 
 ## 리뷰와 skill 적용
 
@@ -112,4 +121,5 @@ npm run test:browser
 - Rust patterns/testing·TypeScript patterns/testing을 적용했다. shadcn skill의 기존
   ToggleGroup/ToggleGroupItem을 재사용했고 upstream generated source나 의존성은 바꾸지
   않았다. software-design-philosophy의 인터페이스/책임 진단은 10/10이며 실패 행은 없다.
-  실제 실행 gate와 mutation proof는 위 지시로 미실행이다. PR Codex review는 아직 없다.
+  작성 담당자는 실제 실행 gate와 mutation proof를 직접 실행하지 않았다. 실행 담당자의
+  targeted/full gate 성공은 위에 기록했으며 mutation proof는 미실행이다. PR Codex review는 아직 없다.
