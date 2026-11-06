@@ -928,8 +928,10 @@ try {
       assert.equal(response.headers.get('access-control-allow-origin'), null)
       return { status: response.status, body: await response.json() }
     }
-    const request = (id, operation, parameters) =>
-      JSON.stringify({ contract: 1, request_id: id, profile: 'preserve-semantics', operation, parameters })
+    const request = (id, operation, parameters) => {
+      assert.match(id, /^[A-Za-z0-9_-]{1,64}$/, 'operation fixture must use a valid request_id')
+      return JSON.stringify({ contract: 1, request_id: id, profile: 'preserve-semantics', operation, parameters })
+    }
     let httpDoc
     let cliDoc
     /** Sends `build(documentId)` both ways and checks that the replies agree. */
@@ -1132,17 +1134,17 @@ try {
       assert.deepEqual(unchanged.result.document, initial.result.document)
       const malformedTemplate = JSON.parse(payload)
       malformedTemplate.bonds[0].end = 'a999'
-      for (const operation of ['document.template_plan', 'document.template_attach']) {
+      for (const [action, operation] of [['plan', 'document.template_plan'], ['attach', 'document.template_attach']]) {
         for (const [name, target, bytes, reason] of [
           ['missing-target', 'a99', payload, 'template_target_invalid'],
           ['dangling-source', 'a1', JSON.stringify(malformedTemplate), 'clipboard_fragment_invalid'],
           ['dangling-source-and-target', 'a99', JSON.stringify(malformedTemplate), 'clipboard_fragment_invalid'],
         ]) {
-          const rejected = await both((id) => request(`op-template-${operation}-${name}`, operation, { ...parameters(id), atom: target, payload: bytes }))
+          const rejected = await both((id) => request(`op-template-${action}-${name}`, operation, { ...parameters(id), atom: target, payload: bytes }))
           assert.equal(rejected.outcome, 'error')
           assert.equal(rejected.diagnostics[0].code, 'invalid_command')
           assert.equal(rejected.diagnostics[0].details.reason, reason)
-          const preserved = await both((id) => request(`op-template-${operation}-${name}-snapshot`, 'document.snapshot', { document_id: id }))
+          const preserved = await both((id) => request(`op-template-${action}-${name}-snapshot`, 'document.snapshot', { document_id: id }))
           assert.deepEqual(preserved.result.document, initial.result.document)
         }
       }
