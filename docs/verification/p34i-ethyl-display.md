@@ -1,5 +1,7 @@
 # P34i: retained ethyl graph, compact Et display
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 Status: implemented candidate; execution verification pending. P34 remains `in_progress`.
 Branch: `feat/p34i-ethyl-display`, isolated at `chemifree-p34i`, based on P35a HEAD
 `ed52406`, now integrated with P35a PR #184 squash main `cadec8e`.

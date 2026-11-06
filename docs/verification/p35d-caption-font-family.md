@@ -1,5 +1,7 @@
 # P35d: caption run font family
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 Status: implemented candidate. P35 remains in progress. Base: `5d4e8bb`.
 Branch/worktree: `feat/p35d-caption-font-family`, isolated `chemifree-p35d`.
 Tests, builds, browser checks, mutation evidence and reviews await parent integration;

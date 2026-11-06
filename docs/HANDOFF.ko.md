@@ -1,5 +1,10 @@
 # Chemifree 새 세션 인계
 
+## P35 현재 상태 정정 (main f29195a, #199)
+
+P35a–n과 Et 표시 #185는 병합되었고 각 PR의 check/browser CI가 통과했다. 아래 후보·실행 대기 문구는 구현 당시의 기록이며 현재 검증 상태가 아니다. 다만 fixed Et 이외 일반 약어 레이블의 생성·텍스트/run 편집은 구현되지 않아 P35 원 scope 완료는 입증하지 못했다. P35는 in_progress를 유지한다. [완료 근거 대조와 남은 범위](verification/p35-completion-audit.md)를 현재 기준으로 사용한다. 이번 문서 대조에서는 테스트·빌드·브라우저를 실행하지 않았다.
+
+
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
 ## 완료된 환경과 브랜치 정리 규칙
@@ -455,7 +460,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 109개(implemented 60, partial 13, unverified 3, not_implemented 33) · conformance 사례 110개(passed 110: accept 80·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 110개(implemented 61, partial 13, unverified 3, not_implemented 33) · conformance 사례 110개(passed 110: accept 80·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
