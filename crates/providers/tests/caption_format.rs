@@ -484,30 +484,32 @@ fn strip_caption_alignment(value: &mut Value) {
 #[test]
 fn v8_to_v10_alignment_migration_keeps_current_history_and_exact_document_and_draft_bytes() {
     for version in [8, 9, 10] {
-        let root = tempfile::tempdir().unwrap();
-        let repo = FileDocumentRepository::new(root.path());
-        let mut doc = document();
-        doc.apply(&[caption()]).unwrap();
-        let mut changed = match caption() {
-            Command::AddCaption { caption, .. } => caption,
-            _ => unreachable!(),
-        };
-        changed.runs[0].text = "redo text".into();
-        doc.apply(&[Command::UpdateCaption {
-            object: ObjectId::from_serial(2).unwrap(),
-            caption: changed,
-        }])
-        .unwrap();
-        doc.undo().unwrap();
-        repo.save(&doc, None).unwrap();
-        repo.write_draft(&Draft {
-            document: doc.clone(),
-            base_revision: doc.revision(),
-            saved_at_ms: 42,
-        })
-        .unwrap();
-        repo.release_draft(doc.id());
         for draft in [false, true] {
+            // Document migration commits advance the saved revision; draft recovery needs
+            // its own unchanged base document and matching saved stamp.
+            let root = tempfile::tempdir().unwrap();
+            let repo = FileDocumentRepository::new(root.path());
+            let mut doc = document();
+            doc.apply(&[caption()]).unwrap();
+            let mut changed = match caption() {
+                Command::AddCaption { caption, .. } => caption,
+                _ => unreachable!(),
+            };
+            changed.runs[0].text = "redo text".into();
+            doc.apply(&[Command::UpdateCaption {
+                object: ObjectId::from_serial(2).unwrap(),
+                caption: changed,
+            }])
+            .unwrap();
+            doc.undo().unwrap();
+            repo.save(&doc, None).unwrap();
+            repo.write_draft(&Draft {
+                document: doc.clone(),
+                base_revision: doc.revision(),
+                saved_at_ms: 42,
+            })
+            .unwrap();
+            repo.release_draft(doc.id());
             let path = root.path().join(if draft {
                 "drafts/caption-native.json"
             } else {
