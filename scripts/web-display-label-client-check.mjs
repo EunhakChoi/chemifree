@@ -17,3 +17,18 @@ test('custom plain Unicode uses measured chunk ink even with normal document sty
   assert.deepEqual(measured.box,{x:-46,y:-13,width:92,height:26})
   assert.equal(measured.chunks[0].runs[0].text,'Ph 한 🧪')
 })
+
+test('display label control boundaries and lone surrogates match the single-line Unicode profile', () => {
+  for (let point = 0; point <= 0x9f; point += 1) {
+    const value = `a${String.fromCodePoint(point)}b`
+    const expected = point >= 0x20 && point < 0x7f
+    assert.equal(validDisplayLabel(value), expected, `U+${point.toString(16)}`)
+  }
+  for (const point of [0x2028, 0x2029, 0xd800, 0xdbff, 0xdc00, 0xdfff]) {
+    assert.equal(validDisplayLabel(`a${String.fromCodePoint(point)}b`), false)
+  }
+  for (const point of [0xa0, 0x2027, 0x202a, 0xd7ff, 0xe000, 0x1f9ea, 0x10ffff]) {
+    assert.equal(validDisplayLabel(`a${String.fromCodePoint(point)}b`), true)
+  }
+  assert.equal(validDisplayLabel(String.fromCodePoint(0xfeff)), true, 'Rust White_Space excludes BOM')
+})

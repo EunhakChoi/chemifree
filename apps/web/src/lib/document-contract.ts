@@ -1191,8 +1191,15 @@ function isSceneTree(document: Record<string, unknown>, atoms: AtomView[], bonds
 
 /** Mirrors the shared caption text profile; payload length is UTF-8 bytes. */
 export function validDisplayLabel(value: unknown): value is string {
-  return typeof value === 'string' && new TextEncoder().encode(value).length <= 128 &&
-    /[^\p{White_Space}]/u.test(value) && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]/u.test(value)
+  if (typeof value !== 'string' || new TextEncoder().encode(value).length > 128 ||
+    !/[^\p{White_Space}]/u.test(value)) return false
+  // Iterate code points so valid supplementary Unicode stays accepted while lone
+  // surrogates and the caption profile's C0/C1 controls are refused explicitly.
+  return [...value].every((character) => {
+    const point = character.codePointAt(0)
+    return point !== undefined && point >= 0x20 && (point < 0x7f || point > 0x9f) &&
+      point !== 0x2028 && point !== 0x2029 && (point < 0xd800 || point > 0xdfff)
+  })
 }
 
 /** Reject stale or overlapping compact metadata rather than hiding real graph content. */
