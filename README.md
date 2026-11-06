@@ -318,3 +318,13 @@ Caption runs also support independent hollow glyph outlines (P35h, native v16), 
 P35i: 독립 caption run `shadow` bool(생략 false), +1,+1 pt/opacity0.35/blur0 및 기존 outline·underline·효과색상 조합, actual viewport provenance를 따르는 ink bounds와 native v17 strict/v8–16 false migration을 구현한다. v16 admission은 유지하며 물리 metadata192-byte 예약의 전체 상한은61,421,978 bytes(<64MiB)다. P35는 in_progress이며 외부 caption 호환·legacy rendering equivalence는 주장하지 않는다. 구현 에이전트는 테스트·빌드·cargo check·browser·skill gate를 실행하지 않았고 부모 격리 검증과 리뷰는 대기다. [P35i 기록](docs/verification/p35i-caption-run-shadow.md).
 
 P35j: document settings `label_weight` normal/bold를 atom/query/H/isotope/charge와 graph-preserving Et의 표시만 제어하도록 추가한다. normal400/500·bold700이며 radical·독립 caption 정책과 chemical graph/inspection/property 결과는 유지한다. 브라우저가 실제700 자연 폭·glyph 돌출·수직 ink를 측정하고 trim/fit/hit/selection이 한 레이아웃을 공유한다. native v18 strict와 v1–17 normal migration/exact-byte archive, 이전 normal template payload 호환 및 exact style 비교, 기존 v16/v17 admission·64MiB 물리 경계를 보존한다. P35는 in_progress다. 회귀는 작성했으나 이 구현 작업에서 테스트·빌드·cargo check·브라우저·skill gate는 실행하지 않았다. 부모 격리 검증과 두 리뷰는 대기다. [P35j 기록](docs/verification/p35j-chemical-label-weight.md).
+
+P35k adds document chemical **Label style** (`normal`/`italic`, default normal),
+combined with normal/bold label weight. Atom/query/H/Et/isotope/charge/count text
+changes appearance; radical/attachment marks and independent captions keep their
+own styling. The shared HTTP/CLI edit, preferences, undo/replay, copy and recovery
+paths carry it. Native v19 migrates earlier settings/history to normal and archives
+old bytes; bounded external exports report drawing-style loss. SVG measurements
+for italic include effective family, weight, size and viewport. P35 remains in
+progress. [P35k checks](docs/verification/p35k-label-style.md) are authored and
+unrun in this implementation session.

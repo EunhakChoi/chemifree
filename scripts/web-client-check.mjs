@@ -12,6 +12,7 @@ await import('./web-ring-client-check.mjs')
 await import('./web-caption-client-check.mjs')
 await import('./web-abbreviation-client-check.mjs')
 await import('./web-label-weight-client-check.mjs')
+await import('./web-label-style-client-check.mjs')
 await import('./web-attach-ring-client-check.mjs')
 await import('./web-template-attachment-client-check.mjs')
 await import('./web-template-replacement-client-check.mjs')
@@ -2120,7 +2121,7 @@ test('labels scale with the label size and take the label font', () => {
   assert.ok(serif.box.width > mono.box.width, 'each font reserves its own widths')
   assert.deepEqual(
     labelStyleOf({ ...DEFAULT_SETTINGS, label_font: 'serif', label_size_pt: 9, carbon_labels: 'all' }),
-    { font: 'serif', size: 9, carbons: 'all', weight: 'normal' },
+    { font: 'serif', size: 9, carbons: 'all', weight: 'normal', style: 'normal' },
   )
 })
 

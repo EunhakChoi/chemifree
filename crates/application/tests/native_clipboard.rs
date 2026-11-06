@@ -699,3 +699,89 @@ fn old_normal_templates_paste_as_normal_but_do_not_match_bold_destinations() {
         assert_eq!(snapshot(&app, &normal), before);
     }
 }
+
+#[test]
+fn native_fragment_and_template_style_comparison_includes_label_style() {
+    let (app, _directory) = application();
+    let source_id = source(&app);
+    let normal = copy(&app, &source_id);
+    let target = create(&app, "Italic destination");
+    let before = edit(
+        &app,
+        &target,
+        json!([{"op":"update_settings","label_style":"italic"}]),
+    );
+    let refused = call(
+        &app,
+        "document.clipboard_paste",
+        paste_parameters(&target, 1, normal["payload"].as_str().unwrap()),
+    );
+    assert_refusal(&refused, "clipboard_style_mismatch");
+    assert_eq!(snapshot(&app, &target), before);
+    edit(
+        &app,
+        &source_id,
+        json!([{"op":"update_settings","label_style":"italic"}]),
+    );
+    let italic = copy(&app, &source_id);
+    let payload: Value = serde_json::from_str(italic["payload"].as_str().unwrap()).unwrap();
+    assert_eq!(payload["settings"]["label_style"], "italic");
+    let pasted = call(
+        &app,
+        "document.clipboard_paste",
+        paste_parameters(&target, 1, italic["payload"].as_str().unwrap()),
+    );
+    assert_eq!(pasted["outcome"], "ok", "{pasted}");
+    assert_eq!(
+        snapshot(&app, &target)["document"]["settings"]["label_style"],
+        "italic"
+    );
+}
+
+#[test]
+fn old_normal_templates_paste_as_normal_but_do_not_match_italic_destinations() {
+    let (app, _directory) = application();
+    let source_id = source(&app);
+    let copied = copy(&app, &source_id);
+    let mut old: Value = serde_json::from_str(copied["payload"].as_str().unwrap()).unwrap();
+    old["settings"]
+        .as_object_mut()
+        .unwrap()
+        .remove("label_style");
+    let normal = create(&app, "Old normal template");
+    let pasted = call(
+        &app,
+        "document.clipboard_paste",
+        paste_parameters(&normal, 0, &old.to_string()),
+    );
+    assert_eq!(pasted["outcome"], "ok", "{pasted}");
+    assert_eq!(
+        snapshot(&app, &normal)["document"]["settings"]["label_style"],
+        "normal"
+    );
+    let italic = create(&app, "Old template into italic");
+    let before = edit(
+        &app,
+        &italic,
+        json!([{"op":"update_settings","label_style":"italic"}]),
+    );
+    let refused = call(
+        &app,
+        "document.clipboard_paste",
+        paste_parameters(&italic, 1, &old.to_string()),
+    );
+    assert_refusal(&refused, "clipboard_style_mismatch");
+    assert_eq!(snapshot(&app, &italic), before);
+    for invalid in [Value::Null, json!("heavy"), json!(700)] {
+        let mut malformed = old.clone();
+        malformed["settings"]["label_style"] = invalid;
+        let before = snapshot(&app, &normal);
+        let result = call(
+            &app,
+            "document.clipboard_paste",
+            paste_parameters(&normal, 1, &malformed.to_string()),
+        );
+        assert_refusal(&result, "clipboard_fragment_invalid");
+        assert_eq!(snapshot(&app, &normal), before);
+    }
+}

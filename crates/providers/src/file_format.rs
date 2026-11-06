@@ -1,7 +1,8 @@
-//! Chemifree document file format, version 18 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 19 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
+//! Version 19 adds document label_style; versions 1–18 migrate as normal, including history.
 //! Version 18 adds document label_weight; versions 1–17 migrate as normal, including history.
 //! Version 17 adds independent boolean run shadows; versions 8–16 default to false.
 //! Version 16 adds independent boolean hollow glyph outlines; versions 8–15 default to false.
@@ -28,7 +29,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 18. Other versions
+//! so they read with none. Reading never writes; the next write is version 19. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -43,7 +44,9 @@ use chemifree_domain::scene::{
     Caption, CaptionAlignment, CaptionRun, CaptionScript, CaptionStyle, CaptionWeight, Graphic,
     GraphicShape, ReferenceTarget, SceneObject, SceneReference, Selection,
 };
-use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, LabelWeight, Settings};
+use chemifree_domain::settings::{
+    CarbonLabels, DisplayUnit, LabelFont, LabelStyle, LabelWeight, Settings,
+};
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
 };
@@ -55,9 +58,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 18;
+const FORMAT_VERSION: u32 = 19;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 18;
+const DRAFT_FORMAT_VERSION: u32 = 19;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -72,7 +75,7 @@ const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Current v18 scene/history: groups, styled/aligned captions, and Et display maps.
+/// Current v19 scene/history: groups, styled/aligned captions, and Et display maps.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -230,6 +233,8 @@ struct StoredSettings {
     label_font: StoredFont,
     #[serde(default)]
     label_weight: StoredLabelWeight,
+    #[serde(default)]
+    label_style: StoredLabelStyle,
     label_size_pt: f64,
     carbon_labels: StoredCarbonLabels,
     display_unit: StoredUnit,
@@ -241,6 +246,14 @@ pub(crate) enum StoredLabelWeight {
     #[default]
     Normal,
     Bold,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum StoredLabelStyle {
+    #[default]
+    Normal,
+    Italic,
 }
 
 impl From<LabelWeight> for StoredLabelWeight {
@@ -257,6 +270,24 @@ impl From<StoredLabelWeight> for LabelWeight {
         match weight {
             StoredLabelWeight::Normal => Self::Normal,
             StoredLabelWeight::Bold => Self::Bold,
+        }
+    }
+}
+
+impl From<LabelStyle> for StoredLabelStyle {
+    fn from(style: LabelStyle) -> Self {
+        match style {
+            LabelStyle::Normal => Self::Normal,
+            LabelStyle::Italic => Self::Italic,
+        }
+    }
+}
+
+impl From<StoredLabelStyle> for LabelStyle {
+    fn from(style: StoredLabelStyle) -> Self {
+        match style {
+            StoredLabelStyle::Normal => Self::Normal,
+            StoredLabelStyle::Italic => Self::Italic,
         }
     }
 }
@@ -1229,6 +1260,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Eighteen,
     Seventeen,
     Sixteen,
     Fifteen,
@@ -1258,6 +1290,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        18 => Ok(Version::Eighteen),
         17 => Ok(Version::Seventeen),
         16 => Ok(Version::Sixteen),
         15 => Ok(Version::Fifteen),
@@ -1277,7 +1310,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, and \
              {current}"
         )),
     }
@@ -1442,6 +1475,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
         Ok(Version::Fourteen) => Some(14),
+        Ok(Version::Eighteen) => Some(18),
         Ok(Version::Seventeen) => Some(17),
         Ok(Version::Sixteen) => Some(16),
         Ok(Version::Fifteen) => Some(15),
@@ -1465,6 +1499,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     check_settings_fields(bytes, format)?;
     let parts = match format {
         Version::Current
+        | Version::Eighteen
         | Version::Seventeen
         | Version::Sixteen
         | Version::Fifteen
@@ -1518,6 +1553,7 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     check_settings_fields(bytes, format)?;
     let (parts, base_revision, saved_at_ms) = match format {
         Version::Current
+        | Version::Eighteen
         | Version::Seventeen
         | Version::Sixteen
         | Version::Fifteen
@@ -1581,6 +1617,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     let current = matches!(
         format,
         Version::Current
+            | Version::Eighteen
             | Version::Seventeen
             | Version::Sixteen
             | Version::Fifteen
@@ -1613,15 +1650,21 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     Ok(())
 }
 
-/// Shared defaults are migration-only: v18 requires a weight in every stored settings state.
+/// Shared defaults are migration-only: v19 requires style and v18–19 require weight in every stored settings state.
 fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
     let raw: serde_json::Value = parse(bytes, "document or draft")?;
-    let current = format == Version::Current;
+    let current = matches!(format, Version::Current | Version::Eighteen);
     let check = |settings: &serde_json::Value| -> Result<(), String> {
         if settings.get("label_weight").is_some() != current
             || (current && !matches!(settings["label_weight"].as_str(), Some("normal" | "bold")))
         {
-            return Err("label_weight is required as normal or bold in v18 and forbidden in v1–17, including history.".into());
+            return Err("label_weight is required as normal or bold in v18–19 and forbidden in v1–17, including history.".into());
+        }
+        let styled = format == Version::Current;
+        if settings.get("label_style").is_some() != styled
+            || (styled && !matches!(settings["label_style"].as_str(), Some("normal" | "italic")))
+        {
+            return Err("label_style is required as normal or italic in v19 and forbidden in v1–18, including history.".into());
         }
         Ok(())
     };
@@ -1658,38 +1701,38 @@ fn check_caption_fields(bytes: &[u8], format: Version) -> Result<(), String> {
                     let field = object.get("alignment");
                     if field.is_some() != alignment || field.is_some_and(serde_json::Value::is_null)
                     {
-                        return Err("Caption alignment is required in v11–18 and forbidden in v1–10, including history.".into());
+                        return Err("Caption alignment is required in v11–19 and forbidden in v1–10, including history.".into());
                     }
                     if let Some(runs) = object.get("runs").and_then(serde_json::Value::as_array) {
                         for run in runs {
                             if run.get("shadow").is_some() != shadow
                                 || (shadow && !run["shadow"].is_boolean())
                             {
-                                return Err("Caption shadow is required as a boolean in v17–18 and forbidden in v1–16, including history.".into());
+                                return Err("Caption shadow is required as a boolean in v17–19 and forbidden in v1–16, including history.".into());
                             }
                             if run.get("outline").is_some() != outline
                                 || (outline && !run["outline"].is_boolean())
                             {
-                                return Err("Caption outline is required as a boolean in v16–18 and forbidden in v1–15, including history.".into());
+                                return Err("Caption outline is required as a boolean in v16–19 and forbidden in v1–15, including history.".into());
                             }
                             if run.get("underline").is_some() != underline
                                 || (underline && !run["underline"].is_boolean())
                             {
-                                return Err("Caption underline is required as a boolean in v15–18 and forbidden in v1–14, including history.".into());
+                                return Err("Caption underline is required as a boolean in v15–19 and forbidden in v1–14, including history.".into());
                             }
                             if run.get("color").is_some() != color {
-                                return Err("Caption color is required in v14–18 and forbidden in v1–13, including history.".into());
+                                return Err("Caption color is required in v14–19 and forbidden in v1–13, including history.".into());
                             }
                             if run.get("size_pt").is_some() != size {
-                                return Err("Caption size_pt is required in v13–18 and forbidden in v1–12, including history.".into());
+                                return Err("Caption size_pt is required in v13–19 and forbidden in v1–12, including history.".into());
                             }
                             if run.get("font").is_some() != font {
-                                return Err("Caption font is required in v12–18 and forbidden in v1–11, including history.".into());
+                                return Err("Caption font is required in v12–19 and forbidden in v1–11, including history.".into());
                             }
                             for field in ["weight", "style"] {
                                 let present = run.get(field).is_some();
                                 if present != styles || (present && run[field].is_null()) {
-                                    return Err("Caption weight/style are required in v10–18 and forbidden in v1–9, including history.".into());
+                                    return Err("Caption weight/style are required in v10–19 and forbidden in v1–9, including history.".into());
                                 }
                             }
                         }
@@ -1719,6 +1762,7 @@ fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(),
     if matches!(
         format,
         Version::Current
+            | Version::Eighteen
             | Version::Seventeen
             | Version::Sixteen
             | Version::Fifteen
@@ -2767,6 +2811,7 @@ fn stored_settings(settings: &Settings) -> StoredSettings {
         line_width_pt: settings.line_width_pt,
         label_font: settings.label_font.into(),
         label_weight: settings.label_weight.into(),
+        label_style: settings.label_style.into(),
         label_size_pt: settings.label_size_pt,
         carbon_labels: settings.carbon_labels.into(),
         display_unit: settings.display_unit.into(),
@@ -2780,6 +2825,7 @@ fn to_settings(stored: &StoredSettings) -> Settings {
         line_width_pt: stored.line_width_pt,
         label_font: stored.label_font.into(),
         label_weight: stored.label_weight.into(),
+        label_style: stored.label_style.into(),
         label_size_pt: stored.label_size_pt,
         carbon_labels: stored.carbon_labels.into(),
         display_unit: stored.display_unit.into(),

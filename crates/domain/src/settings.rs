@@ -37,6 +37,14 @@ pub enum LabelWeight {
     Bold,
 }
 
+/// The style of chemical labels, independent of caption run styles.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LabelStyle {
+    #[default]
+    Normal,
+    Italic,
+}
+
 /// Which carbons are drawn with a label.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CarbonLabels {
@@ -67,6 +75,7 @@ pub struct Settings {
     pub line_width_pt: f64,
     pub label_font: LabelFont,
     pub label_weight: LabelWeight,
+    pub label_style: LabelStyle,
     /// The font size of atom labels, in pt.
     pub label_size_pt: f64,
     pub carbon_labels: CarbonLabels,
@@ -80,6 +89,7 @@ impl Default for Settings {
             line_width_pt: 1.2,
             label_font: LabelFont::SansSerif,
             label_weight: LabelWeight::Normal,
+            label_style: LabelStyle::Normal,
             label_size_pt: 12.0,
             carbon_labels: CarbonLabels::Default,
             display_unit: DisplayUnit::Pt,
@@ -112,6 +122,7 @@ impl Settings {
             line_width_pt: edit.line_width_pt.unwrap_or(self.line_width_pt),
             label_font: edit.label_font.unwrap_or(self.label_font),
             label_weight: edit.label_weight.unwrap_or(self.label_weight),
+            label_style: edit.label_style.unwrap_or(self.label_style),
             label_size_pt: edit.label_size_pt.unwrap_or(self.label_size_pt),
             carbon_labels: edit.carbon_labels.unwrap_or(self.carbon_labels),
             display_unit: edit.display_unit.unwrap_or(self.display_unit),
@@ -127,6 +138,7 @@ impl Settings {
             line_width_pt: Some(self.line_width_pt),
             label_font: Some(self.label_font),
             label_weight: Some(self.label_weight),
+            label_style: Some(self.label_style),
             label_size_pt: Some(self.label_size_pt),
             carbon_labels: Some(self.carbon_labels),
             display_unit: Some(self.display_unit),
@@ -141,6 +153,7 @@ pub struct SettingsEdit {
     pub line_width_pt: Option<f64>,
     pub label_font: Option<LabelFont>,
     pub label_weight: Option<LabelWeight>,
+    pub label_style: Option<LabelStyle>,
     pub label_size_pt: Option<f64>,
     pub carbon_labels: Option<CarbonLabels>,
     pub display_unit: Option<DisplayUnit>,

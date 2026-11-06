@@ -200,7 +200,7 @@ fn the_first_save_over_a_version_1_file_keeps_its_exact_bytes() {
     assert_eq!(fs::read(&kept).unwrap(), original);
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
     assert!(
-        saved.contains("\"format_version\":18"),
+        saved.contains("\"format_version\":19"),
         "the document is stored as version 15"
     );
     assert_eq!(repository.load(&id()).unwrap(), Some(document.clone()));
@@ -311,7 +311,7 @@ fn a_version_1_file_is_not_replaced_when_its_copy_cannot_be_kept() {
 fn a_newer_format_version_is_refused_and_left_untouched() {
     let newer = String::from_utf8(fixture("v4-document.json"))
         .unwrap()
-        .replace("\"format_version\": 4", "\"format_version\": 19")
+        .replace("\"format_version\": 4", "\"format_version\": 20")
         .into_bytes();
     let (root, repository, path) = stored(&newer);
     let refused = |result: Result<_, StorageError>| match result {
@@ -320,9 +320,9 @@ fn a_newer_format_version_is_refused_and_left_untouched() {
     };
     let message = refused(repository.load(&id()).map(|_| ()));
     assert!(
-        message.contains("version 19")
+        message.contains("version 20")
             && message.contains(
-                "versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, and 18"
+                "versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, and 19"
             ),
         "the reason names the version: {message}"
     );
@@ -367,7 +367,7 @@ fn a_version_1_draft_migrates_when_it_is_recovered() {
         })
         .unwrap();
     let rewritten = String::from_utf8(fs::read(&draft_path).unwrap()).unwrap();
-    assert!(rewritten.contains("\"format_version\":18"), "{rewritten}");
+    assert!(rewritten.contains("\"format_version\":19"), "{rewritten}");
 }
 
 #[test]
@@ -926,7 +926,7 @@ fn version_4_scene_migrates_settings_without_losing_tree_references_or_history()
     assert!(
         String::from_utf8(fs::read(path).unwrap())
             .unwrap()
-            .contains("\"format_version\":18")
+            .contains("\"format_version\":19")
     );
     assert!(root.path().join("migrated").is_dir());
 }
@@ -959,7 +959,7 @@ fn version_4_draft_keeps_its_original_bytes_and_redo_after_recovery() {
     assert!(
         String::from_utf8(rewritten)
             .unwrap()
-            .contains("\"format_version\":18")
+            .contains("\"format_version\":19")
     );
     assert_eq!(fs::read(archive).unwrap(), original);
     app.save(ID, None, 5).unwrap();
@@ -1202,7 +1202,7 @@ fn the_first_save_over_a_version_2_file_keeps_its_exact_bytes_once() {
     assert_eq!(kept.file_name().unwrap(), format!("{ID}.v2.json").as_str());
     assert_eq!(fs::read(&kept).unwrap(), original);
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
-    assert!(saved.contains("\"format_version\":18"), "{saved}");
+    assert!(saved.contains("\"format_version\":19"), "{saved}");
 
     // The same version 2 bytes stored again are already kept; other bytes get the next name.
     fs::write(&path, &original).unwrap();
@@ -1387,6 +1387,7 @@ fn strip_label_weights(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(object) => {
             object.remove("label_weight");
+            object.remove("label_style");
             for child in object.values_mut() {
                 strip_label_weights(child);
             }
