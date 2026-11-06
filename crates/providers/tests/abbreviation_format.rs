@@ -335,6 +335,7 @@ fn strip_caption_styles(value: &mut Value) {
                 object.remove("alignment");
             }
             if object.contains_key("script") && object.contains_key("text") {
+                object.remove("underline");
                 object.remove("color");
                 object.remove("size_pt");
                 object.remove("font");
