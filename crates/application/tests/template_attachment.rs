@@ -171,16 +171,22 @@ fn replacement_repeated_invalid_boundaries_are_atomic_and_single_atom_noop_keeps
     let (_, dest, payload) = seed(&app);
     let before = snapshot(&app, &dest);
     let params = json!({"document_id":dest,"expected_revision":1,"payload":payload,"instance":"s1","source_anchor":"a1","atom":"a1"});
-    for operation in [
-        "document.template_replace_plan",
-        "document.template_replace",
+    for (key, operation) in [
+        ("replacement-plan-refused", "document.template_replace_plan"),
+        ("replacement-apply-refused", "document.template_replace"),
     ] {
-        let first = request(&app, operation, operation, params.clone());
+        let first = request(&app, key, operation, params.clone());
+        assert_eq!(first["envelope"], "operation_result", "{first}");
+        assert_eq!(first["outcome"], "error", "{first}");
         assert_eq!(
-            first["diagnostics"][0]["details"]["reason"],
-            "template_target_not_terminal_single"
+            first["diagnostics"][0]["code"], "invalid_command",
+            "{first}"
         );
-        assert_eq!(request(&app, operation, operation, params.clone()), first);
+        assert_eq!(
+            first["diagnostics"][0]["details"]["reason"], "template_target_not_terminal_single",
+            "{first}"
+        );
+        assert_eq!(request(&app, key, operation, params.clone()), first);
         assert_eq!(snapshot(&app, &dest), before);
     }
     let copied = request(
@@ -207,6 +213,13 @@ fn replacement_repeated_invalid_boundaries_are_atomic_and_single_atom_noop_keeps
     assert_eq!(snapshot(&app, &dest), before);
 }
 fn request(app: &App, key: &str, operation: &str, parameters: Value) -> Value {
+    assert!(
+        (1..=64).contains(&key.len())
+            && key
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'),
+        "Invalid operation fixture request_id: {key:?}"
+    );
     serde_json::to_value(app.execute(json!({"contract":1,"request_id":key,"profile":"preserve-semantics","operation":operation,"parameters":parameters}).to_string().as_bytes())).unwrap()
 }
 fn snapshot(app: &App, id: &str) -> Value {

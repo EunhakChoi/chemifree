@@ -104,3 +104,20 @@ P34 완료로 기록하지 않는다. PR Codex 리뷰도 부모 단계에서 pen
   검색으로 다시 확인한다. 이 수정 담당자는 rustfmt와 diff whitespace만 확인하며,
   테스트·빌드·브라우저·push는 실행하지 않는다. 수정본 compile/targeted/full/CI는 부모
   재검증 대기이며 정적 대조만으로 전체 compile 성공을 주장하지 않는다.
+
+## 두 번째 targeted의 Application fixture request_id 정정
+
+- 부모의 `561f17a` targeted2에서 Domain 검사는 통과했고 Application template 검사6개 중
+  5개가 통과했다. 반복 boundary 거절 검사는 expected reason에 실제 Null이 나와 실패했다.
+  로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34f-targeted2.log`이며 전체 성공은 아니다.
+- 원인은 fixture가 operation 문자열 `document.template_replace[_plan]`을 request_id에도
+  사용한 것이다. request_id의 점은 기존 `[A-Za-z0-9_-]{1,64}` 규칙 밖이므로 execute가
+  Domain boundary 검사에 도달하기 전에 protocol_error/invalid_request를 반환한다.
+  따라서 details.reason이 없었으며 실제 target a1의 degree3 boundary 계약은 바뀌지 않는다.
+- 두 operation은 서로 다른 유효한 fixture ID로 바꾸되 반복 호출에는 동일 ID/body를
+  유지했다. 기대값을 약화하지 않고 operation_result/error/invalid_command envelope까지
+  먼저 단정하고 실패 시 전체 응답을 출력하도록 했다. 공유 request helper도 fixture ID
+  형식을 진입 전에 단정해 같은 실수가 Null reason으로 가려지지 않도록 했다.
+- 제품 parser·Domain 거절·no-op 의미는 변경하지 않았다. rustfmt·git diff --check만
+  수행하고 테스트·빌드·브라우저·push는 실행하지 않았다. 수정본 Application 검사와 뒤의
+  no-op 경로 및 나머지 targeted/full/CI는 부모 재검증 대기다.
