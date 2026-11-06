@@ -1705,7 +1705,7 @@
         },
         {
           "id": "RENDER-01.rest",
-          "summary": "Remaining general text, vector output, transforms and clipping beyond the editor canvas. Independent Unicode captions include bounded run shadow/outline/underline, measured SVG bounds and native history. P35o adds one plain cosmetic Unicode display string on an existing retained ethyl graph, with text:null resetting Et, no parsing or chemistry/identity/formula change, chemical export display loss and native v23 current/history plus v1–22 exact-byte migration. General multistyle atom/abbreviation labels and fragment editing remain unsupported; P35 stays in_progress and execution/reviews are pending (docs/verification/p35o-display-label.md).",
+          "summary": "Remaining general text, vector output, transforms and clipping beyond the editor canvas. Implemented independent single-line captions and chemical label typography use measured SVG bounds and native history; their merged PR/CI evidence and unsupported boundaries are reconciled in docs/verification/p35-completion-audit.md. This does not complete general rendering. P35o is an additional unverified candidate for one plain cosmetic Unicode display string on an existing retained ethyl graph: text:null resets Et, arbitrary text is never parsed and chemistry/identity/formula remain unchanged. Chemical exports report display loss; native v23 current/history and v1–22 exact-byte migration preserve the old graph. General multistyle atom/abbreviation labels and fragment editing remain unsupported; original P35 scope stays in_progress and P35o execution/reviews are pending (docs/verification/p35o-display-label.md).",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1974,8 +1974,27 @@
           "followups": []
         },
         {
+          "id": "STYLE-01.4",
+          "summary": "Independent single-line Unicode captions have ordered baseline/subscript/superscript runs with per-run weight, style, inherited or generic font, size, opaque colour, underline, outline and shadow; whole-line alignment preserves the anchor. Chemical atom/query/H/isotope/charge and fixed graph-preserving Et labels have document-wide weight/style/underline/outline/shadow settings. Shared transactions, HTTP/CLI, native history/recovery and measured browser bounds carry these styles without changing chemical identity. This does not implement arbitrary atom or abbreviation text/run editing or external caption roundtrip (see docs/verification/p35-completion-audit.md).",
+          "status": "implemented",
+          "implementation": [
+            "crates/domain/src/scene.rs",
+            "crates/domain/src/settings.rs",
+            "crates/application/src/contract.rs",
+            "crates/providers/src/file_format.rs",
+            "apps/web/src/editor/scene-caption.tsx",
+            "apps/web/src/editor/label.ts"
+          ],
+          "evidence": [
+            "check:check:rust",
+            "check:test:contracts",
+            "check:test:client"
+          ],
+          "followups": []
+        },
+        {
           "id": "STYLE-01.rest",
-          "summary": "Other computation preferences (NMR solvent and corrections, general numeric precision beyond mass display), other document style properties (colours, text and caption styles, bond spacing, margins, page size), named styles and templates, the scope of automation access to settings, and rendering with the settings by the service.",
+          "summary": "Other computation preferences (NMR solvent and corrections, general numeric precision beyond mass display), remaining document style properties (general colours beyond caption run colour, bond spacing, margins, page size), arbitrary atom/abbreviation label text and run editing, named styles and general template libraries, automation settings beyond the current shared HTTP/CLI operations, and rendering with settings by the service. Implemented caption and document-wide chemical label typography is tracked separately in STYLE-01.4.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

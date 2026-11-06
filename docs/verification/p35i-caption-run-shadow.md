@@ -1,5 +1,7 @@
 # P35i independent caption run shadow
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 P35 remains in progress. `shadow` is an independent bool (omitted=false). Shared UI/API/CLI commands retain atomic failure, replay and undo/redo; text, graph, script, font, size, color, weight/style, alignment, outline and underline remain independent.
 
 The implementation chooses +1,+1 pt offset, opacity0.35, no blur, effective run color. Null inherits theme foreground; explicit colors remain fixed. Outline copies stay hollow, underline rectangles receive the same translated shadow. This is Chemifree's independent policy and makes no legacy rendering equivalence claim. Browser-shaped foreground spans supply the actual glyph boxes, expanded for outline strokes, unioned with translated shadow and underline ink. Hidden/whitespace/zero-ink runs add no glyph margin; combining marks can have zero advance and positive ink. The shadow tree retains all spans (invisible non-shadow siblings retain shaping and advance) and receives the foreground's complete aligned x, preserving fixed anchor and leading/trailing whitespace. Selection/hit/fit use the existing actual measured viewport provenance.

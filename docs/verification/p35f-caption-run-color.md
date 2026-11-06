@@ -1,5 +1,7 @@
 # P35f: caption run color
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 P35 remains in progress. Independent caption runs gain nullable `color`: null or request
 omission dynamically inherits theme foreground; explicit opaque sRGB `#RRGGBB` with
 uppercase ASCII hex digits stays fixed through theme changes. Black is an explicit override,

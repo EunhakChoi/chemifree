@@ -1,5 +1,7 @@
 # P35c: whole-caption horizontal alignment
 
+Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
+
 Status: implemented candidate; test/build/browser execution, mutation checks and reviews are
 pending. P35 remains in progress. Base: `c685460` (latest origin/main when work started).
 Branch/worktree: `feat/p35c-caption-alignment`, isolated `chemifree-p35c`.

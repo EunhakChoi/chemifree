@@ -39,5 +39,6 @@ Execution status: tests, builds, cargo check, browser and skill gates have not
 been run for this candidate. Source/static documentation inspection only; no
 scientific validation or renderer-equivalence claim is made. Required Codex and
 fresh independent subagent PR reviews, findings and dispositions are pending the
-parent workflow. The main P35 documentation audit `4ab1e84` still needs integration
-with this branch; it is not superseded by this candidate record.
+parent workflow. The main P35 documentation audit `4ab1e84` (#200) is integrated;
+its merged P35a–n evidence and original-scope gaps remain intact. That evidence
+does not establish execution or completion of this additional P35o candidate.
