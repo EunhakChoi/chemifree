@@ -16,7 +16,7 @@ function source() {
     position: [{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 45, y: 25 }][index] }))
   response.document.bonds.push({ id: 'b2', begin: 'a2', end: 'a3', order: 'single', query: null, mark: null })
   response.document.scene.instances[0].positions = response.document.atoms.map((atom) => ({ atom: atom.id, ...atom.position }))
-  response.document.abbreviations = [{ instance: 's1', anchor: 'a2', terminal: 'a3' }]
+  response.document.abbreviations = [{ instance: 's1', anchor: 'a2', terminal: 'a3', display_label: 'Et' }]
   return response
 }
 
