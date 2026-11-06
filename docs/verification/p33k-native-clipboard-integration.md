@@ -1,6 +1,6 @@
 # P33k real-backend native clipboard integration
 
-Status: passed with #172 at head `7e7c921fae0ce2e4f3e6f5ff8222ca2859698dca`. See the [bounded P33 completion record](p33-clipboard-completion.md); post-merge main CI is pending.
+Status: passed with #172 at head `7e7c921fae0ce2e4f3e6f5ff8222ca2859698dca`. See the [bounded P33 completion record](p33-clipboard-completion.md); [post-merge main CI](https://github.com/EunhakChoi/chemifree/actions/runs/42149543576) also passed.
 
 `npm run test:browser:clipboard-integration` builds `chemifree-api` with the
 lockfile, launches it on an OS-assigned loopback port with disposable storage,
@@ -55,4 +55,4 @@ readiness rather than arbitrary sleeps. Passing runs remove disposable storage;
 failed runs retain it and log the failing stage and API output. Startup timeout
 and bounded process termination protect cleanup.
 
-The coordinating parent subsequently ran the isolated full check and all browser commands successfully at the #172 head, including this integration check. PR CI check/browser also passed; see the completion record for the exact commands and link. No mutation result is claimed. This documentation update ran no tests, builds or browsers; its own reviews and CI remain pending.
+The coordinating parent subsequently ran the isolated full check and all browser commands successfully at the #172 head, including this integration check. PR CI check/browser also passed; see the completion record for the exact commands and link. No mutation result is claimed. This documentation update ran no tests, builds or browsers; its own final review dispositions and current-head CI remain to be recorded.

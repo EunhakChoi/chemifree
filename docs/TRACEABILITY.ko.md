@@ -35,7 +35,7 @@ P32a–f의 bounded 선택·기하 납품을 완료했다. 공유 scope/move uni
 
 세 웹 부분은 check:test:client 실행 근거로 implemented로 승격했다. 정렬/분배는 outermost whole-object, marquee는 active-placement atom 중심·graphic 두 점 포함, 명시 graph 대상은 단일 active placement다. 웹 변환은 geometry-center quarter turn/축 반사이며 rectangle은 정확한 quarter turn만 받는다. lasso/교차 선택·여러 배치 raw graph 선택·partial-atom arrangement·custom-angle/pivot 웹 UI·대각선 반사·snapping·cleanup은 범위 밖이다. 전체 OPS-01/OPS-02는 partial을 유지한다.
 
-P33은 로드맵의 제한된 clipboard 범위와 명시 인수 기준에 한해 `done`이다. [완료 기록](verification/p33-clipboard-completion.md)은 #172의 isolated check·standard browser·8개 clipboard browser와 PR CI 성공을 기록하고, merge `1082293` post-merge main CI는 pending으로 구분한다. 상위 OPS-01/OPS-02/CODEC 요구사항과 미구현 catch-all은 그대로 partial/미구현이다.
+P33은 로드맵의 제한된 clipboard 범위와 명시 인수 기준에 한해 `done`이다. [완료 기록](verification/p33-clipboard-completion.md)은 #172의 isolated check·standard browser·8개 clipboard browser와 PR CI 성공을 기록하고, merge `1082293`의 [post-merge main CI](https://github.com/EunhakChoi/chemifree/actions/runs/42149543576) 성공도 별도로 기록한다. 완료 문서 자체의 final-head CI는 별도 확인 대상이다. 상위 OPS-01/OPS-02/CODEC 요구사항과 미구현 catch-all은 그대로 partial/미구현이다.
 
 P33a/b/c는 native graph version1의 Copy/Cut/Paste다. 명시 source placement, induced 내부 결합·crossing 보고, 기록 속성/mark·완전한 0D stereo, fresh ID·선택·Undo/Redo·same-request replay를 제공한다. destination style은 정확히 같아야 하며 graph paste는 한 placement만 받는다. Cut은 한 source placement·crossing 없음·incoming graph refs 없음과 successful browser write 뒤 exact source/process를 요구한다. clipboard write와 삭제는 별개이며 수동 copy는 삭제를 허가하지 않는다.
 
@@ -45,7 +45,7 @@ P33d/g는 기존 MOL·SMILES preview/loss-consent를 사용하는 명시 text br
 
 P33k의 `test:browser:clipboard-integration`은 production panel/hook/client→실제 HTTP/Application/Domain에서 graph 및 nested forest 문서 간 Copy/Paste와 source 불변·fresh IDs/속성/참조·style refusal·history/selection을 확인했다. Clipboard transport만 대체하며 permission/error/restart 검사는 별도 scripted HTTP/clipboard 경계 검사다. 전체 editor canvas/navigation, 실제 OS clipboard 권한 성공과 다른 앱 호환·과학적 정확성은 입증하지 않는다.
 
-Instance 복제·enhanced-stereo-group graph 복사·global shortcut·custom MIME·external Cut·Windows/OLE는 bounded P33 밖이다. 이 완료는 형식 전체/모든 내부 객체의 clipboard 지원을 뜻하지 않는다. 기존 conformance 보고서 집계는 재실행 없이 유지한다.
+Instance 복제·enhanced-stereo-group graph 복사·global shortcut·custom MIME·external Cut·Windows/OLE는 bounded P33 밖이다. 이 완료는 형식 전체/모든 내부 객체의 clipboard 지원을 뜻하지 않는다. 기존 conformance 보고서 집계는 재실행 없이 유지한다. CODEC-06.rest·OPS-01.rest·OPS-02.rest의 open follow-up에서는 완료된 P33을 제거한다. 고급 형식/통합 파일·text UX는 기존 codec 후속과 P48, 전문 객체의 포함/선택은 P72, 정리·키보드 UI는 P47/P85, 전문 scene/reaction 변경 집합은 해당 기존 후속에 남긴다. 선언된 native 복제/shortcut 제한에 새 구현 약속을 임의로 부여하지 않는다.
 
 현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 107개(implemented 60, partial 12, unverified 2, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 

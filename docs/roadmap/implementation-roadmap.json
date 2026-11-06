@@ -1354,15 +1354,15 @@
     "P20",
     "P21"
    ],
-   "note": "로드맵의 명시 bounded scope/acceptance에 한해 완료다. P33a/b/c는 graph version1 Copy/Cut/Paste, P33e/f/j는 별도 graphics version2 forest Copy/Cut/Paste, P33d/g는 MOL/SMILES 기존 문서 append, P33h/i는 CDXML copy와 새 drawing import다. P33k의 실제 HTTP/Application/Domain 문서 간 Copy/Paste는 원본 불변·fresh IDs/속성/포함/refs·history/selection·style 거절을 확인한다. Native style은 정확히 일치해야 하고 graph paste는 한 placement, graph Cut은 한 source placement·crossing/incoming refs 없음만 받는다. Graphics는 여러 placement 목적지를 받지만 instance·mixed graph·outgoing/graph refs·작은 group을 거절하며 Cut은 outside incoming도 거절한다. Instance cloning·enhanced group graph copy·global shortcut·custom MIME·external Cut·Windows/OLE는 범위 밖이며 OS clipboard 권한 성공·외부 앱 호환·전체 editor canvas/navigation은 입증하지 않는다. #172 head7e7c921의 isolated check·standard browser·8개 clipboard browser와 PR CI check/browser는 통과했다. main merge1082293의 post-merge CI와 이 완료 문서의 리뷰/CI는 pending이다. docs/verification/p33-clipboard-completion.md 참조. 상위 OPS/CODEC 요구사항은 partial이다.",
+   "note": "로드맵의 명시 bounded scope/acceptance에 한해 완료다. P33a/b/c는 graph version1 Copy/Cut/Paste, P33e/f/j는 별도 graphics version2 forest Copy/Cut/Paste, P33d/g는 MOL/SMILES 기존 문서 append, P33h/i는 CDXML copy와 새 drawing import다. P33k의 실제 HTTP/Application/Domain 문서 간 Copy/Paste는 원본 불변·fresh IDs/속성/포함/refs·history/selection·style 거절을 확인한다. Native style은 정확히 일치해야 하고 graph paste는 한 placement, graph Cut은 한 source placement·crossing/incoming refs 없음만 받는다. Graphics는 여러 placement 목적지를 받지만 instance·mixed graph·outgoing/graph refs·작은 group을 거절하며 Cut은 outside incoming도 거절한다. Instance cloning·enhanced group graph copy·global shortcut·custom MIME·external Cut·Windows/OLE는 범위 밖이며 OS clipboard 권한 성공·외부 앱 호환·전체 editor canvas/navigation은 입증하지 않는다. #172 head7e7c921의 isolated check·standard browser·8개 clipboard browser와 PR CI check/browser는 통과했다. main merge1082293의 post-merge CI42149543576 check/browser도 성공했다. 이 완료 문서의 최종 지적 처리와 current-head CI는 별도 확인 대상이다. docs/verification/p33-clipboard-completion.md 참조. 상위 OPS/CODEC 요구사항은 partial이다.",
    "delivered": {
     "prs": [
      172
     ],
     "merge_commit": "10822930dc7c6114944156eb15f0a9c5a424aa6a",
     "pr_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/42148445439",
-    "main_ci": null,
-    "main_ci_status": "pending",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/42149543576",
+    "main_ci_status": "success",
     "scope": "bounded roadmap clipboard scope and explicit acceptance criteria; full requirement completion is not claimed"
    }
   },
@@ -4443,7 +4443,7 @@
   "extension": 7,
   "total": 103
  },
- "delivered_note": "status done 행의 delivered는 병합 PR·병합 커밋·병합 후 main CI다. A1·A2는 P07 이후 추가한 선행 보완이다. P33은 명시 bounded 인수 범위의 done 판정과 post-merge main CI pending을 별도 기록한다. pending은 CI 통과가 아니며 병합 후 확인 작업은 남는다.",
+ "delivered_note": "status done 행의 delivered는 병합 PR·병합 커밋·병합 후 main CI다. A1·A2는 P07 이후 추가한 선행 보완이다.",
  "execution_order": {
   "batch": [
    "A1",

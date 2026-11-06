@@ -12,10 +12,10 @@ every internal object, format or legacy clipboard behavior.
 `10822930dc7c6114944156eb15f0a9c5a424aa6a`. Its implementation head
 `7e7c921fae0ce2e4f3e6f5ff8222ca2859698dca` passed the isolated checks and
 [PR CI check/browser](https://github.com/EunhakChoi/chemifree/actions/runs/42148445439)
-listed below. **Post-merge main CI remains pending.** That remaining delivery
-verification must be checked and any failure resolved; it is not counted as a
-success in this record. This completion documentation PR also awaits its own
-two reviews and required CI. The documentation change runs no tests, builds or
+listed below. [Post-merge main CI](https://github.com/EunhakChoi/chemifree/actions/runs/42149543576)
+for that exact merge also passed. This completion documentation PR has its own
+review-finding dispositions and current-head required CI to finish; those are
+not counted as successful here. The documentation change runs no tests, builds or
 browsers and makes no new mutation or review-completion claim.
 
 ## Delivered profiles and limitations
@@ -81,8 +81,23 @@ Passed in that run:
 - `npm run test:browser:scene-cut`
 - `npm run test:browser:clipboard-integration`
 
-The linked #172 PR run has successful `check` and `browser` jobs. Post-merge main
-CI and this completion documentation PR's reviews/CI are pending. Existing
+The linked #172 PR run and merge main run have successful `check` and `browser`
+jobs. This completion documentation PR's final review dispositions and current-head
+CI remain to be recorded separately. Existing
 conformance and requirement totals are retained without rerunning or inflating
 them; browser outcomes are documented here rather than added as `check:` evidence
 entries, because those entries must be invoked by `npm run check`.
+
+## Review correction in #173
+
+[Codex finding](https://github.com/EunhakChoi/chemifree/pull/173#discussion_r4488394036)
+on reviewed head `d85e8c4a27e8ca281dd378912196ef0ed072b26f` identified that a
+`done` roadmap row cannot lack main-CI evidence or remain an open catch-all
+follow-up. The correction records the confirmed #172 merge-main CI and removes
+P33 from CODEC-06.rest, OPS-01.rest and OPS-02.rest. Their unimplemented status
+and existing follow-ups remain; summaries distinguish advanced formats/import
+UX, specialized selection/containment and later scene/reaction change sets.
+No check invariant is weakened, no omitted native profile is marked implemented,
+and no new roadmap implementation promise is inferred from those limitations.
+This correction runs only static document checks. The earlier snapshot's running
+full check is not evidence that this revised head passed.
