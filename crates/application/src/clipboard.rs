@@ -202,6 +202,7 @@ fn settings(value: SettingsDto) -> Result<Settings, ApplicationError> {
             label_font: Some(value.label_font),
             label_weight: Some(value.label_weight),
             label_style: Some(value.label_style),
+            label_underline: Some(value.label_underline),
             label_size_pt: Some(value.label_size_pt),
             carbon_labels: Some(value.carbon_labels),
             display_unit: Some(value.display_unit),

@@ -20,7 +20,8 @@ const BOND: usize = 256;
 const POSITION: usize = 192;
 const REFERENCE: usize = 128;
 const STEREO: usize = 256;
-// v19 label_style and v18 label_weight fit the existing settings reservation; no admission/physical budget changes.
+// v20 label_underline, v19 label_style and v18 label_weight fit the existing settings
+// reservation; no admission/physical budget changes.
 const SETTINGS: usize = 256;
 // Three IDs in content; the history form also carries both optional terminal IDs.
 const ABBREVIATION: usize = 192;

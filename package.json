@@ -35,6 +35,7 @@
     "test:browser:scene-cut": "node scripts/web-scene-cut-check.mjs",
     "test:browser:abbreviation": "node scripts/web-abbreviation-check.mjs",
     "test:browser:label-weight": "node scripts/web-label-weight-check.mjs",
+    "test:browser:label-underline": "node scripts/web-label-underline-check.mjs",
     "test:browser:label-style": "node scripts/web-label-style-check.mjs",
     "test:browser:caption": "node scripts/web-caption-check.mjs",
     "test:browser:ring": "node scripts/web-ring-check.mjs",

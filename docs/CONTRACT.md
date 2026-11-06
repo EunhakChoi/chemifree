@@ -1587,6 +1587,7 @@ Every document has its own **settings**, its style. They are saved with it, chan
 | `label_font` | `sans-serif \| serif \| monospace` | `sans-serif` |
 | `label_weight` | `normal \| bold` | `normal` |
 | `label_style` | `normal \| italic` | `normal` |
+| `label_underline` | boolean | `false` |
 | `label_size_pt` | finite, 4–72 | 12 |
 | `carbon_labels` | `default` (a bonded carbon that records nothing is a bare vertex; every other carbon is labelled) `\| all` | `default` |
 | `display_unit` | `pt \| mm \| cm \| in` | `pt` |
@@ -1603,7 +1604,7 @@ Lengths are always stored in pt (1 in = 72 pt = 25.4 mm); `display_unit` only sa
 ```json
 { "api_version": "v1", "revision": 2, "ui": { "theme": "dark" },
   "new_documents": { "label_font": "serif" },
-  "new_document_settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" },
+  "new_document_settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" },
   "computation": {
     "nmr": { "status": "not_implemented", "owner": "preferences", "followup": "P66", "note": "..." },
     "numeric_precision": { "status": "not_implemented", "owner": "preferences", "followup": "P60", "note": "..." },
@@ -2072,7 +2073,7 @@ None of these checks validate chemical behavior or compatibility with any other 
 
 P35i independent caption run shadow (P35 in progress): `shadow` is a boolean; omission means false, explicit null and other types are malformed. It composes with every existing run field and never changes graph identity, text, advances or anchor. The shared application provides UI/API/CLI, replay and undo/redo. Chemifree renders a second copy at (+1,+1) pt with opacity 0.35 and zero blur, using the effective run color (theme foreground for null); hollow outlines stay hollow and underline rectangles receive the same shadow. This is an independent visual policy, without a claim of legacy rendering equivalence. Only visible shaped glyph/stroke ink and positive-width underlines enter the translated union; whitespace, invisible formatting and zero-advance shaping follow browser measurements. Fit/selection/hit bounds use the current actual SVG viewport measurement provenance.
 
-Native document/draft v17 requires boolean shadow in every current/history run. v8–16 forbid that field and migrate to false, preserving all original bytes in versioned archives before replacement. Future v20 is refused untouched (v19 adds label style, below). Shadow=false keeps the exact v16 admission weights (160 without outline, 192 with it); shadow=true admits at224 bytes/run. Physical metadata reserves192 bytes for at most185 encoded metadata bytes. History physical weight is at most6/5 of its8MiB admission; current admission is48MiB and at most32,000 runs add at most1,024,000 physical bytes. The conservative complete-file bound is61,421,978 bytes, below64MiB with more than5MiB spare, including the existing4096-byte envelope. Existing maximal109-caption current/undo/redo states must not be trimmed or refused during migration. External caption roundtrip and scientific labels remain unsupported.
+Native document/draft v17 requires boolean shadow in every current/history run. v8–16 forbid that field and migrate to false, preserving all original bytes in versioned archives before replacement. Future v21 is refused untouched (v19 adds label style and v20 adds underline, below). Shadow=false keeps the exact v16 admission weights (160 without outline, 192 with it); shadow=true admits at224 bytes/run. Physical metadata reserves192 bytes for at most185 encoded metadata bytes. History physical weight is at most6/5 of its8MiB admission; current admission is48MiB and at most32,000 runs add at most1,024,000 physical bytes. The conservative complete-file bound is61,421,978 bytes, below64MiB with more than5MiB spare, including the existing4096-byte envelope. Existing maximal109-caption current/undo/redo states must not be trimmed or refused during migration. External caption roundtrip and scientific labels remain unsupported.
 
 
 Shadow compositing policy: all shadow glyphs and underline rectangles paint together in one translated SVG group behind every foreground glyph and underline. The group receives opacity0.35 once, so overlapping descenders/underline shadows do not accumulate opacity and later-run shadows cannot cover foreground ink. A real-browser regression rasterizes the actual detached shadow tree with frozen computed styles onto a transparent canvas and asserts nonempty alpha≤90/255, including g/j descenders, alongside DOM paint order and the existing geometry/theme checks. Written only; execution remains parent-owned.
@@ -2106,7 +2107,7 @@ Native document/draft v18 requires normal/bold `label_weight` in current setting
 and in every history settings before/after state. v1–17 forbid that field and
 migrate all settings states to normal. Reading writes nothing; replacement or
 recovery preserves exact old document/draft bytes in existing versioned archives.
-v20 is refused untouched (v19 adds label style, below). The existing 256-byte settings reservation covers the
+v21 is refused untouched (v19 adds label style and v20 adds underline, below). The existing 256-byte settings reservation covers the
 new field, so caption admission weights, the 61,421,978-byte conservative complete
 file bound and the provider's physical 64 MiB bound remain unchanged. Existing
 v16/v17 maximal 109-caption edits must retain complete undo/redo during migration.
@@ -2150,9 +2151,43 @@ No explicit font registration or equivalence with another renderer is claimed.
 Native document/draft v19 requires `label_style` as normal/italic in current and
 all history settings before/after states. v1–18 forbid this field and migrate
 all such states to normal; v18 still requires normal/bold weight. Reading does
-not write; overwrite/recovery archives exact prior bytes. Future v20 is refused
+not write; overwrite/recovery archives exact prior bytes. Future v21 is refused
 untouched. Existing settings reservations, caption history admission and the
 physical 64 MiB bound are unchanged. Native clipboard/template versions remain
 unchanged: omission of style means normal; explicit null/unknown/type errors are
 refused, and exact destination matching includes style. P35 remains in progress;
 external style roundtrip and general font registration remain unimplemented.
+
+
+## Chemical label underline (P35l, bounded)
+
+Document `label_underline` is a boolean, default false. It underlines only chemical
+text: atom/query symbols, stated or unknown H, H counts, isotope, charge, and the
+existing graph-preserving Et label. Radical/attachment marks and independent
+caption styling stay independent. Atom coordinates, bonds, stereo, chemistry and
+abbreviation membership do not change.
+
+Each chemical text run paints an explicit SVG rectangle from the minimum to
+maximum actual SVG character start/end x positions, including whitespace,
+Unicode, RTL ordering and ligatures. Its top is the actual run baseline plus its
+effective font size/12 and its thickness is that size/16. Rectangles use the
+same natural 400/500 or 700, normal/italic font that shapes the text; no
+`textLength` or text decoration substitutes for advance measurements. The union
+of glyph ink and underline rectangles feeds the same label bounds used for bond
+trimming, hit testing, selection and fit. Provisional bounds are not font evidence;
+completed measurement retains document, loaded-font and viewBox provenance and
+is invalidated when the document, viewport or fonts change.
+
+Document edits, preferences for new documents, HTTP, CLI, reset/import, undo/redo
+and replay carry the same field. Native document/draft v20 requires the boolean
+in current settings and every before/after settings history state. Versions 1–19
+forbid the new field and migrate to false in memory; first rewrite/recovery
+preserves exact old bytes under the existing archive protocol. Weight remains
+required from v18 and style from v19. Future v21 is refused. Existing history
+admission and 64 MiB provider file limits stay unchanged. Older clipboard/template
+payloads may omit the field (false); explicit null or a nonboolean is invalid.
+Copy validation compares the complete migrated style. External exports keep the
+existing `drawing_settings` loss rather than pretending to preserve this styling.
+
+P35 remains `in_progress`. New checks are authored but have not been run in the
+P35l implementation session; there is no browser or scientific validation claim.

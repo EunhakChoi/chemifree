@@ -533,3 +533,16 @@ P35h 리뷰 보완: 물리 encoding 예약176(실제최대170)과 admission(fals
 
 
 P35i: 독립 caption run `shadow` bool(생략 false), +1,+1 pt/opacity0.35/blur0 및 기존 outline·underline·효과색상 조합, actual viewport provenance를 따르는 ink bounds와 native v17 strict/v8–16 false migration을 구현한다. v16 admission은 유지하며 물리 metadata192-byte 예약의 전체 상한은61,421,978 bytes(<64MiB)다. P35는 in_progress이며 외부 caption 호환·legacy rendering equivalence는 주장하지 않는다. 구현 에이전트는 테스트·빌드·cargo check·browser·skill gate를 실행하지 않았고 부모 격리 검증과 리뷰는 대기다. [P35i 기록](verification/p35i-caption-run-shadow.md).
+
+
+## P35l — 화학 라벨 밑줄 (작성, 검증 미실행)
+
+문서 `label_underline: bool`(기본 false)을 설정/환경 설정/HTTP/CLI/undo/replay와
+native v20에 연결했다. atom/query/H/count/isotope/charge와 기존 Et 텍스트에만
+실제 SVG 문자 start/end advance 기반 rect를 그리며 baseline+size/12,
+두께 size/16이다. glyph+rect union이 trim/hit/selection/fit에 공유된다.
+radical/attachment/caption과 graph/stereo/좌표는 독립이다. v1–19는 false로
+마이그레이션하고 원시 바이트를 보존한다. 기존 v16–19 이력/64MiB 상한과
+외부 내보내기 drawing_settings 손실을 유지한다. P35는 in_progress다.
+사용자 지시에 따라 tests/build/cargo check/browser는 실행하지 않았고
+fmt/diff만 수행한다. 검증 목록: docs/verification/p35l-label-underline.md.
