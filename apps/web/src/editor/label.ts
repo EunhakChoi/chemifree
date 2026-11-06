@@ -619,9 +619,9 @@ function layout(atom: AtomView, hydrogensLeft: boolean, style: Readonly<LabelSty
   return { chunks, marks, dots, box, font, shadow: style.shadow }
 }
 
-/** Graph-preserving Et uses the same weight and geometry as a chemical symbol. */
-export function compactLabel(text: string, style: Readonly<LabelStyle>): AtomLabel {
-  if (text === 'Et' && style.weight !== 'bold' && style.style !== 'italic' && !style.underline && !style.outline && !style.shadow) {
+/** Retained graph display text shares chemical label geometry; fragments require actual SVG ink. */
+export function compactLabel(text: string, style: Readonly<LabelStyle>, measured = false): AtomLabel {
+  if (!measured && text === 'Et' && style.weight !== 'bold' && style.style !== 'italic' && !style.underline && !style.outline && !style.shadow) {
     const width = textWidth(text, style.size, style.font)
     const box = { x: -width / 2 - 1, y: -style.size * 0.65, width: width + 2, height: style.size * 1.3 }
     return { shadow: false, chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0, runs: [run(text, style.size, 0, 'symbol', 500)], box, underlines: [], measured: false, metricKey: chunkMetricKey([run(text, style.size, 0, 'symbol', 500)], style.font, 'middle') }], marks: [], dots: [], box, font: style.font }

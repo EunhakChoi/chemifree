@@ -1,4 +1,4 @@
-import { abbreviationsIn, abbreviationTargets } from '@/editor/abbreviation'
+import { compactDisplaysIn, abbreviationTargets } from '@/editor/abbreviation'
 import type { Command, DocumentView, Position, SelectionTransform } from '@/lib/document-contract'
 import { selectionSnapshot } from '@/editor/scene-selection'
 
@@ -76,8 +76,8 @@ export function marqueeSelection(document: DocumentView, instance: string | null
   const positions = document.scene
     ? document.scene.instances.find((placement) => placement.id === instance)?.positions ?? []
     : document.atoms.map((atom) => ({ ...atom.position, atom: atom.id }))
-  const compact = abbreviationsIn(document, instance)
-  const hidden = new Set(compact.map((item) => item.terminal))
+  const compact = compactDisplaysIn(document, instance)
+  const hidden = new Set(compact.flatMap((item) => item.members.filter((id) => id !== item.anchor)))
   for (const position of positions) {
     if (hidden.has(position.atom)) continue
     if (inside(position)) for (const target of abbreviationTargets(document, instance, position.atom)) selected.add(target)

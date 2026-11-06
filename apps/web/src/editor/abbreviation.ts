@@ -1,4 +1,4 @@
-/** Presentation of an existing Et graph; this projection never becomes document state. */
+/** Presentation of retained graphs; this projection never becomes document state. */
 import type { AbbreviationView, DocumentView } from '@/lib/document-contract'
 import { compactLabel, type AtomLabel, type LabelStyle } from '@/editor/label'
 
@@ -6,8 +6,15 @@ export function abbreviationsIn(document: DocumentView, instance: string | null)
   return (document.abbreviations ?? []).filter((item) => item.instance === instance)
 }
 
+export function compactDisplaysIn(document: DocumentView, instance: string | null): Array<{ anchor: string; members: string[]; text: string; ethyl: boolean }> {
+  return [
+    ...abbreviationsIn(document, instance).map((item) => ({ anchor: item.anchor, members: [item.anchor, item.terminal], text: item.display_label, ethyl: true })),
+    ...(document.fragment_displays ?? []).filter((item) => item.instance === instance).map((item) => ({ anchor: item.anchor, members: item.members, text: item.text, ethyl: false })),
+  ]
+}
+
 export function compactView(document: DocumentView, instance: string | null): DocumentView {
-  const hidden = new Set(abbreviationsIn(document, instance).map((item) => item.terminal))
+  const hidden = new Set(compactDisplaysIn(document, instance).flatMap((item) => item.members.filter((id) => id !== item.anchor)))
   return {
     ...document,
     atoms: document.atoms.filter((atom) => !hidden.has(atom.id)),
@@ -15,14 +22,14 @@ export function compactView(document: DocumentView, instance: string | null): Do
   }
 }
 
-/** The visible label selects the retained pair and its induced internal bond. */
+/** The visible label selects every retained member and induced internal bond. */
 export function abbreviationTargets(document: DocumentView, instance: string | null, anchor: string): string[] {
-  const item = abbreviationsIn(document, instance).find((item) => item.anchor === anchor)
+  const item = compactDisplaysIn(document, instance).find((item) => item.anchor === anchor)
   if (!item) return [anchor]
-  const pair = [item.anchor, item.terminal]
+  const pair = item.members
   return [...pair, ...document.bonds.filter((bond) => pair.includes(bond.begin) && pair.includes(bond.end)).map((bond) => bond.id)]
 }
 
-export function ethylLabel(style: LabelStyle, text = 'Et'): AtomLabel {
-  return compactLabel(text, style)
+export function ethylLabel(style: LabelStyle, text = 'Et', measured = false): AtomLabel {
+  return compactLabel(text, style, measured)
 }

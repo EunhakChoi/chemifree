@@ -186,7 +186,8 @@ export function sameContent(a: DocumentView, b: DocumentView) {
     JSON.stringify(stereoOf(a)) === JSON.stringify(stereoOf(b)) &&
     JSON.stringify(a.scene) === JSON.stringify(b.scene) &&
     JSON.stringify(a.settings) === JSON.stringify(b.settings) &&
-    JSON.stringify(a.abbreviations ?? []) === JSON.stringify(b.abbreviations ?? [])
+    JSON.stringify(a.abbreviations ?? []) === JSON.stringify(b.abbreviations ?? []) &&
+    JSON.stringify(a.fragment_displays ?? []) === JSON.stringify(b.fragment_displays ?? [])
   )
 }
 
@@ -1105,10 +1106,12 @@ export function useDocumentEditor() {
         return mutate((document, restartedFrom) => {
           if (typeof edit === 'function') {
             const commands = edit(document.document)
+            if (restartedFrom && commands?.some((command) => command.op === 'contract_fragment' || command.op === 'set_fragment_display_text' || command.op === 'expand_fragment')) return null
             return commands?.length ? client.transact(id(), revision(document), commands, snapshots(document.document)) : null
           }
           if (!edit.length || shown?.id !== document.document.id) return null
           if (restartedFrom) {
+            if (edit.some((command) => command.op === 'contract_fragment' || command.op === 'set_fragment_display_text' || command.op === 'expand_fragment')) return null
             // Built on an older view than the one the restarted service matched: it lapses.
             if (restartedFrom.document.revision !== shown.revision) return null
             return client.transact(shown.id, revision(document), edit, snapshots(document.document))
