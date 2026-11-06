@@ -2908,6 +2908,12 @@ impl Document {
         content
             .check_selection(&parts.selection)
             .map_err(|error| RestoreError(format!("invalid selection: {error}")))?;
+        // History retention is not a migration path for malformed display text. Check
+        // every incoming string and local record shape, including entries later trimmed.
+        for set in parts.undo.iter().chain(&parts.redo) {
+            set.validate_display_label_changes()
+                .map_err(|error| RestoreError(format!("invalid display label history: {error}")))?;
+        }
         let mut undo: VecDeque<ChangeSet> = parts.undo.into();
         let mut redo = parts.redo;
         let mut selection = parts.selection;

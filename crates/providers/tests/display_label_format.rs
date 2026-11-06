@@ -355,3 +355,65 @@ fn v22_draft_retains_default_display_and_history_then_archives_exact_bytes() {
     );
     repo.release_draft(doc.id());
 }
+
+#[test]
+fn invalid_display_history_cannot_hide_beyond_document_or_draft_retention() {
+    let mut doc = drawing();
+    doc.apply(&[collapse()]).unwrap();
+    for index in 0..101 {
+        doc.apply(&[label(Some(if index % 2 == 0 { "Ph" } else { "Me" }))])
+            .unwrap();
+    }
+    for redo in [false, true] {
+        if redo {
+            for _ in 0..100 {
+                doc.undo().unwrap();
+            }
+        }
+        let root = tempfile::tempdir().unwrap();
+        let repo = FileDocumentRepository::new(root.path());
+        repo.save(&doc, None).unwrap();
+        let document_path = root.path().join("documents/ethyl-native.json");
+        let mut raw: Value = serde_json::from_slice(&fs::read(&document_path).unwrap()).unwrap();
+        let stack = if redo { "redo" } else { "undo" };
+        let states = raw["history"][stack].as_array_mut().unwrap();
+        states.insert(0, states[0].clone());
+        assert_eq!(states.len(), 101);
+        fs::write(&document_path, serde_json::to_vec(&raw).unwrap()).unwrap();
+        assert_eq!(
+            repo.load(doc.id()).unwrap(),
+            Some(doc.clone()),
+            "well-formed excess entries still trim"
+        );
+        for invalid in ["bad\ntext", "", "Et", &"한".repeat(43)] {
+            for draft in [false, true] {
+                let mut malformed = raw.clone();
+                malformed["history"][stack][0]["display_labels"][0]["before"] = json!(invalid);
+                let target = if draft {
+                    malformed["format"] = json!("chemifree.draft");
+                    malformed["base_revision"] = json!(doc.revision());
+                    malformed["saved_at_ms"] = json!(42);
+                    root.path().join("drafts/ethyl-native.json")
+                } else {
+                    document_path.clone()
+                };
+                let bytes = serde_json::to_vec(&malformed).unwrap();
+                fs::create_dir_all(target.parent().unwrap()).unwrap();
+                fs::write(&target, &bytes).unwrap();
+                let error = if draft {
+                    let error = repo.claim_draft(doc.id()).unwrap().unwrap().unwrap_err();
+                    repo.release_draft(doc.id());
+                    error
+                } else {
+                    repo.load(doc.id()).unwrap_err().to_string()
+                };
+                assert!(error.contains("display label history"), "{error}");
+                assert_eq!(
+                    fs::read(&target).unwrap(),
+                    bytes,
+                    "malformed input stays untouched"
+                );
+            }
+        }
+    }
+}

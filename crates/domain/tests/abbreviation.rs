@@ -450,3 +450,69 @@ fn boundary_edits_expand_custom_labels_and_undo_restores_exact_text() {
     parts.display_labels[0].0.atom = atom(1);
     assert!(Document::restore(parts).is_err());
 }
+
+#[test]
+fn restore_checks_display_text_and_local_records_even_beyond_history_retention() {
+    let mut doc = drawing();
+    doc.apply(&[collapse()]).unwrap();
+    for index in 0..101 {
+        doc.apply(&[label(Some(if index % 2 == 0 { "Ph" } else { "Me" }))])
+            .unwrap();
+    }
+    for redo in [false, true] {
+        if redo {
+            for _ in 0..100 {
+                doc.undo().unwrap();
+            }
+        }
+        let mut extra = doc.to_parts();
+        let stack = if redo {
+            &mut extra.redo
+        } else {
+            &mut extra.undo
+        };
+        stack.insert(0, stack[0].clone());
+        assert_eq!(stack.len(), 101);
+        assert!(
+            Document::restore(extra.clone()).is_ok(),
+            "well-formed excess history is still trimmed"
+        );
+        for text in ["bad\ntext", "", "Et", &"한".repeat(43)] {
+            let mut malformed = extra.clone();
+            let stack = if redo {
+                &mut malformed.redo
+            } else {
+                &mut malformed.undo
+            };
+            stack[0].display_labels[0].1.before = Some(text.into());
+            assert!(
+                Document::restore(malformed).is_err(),
+                "{text:?}, redo={redo}"
+            );
+        }
+        let mut malformed = extra.clone();
+        let stack = if redo {
+            &mut malformed.redo
+        } else {
+            &mut malformed.undo
+        };
+        let after = stack[0].display_labels[0].1.after.clone();
+        stack[0].display_labels[0].1.before = after;
+        assert!(
+            Document::restore(malformed).is_err(),
+            "no-op cosmetic record, redo={redo}"
+        );
+        let mut malformed = extra;
+        let stack = if redo {
+            &mut malformed.redo
+        } else {
+            &mut malformed.undo
+        };
+        let duplicate = stack[0].display_labels[0].clone();
+        stack[0].display_labels.push(duplicate);
+        assert!(
+            Document::restore(malformed).is_err(),
+            "duplicate cosmetic key, redo={redo}"
+        );
+    }
+}

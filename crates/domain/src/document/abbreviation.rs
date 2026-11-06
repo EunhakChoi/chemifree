@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{Atom, AtomId, BondOrder, Command, Content, EditError, PositionKey};
+use super::{Atom, AtomId, BondOrder, ChangeSet, Command, Content, EditError, PositionKey};
 use crate::element::Element;
 use crate::scene::Selection;
 use crate::stereo::StereoKey;
@@ -18,6 +18,25 @@ pub(super) fn validate_display_label(text: &str) -> Result<(), EditError> {
         return Err(EditError::DisplayLabelInvalid);
     }
     Ok(())
+}
+
+impl ChangeSet {
+    /// Validate all incoming cosmetic history records before retention can discard them.
+    pub(super) fn validate_display_label_changes(&self) -> Result<(), EditError> {
+        let mut keys = BTreeSet::new();
+        for (key, change) in &self.display_labels {
+            if !keys.insert(*key) || change.before == change.after {
+                return Err(EditError::AbbreviationInvalid);
+            }
+            for text in [&change.before, &change.after].into_iter().flatten() {
+                validate_display_label(text)?;
+                if text == "Et" {
+                    return Err(EditError::AbbreviationInvalid);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Content {
