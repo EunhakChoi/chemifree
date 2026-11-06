@@ -4,10 +4,10 @@
 
 ## P34b 독립 탄소 5원 고리 후보
 
-- P34a HEAD `5a8c20e`에서 분리한 `feat/p34b-five-ring` 후보다. 아직 병합·납품 완료가 아니며 P34a 병합 후 최신 main과 합쳐 검증한다.
+- P34a HEAD `5a8c20e`에서 분리한 `feat/p34b-five-ring` 후보다. P34a squash `71321a9`를 합쳤으며 P34b 자체는 아직 병합·납품 완료가 아니다. 최종 통합본의 전체 격리 검증과 현재 PR CI는 pending이다.
 - `insert_ring`에 optional `size:5|6`을 더했다. 생략은 기존6, explicit null·다른 숫자·비정수·문자열은 invalid_request다. Domain의 닫힌 RingSize와 독립 golden-ratio 정오각형은 현재 bond length의 5C·5 single·fresh IDs를 만든다. 기존6 좌표 산술은 유지한다.
 - 실제 웹 R 도구에 5/6 선택(초기6·비저장)을 연결하고 클릭한 size를 큐/immutable attempt에 고정한다. busy 동안 size 변경을 막으며 같은 body/process로만 결과를 확인한다. 저장·Undo/Redo·selection/기존 상태 보존은 기존 경로다.
-- Domain/Application·client·HTTP=CLI와 실제 production size control/frozen recovery browser 회귀를 작성했다. 이 작업은 부모의 격리 실행 지시에 따라 테스트·빌드·브라우저·mutation을 실행하지 않았다. 실행·리뷰 대기는 [P34b 검증 기록](verification/p34b-five-ring.md)을 따른다.
+- Domain/Application·client·HTTP=CLI와 실제 production size control/frozen recovery browser 회귀를 작성했다. 실행 담당자가 `86c584c`의 Domain/Application ring·lint/typecheck·client 515개·build·ring browser targeted를 통과시켰다. 작성·통합 담당자는 별도 테스트·빌드·브라우저·mutation을 실행하지 않았다. 최종 full/CI·리뷰 상태와 범위는 [P34b 검증 기록](verification/p34b-five-ring.md)을 따른다.
 - attachment·fusion·replace·방향족·다른 크기·치환기·사용자 template·약어·복수 배치·collision avoidance·conformation은 후속이다. P34는 in_progress다.
 
 ## P34a 독립 탄소 6원 고리 후보

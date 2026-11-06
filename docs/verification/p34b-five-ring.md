@@ -2,9 +2,9 @@
 
 ## 결정과 지원 경계
 
-P34a PR HEAD `5a8c20e`에서 분리한 `feat/p34b-five-ring` 후보다. P34a 병합 뒤
-최신 main을 합치고 실행 담당자의 격리 검증과 PR 리뷰를 거쳐야 한다. P34는
-in_progress이며 이 문서는 구현 완료·검증 통과·납품 완료를 주장하지 않는다.
+P34a PR HEAD `5a8c20e`에서 분리한 `feat/p34b-five-ring` 후보다. P34a squash
+병합 `71321a9`를 이 브랜치에 합쳤다. 최종 통합본의 전체 격리 검증과 현재 PR CI는
+아직 pending이다. P34는 in_progress이며 이 문서는 납품 완료를 주장하지 않는다.
 
 기존 `insert_ring`에 optional `size:5|6`을 더한다. 생략과 explicit6은 같은 Domain
 RingSize::Six로 매핑하고 기존6 좌표 산술을 유지한다. explicit null·0/4/7/음수·
@@ -60,10 +60,30 @@ lost-response same-body 검사, 좌표 guard 제거는 late rollback 검사가 �
 
 ## 실행 상태와 남은 검증
 
-부모의 공유 격리 실행 지시에 따라 이 worktree에서 테스트·빌드·브라우저·mutation·
-lint/typecheck/clippy gate를 실행하지 않았다. 실행한 것은 Rust source formatting
-`cargo fmt --all`과 정적 whitespace 검사 `git diff --check`뿐이다. 전자의 성공을
-컴파일/테스트 성공으로 세지 않는다. push도 수행하지 않았다.
+작성 담당자는 부모의 공유 격리 실행 지시에 따라 테스트·빌드·브라우저·mutation·
+lint/typecheck/clippy gate를 직접 실행하지 않았다. 초기 작성에서는 Rust source
+formatting `cargo fmt --all`과 정적 whitespace 검사 `git diff --check`만 실행했다.
+전자의 성공을 컴파일/테스트 성공으로 세지 않는다.
+
+이후 실행 담당자가 구현 HEAD `86c584c`의 격리 targeted 검증을 통과시켰다. 로그는
+`/tmp/chemifree-p29d-verify-j4KjPa/p34b-targeted.log`이며 `sandbox-run: exit=0`,
+peak anon 1124 MiB·page cache 2929 MiB·cap 6144 MiB·swap 0이다.
+
+- `cargo test --locked -p chemifree-domain --test insert_ring`: 9 passed/0 failed.
+- `cargo test --locked -p chemifree-application --test insert_ring`: 4 passed/0 failed.
+- `npm run lint`, `npm run typecheck`, `npm run test:client`(515 passed/0 failed),
+  `npm run build`, `npm run test:browser:ring` 통과.
+
+이 targeted 검증은 전체 `npm run check`, HTTP=CLI 계약 smoke, standard browser,
+mutation 검증이나 현재 PR CI의 통과 근거가 아니다. 전용 ring browser는 scripted
+HTTP 경계의 production canvas/hook/client 검사이며 실제 backend canvas 통합을
+입증하지 않는다. 최종 main 통합본의 full 검증과 PR CI는 pending이다.
+
+P34a squash `71321a9`와 기존 분기점 `5a8c20e`의 tree 차이는 P34a 검증 문서 한
+개뿐이었다. squash로 생긴 19개 중복 이력 충돌은 P34b의 5원 변경을 유지하고
+`docs/verification/p34a-independent-ring.md`에는 최신 main의 전체 격리 검증 기록을
+채택해 해결했다. 코드와 CI는 P34a 분기점 이후 main에 추가 차이가 없었으며 기존6
+구현과 CI 연결을 보존했다. 통합 담당자는 테스트·빌드·브라우저·push를 실행하지 않았다.
 
 실행 담당자의 남은 명령:
 
