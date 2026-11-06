@@ -87,6 +87,26 @@ P34d 전용 browser 근거를 적격 공통 evidence로 승격하지 않는 main
 실패/성공 기록도 그대로 유지한다. 이 통합에서 테스트·빌드·브라우저·mutation은 실행하지
 않았다. P34e current integrated head의 full/PR CI/병합 CI는 pending이다.
 
+## 첫 통합 HEAD의 targeted 실패와 fixture 수정
+
+부모 실행 담당자가 `810729e70d0bef70d58f3f4f3d40f4d874311dc8`를 격리 실행했다.
+`/tmp/chemifree-p29d-verify-j4KjPa/p34e-targeted.log`에서 Domain template_attachment는
+5/5 통과했고 Application template_attachment는 0/2 통과·2개 실패했다. 실패 원인은
+source-seed의 public add_atom에 지원하지 않는 charge/isotope 필드를 넣어 decoder가
+`invalid_request`(unknown field charge)를 반환한 것이다. 전체 명령은 exit101로 끝났으며
+뒤의 lint/typecheck/client/build/browser 통과 근거는 없다.
+
+fixture는 O 원자를 public add_atom의 지원 필드로 만든 뒤 같은 transaction의
+update_atom a2에서 charge -1/isotope18을 설정하도록 고쳤다. 원자/결합 IDs와 단일 seed
+history, H/attachment_points·mark·stored-double 및 이후 보존 검사는 그대로다. 원본 O의
+charge/isotope가 실제 의도한 값인지 별도 기대값도 추가했다. 새 Application/HTTP=CLI/
+file-browser seed의 나머지 add_atom 필드와 update_atom DTO를 정적으로 대조했으며,
+native payload에 필요한 charge/isotope 완전 상태 필드는 제거하지 않았다.
+
+작성자는 로그를 읽고 fixture/문서만 수정했으며 테스트·빌드·브라우저·push를 재실행하지
+않았다. 수정 HEAD의 Application 이후 검사·current full/CI는 부모 재실행 대기다. 이
+fixture 실패 이전에 기능 검사가 통과했다거나 수정 후 통과했다고 주장하지 않는다.
+
 ## 실행 대기
 
 부모의 공유 격리 실행 지시에 따라 테스트·빌드·브라우저·lint/typecheck/clippy·mutation·

@@ -30,13 +30,17 @@ fn seed(app: &App) -> (String, String, String) {
         "document.transaction",
         json!({"document_id":source,"expected_revision":0,"commands":[
          {"op":"add_atom","element":"C","position":{"x":100,"y":200}},
-         {"op":"add_atom","element":"O","charge":-1,"isotope":18,"hydrogens":{"mode":"specified","count":0},"attachment_points":[1],"position":{"x":130,"y":200},"bond_to":{"atom":"a1","order":"single"}},
+         {"op":"add_atom","element":"O","hydrogens":{"mode":"specified","count":0},"attachment_points":[1],"position":{"x":130,"y":200},"bond_to":{"atom":"a1","order":"single"}},
          {"op":"add_atom","element":"N","position":{"x":160,"y":200},"bond_to":{"atom":"a2","order":"double"}},
+         {"op":"update_atom","atom":"a2","charge":-1,"isotope":18},
          {"op":"set_bond_mark","bond":"b1","mark":{"kind":"wedge","narrow":"begin"}},
          {"op":"set_bond_configuration","bond":"b2","configuration":{"kind":"unknown"}}
         ]}),
     );
     assert_eq!(seeded["outcome"], "ok", "{seeded}");
+    assert_eq!(seeded["result"]["document"]["atoms"][1]["charge"], -1);
+    assert_eq!(seeded["result"]["document"]["atoms"][1]["isotope"], 18);
+
     let seeded = request(
         app,
         "dest-seed",
