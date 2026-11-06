@@ -436,6 +436,14 @@ pub enum CommandDto {
         #[serde(default, deserialize_with = "ring_size")]
         size: RingSize,
     },
+    /// A fresh regular carbon ring connected to an existing atom by one single bond.
+    AttachRing {
+        instance: String,
+        atom: String,
+        direction: RingDirectionDto,
+        #[serde(default, deserialize_with = "ring_size")]
+        size: RingSize,
+    },
     /// Exactly one of `position` (while the document has one scene instance) and `positions`
     /// (a point for each scene instance, keyed by instance identifier).
     ///
@@ -935,6 +943,14 @@ fn ring_size<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RingSize, D::
     }
 }
 
+/// Finite nonzero attachment direction, normalized by the Domain; magnitude is ignored.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RingDirectionDto {
+    pub dx: f64,
+    pub dy: f64,
+}
+
 fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
     Ok(match command {
         CommandDto::InsertRing {
@@ -944,6 +960,20 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
         } => Command::InsertRing {
             instance: instance_id(instance)?,
             center: point(*center)?,
+            size: *size,
+        },
+        CommandDto::AttachRing {
+            instance,
+            atom,
+            direction,
+            size,
+        } => Command::AttachRing {
+            instance: instance_id(instance)?,
+            atom: atom_id(atom)?,
+            direction: Vector {
+                dx: direction.dx,
+                dy: direction.dy,
+            },
             size: *size,
         },
         CommandDto::AddAtom {

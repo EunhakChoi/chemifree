@@ -1085,6 +1085,25 @@ try {
       const redoFive = await both((id) => request('op-ring-five-redo', 'history.redo', { document_id: id, expected_revision: 5 }))
       assert.deepEqual(redoFive.result.document.atoms, five.result.document.atoms)
       assert.deepEqual(redoFive.result.document.bonds, five.result.document.bonds)
+      const attach = (id) => request('op-ring-attach', 'document.transaction', { document_id: id, expected_revision: 6,
+        commands: [{ op: 'attach_ring', instance: 's1', atom: 'a1', direction: { dx: 0, dy: -25 } }] })
+      const attached = await both(attach)
+      assert.equal(attached.outcome, 'ok')
+      assert.equal(attached.result.document.atoms.length, 17, 'omitted size attaches six fresh carbons')
+      assert.equal(attached.result.document.bonds.length, 18, 'six cycle edges and an exocyclic single bond')
+      assert.deepEqual(attached.result.document.atoms.slice(0, 11), five.result.document.atoms)
+      assert.deepEqual(attached.result.document.bonds.slice(0, 11), five.result.document.bonds)
+      assert.deepEqual(attached.result.notes, [])
+      assert.deepEqual(await both(attach), attached)
+      const zero = await both((id) => request('op-ring-attach-zero', 'document.transaction', { document_id: id, expected_revision: 7,
+        commands: [{ op: 'attach_ring', instance: 's1', atom: 'a1', direction: { dx: 0, dy: 0 } }] }))
+      assert.equal(zero.diagnostics[0].code, 'invalid_command')
+      const undoAttach = await both((id) => request('op-ring-attach-undo', 'history.undo', { document_id: id, expected_revision: 7 }))
+      assert.deepEqual(undoAttach.result.document.atoms, five.result.document.atoms)
+      assert.deepEqual(undoAttach.result.document.bonds, five.result.document.bonds)
+      const redoAttach = await both((id) => request('op-ring-attach-redo', 'history.redo', { document_id: id, expected_revision: 8 }))
+      assert.deepEqual(redoAttach.result.document.atoms, attached.result.document.atoms)
+      assert.deepEqual(redoAttach.result.document.bonds, attached.result.document.bonds)
       httpDoc = outerHttp
       cliDoc = outerCli
     }

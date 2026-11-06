@@ -86,9 +86,9 @@ pub use contract::{
     InstanceView, LabelFontDto, ListQuery, ListSort, MarkDto, MoleculeView, PageView, PointDto,
     PositionView, QueryBondOrderDto, QueryDto, RadicalDto, RecoverAsCopyRequest, RecoveryState,
     RecoveryView, ReferenceDto, ReferenceTargetDto, RelationDto, RenameRequest,
-    ResetSettingsRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest,
-    SceneObjectView, SceneView, SelectionDto, SelectionTransformDto, SessionView, SettingsDto,
-    SettingsEditDto, SettingsSource, StereoGroupKindDto, StereoGroupView, StereoView,
+    ResetSettingsRequest, RestoreRequest, RestoreResponse, RevisionRequest, RingDirectionDto,
+    SaveAsRequest, SceneObjectView, SceneView, SelectionDto, SelectionTransformDto, SessionView,
+    SettingsDto, SettingsEditDto, SettingsSource, StereoGroupKindDto, StereoGroupView, StereoView,
     TransactionRequest, TransactionSelections, TrashListResponse, TrashedSummary, TurnDto,
     UnreadableDocument, query_label,
 };

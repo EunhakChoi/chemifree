@@ -2,6 +2,15 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P34c 기존 원자에 고리 치환기 연결 후보
+
+- P34b `86c584c` 기반 `feat/p34c-attach-ring` 후보다. 선행 PR 병합 후 최신 main을 합쳐 검증하며 P34는 in_progress다.
+- shared `attach_ring`은 명시 atom/instance, finite nonzero direction, optional size5/6(생략6)을 받아 N개 기본 C·N+1 single을 fresh IDs로 추가한다. 하나의 exocyclic single로 붙이며 원자/기존 결합 공유·교체는 없다. 현재 bond length와 최신 target 위치를 쓰고 전체 transaction rollback/history/replay/save 경로를 재사용한다.
+- 마지막 연결은 기존 insert_bond다. target center·target 끝점의 double configuration 폐기, group prune와 notes는 기존 의미 그대로이며 marks/무관한 stereo/기존 atom state/scene/selection을 보존한다. 새 valence gate·H 보정·attachment-point 소비·입체 유도는 없다.
+- 실제 웹 R에 Independent/Attach to atom 명시 mode, atom drag·captured size/vector·unmarked unsnapped preview와 immutable ring recovery를 연결했다. click/empty drag는 추측하지 않는다. client는 정확한 stereo/group 변경과 notes feature/path/disposition 집합까지 검사한다.
+- Domain/Application의 일반 add_atom/add_bond oracle·HTTP=CLI·client·production workspace browser 회귀와 CI 연결을 작성했다. 부모 지시로 테스트·빌드·브라우저·mutation·push는 실행하지 않았다. [P34c 기록](verification/p34c-attached-ring.md)에 범위·남은 검증·리뷰를 기록한다.
+- fusion/spiro/replace·방향족·다른 크기·사용자 template·약어·복수 배치·layout/collision/conformation·외부 DATA/template geometry/DLL은 범위 밖이다.
+
 ## P34b 독립 탄소 5원 고리 후보
 
 - P34a HEAD `5a8c20e`에서 분리한 `feat/p34b-five-ring` 후보다. 아직 병합·납품 완료가 아니며 P34a 병합 후 최신 main과 합쳐 검증한다.

@@ -2,6 +2,12 @@
 
 이 문서는 P08이 더한 추적 파일, conformance runner와 추적 검사가 무엇을 기록하고 무엇을 확인하는지 정확히 적는다. 여기 적힌 확인 범위를 넘는 성질(화학적 정확성, 다른 프로그램과의 동등성, 기능 완성도)은 이 장치들로 확인되지 않는다.
 
+P34c 후보는 기존 원자에서 방향을 지정한 5/6 탄소 고리 연결을 더한다. shared attach_ring은
+기존 insert_bond의 stereo clearing·group prune·notes, transaction 원자성/history와 웹의
+immutable recovery를 재사용한다. Domain/Application(일반 bond-edit oracle)/HTTP=CLI/client/
+production UI 회귀를 작성했으나 실행하지 않았다. 상위 상태/기존 conformance 근거는
+승격하지 않으며 [P34c 기록](verification/p34c-attached-ring.md)을 따른다.
+
 P34b 후보는 기존 고리 명령에 size5(생략/explicit6은 기존6)를 더하고 실제 웹 5/6 선택과
 captured size의 immutable recovery를 연결한다. 독립 5-cycle·기하·rollback·저장/history·
 HTTP=CLI·client·production UI 회귀를 작성했으나 실행하지 않았다. 상위 상태나 기존
