@@ -24,6 +24,13 @@ pub struct AttachmentPlan {
     pub connection: BondId,
 }
 
+/// A terminal atom is retained as the source anchor; its outside bond is unchanged.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReplacementPlan {
+    pub paste: PastePlan,
+    pub boundary: BondId,
+}
+
 /// Every refusal preserves both the fragment and the destination.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TemplateError {
@@ -34,6 +41,7 @@ pub enum TemplateError {
     AnchorStereo,
     Instance,
     Direction,
+    Terminal,
 }
 impl TemplateError {
     /// Stable diagnostic reason; fragment failures retain their existing reasons.
@@ -46,6 +54,7 @@ impl TemplateError {
             Self::AnchorStereo => "template_anchor_stereo_unsupported",
             Self::Instance => "template_instance_invalid",
             Self::Direction => "template_direction_invalid",
+            Self::Terminal => "template_target_not_terminal_single",
         }
     }
 }
@@ -59,8 +68,59 @@ impl fmt::Display for TemplateError {
             Self::AnchorStereo => formatter.write_str("This source anchor would lose a stored center or incident double-bond configuration"),
             Self::Instance => formatter.write_str("Attachment requires the explicit only destination placement"),
             Self::Direction => formatter.write_str("Attachment direction must be finite and nonzero"),
+            Self::Terminal => formatter.write_str("Replacement requires exactly one non-query single outside bond"),
         }
     }
+}
+
+/// Replace a terminal atom's state and bind the template there without deleting its identity.
+///
+/// # Errors
+/// Refuses non-terminal/non-single/query boundaries, unsupported source anchors, style/placement
+/// mismatches and the ordinary native graph/coordinate/identifier/transaction limits.
+pub fn replace(
+    fragment: &Fragment,
+    destination: &Document,
+    instance: ObjectId,
+    source_anchor: AtomId,
+    target: AtomId,
+) -> Result<ReplacementPlan, TemplateError> {
+    let anchors = inspect(fragment)?;
+    let anchor = anchors
+        .iter()
+        .find(|anchor| anchor.atom == source_anchor)
+        .ok_or(TemplateError::AnchorUnknown)?;
+    if !anchor.supported {
+        return Err(TemplateError::AnchorStereo);
+    }
+    if destination.instances().count() != 1 || destination.first_instance() != instance {
+        return Err(TemplateError::Instance);
+    }
+    let origin = destination
+        .position(instance, target)
+        .ok_or(TemplateError::TargetUnknown(target))?;
+    let mut incident = destination
+        .bonds()
+        .filter(|(_, bond)| bond.begin == target || bond.end == target);
+    let (boundary, outside) = incident.next().ok_or(TemplateError::Terminal)?;
+    if incident.next().is_some() || outside.order != BondOrder::Single {
+        return Err(TemplateError::Terminal);
+    }
+    let source = fragment
+        .atoms
+        .iter()
+        .find(|atom| atom.id == source_anchor)
+        .ok_or(TemplateError::AnchorUnknown)?;
+    let paste = fragment.replace_anchor_commands(
+        destination,
+        Vector {
+            dx: origin.x() - source.position.x(),
+            dy: origin.y() - source.position.y(),
+        },
+        source_anchor,
+        target,
+    )?;
+    Ok(ReplacementPlan { paste, boundary })
 }
 impl std::error::Error for TemplateError {}
 impl From<FragmentError> for TemplateError {

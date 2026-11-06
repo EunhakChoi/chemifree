@@ -960,7 +960,9 @@
         "document.clipboard_copy",
         "document.clipboard_paste",
         "document.clipboard_scene_copy",
-        "document.clipboard_scene_paste"
+        "document.clipboard_scene_paste",
+        "document.template_replace_plan",
+        "document.template_replace"
       ],
       "status": "partial",
       "parts": [
@@ -1100,6 +1102,27 @@
             "check:test:client"
           ],
           "followups": []
+        },
+        {
+          "id": "OPS-01.template-replacement",
+          "summary": "P34f bounded terminal native-template replacement: binds one source anchor to the existing target ID/state and position, preserves its single outside bond/mark and all references and neighbor stereo/groups, allocates only N-1 atoms and M internal bonds, and reuses canonical stereo remapping. Explicit clone preview/atomic apply/replay, one-step history, ordinary one-atom no-op and immutable UI recovery. Rejects unsupported boundary/source/style/placement/limits without mutation. Domain/Application, HTTP=CLI and strict client evidence are connected to common checks; real-backend browser covers the explicit file flow separately. All new checks are written and unrun in this implementation session; actual verification/review status is docs/verification/p34f-template-replacement.md. No schema or abbreviation model is added. P34 remains in_progress.",
+          "status": "partial",
+          "implementation": [
+            "crates/domain/src/clipboard.rs",
+            "crates/domain/src/template.rs",
+            "crates/application/src/operations/template.rs",
+            "crates/application/src/documents.rs",
+            "apps/web/src/lib/document-contract.ts",
+            "apps/web/src/components/user-template-panel.tsx"
+          ],
+          "evidence": [
+            "check:check:rust",
+            "check:test:client",
+            "check:test:contracts"
+          ],
+          "followups": [
+            "P34"
+          ]
         },
         {
           "id": "OPS-01.user-template-files",

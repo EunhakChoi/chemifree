@@ -3,6 +3,209 @@ use chemifree_application::Application;
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde_json::{Value, json};
 type App = Application<LocalCapabilities, FileDocumentRepository>;
+
+#[test]
+fn terminal_replacement_retains_boundary_identity_references_and_neighbor_stereo() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let (source, dest, payload) = seed(&app);
+    let changed = request(
+        &app,
+        "replace-dest-state",
+        "document.transaction",
+        json!({"document_id":dest,"expected_revision":1,"commands":[
+            {"op":"update_atom","atom":"a3","charge":1,"isotope":19,"hydrogens":{"mode":"specified","count":0},"radical":"triplet","attachment_points":[3]},
+            {"op":"set_bond_mark","bond":"b2","mark":{"kind":"hash","narrow":"end"}},
+            {"op":"add_reference","source":"s2","target":{"kind":"atom","id":"a3"}},
+            {"op":"add_reference","source":"s2","target":{"kind":"bond","id":"b2"}}
+        ]}),
+    );
+    assert_eq!(changed["outcome"], "ok", "{changed}");
+    let before = snapshot(&app, &dest);
+    let source_before = snapshot(&app, &source);
+    let mut native: Value = serde_json::from_str(&payload).unwrap();
+    native["atoms"].as_array_mut().unwrap().rotate_left(1);
+    let params = json!({"document_id":dest,"expected_revision":2,"payload":native.to_string(),"instance":"s1","source_anchor":"a1","atom":"a3",
+        "selection_before":{"objects":["s2"],"atoms":["a3"],"bonds":["b2"]}});
+    let preview = request(
+        &app,
+        "replace-preview",
+        "document.template_replace_plan",
+        params.clone(),
+    );
+    assert_eq!(preview["outcome"], "ok", "{preview}");
+    assert_eq!(snapshot(&app, &dest), before);
+    let applied = request(
+        &app,
+        "replace-apply",
+        "document.template_replace",
+        params.clone(),
+    );
+    assert_eq!(applied["outcome"], "ok", "{applied}");
+    assert_eq!(applied["loss_report"], json!([]));
+    assert_eq!(applied["result"]["snapshot"], preview["result"]["snapshot"]);
+    assert_eq!(applied["result"]["boundary"], "b2");
+    assert_eq!(
+        applied["result"]["mapping"],
+        json!({"atoms":[{"source":"a2","target":"a5"},{"source":"a3","target":"a6"},{"source":"a1","target":"a3"}],
+        "bonds":[{"source":"b1","target":"b4"},{"source":"b2","target":"b5"}]})
+    );
+    let after = &applied["result"]["snapshot"];
+    assert_eq!(after["document"]["revision"], 3);
+    assert_eq!(after["document"]["atoms"].as_array().unwrap().len(), 6);
+    assert_eq!(after["document"]["bonds"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        after["document"]["atoms"][2],
+        json!({"id":"a3","element":"C","kind":"element","query":null,"charge":0,"isotope":null,
+        "hydrogens":{"mode":"inferred"},"radical":"none","attachment_points":[],"position":{"x":0.0,"y":30.0}})
+    );
+    assert_eq!(
+        after["document"]["atoms"][4]["position"],
+        json!({"x":30.0,"y":30.0})
+    );
+    assert_eq!(after["document"]["atoms"][4]["charge"], -1);
+    assert_eq!(after["document"]["atoms"][4]["isotope"], 18);
+    assert_eq!(
+        after["document"]["bonds"][1],
+        before["document"]["bonds"][1]
+    );
+    assert_eq!(
+        after["document"]["scene"]["references"],
+        before["document"]["scene"]["references"]
+    );
+    assert_eq!(
+        after["document"]["stereo"]["atoms"],
+        before["document"]["stereo"]["atoms"]
+    );
+    assert_eq!(
+        after["document"]["stereo"]["groups"],
+        before["document"]["stereo"]["groups"]
+    );
+    assert_eq!(
+        after["document"]["stereo"]["bonds"],
+        json!([
+            {"bond":"b1","configuration":{"kind":"unknown"}}, {"bond":"b5","configuration":{"kind":"unknown"}}
+        ])
+    );
+    assert_eq!(
+        after["document"]["selection"],
+        json!({"objects":[],"atoms":["a3","a5","a6"],"bonds":["b4","b5"]})
+    );
+    assert_eq!(
+        request(
+            &app,
+            "replace-apply",
+            "document.template_replace",
+            params.clone()
+        ),
+        applied
+    );
+    let mut reused = params.clone();
+    reused["atom"] = json!("a4");
+    assert_eq!(
+        request(&app, "replace-apply", "document.template_replace", reused)["diagnostics"][0]["code"],
+        "request_id_reused"
+    );
+    let undone = request(
+        &app,
+        "replace-undo",
+        "history.undo",
+        json!({"document_id":dest,"expected_revision":3}),
+    );
+    assert_eq!(
+        undone["result"]["document"]["atoms"],
+        before["document"]["atoms"]
+    );
+    assert_eq!(
+        undone["result"]["document"]["selection"],
+        params["selection_before"]
+    );
+    assert_eq!(
+        request(&app, "replace-apply", "document.template_replace", params),
+        applied
+    );
+    let redone = request(
+        &app,
+        "replace-redo",
+        "history.redo",
+        json!({"document_id":dest,"expected_revision":4}),
+    );
+    assert_eq!(
+        redone["result"]["document"]["atoms"],
+        after["document"]["atoms"]
+    );
+    assert_eq!(
+        redone["result"]["document"]["stereo"],
+        after["document"]["stereo"]
+    );
+    assert_eq!(snapshot(&app, &source), source_before);
+    assert_eq!(
+        request(
+            &app,
+            "replace-save",
+            "document.save",
+            json!({"document_id":dest,"expected_revision":5})
+        )["outcome"],
+        "ok"
+    );
+    drop(app);
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let reopened = snapshot(&app, &dest);
+    assert_eq!(reopened["document"]["atoms"], after["document"]["atoms"]);
+    assert_eq!(reopened["document"]["scene"], after["document"]["scene"]);
+}
+
+#[test]
+fn replacement_repeated_invalid_boundaries_are_atomic_and_single_atom_noop_keeps_selection() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let (_, dest, payload) = seed(&app);
+    let before = snapshot(&app, &dest);
+    let params = json!({"document_id":dest,"expected_revision":1,"payload":payload,"instance":"s1","source_anchor":"a1","atom":"a1"});
+    for operation in [
+        "document.template_replace_plan",
+        "document.template_replace",
+    ] {
+        let first = request(&app, operation, operation, params.clone());
+        assert_eq!(
+            first["diagnostics"][0]["details"]["reason"],
+            "template_target_not_terminal_single"
+        );
+        assert_eq!(request(&app, operation, operation, params.clone()), first);
+        assert_eq!(snapshot(&app, &dest), before);
+    }
+    let copied = request(
+        &app,
+        "copy-leaf",
+        "document.clipboard_copy",
+        json!({"document_id":dest,"instance":"s1","selection":{"atoms":["a3"],"bonds":[],"objects":[]}}),
+    );
+    let same = json!({"document_id":dest,"expected_revision":1,"payload":copied["result"]["payload"],"instance":"s1","source_anchor":"a3","atom":"a3",
+        "selection_before":{"objects":[],"atoms":["a3"],"bonds":[]}});
+    let preview = request(
+        &app,
+        "noop-preview",
+        "document.template_replace_plan",
+        same.clone(),
+    );
+    let applied = request(&app, "noop-apply", "document.template_replace", same);
+    assert_eq!(applied["outcome"], "ok", "{applied}");
+    assert_eq!(preview["result"]["snapshot"], applied["result"]["snapshot"]);
+    assert_eq!(
+        applied["result"]["snapshot"]["document"],
+        before["document"]
+    );
+    assert_eq!(snapshot(&app, &dest), before);
+}
 fn request(app: &App, key: &str, operation: &str, parameters: Value) -> Value {
     serde_json::to_value(app.execute(json!({"contract":1,"request_id":key,"profile":"preserve-semantics","operation":operation,"parameters":parameters}).to_string().as_bytes())).unwrap()
 }

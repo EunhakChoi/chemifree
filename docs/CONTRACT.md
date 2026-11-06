@@ -78,6 +78,8 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 | `document.template_inspect` | `{ payload }` | Validated local atoms and explicit anchor eligibility; [P34e](#user-template-anchor-connection-p34e) |
 | `document.template_plan` | Attachment input | Read-only candidate and exact source snapshot; [P34e](#user-template-anchor-connection-p34e) |
 | `document.template_attach` | Attachment input | Atomic native template connection; [P34e](#user-template-anchor-connection-p34e) |
+| `document.template_replace_plan` | Replacement input | Read-only bound-anchor candidate; [P34f](#terminal-template-replacement-p34f) |
+| `document.template_replace` | Replacement input | Atomic terminal atom replacement preserving its identity; [P34f](#terminal-template-replacement-p34f) |
 | `document.clipboard_scene_copy` | `{ document_id, selection }` | Read-only graphic/group forest with internal object references and exact source snapshot; [rules](#native-graphic-subtree-clipboard-backend-p33e) |
 | `document.clipboard_scene_paste` | `{ document_id, expected_revision, payload, offset, selection_before? }` | Atomic graphic forest paste with fresh object mapping, root selection and preserved containment; [rules](#native-graphic-subtree-clipboard-backend-p33e) |
 | `document.transaction` | `{ document_id, expected_revision, commands }` (v1 commands) | same; its `result` also carries `notes` (see [Stereo marks and configurations](#stereo-marks-and-configurations)), and `loss_report` repeats them |
@@ -205,7 +207,7 @@ not executed in this implementation session; see [P34d record](verification/p34d
 Three additive operation-contract-1 operations reuse the closed native graph v1 file codec.
 They run through HTTP operations and the CLI operations process; no original template/DLL or
 external DATA provider is activated. They do not add a transaction command or change storage
-schema. The catalog has 38 operations; 28 run in the default no-DATA/no-native-provider host.
+schema. Including P34f below, the catalog has 40 operations; 30 run in the default no-DATA/no-native-provider host.
 
 | Operation | Parameters | Result |
 | --- | --- | --- |
@@ -276,10 +278,63 @@ recovery UI checks the exact same body/request/process after response loss; clos
 retains that recovery. Restart/conflict needs explicit reconciliation, with no new-process resend.
 File operations do not access the OS clipboard.
 
-The native file is not modified or upgraded to store anchor metadata. Fusion/spiro/replacement,
+The native file is not modified or upgraded to store anchor metadata. Fusion/spiro/non-terminal replacement,
 multi-anchor/polymer rules, disconnected attachments, library management, abbreviation expansion
 and automatic layout/conformation remain unsupported. P34 is **in_progress**. These checks have
 not run in this implementation session; see [P34e record](verification/p34e-template-attachment.md).
+
+## Terminal template replacement (P34f)
+
+`document.template_replace_plan` and `document.template_replace` take the closed input
+`{document_id, expected_revision, payload, instance, source_anchor, atom, selection_before?}`.
+No direction/offset field is accepted. The native v1 file and saved document v7 are unchanged.
+Plan returns `{source, snapshot, mapping, boundary}`; apply returns `{snapshot, mapping, boundary}`.
+The plan's envelope revision names the unchanged source; the candidate is never a live snapshot.
+
+The target must exist in the explicit only destination placement and have exactly one incident
+single bond (query bonds are not single bonds). Other boundary kinds, isolated atoms and targets
+with two or more neighbors refuse with `template_target_not_terminal_single`. The existing
+64KiB native validation, one connected source component, exact style, explicit IDs and source
+anchor stereo refusals apply. A source anchor carrying a center or incident double configuration,
+including unknown, remains unsupported. Unknown/missing/null input fields retain the P34e
+malformed/semantic distinctions. Disconnected sources and other native refusals retain their codes.
+
+The source anchor is bound to the existing target ID. All target atom-state fields become the
+source anchor's exact state, including query/element, charge, isotope, H, radical and attachment
+points. Its existing coordinates are retained bit for bit. Every other source atom is translated
+by target-position minus source-anchor-position, with fresh IDs for those N−1 atoms and all M
+internal bonds. There is no new connector, deletion, rotation, reflection, scaling, bond-length
+normalization, H correction, valence gate or attachment-point consumption. Marks on internal
+source bonds are copied. Configurations on other source centers/double bonds are remapped and
+canonicalized through the ordinary stored-stereo commands, including parity/reference changes.
+
+The outside bond's ID, endpoints, order and mark are retained exactly; so are all existing
+positions, graphics, references, settings and atoms other than the target state. The original
+neighbor's center/double records and groups are preserved: its neighbor identities do not change.
+In particular, incoming references to the bound atom and outside bond remain valid. Apply has
+no stereo losses and returns `ok` with empty notes/loss report. No configuration, mark or CIP
+label is inferred. Resulting chemistry may be diagnosed separately by the existing inspections.
+
+Changed content selects all mapped template atoms, including the retained anchor, and internal
+bonds; the outside bond is not automatically selected. It makes one revision/history step.
+An identical single-atom replacement is an ordinary no-op: no IDs/history/revision/dirty-state
+or selection changes. Mapping still explicitly binds that source ID to the target. Undo restores
+the prior full target state and captured selection; Redo and save/reopen retain all mapped IDs,
+positions and statements. Native 500-command/entity/coordinate/identifier limits apply, counting
+the target state update as one command. All failures, including late ones, preserve the entire
+document, selection, counters, dirty state, redo and revision. Planning reserves no IDs.
+
+The web **Replace terminal atom…** dialog reads and validates the file, starts with empty source
+and destination choices, and disables ineligible target/anchor choices. **Preview template
+replacement** shows fresh counts, retained target/boundary and before/after target state.
+Explicit **Replace atom with template** uses the frozen preview. File/choice/document/revision/
+style/process changes invalidate it. The existing immutable template mutation gate holds the
+exact body/request/process through lost replies; closed-dialog recovery remains available.
+Restart or terminal revision conflict requires explicit reconciliation and never resends into
+a new process. No OS clipboard calls occur. This is bounded terminal graph replacement, without
+fusion/spiro, multi-boundary replacement, abbreviation contraction/expansion or new storage
+objects. P34 remains **in_progress**; written checks are unrun in this implementation session.
+See [P34f record](verification/p34f-template-replacement.md).
 
 ## Attached carbon ring (P34c)
 

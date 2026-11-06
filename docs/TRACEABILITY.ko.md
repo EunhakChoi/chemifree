@@ -2,6 +2,12 @@
 
 이 문서는 P08이 더한 추적 파일, conformance runner와 추적 검사가 무엇을 기록하고 무엇을 확인하는지 정확히 적는다. 여기 적힌 확인 범위를 넘는 성질(화학적 정확성, 다른 프로그램과의 동등성, 기능 완성도)은 이 장치들로 확인되지 않는다.
 
+P34f는 단일 외부 single 결합의 말단 target ID에 source anchor를 바인딩하는 교체다.
+기존 boundary/mark/좌표/참조·이웃 stereo/group을 보존하고 N−1 atom/M internal bond만
+fresh IDs로 추가한다. 새 부분 OPS-01.template-replacement는 공통 Rust/client/HTTP=CLI
+검사에 연결한 partial이며, 작성한 검사는 이번 구현 세션에서 실행하지 않았다. 별도
+file/backend browser와 리뷰·검증 대기는 [P34f 기록](verification/p34f-template-replacement.md)을 따른다.
+
 P34e 후보는 명시 native template anchor의 translation-only single-bond 연결이다.
 source-anchor 저장 입체 손실·단절·style/배치/ID/한도를 거절하고 기존 paste remapping·
 AddBond destination notes/group·atomic history/replay를 재사용한다. inspect/clone plan은
@@ -80,7 +86,7 @@ P33k의 `test:browser:clipboard-integration`은 production panel/hook/client→�
 
 Instance 복제·enhanced-stereo-group graph 복사·global shortcut·custom MIME·external Cut·Windows/OLE는 bounded P33 밖이다. 이 완료는 형식 전체/모든 내부 객체의 clipboard 지원을 뜻하지 않는다. 기존 conformance 보고서 집계는 재실행 없이 유지한다. CODEC-06.rest·OPS-01.rest·OPS-02.rest의 open follow-up에서는 완료된 P33을 제거한다. 고급 형식/통합 파일·text UX는 기존 codec 후속과 P48, 전문 객체의 포함/선택은 P72, 정리·키보드 UI는 P47/P85, 전문 scene/reaction 변경 집합은 해당 기존 후속에 남긴다. 선언된 native 복제/shortcut 제한에 새 구현 약속을 임의로 부여하지 않는다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 108개(implemented 60, partial 12, unverified 3, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 109개(implemented 60, partial 13, unverified 3, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
