@@ -175,6 +175,34 @@ Client 회귀는 아직 401을 만나지 않은 cached token의 명시 get 갱�
 이번 수정·추가 회귀·mutation은 실행하지 않았다. 현재 HEAD의 full·browser·CI는
 pending이며 이전 전용 검사 성공을 이번 변경의 실행 근거로 확대하지 않는다.
 
+## 9774d4c substructure navigation 실패와 명시 local Close
+
+`/tmp/chemifree-p29d-verify-j4KjPa/autosave-double-restart-targeted.log`에서
+`9774d4c`의 lint/type/client/build·전용 autosave browser는 통과했다. Standard browser는
+aromaticity를 통과해 `editor-aromaticity.png`를 남겼으나 substructure search의 restart
+뒤 `closeShown()`에서 `No document open`을 기다리다 실패했다. 최종 `exit=1`, peak
+anon 1551 MiB·page cache 73 MiB·cap 6144 MiB·swap 0이며 전체 성공이 아니다.
+
+이 경로는 substructure 결과가 restart로 stale해지는 검사를 마친 뒤 사용자가 clean
+Close 또는 Discard and close로 이전 drawing을 떠나는 정상 흐름이다. 추가했던 Close
+진입 guard는 이미 끝난 process의 화면도 일괄 거절해 이 명시 이동을 막았다.
+
+알려진 이전 process의 clean Close나 명시 discard Close는 page의 snapshot만 해제하고
+list를 새로 읽도록 수정했다. Replacement process에는 close/delete/draft-discard 요청을
+보내지 않으며, 원래 process가 남긴 recovery draft도 이 local Close로 제거하지 않는다.
+Discard=false인 unsaved drawing은 계속 원본을 유지하고 오류를 보인다. Captured
+revision/content가 바뀐 Close는 거절하며 queued Open 대상 불변·pending ring/clipboard
+gate·이미 전송한 old Close 응답의 generation 거절은 유지했다.
+
+실제 hook 회귀에 restart 뒤 unsaved Close(false)의 원본 보존·HTTP 부재,
+Close(true)의 명시 local 해제·replacement mutation 부재를 더했다. 8종 old-response
+회귀는 늦은 응답 자체로는 화면을 보존하며, 이후 별도의 clean Close는 서버를 건드리지
+않고 local 해제하는지 검사한다. 기존 full smoke의 Close·substructure 단정은 유지했다.
+
+이번 수정·추가 회귀·mutation은 테스트·빌드·브라우저로 실행하지 않았다. 현재 HEAD의
+targeted/full/CI는 pending이며 이전 실행의 성공 구간을 이번 수정의 근거로 확대하지
+않는다. 독립 리뷰는 기존 1회 기록을 유지하며 추가 요청하지 않았다.
+
 ## 리뷰
 
 - Codex 작성자 정적 검토: restart notification·token 재학습·snapshot 채택·autosave

@@ -1196,12 +1196,25 @@ export function useDocumentEditor() {
         // The revision on screen when the user confirmed: a discard never drops edits that
         // another client made after it.
         const shown = currentRef.current?.document
+        const unsaved = currentRef.current?.session.unsaved_changes
         return run(async () => {
           // `run` also refuses unresolved mutations after earlier queued work settles.
           // A navigation queued first must not redirect Close to another document.
           if (!shown || currentRef.current?.document.id !== shown.id) return
           if (shownGenerationRef.current !== serviceGenerationRef.current) {
-            throw new ApiError('service_restarted', 'Reload the drawing before closing its session in the replacement service.', 0)
+            const current = currentRef.current.document
+            if (shown.revision !== current.revision || !sameContent(shown, current)) {
+              throw new ApiError('revision_conflict', 'The displayed drawing changed before Close. Review it before closing again.', 0,
+                { currentRevision: current.revision })
+            }
+            if (unsaved && !discardUnsaved) {
+              throw new ApiError('service_restarted', 'The drawing still has unsaved changes. Reload to reconcile, or explicitly discard and close it.', 0)
+            }
+            // The original process has ended. Closing its clean view or explicitly
+            // discarding its page-held work must not close a replacement session/draft.
+            setCurrent(null)
+            refreshList()
+            return
           }
           const generation = serviceGenerationRef.current
           await client.close(shown.id, discardUnsaved, shown.revision)

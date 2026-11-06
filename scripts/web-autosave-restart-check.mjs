@@ -55,7 +55,7 @@ try {
   assert.ok(address && typeof address !== 'string')
   browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
 
-  async function scenario({ restart, heldDraft = false, failedRead = false, restartDuringRead = false, clean = false }) {
+  async function scenario({ restart, heldDraft = false, failedRead = false, restartDuringRead = false, clean = false, discardAfterRestart = false }) {
     const context = await browser.newContext()
     try {
       await keepRequestInterception(context)
@@ -109,6 +109,10 @@ try {
         if (path === '/api/v1/documents/other') {
           navigation.push('open')
           return json(route, other)
+        }
+        if (path.endsWith('/close')) {
+          navigation.push('close')
+          return json(route, { api_version: 'v1', discarded_changes: route.request().postDataJSON().discard_unsaved })
         }
         if (path === '/api/v1/operations' && restartDuringRead) {
           token = 'process-2'
@@ -195,6 +199,18 @@ try {
           'blocked navigation keeps the only page-held unsaved copy on screen')
         assert.equal(await page.getByLabel('Editor error', { exact: true }).textContent(), error,
           'the restart error keeps the explicit Reload action available')
+        await page.evaluate(() => window.autosaveHarness.close(false))
+        assert.deepEqual(await page.evaluate(() => window.autosaveHarness.current.document), source.document,
+          'an unsaved old-process drawing needs an explicit discard before local Close')
+        assert.deepEqual(navigation, [], 'refused undiscarded Close sends no replacement request')
+        if (discardAfterRestart) {
+          await page.evaluate(() => window.autosaveHarness.close(true))
+          assert.equal(await page.evaluate(() => window.autosaveHarness.current), null,
+            'explicit discard closes the page-held old-process drawing')
+          assert.deepEqual(navigation, [], 'local discard does not close or delete a replacement session or draft')
+          assert.deepEqual(errors, [])
+          return
+        }
         assert.equal(await page.getByRole('button', { name: 'Reload', exact: true }).count(), 1)
         await page.getByRole('button', { name: 'Reload', exact: true }).click()
         await page.getByLabel('Drawing', { exact: true }).filter({ hasText: 'Replacement process' }).waitFor()
@@ -244,6 +260,7 @@ try {
   }
   await scenario({ restart: true })
   await scenario({ restart: true, heldDraft: true })
+  await scenario({ restart: true, discardAfterRestart: true })
   await scenario({ restart: true, clean: true })
   await scenario({ restart: false })
   await scenario({ restart: false, failedRead: true })
@@ -465,6 +482,8 @@ try {
       })
       assert.equal(writes, 1, `${kind}: an unresolved old snapshot cannot authorize later edit/copy/Close requests`)
       assert.equal(reads, readsBeforeExplicitEdit + 1, `${kind}: the explicit edit checks replacement content read-only and refuses a different drawing`)
+      assert.equal(await page.evaluate(() => window.autosaveHarness.current), null,
+        `${kind}: another explicit clean Close can leave the old process locally without touching its replacement`)
       assert.deepEqual(errors, [])
     } finally {
       await context.close()
