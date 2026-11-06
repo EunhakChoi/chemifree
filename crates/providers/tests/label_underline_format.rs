@@ -250,9 +250,9 @@ fn old_bytes_are_archived_and_false_migration_retains_undo_redo_and_draft_recove
             .document;
         assert_eq!(recovered, changed);
         recovered.undo().unwrap();
-        assert_eq!(recovered.settings().label_underline, false);
+        assert!(!recovered.settings().label_underline);
         recovered.redo().unwrap();
-        assert_eq!(recovered.settings().label_underline, true);
+        assert!(recovered.settings().label_underline);
         assert_eq!(
             fs::read(repo.migrated_draft_path(doc.id(), version)).unwrap(),
             original

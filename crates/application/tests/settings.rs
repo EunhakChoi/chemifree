@@ -884,7 +884,7 @@ fn underline_preferences_copy_once_and_edit_replay_and_persistence_preserve_unde
     let reset = app
         .reset_settings(&id, Some("style-reset"), 0, SettingsSource::Defaults)
         .unwrap();
-    assert_eq!(reset.document.settings.label_underline, false);
+    assert!(!reset.document.settings.label_underline);
     assert_eq!(reset.session.undo_depth, 1);
     assert_eq!(
         app.reset_settings(&id, Some("style-reset"), 0, SettingsSource::Defaults)
@@ -906,18 +906,17 @@ fn underline_preferences_copy_once_and_edit_replay_and_persistence_preserve_unde
     drop(app);
     let reopened = process(data.path());
     let saved = reopened.document(&id).unwrap();
-    assert_eq!(saved.document.settings.label_underline, true);
+    assert!(saved.document.settings.label_underline);
     reopened.undo(&id, None, 4).unwrap();
     assert_eq!(settings(&reopened, &id)["label_underline"], false);
     reopened.redo(&id, None, 5).unwrap();
     assert_eq!(settings(&reopened, &id)["label_underline"], true);
-    assert_eq!(
+    assert!(
         reopened
             .preferences()
             .unwrap()
             .new_document_settings
-            .label_underline,
-        true
+            .label_underline
     );
     for value in [json!("true"), json!(700), json!([]), json!({})] {
         assert!(
