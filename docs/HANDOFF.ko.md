@@ -4,11 +4,21 @@
 
 ## P34b 독립 탄소 5원 고리 후보
 
-- P34a HEAD `5a8c20e`에서 분리한 `feat/p34b-five-ring` 후보다. P34a squash `71321a9`를 합쳤으며 P34b 자체는 아직 병합·납품 완료가 아니다. 통합본 `6d84d85`의 전체 격리 검증은 통과했고 현재 PR CI는 pending이다.
+- P34a HEAD `5a8c20e`에서 분리한 `feat/p34b-five-ring` 후보다. P34a squash `71321a9`와 restart 수정 #176의 main `5be98a8`을 합쳤으며 P34b 자체는 아직 병합·납품 완료가 아니다. 이전 통합본 `6d84d85`의 전체 격리 검증은 통과했으나 #175 CI browser가 restart/Reload 경주로 실패했다. 최신 통합본의 전체 격리 검증과 PR CI는 pending이다.
 - `insert_ring`에 optional `size:5|6`을 더했다. 생략은 기존6, explicit null·다른 숫자·비정수·문자열은 invalid_request다. Domain의 닫힌 RingSize와 독립 golden-ratio 정오각형은 현재 bond length의 5C·5 single·fresh IDs를 만든다. 기존6 좌표 산술은 유지한다.
 - 실제 웹 R 도구에 5/6 선택(초기6·비저장)을 연결하고 클릭한 size를 큐/immutable attempt에 고정한다. busy 동안 size 변경을 막으며 같은 body/process로만 결과를 확인한다. 저장·Undo/Redo·selection/기존 상태 보존은 기존 경로다.
 - Domain/Application·client·HTTP=CLI와 실제 production size control/frozen recovery browser 회귀를 작성했다. 실행 담당자가 `86c584c`의 targeted와 `6d84d85`의 `npm run check`·standard browser·clipboard 8개·ring browser 전체 격리 검증을 통과시켰다. 작성·통합 담당자는 별도 테스트·빌드·브라우저·mutation을 실행하지 않았다. CI·리뷰 상태와 검증 범위는 [P34b 검증 기록](verification/p34b-five-ring.md)을 따른다.
 - attachment·fusion·replace·방향족·다른 크기·치환기·사용자 template·약어·복수 배치·collision avoidance·conformation은 후속이다. P34는 in_progress다.
+
+## Autosave 재시작·명시 재조회 보강 후보
+
+- 현재 상태: [PR #176](https://github.com/EunhakChoi/chemifree/pull/176)이 `5be98a8`로 main에 병합됐다. 최종 head `7e35063`의 [CI 42164290471](https://github.com/EunhakChoi/chemifree/actions/runs/42164290471) check/browser는 모두 SUCCESS다. 아래 bullet은 각 후보 작성 시점의 원인·미실행/실패 기록이며 현재 최종 CI 상태와 구분한다. P34b와 합친 새 snapshot의 full/CI 검증은 별도 pending이다.
+- 별도 `fix/autosave-restart-reconcile` 후보는 main `71321a9`에서 분리했다. background refresh 성공/실패가 editor 오류를 지우지 않으며, 화면 snapshot의 서비스 세대가 달라지면 autosave timer·수동 retry·늦은 draft 응답·대기 중 refresh가 새 process를 무단 채택하지 않는다. 명시 Reload/reconcile과 기존 same-content edit recovery의 snapshot 채택 뒤에만 재개한다. PR #176 Codex P1을 반영해 undrafted 이전 세대의 flush는 실패 사유를 반환하며 Open/Create는 HTTP 전송 전에 원본을 화면에 남기고 Reload를 안내한다. clean/already-drafted navigation과 정상 process draft 실패의 기존 `draft_not_written` 경로는 유지한다.
+- 실제 editor/autosave hook·client를 사용하는 `npm run test:browser:autosave-restart`를 작성해 CI에 연결했다. HTTP·브라우저 시간만 제어하며 실제 backend crash 검증은 아니다. 기존 smoke에는 aromaticity block의 누락된 step 이름만 보강했다. 부모 지시로 테스트·빌드·브라우저를 실행하지 않았고 current full/CI는 pending이다. 원인·리뷰·검증 대기는 [기록](verification/autosave-restart-reconcile.md)을 따른다.
+- 추가 PR #176 Codex P1은 일반 edit 등의 늦은 old-process 응답을 setCurrent가 최신 세대로 다시 표시하는 경계였다. 실제 HTTP attempt의 세대를 normalization 뒤에도 메모리에서 추적하고 중앙 snapshot 채택 guard를 적용했다. safe internal retry는 새 attempt의 세대를 사용하며 Close는 별도 요청 세대 guard로 화면 제거를 제한한다. held response의 edit/Open/Create/copy/recover/reload/import/Close 회귀를 작성했고 이번 수정도 테스트·빌드·브라우저는 미실행이다.
+- `635c6f9` full 격리 검사는 `npm run check` 뒤 Graph identity의 inspection이 먼저 restart를 알린 후 charge 편집하는 browser 단계에서 실패했다. 과도한 mutate 진입 거절이 기존 same-content 복구를 막은 원인이다. 새 명시 edit은 read-only 재조회·완전 content 확인 후 기존 재구성 경로로 진행하고 다른 내용은 유지·거절하도록 수정했다. read-only 알림 뒤 charge 1회·새 세대 autosave 재개와 다른-content 무변경 회귀를 추가했다. 이번 수정은 미실행이며 전체 성공으로 기록하지 않는다.
+- `d944960` 전용 autosave browser는 통과했으나 standard browser는 aromaticity의 두 번째 restart 뒤 Reload→Inspect rings에서 실패했다. 명시 get이 cached token을 재사용해 다른 process의 snapshot에 origin을 잘못 붙인 원인이었다. get은 실제 session을 읽기 전/후 확인해 token·세대를 갱신하며 read 도중 교체는 거절한다. 실제 hook+AromaticityPanel의 연속 두 restart·Reload·첫 검사 성공과 client의 미통지/도중 교체 회귀를 추가했다. 현재 수정은 미실행이며 full/CI pending이다.
+- `9774d4c` lint/type/client/build·전용 browser는 통과했고 standard browser의 aromaticity도 지났으나, substructure의 restart 뒤 명시 Close가 진입 guard에 막혀 실패했다. 알려진 이전 process의 clean Close/명시 discard Close는 현재 page만 비우고 replacement session/draft에는 HTTP를 보내지 않도록 보강했다. undiscarded unsaved·captured content 변경·미확정 ring/clipboard는 계속 보호하며 이미 전송한 old Close 응답의 guard도 유지한다. 이 추가 수정의 실행·full/CI는 pending이다.
 
 ## P34a 독립 탄소 6원 고리 후보
 
