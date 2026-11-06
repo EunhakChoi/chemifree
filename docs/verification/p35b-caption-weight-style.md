@@ -39,3 +39,12 @@ Written regression paths:
 Only `cargo fmt --all` and static diff review were performed by the implementation worker.
 No build, tests, browser smoke, mutation proof, push or PR was executed by that worker.
 The parent session must append actual checks, review dispositions and CI evidence.
+
+## Independent review disposition
+
+Independent fresh-context review of `d22ac17` identified P3: four malformed-script
+client fixtures omitted the newly required weight/style fields, allowing style validation
+to hide a broken script validator. Fixed by giving each array/object/unknown/missing-script
+fixture valid normal weight and style, so script is its sole malformed field. Execution
+and mutation verification remain assigned to the parent session; this fix ran only
+`git diff --check` and does not claim passing tests.

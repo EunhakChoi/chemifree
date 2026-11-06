@@ -30,10 +30,10 @@ test('Unicode captions preserve code points, run boundaries and the native White
 })
 
 for (const [name, run] of [
-  ['array script', { text: 'H', script: ['baseline'] }],
-  ['object script', { text: 'H', script: {} }],
-  ['unknown script', { text: 'H', script: 'auto' }],
-  ['missing script', { text: 'H' }],
+  ['array script', { text: 'H', script: ['baseline'], weight: 'normal', style: 'normal' }],
+  ['object script', { text: 'H', script: {}, weight: 'normal', style: 'normal' }],
+  ['unknown script', { text: 'H', script: 'auto', weight: 'normal', style: 'normal' }],
+  ['missing script', { text: 'H', weight: 'normal', style: 'normal' }],
   ['empty run', { text: '', script: 'baseline', weight: 'normal', style: 'normal' }],
   ['newline', { text: 'a\nb', script: 'baseline', weight: 'normal', style: 'normal' }],
   ['control', { text: 'a\u0085b', script: 'baseline', weight: 'normal', style: 'normal' }],
