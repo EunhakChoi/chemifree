@@ -264,6 +264,15 @@ fn whole_member_moves_keep_display_partial_and_boundary_edits_reveal_with_undo()
     }])
     .unwrap();
     assert_eq!(doc.fragment_displays().count(), 1);
+    // Moving the outside endpoint changes only the visible connecting line. This follows
+    // the existing Et policy and does not edit hidden membership or boundary bond state.
+    doc.apply(&[Command::MoveAtoms {
+        atoms: vec![atom(1)],
+        instance: Some(instance()),
+        delta: Vector { dx: 5.0, dy: 2.0 },
+    }])
+    .unwrap();
+    assert_eq!(doc.fragment_displays().count(), 1);
     for command in [
         Command::MoveAtoms {
             atoms: vec![atom(3)],

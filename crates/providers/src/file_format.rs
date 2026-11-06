@@ -438,12 +438,16 @@ fn stored_fragment_display(display: &FragmentDisplay) -> StoredFragmentDisplaySt
 }
 
 fn read_fragment_display(display: StoredFragmentDisplayState) -> Result<FragmentDisplay, String> {
+    let mut members: Vec<AtomId> = display
+        .members
+        .iter()
+        .map(|id| atom_id(id))
+        .collect::<Result<_, _>>()?;
+    // Lists may arrive in any order. Sorting preserves duplicates for domain rejection
+    // and makes current/history sides compare by the same canonical representation.
+    members.sort_unstable();
     Ok(FragmentDisplay {
-        members: display
-            .members
-            .iter()
-            .map(|id| atom_id(id))
-            .collect::<Result<_, _>>()?,
+        members,
         text: display.text,
     })
 }
