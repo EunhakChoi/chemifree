@@ -92,11 +92,29 @@ pub enum CaptionScript {
     Superscript,
 }
 
+/// Explicit caption run weight, independent of script and chemical meaning.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CaptionWeight {
+    #[default]
+    Normal,
+    Bold,
+}
+
+/// Explicit caption run style, independent of script and chemical meaning.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CaptionStyle {
+    #[default]
+    Normal,
+    Italic,
+}
+
 /// Text stored verbatim: no Unicode normalization or index-based edits.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaptionRun {
     pub text: String,
     pub script: CaptionScript,
+    pub weight: CaptionWeight,
+    pub style: CaptionStyle,
 }
 
 /// A single-line independent annotation, anchored at the start of its baseline.

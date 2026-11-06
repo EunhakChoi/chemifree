@@ -7,12 +7,13 @@ use std::process::ExitCode;
 
 use chemifree_application::{
     Application, ApplicationError, AtomConfigurationDto, AtomKindView, AtomView,
-    BondConfigurationDto, BondEndDto, BondQueryDto, BondView, CaptionScriptDto, CommandDto,
-    CopyResponse, DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse,
-    ErrorCode, GraphicShapeDto, HydrogensDto, ListQuery, ListSort, MarkDto, OperationResponse,
-    PreferencesChange, PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto,
-    RegistryEntryStatus, RestoreResponse, SceneObjectView, SelectionDto, SettingsDto,
-    SettingsSource, StereoGroupKindDto, StereoView, TransactionSelections, TrashListResponse,
+    BondConfigurationDto, BondEndDto, BondQueryDto, BondView, CaptionScriptDto, CaptionStyleDto,
+    CaptionWeightDto, CommandDto, CopyResponse, DeleteResponse, DocumentListResponse,
+    DocumentResponse, DraftDiscardResponse, ErrorCode, GraphicShapeDto, HydrogensDto, ListQuery,
+    ListSort, MarkDto, OperationResponse, PreferencesChange, PreferencesResponse, RadicalDto,
+    RecoveryState, ReferenceTargetDto, RegistryEntryStatus, RestoreResponse, SceneObjectView,
+    SelectionDto, SettingsDto, SettingsSource, StereoGroupKindDto, StereoView,
+    TransactionSelections, TrashListResponse,
 };
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
@@ -808,7 +809,18 @@ fn document_text(response: &DocumentResponse) -> String {
                             CaptionScriptDto::Subscript => "subscript",
                             CaptionScriptDto::Superscript => "superscript",
                         };
-                        format!("{script}(\"{}\")", run.text.escape_default())
+                        let weight = match run.weight {
+                            CaptionWeightDto::Normal => "normal",
+                            CaptionWeightDto::Bold => "bold",
+                        };
+                        let style = match run.style {
+                            CaptionStyleDto::Normal => "normal",
+                            CaptionStyleDto::Italic => "italic",
+                        };
+                        format!(
+                            "{script}/{weight}/{style}(\"{}\")",
+                            run.text.escape_default()
+                        )
                     })
                     .collect();
                 lines.push(format!(
@@ -1115,7 +1127,7 @@ mod tests {
     fn caption_output_keeps_parent_anchor_run_order_and_explicit_script() {
         let text = shown(json!([
             {"op":"add_caption","anchor":{"x":5,"y":7},"runs":[
-                {"text":"H","script":"baseline"},{"text":"2","script":"subscript"},{"text":"+","script":"superscript"}
+                {"text":"H","script":"baseline"},{"text":"2","script":"subscript","weight":"bold","style":"italic"},{"text":"+","script":"superscript","style":"italic"}
             ]},
             {"op":"add_graphic","shape":"line","points":[{"x":0,"y":0},{"x":10,"y":0}]},
             {"op":"group","objects":["s2","s3"]}
@@ -1126,7 +1138,9 @@ mod tests {
             .collect();
         assert_eq!(
             caption,
-            [r#"  s2  caption in s4 at (5, 7): baseline("H") subscript("2") superscript("+")"#]
+            [
+                r#"  s2  caption in s4 at (5, 7): baseline/normal/normal("H") subscript/bold/italic("2") superscript/normal/italic("+")"#
+            ]
         );
     }
 
@@ -1144,7 +1158,7 @@ mod tests {
         assert_eq!(
             caption,
             [
-                r#"  s2  caption in page at (0, 0): baseline("\u{d55c}\u{ae00} e\u{301} \u{202e}\"\\ & <>")"#
+                r#"  s2  caption in page at (0, 0): baseline/normal/normal("\u{d55c}\u{ae00} e\u{301} \u{202e}\"\\ & <>")"#
             ]
         );
         assert!(

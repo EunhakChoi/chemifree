@@ -460,7 +460,7 @@ pub(crate) fn drawing_losses(
                 &format!(".scene.objects[{id}]"),
                 "caption",
                 SemanticImpact::Rendering,
-                "Independent caption text and script styles are not written by this export profile.",
+                "Independent caption text, script, weight and style are not written by this export profile.",
             ),
             SceneObjectView::Group { id, .. } | SceneObjectView::Graphic { id, .. } => push(
                 &format!(".scene.objects[{id}]"),

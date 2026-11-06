@@ -13,6 +13,8 @@ fn widest(text: char) -> Caption {
             CaptionRun {
                 text: text.to_string().repeat(512),
                 script: CaptionScript::Superscript,
+                weight: Default::default(),
+                style: Default::default(),
             };
             32
         ],
@@ -136,6 +138,8 @@ fn reservations_count_utf8_bytes_and_escape_overhead_without_changing_text_limit
             runs: vec![CaptionRun {
                 text,
                 script: CaptionScript::Baseline,
+                weight: Default::default(),
+                style: Default::default(),
             }],
         },
         parent: None,

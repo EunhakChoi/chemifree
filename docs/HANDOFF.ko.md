@@ -232,6 +232,19 @@
 - source/digest/document/revision/acceptance/process를 immutable attempt로 잡고 미확정이면 후속 편집을 잠근다. source 편집으로 old preview가 없어져도 Check SMILES import outcome은 원래 request ID/body만 확인하고 clipboard를 다시 읽거나 쓰지 않는다. restart/held old reply/terminal conflict는 명시 reload/reconcile이다. Native/MOL/graphics panel에 중복 recovery를 표시하지 않는다.
 - 새 client/browser 회귀와 기존 full browser SMILES 흐름을 이 경계에 맞춰 작성했다. 이 작업에서는 tests/build/browser/lint를 실행하지 않았으며 기존 P33a–f 근거를 새 웹 변경 통과로 세지 않는다. P33은 in_progress다. shortcuts·external Cut·format guessing·새 layout/chemistry 동작은 없다.
 
+## P35b 작업 인계 (실행 검증 대기)
+
+- `feat/p35b-caption-font`는 `ba95baa`에서 분리한 후보다. 독립 caption 각 run의
+  `weight: normal|bold`, `style: normal|italic` 명시 편집과 script 조합만 추가한다.
+  화학 그래프·원자 라벨·Et 약어 의미는 바꾸지 않는다. P35 전체는 진행 중이다.
+- native v10 문서·draft·history에 두 필드를 필수로 쓴다. v8–9는 normal로 읽으며
+  이전 header에 새 필드를 넣거나 v10에서 필드를 누락/null로 쓰면 거절한다.
+  v9 원본 문서·draft도 기존 migration 보존 절차의 대상이다.
+- HTTP/CLI의 기존 필드 생략 요청은 normal 기본값으로 받으며 snapshot은 명시한다.
+  웹 run controls, SVG ink 측정, replay/Undo/Redo/복구·export 손실 계약을 함께 유지한다.
+- 구현자는 cargo fmt와 diff 검토만 수행했다. 빌드·테스트·브라우저·변이 확인·PR 리뷰·CI는
+  부모 세션에서 실행해야 한다. [검증기록](verification/p35b-caption-weight-style.md) 참조.
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.
