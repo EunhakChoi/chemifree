@@ -4,6 +4,7 @@
 
 ## P35a 독립 Unicode caption 후보
 
+- PR #184 CI `42201768786`의 미래 버전 거절 회귀는 현재 v8을 미래 버전으로 꾸민 낡은 fixture가 원인이다. provider/header 거절은 유지하고 미래 입력만 v9·지원 목록1–8로 수정했다. HTTP/CLI smoke의 동일 거절 및 migration 저장 결과 세 곳도 v8에 맞췄다. schema를 v9로 올린 변경이 아니다. 사용자 cleanup 중 테스트·빌드·브라우저·push는 실행하지 않았고 재실행 대기다.
 - Codex P1 후속: caption이 현재/이력에 있으면 current48MiB+history8MiB 보수적 persistence weight를 적용한다. 최근 transaction 자체가 한도를 넘으면 `caption_persistence_limit`로 원자 거절하고, 기존 undo부터 trim해 accepted edit의 최근 Undo를 남긴다. native64MiB 상한·escaped UTF-8/run metadata·문서/초안 wrapper 및 bulk save/reopen/Undo 회귀를 작성했으며 실행 대기다.
 - 최신 main 기반 `feat/p35a-unicode-caption` 후보. P35 전체는 in_progress다. 약어·원자 표기의 의미를 새로 정하지 않으며 caption은 그래프와 독립이다.
 - 새 Caption scene kind와 explicit 전체 run `baseline|subscript|superscript`·anchor 편집, 한 Undo 단계·no-op·원자성·request replay·native v8 문서/이력/초안·v1–7 migration을 연결했다. 이전 파일/초안의 첫 overwrite/recovery는 기존 byte 보존 규칙을 따른다. 이전 버전의 history-only caption도 거절한다.

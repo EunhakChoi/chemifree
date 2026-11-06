@@ -356,3 +356,35 @@ the delete command solely to construct a borrowed one-element slice. Replaced it
 successful transaction and every behavioral assertion is unchanged. No lint suppression
 was added. This agent did not rerun clippy/tests/build/browser or push; the parent owns
 execution verification.
+
+## PR #184 CI: stale future-version and migration expectations
+
+[CI run 42201768786](https://github.com/EunhakChoi/chemifree/actions/runs/42201768786)
+failed in `a_newer_format_version_is_refused_and_left_untouched`: the test changed a
+v4 fixture header to v8, which is now the supported current format. The provider therefore
+correctly attempted current-body decoding and reported `unknown field atoms`, rather than
+the future-version refusal that the test expected. This is a stale test input, not evidence
+that the future-version guard accepts an unsupported version.
+
+Source inspection confirms `file_format::version` checks the header before document or draft
+body decoding. Current document/draft versions remain 8; only versions 1–8 are readable.
+`decode_revision` also invokes that guard before probing a revision, protecting save's
+read-before-overwrite path. The corrected regression uses unsupported v9 and expects the
+supported list 1–8. Existing load/revision/save-with-and-without-base refusal assertions,
+exact-byte preservation and absence of a migration copy remain intact. v9 is deliberately
+only the future fixture value; no new schema or migration is introduced.
+
+A source-wide version-expectation search also found the same stale v8 future input and
+1–7 refusal message in `scripts/contract-smoke.mjs`, plus three migration save assertions
+still expecting v7. These now expect future v9/current v8 respectively, retaining the
+HTTP/CLI, listing, unchanged-byte and original-migration-copy checks. The recovered-draft
+comment now agrees with its existing v8 assertion. Other explicit v7 inputs in caption
+provider tests deliberately exercise older-format refusal/migration and stay v7; current
+v8 roundtrip assertions and the store's unsupported v99 corruption input remain unchanged.
+
+Applied the Rust patterns/testing skills to the existing boundary regressions. No additional
+review was requested: the PR's completed reviews remain the applicable review record.
+Per the user's cleanup instruction, this agent ran no tests, builds, browser checks, clippy,
+mutation checks or push. Validation is limited to source inspection and `git diff --check`;
+the corrected provider regression and HTTP/CLI contract suite still require execution after
+cleanup, followed by the required CI jobs. No passing result is claimed for this snapshot.

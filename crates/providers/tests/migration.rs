@@ -311,7 +311,7 @@ fn a_version_1_file_is_not_replaced_when_its_copy_cannot_be_kept() {
 fn a_newer_format_version_is_refused_and_left_untouched() {
     let newer = String::from_utf8(fixture("v4-document.json"))
         .unwrap()
-        .replace("\"format_version\": 4", "\"format_version\": 8")
+        .replace("\"format_version\": 4", "\"format_version\": 9")
         .into_bytes();
     let (root, repository, path) = stored(&newer);
     let refused = |result: Result<_, StorageError>| match result {
@@ -320,7 +320,7 @@ fn a_newer_format_version_is_refused_and_left_untouched() {
     };
     let message = refused(repository.load(&id()).map(|_| ()));
     assert!(
-        message.contains("version 8") && message.contains("versions 1, 2, 3, 4, 5, 6, and 7"),
+        message.contains("version 9") && message.contains("versions 1, 2, 3, 4, 5, 6, 7, and 8"),
         "the reason names the version: {message}"
     );
     refused(repository.stored_revision(&id()).map(|_| ()));
@@ -356,7 +356,7 @@ fn a_version_1_draft_migrates_when_it_is_recovered() {
         "reading wrote nothing"
     );
 
-    // The recovered session's next draft is version 7.
+    // The recovered session's next draft is version 8.
     repository
         .write_draft(&Draft {
             saved_at_ms: 1_767_225_700_000,
