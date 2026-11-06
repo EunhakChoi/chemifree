@@ -8,6 +8,7 @@ import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
 await import('./web-scene-cut-client-check.mjs')
+await import('./web-ring-client-check.mjs')
 const { ConsentRequired, DocumentClient, MAX_CLIPBOARD_SMILES_BYTES, outcomeOpen, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, conversionSnapshotMatcher, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(

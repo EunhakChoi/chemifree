@@ -429,6 +429,11 @@ pub enum RadicalDto {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandDto {
+    /// Independent six-carbon single-bond regular ring, supported in one placement only.
+    InsertRing {
+        instance: String,
+        center: PointDto,
+    },
     /// Exactly one of `position` (while the document has one scene instance) and `positions`
     /// (a point for each scene instance, keyed by instance identifier).
     ///
@@ -921,6 +926,10 @@ pub(crate) fn to_commands(commands: &[CommandDto]) -> Result<Vec<Command>, Appli
 
 fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
     Ok(match command {
+        CommandDto::InsertRing { instance, center } => Command::InsertRing {
+            instance: instance_id(instance)?,
+            center: point(*center)?,
+        },
         CommandDto::AddAtom {
             element: symbol,
             query,

@@ -566,7 +566,11 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 46] = [
+const TRANSACTION_PARTS: [Entry; 47] = [
+    runs(
+        "insert_ring",
+        "Appends an independent six-carbon single-bond regular ring at an explicit center in the only placement, using the current bond length. No attachment, fusion, aromaticity or conformation calculation.",
+    ),
     runs(
         "add_atom",
         "An element (1–118) or query atom with a position in every scene instance and its \

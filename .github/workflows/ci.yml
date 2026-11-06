@@ -90,6 +90,8 @@ jobs:
         run: npm run test:browser:scene-cut
       - name: Native clipboard across documents with the real backend
         run: npm run test:browser:clipboard-integration
+      - name: Independent ring insertion and uncertain outcome recovery
+        run: npm run test:browser:ring
       # Runs even if the guard check failed, so each check reports on its own.
       - name: Browser smoke
         id: smoke

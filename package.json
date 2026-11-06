@@ -33,6 +33,7 @@
     "test:browser:cdxml-clipboard": "node scripts/web-cdxml-clipboard-check.mjs",
     "test:browser:cdxml-import": "node scripts/web-cdxml-import-check.mjs",
     "test:browser:scene-cut": "node scripts/web-scene-cut-check.mjs",
+    "test:browser:ring": "node scripts/web-ring-check.mjs",
     "test:conformance": "cargo run --locked --quiet --package chemifree-conformance -- --out target/conformance/report.json conformance/suite.json",
     "conformance:record": "cargo run --locked --quiet --package chemifree-conformance -- --out docs/verification/conformance-report.json conformance/suite.json",
     "test:traceability": "node scripts/traceability-check.mjs",

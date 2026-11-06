@@ -116,6 +116,11 @@ export interface SelectionView {
   bonds: string[]
 }
 
+/** An immutable ring mutation whose send method checks the same request each time. */
+export interface RingInsertionAttempt {
+  send(): Promise<DocumentResponse>
+}
+
 /** Native clipboard transport is plain text; its contents are validated again by the server. */
 export const MAX_NATIVE_CLIPBOARD_BYTES = 64 * 1024
 
@@ -608,6 +613,7 @@ export type SelectionTransform =
   | { type: 'reflect_vertical' }
 
 export type Command =
+  | { op: 'insert_ring'; instance: string; center: Position }
   /** Named by exactly one of `element` and `query`; a query atom carries no charge or isotope. */
   | ({ op: 'add_atom'; bond_to?: { atom: AtomRef } & BondKind } & ({ element: string } | { query: QueryAtom }) &
       NewAtomPlacement &
@@ -1973,6 +1979,56 @@ export class DocumentClient {
     return documentResponse(value)
   }
 
+  /** Freeze a bounded ring insertion; outcome checks reuse its exact body and process. */
+  createRingInsertion(destination: DocumentView, instance: string, center: Position, selectionBefore: SelectionView): RingInsertionAttempt {
+    const before = structuredClone(withDocumentStates(destination))
+    if (before.scene?.instances.length !== 1 || before.scene.instances[0].id !== instance ||
+        !Number.isFinite(center.x) || !Number.isFinite(center.y)) {
+      throw new ApiError('ring_destination_invalid', 'Ring insertion requires one existing placement and a finite center.', 0)
+    }
+    const point = { x: center.x, y: center.y }
+    const selection = clipboardSelection(selectionBefore)
+    return this.clipboardAttempt('ring', `${documentPath(before.id)}/transactions`, {
+      expected_revision: before.revision,
+      commands: [{ op: 'insert_ring', instance, center: point }],
+      selection_before: selection,
+    }, (value) => {
+      const snapshot = DocumentClient.document(value)
+      const after = snapshot.document
+      const oldAtoms = new Set(before.atoms.map((atom) => atom.id))
+      const oldBonds = new Set(before.bonds.map((bond) => bond.id))
+      const atoms = after.atoms.filter((atom) => !oldAtoms.has(atom.id))
+      const bonds = after.bonds.filter((bond) => !oldBonds.has(bond.id))
+      if (after.revision !== before.revision + 1 || atoms.length !== 6 || bonds.length !== 6 ||
+          snapshot.notes?.length || !sameJson(after.selection, selection)) throw clipboardIncompatible()
+      const length = settingsOf(before).bond_length_pt
+      const height = length * (Math.sqrt(3) / 2)
+      const offsets = [[length, 0], [length / 2, height], [-length / 2, height],
+        [-length, 0], [-length / 2, -height], [length / 2, -height]]
+      for (const [index, atom] of atoms.entries()) {
+        const [x, y] = offsets[index]
+        const expected = { x: point.x + x, y: point.y + y }
+        const tolerance = 1e-10
+        if (atom.element !== 'C' || atom.kind !== 'element' || atom.query !== null || atom.charge !== 0 ||
+            atom.isotope !== null || atom.hydrogens.mode !== 'inferred' || atom.radical !== 'none' ||
+            atom.attachment_points.length !== 0 || Math.abs(atom.position.x - expected.x) > tolerance ||
+            Math.abs(atom.position.y - expected.y) > tolerance || bonds[index].begin !== atom.id ||
+            bonds[index].end !== atoms[(index + 1) % 6].id || bonds[index].order !== 'single' ||
+            bonds[index].query !== null || bonds[index].mark !== null) throw clipboardIncompatible()
+      }
+      const fresh = new Set(atoms.map((atom) => atom.id))
+      const retained = { ...after, revision: before.revision, selection: before.selection,
+        atoms: after.atoms.filter((atom) => oldAtoms.has(atom.id)),
+        bonds: after.bonds.filter((bond) => oldBonds.has(bond.id)),
+        scene: after.scene && { ...after.scene, instances: after.scene.instances.map((placement) => ({
+          ...placement, positions: placement.positions.filter((position) => !fresh.has(position.atom)),
+        })) },
+      }
+      if (!sameJson(retained, before)) throw clipboardIncompatible()
+      return snapshot
+    })
+  }
+
   /** Copies an exact structural selection without changing its source document. */
   async clipboardCopy(id: string, selection: SelectionView, instance: string): Promise<NativeClipboardCopy> {
     const requested = clipboardSelection(selection)
@@ -2026,12 +2082,12 @@ export class DocumentClient {
 
   /** Freeze one clipboard mutation body, process generation and request ID for every outcome check. */
   private clipboardAttempt<T>(
-    kind: 'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'scene_cut' | 'smiles_import',
+    kind: 'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'scene_cut' | 'smiles_import' | 'ring',
     path: string,
     body: Record<string, unknown>,
     parse: (value: unknown, request: string) => T,
   ): { send(): Promise<T> } {
-    const action = kind === 'mol_import' ? 'MOL import' : kind === 'smiles_import' ? 'SMILES import' : kind === 'scene_paste' ? 'graphics paste' : kind === 'scene_cut' ? 'graphics Cut' : kind
+    const action = kind === 'ring' ? 'ring insertion' : kind === 'mol_import' ? 'MOL import' : kind === 'smiles_import' ? 'SMILES import' : kind === 'scene_paste' ? 'graphics paste' : kind === 'scene_cut' ? 'graphics Cut' : kind
     const request = requestId()
     const preparedSession = this.token
     let sentTo: string | undefined
@@ -2091,7 +2147,7 @@ export class DocumentClient {
     return {
       send: () => {
         if (settled !== undefined) return Promise.resolve(settled)
-        if (restartedAttempt) return Promise.reject(new ApiError(`clipboard_${kind}_restarted`, 'The service restarted; reload before another clipboard mutation.', 401))
+        if (restartedAttempt) return Promise.reject(new ApiError(`clipboard_${kind}_restarted`, 'The service restarted; reload before another editor mutation.', 401))
         if (refused) return Promise.reject(refused)
         inFlight ??= sendOnce().finally(() => { inFlight = undefined })
         return inFlight

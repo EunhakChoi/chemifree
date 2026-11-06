@@ -1044,6 +1044,32 @@ try {
     const afterProperties = await both((id) => request('op-after-properties', 'document.snapshot', { document_id: id }))
     assert.deepEqual(afterProperties.result, beforeProperties.result, 'property inspection changes neither graph nor history')
     {
+      const outerHttp = httpDoc
+      const outerCli = cliDoc
+      const createRing = request('op-ring-create', 'document.create', { title: 'Independent ring parity' })
+      httpDoc = (await viaHttp(createRing)).body.result.document.id
+      cliDoc = (await viaCli(createRing)).result.document.id
+      const insert = (id) => request('op-ring-insert', 'document.transaction', { document_id: id, expected_revision: 0,
+        commands: [{ op: 'insert_ring', instance: 's1', center: { x: 40, y: 50 } }] })
+      const ring = await both(insert)
+      assert.equal(ring.outcome, 'ok')
+      assert.equal(ring.result.document.atoms.length, 6)
+      assert.equal(ring.result.document.bonds.length, 6)
+      assert.equal(ring.result.session.undo_depth, 1)
+      assert.deepEqual(await both(insert), ring, 'replay never inserts another ring')
+      const refused = await both((id) => request('op-ring-refused', 'document.transaction', { document_id: id, expected_revision: 1,
+        commands: [{ op: 'insert_ring', instance: 's1', center: { x: 99999, y: 0 } }] }))
+      assert.equal(refused.diagnostics[0].code, 'invalid_command')
+      const undone = await both((id) => request('op-ring-undo', 'history.undo', { document_id: id, expected_revision: 1 }))
+      assert.deepEqual(undone.result.document.atoms, [])
+      assert.deepEqual(undone.result.document.bonds, [])
+      const redone = await both((id) => request('op-ring-redo', 'history.redo', { document_id: id, expected_revision: 2 }))
+      assert.deepEqual(redone.result.document.atoms, ring.result.document.atoms)
+      assert.deepEqual(redone.result.document.bonds, ring.result.document.bonds)
+      httpDoc = outerHttp
+      cliDoc = outerCli
+    }
+    {
       // Stereo: the three write commands, a refusal with its reason, the note a cascade clear
       // leaves, and the downstream honesty of both exports agree between HTTP and the CLI.
       const outerHttp = httpDoc
@@ -1054,7 +1080,7 @@ try {
       const transaction = catalog.result.operations.find((operation) => operation.id === 'document.transaction')
       const commandRows = transaction.sub_operations.filter((part) => part.commands === undefined)
       const capabilityRows = transaction.sub_operations.filter((part) => part.commands !== undefined)
-      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [46, 35, 11])
+      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [47, 36, 11])
       for (const command of ['set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing',
         'create_stereo_group', 'delete_stereo_group', 'set_stereo_group_kind', 'set_stereo_group_number',
         'add_stereo_group_members', 'remove_stereo_group_members', 'merge_stereo_groups', 'split_stereo_group']) {

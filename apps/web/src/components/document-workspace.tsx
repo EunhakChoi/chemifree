@@ -128,6 +128,7 @@ const TOOLS: { value: Tool; label: string; key: string; icon: ReactNode }[] = [
   { value: 'select', label: 'Select and move', key: 'V', icon: <MousePointer2Icon /> },
   { value: 'atom', label: 'Atom', key: 'A', icon: <AtomIcon /> },
   { value: 'bond', label: 'Bond', key: 'B', icon: <SlashIcon /> },
+  { value: 'ring', label: 'Insert carbon six-member ring', key: 'R', icon: <HexagonIcon /> },
   { value: 'erase', label: 'Erase', key: 'E', icon: <EraserIcon /> },
   { value: 'pan', label: 'Pan view', key: 'H', icon: <HandIcon /> },
 ]
@@ -568,6 +569,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [element, setElement] = useState('C')
   const [bondKind, setBondKind] = useState<DrawnKind>('single')
   const [dragging, setDragging] = useState(false)
+  const [ringRecoveryError, setRingRecoveryError] = useState<string | null>(null)
   const firstPlacement = document.scene?.instances[0]?.id ?? null
   const [movementContext, setMovementContext] = useState(() => ({ document: document.id, instance: firstPlacement }))
   // Reset only placement context when another document is shown; tool/view policies keep their existing lifecycle.
@@ -784,6 +786,21 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         )}
       </div>
 
+      {tool === 'ring' && <p className="text-xs text-muted-foreground">
+        Click the ring center to add an independent six-carbon single-bond ring using the current bond length.
+        One placement only. No attachment, fusion, collision avoidance or conformation calculation.
+      </p>}
+      {editor.clipboardPending && editor.clipboardAction === 'ring' && <Alert>
+        <AlertDescription className="flex flex-col gap-2">
+          <p>{editor.clipboardNeedsReload ? 'The ring insertion may already have completed. Reload the drawing to reconcile its outcome.' : 'The ring insertion outcome is unconfirmed. Check the original attempt before editing again.'}</p>
+          <Button size="sm" variant="outline" onClick={() => {
+            setRingRecoveryError(null)
+            void (editor.clipboardNeedsReload ? editor.reconcileClipboardPaste() : editor.checkClipboardPaste())
+              .catch((cause: unknown) => setRingRecoveryError(cause instanceof Error ? cause.message : String(cause)))
+          }}>{editor.clipboardNeedsReload ? 'Reload document to reconcile ring insertion' : 'Check ring insertion outcome'}</Button>
+          {ringRecoveryError && <p role="alert">{ringRecoveryError}</p>}
+        </AlertDescription>
+      </Alert>}
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
         <div className="aspect-[5/3] min-h-80 min-w-0">
           <StructureCanvas
@@ -801,6 +818,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
               before === undefined ? undefined : { kind: 'gesture', before },
             )}
             onMark={(intent) => void editor.markBond((latest) => buildMark(latest, intent))}
+            onRing={(instance, center) => void editor.insertRing(document.id, instance, center)}
             rings={rings}
             cipLabels={labels}
             groupLabels={groupMarkList}
