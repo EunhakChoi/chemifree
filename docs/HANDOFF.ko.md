@@ -559,3 +559,24 @@ native v21은 모든 current/history settings에서 boolean을 요구하며 v1�
 추가한 strict-format/application/client/browser checks는 CI에 등록했지만 사용자
 지시로 build/test/cargo check/browser는 실행하지 않았다. fmt/diff만 실행한다.
 P35는 계속 in_progress이며 다음 세션에서 정식 검증과 독립 리뷰가 필요하다.
+
+
+## P35n chemical label shadow (in progress)
+
+- `feat/p35n-label-shadow` starts from main #198 / `59a1acd` in the separate
+  `chemifree-p35n` worktree. `label_shadow` defaults false and follows P35i's
+  documented Chemifree policy: +1,+1 pt, opacity .35, no blur.
+- One canvas-wide composited group paints all chemical shadows before foreground.
+  Glyph fill/outline and underline rectangles are copied; radical/attachment and
+  independent caption appearance, chemical graph and stereo stay unchanged.
+- Shared measured ink bounds include translated copies; normal 400/500 needs
+  actual SVG metrics too. Existing document/font/viewport provenance gates apply.
+- Native v22 current/history is strict, v1–21 false migration keeps exact archives,
+  future23 is refused. Clipboard/template omission means false; malformed explicit
+  values are refused and style matching includes the field.
+- v16–21 admission is unchanged. Physical settings reserve320 bytes; total bound
+  is61,434,842 (<64MiB), with at most12,864 additional bytes over P35m's bound.
+- Browser/client/application/native checks are authored and CI-registered. User
+  prohibited tests/build/cargo check/browser and skill gates for implementation;
+  only formatting/diff inspection were performed. Parent verification and both
+  required PR reviews remain pending. P35 remains `in_progress`.

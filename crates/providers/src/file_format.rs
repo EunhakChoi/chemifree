@@ -1,7 +1,8 @@
-//! Chemifree document file format, version 21 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 22 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
+//! Version 22 adds label_shadow; versions 1–21 migrate as false, including history.
 //! Version 21 adds label_outline; versions 1–20 migrate as false, including history.
 //! Version 20 adds label_underline; versions 1–19 migrate as false, including history.
 //! Version 19 adds document label_style; versions 1–18 migrate as normal, including history.
@@ -31,7 +32,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 21. Other versions
+//! so they read with none. Reading never writes; the next write is version 22. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -60,9 +61,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 21;
+const FORMAT_VERSION: u32 = 22;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 21;
+const DRAFT_FORMAT_VERSION: u32 = 22;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -77,7 +78,7 @@ const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Current v21 scene/history: groups, styled/aligned captions, and Et display maps.
+/// Current v22 scene/history: groups, styled/aligned captions, and Et display maps.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -241,6 +242,8 @@ struct StoredSettings {
     label_underline: bool,
     #[serde(default)]
     label_outline: bool,
+    #[serde(default)]
+    label_shadow: bool,
     label_size_pt: f64,
     carbon_labels: StoredCarbonLabels,
     display_unit: StoredUnit,
@@ -1266,6 +1269,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    TwentyOne,
     Twenty,
     Nineteen,
     Eighteen,
@@ -1298,6 +1302,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        21 => Ok(Version::TwentyOne),
         20 => Ok(Version::Twenty),
         19 => Ok(Version::Nineteen),
         18 => Ok(Version::Eighteen),
@@ -1320,7 +1325,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, and \
              {current}"
         )),
     }
@@ -1485,6 +1490,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
         Ok(Version::Fourteen) => Some(14),
+        Ok(Version::TwentyOne) => Some(21),
         Ok(Version::Twenty) => Some(20),
         Ok(Version::Nineteen) => Some(19),
         Ok(Version::Eighteen) => Some(18),
@@ -1511,6 +1517,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     check_settings_fields(bytes, format)?;
     let parts = match format {
         Version::Current
+        | Version::TwentyOne
         | Version::Twenty
         | Version::Nineteen
         | Version::Eighteen
@@ -1567,6 +1574,7 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     check_settings_fields(bytes, format)?;
     let (parts, base_revision, saved_at_ms) = match format {
         Version::Current
+        | Version::TwentyOne
         | Version::Twenty
         | Version::Nineteen
         | Version::Eighteen
@@ -1633,6 +1641,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     let current = matches!(
         format,
         Version::Current
+            | Version::TwentyOne
             | Version::Twenty
             | Version::Nineteen
             | Version::Eighteen
@@ -1668,40 +1677,54 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     Ok(())
 }
 
-/// Defaults are migration-only: v21 requires outline, v20+ underline, v19+ style and v18+ weight
+/// Defaults are migration-only: v22 requires shadow, v21+ outline, v20+ underline,
+/// v19+ style and v18+ weight
 /// in every stored settings state.
 fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
     let raw: serde_json::Value = parse(bytes, "document or draft")?;
     let current = matches!(
         format,
-        Version::Current | Version::Twenty | Version::Nineteen | Version::Eighteen
+        Version::Current
+            | Version::TwentyOne
+            | Version::Twenty
+            | Version::Nineteen
+            | Version::Eighteen
     );
     let check = |settings: &serde_json::Value| -> Result<(), String> {
         if settings.get("label_weight").is_some() != current
             || (current && !matches!(settings["label_weight"].as_str(), Some("normal" | "bold")))
         {
-            return Err("label_weight is required as normal or bold in v18–21 and forbidden in v1–17, including history.".into());
+            return Err("label_weight is required as normal or bold in v18–22 and forbidden in v1–17, including history.".into());
         }
         let styled = matches!(
             format,
-            Version::Current | Version::Twenty | Version::Nineteen
+            Version::Current | Version::TwentyOne | Version::Twenty | Version::Nineteen
         );
         if settings.get("label_style").is_some() != styled
             || (styled && !matches!(settings["label_style"].as_str(), Some("normal" | "italic")))
         {
-            return Err("label_style is required as normal or italic in v19–21 and forbidden in v1–18, including history.".into());
+            return Err("label_style is required as normal or italic in v19–22 and forbidden in v1–18, including history.".into());
         }
-        let underlined = matches!(format, Version::Current | Version::Twenty);
+        let underlined = matches!(
+            format,
+            Version::Current | Version::TwentyOne | Version::Twenty
+        );
         if settings.get("label_underline").is_some() != underlined
             || (underlined && !settings["label_underline"].is_boolean())
         {
-            return Err("label_underline is required as a boolean in v20–21 and forbidden in v1–19, including history.".into());
+            return Err("label_underline is required as a boolean in v20–22 and forbidden in v1–19, including history.".into());
         }
-        let outlined = format == Version::Current;
+        let outlined = matches!(format, Version::Current | Version::TwentyOne);
         if settings.get("label_outline").is_some() != outlined
             || (outlined && !settings["label_outline"].is_boolean())
         {
-            return Err("label_outline is required as a boolean in v21 and forbidden in v1–20, including history.".into());
+            return Err("label_outline is required as a boolean in v21–22 and forbidden in v1–20, including history.".into());
+        }
+        let shadowed = format == Version::Current;
+        if settings.get("label_shadow").is_some() != shadowed
+            || (shadowed && !settings["label_shadow"].is_boolean())
+        {
+            return Err("label_shadow is required as a boolean in v22 and forbidden in v1–21, including history.".into());
         }
         Ok(())
     };
@@ -1799,6 +1822,7 @@ fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(),
     if matches!(
         format,
         Version::Current
+            | Version::TwentyOne
             | Version::Twenty
             | Version::Nineteen
             | Version::Eighteen
@@ -2853,6 +2877,7 @@ fn stored_settings(settings: &Settings) -> StoredSettings {
         label_style: settings.label_style.into(),
         label_underline: settings.label_underline,
         label_outline: settings.label_outline,
+        label_shadow: settings.label_shadow,
         label_size_pt: settings.label_size_pt,
         carbon_labels: settings.carbon_labels.into(),
         display_unit: settings.display_unit.into(),
@@ -2869,6 +2894,7 @@ fn to_settings(stored: &StoredSettings) -> Settings {
         label_style: stored.label_style.into(),
         label_underline: stored.label_underline,
         label_outline: stored.label_outline,
+        label_shadow: stored.label_shadow,
         label_size_pt: stored.label_size_pt,
         carbon_labels: stored.carbon_labels.into(),
         display_unit: stored.display_unit.into(),

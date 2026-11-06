@@ -96,6 +96,8 @@ jobs:
         run: npm run test:browser:label-weight
       - name: Chemical label italic SVG geometry and font loading
         run: npm run test:browser:label-style
+      - name: Chemical label shadow
+        run: npm run test:browser:label-shadow
       - name: Chemical label outline
         run: npm run test:browser:label-outline
       - name: Chemical label underline, actual run advances and shared bounds

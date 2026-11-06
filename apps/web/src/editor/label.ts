@@ -69,6 +69,8 @@ export interface LabelDot {
 }
 
 export interface AtomLabel {
+  /** Chemical glyph copies use the document shadow policy; state marks stay independent. */
+  shadow: boolean
   /** Text chunks in reading order: what precedes the symbol, the symbol, what follows it. */
   chunks: LabelChunk[]
   /** Small text marks: the attachment points, and a radical stated as unknown. */
@@ -90,17 +92,18 @@ export interface LabelStyle {
   style: ChemicalLabelStyle
   underline: boolean
   outline: boolean
+  shadow: boolean
   /** Browser measurements of label text and shaped underline advances. */
   metrics?: LabelMetrics
 }
 
 /** The built-in label size, at which a layout is made before it is scaled. */
 export const LABEL_SIZE = 12
-export const DEFAULT_LABEL_STYLE: Readonly<LabelStyle> = Object.freeze({ font: 'sans-serif', size: LABEL_SIZE, carbons: 'default', weight: 'normal', style: 'normal', underline: false, outline: false })
+export const DEFAULT_LABEL_STYLE: Readonly<LabelStyle> = Object.freeze({ font: 'sans-serif', size: LABEL_SIZE, carbons: 'default', weight: 'normal', style: 'normal', underline: false, outline: false, shadow: false })
 
 export function labelStyleOf(settings: Readonly<DocumentSettings>, metrics?: LabelMetrics): LabelStyle {
   return { font: settings.label_font, size: settings.label_size_pt, carbons: settings.carbon_labels,
-    weight: settings.label_weight, style: settings.label_style, underline: settings.label_underline, outline: settings.label_outline, ...(metrics ? { metrics } : {}) }
+    weight: settings.label_weight, style: settings.label_style, underline: settings.label_underline, outline: settings.label_outline, shadow: settings.label_shadow, ...(metrics ? { metrics } : {}) }
 }
 
 const SMALL_SIZE = 8
@@ -431,6 +434,7 @@ function chunk(
   metrics?: LabelMetrics,
   scale = 1,
   underline = false,
+  shadow = false,
 ): LabelChunk {
   const measured = runs.map((item) => runMetric(item, font, metrics, scale))
   const advance = measured.reduce((total, item) => total + item.advance, 0)
@@ -440,7 +444,7 @@ function chunk(
   const top = Math.min(...runs.map((item, index) => item.shift + measured[index].top))
   const bottom = Math.max(...runs.map((item, index) => item.shift + measured[index].bottom))
   const metricKey = chunkMetricKey(runs, font, anchor, scale)
-  const actual = underline || runs.some((item) => item.weight === 700 || item.style === 'italic' || item.outline)
+  const actual = shadow || underline || runs.some((item) => item.weight === 700 || item.style === 'italic' || item.outline)
     ? metrics?.chunks.get(metricKey) : undefined
   const measuredBox = actual ? {
     x: x + actual.box.x / scale, y: y + actual.box.y / scale,
@@ -450,13 +454,17 @@ function chunk(
     ? actual.underlines.filter((line) => line.width > 0).map((line) => ({ x: x + line.x / scale, y: y + line.y / scale, width: line.width / scale, height: line.height / scale }))
     : []
   const ink = measuredBox ?? { x: start - left, y: y + top, width: advance + left + right, height: bottom - top }
+  const foreground = underlines.length ? union([ink, ...underlines]) : ink
+  const box = shadow && role === 'text'
+    ? union([foreground, { ...foreground, x: foreground.x + 1 / scale, y: foreground.y + 1 / scale }])
+    : foreground
   return {
     role,
     anchor,
     x,
     y,
     runs,
-    box: underlines.length ? union([ink, ...underlines]) : ink,
+    box,
     underlines,
     measured: actual !== undefined,
     metricKey,
@@ -498,11 +506,11 @@ export function atomLabel(
     style.font,
     style.size,
   ])
-  const known = style.weight === 'bold' || style.style === 'italic' || style.underline || style.outline ? undefined : layouts.get(key)
+  const known = style.weight === 'bold' || style.style === 'italic' || style.underline || style.outline || style.shadow ? undefined : layouts.get(key)
   if (known !== undefined) return known
   const made = scaled(layout(atom, hydrogensLeft, style), style.size / LABEL_SIZE)
   if (layouts.size >= MAX_LAYOUTS) layouts.clear()
-  if (style.weight !== 'bold' && style.style !== 'italic' && !style.underline && !style.outline) layouts.set(key, made)
+  if (style.weight !== 'bold' && style.style !== 'italic' && !style.underline && !style.outline && !style.shadow) layouts.set(key, made)
   return made
 }
 
@@ -523,6 +531,7 @@ function scaled(label: AtomLabel, factor: number): AtomLabel {
     underlines: item.underlines.map(box),
   })
   return Object.freeze({
+    shadow: label.shadow,
     chunks: label.chunks.map(text),
     marks: label.marks.map(text),
     dots: label.dots.map((dot) => ({ ...dot, dx: dot.dx * factor, dy: dot.dy * factor, radius: dot.radius * factor })),
@@ -537,12 +546,12 @@ function layout(atom: AtomView, hydrogensLeft: boolean, style: Readonly<LabelSty
   const scale = style.size / LABEL_SIZE
   const chemicalRun = (text: string, size: number, shift: number, part: LabelPart, weight: 400 | 500 = 400) =>
     run(text, size, shift, part, style.weight === 'bold' ? 700 : weight, style.style, style.outline)
-  const chunkOf = (role: LabelChunk['role'], anchor: LabelChunk['anchor'], x: number, y: number, runs: LabelRun[]) =>
-    chunk(font, role, anchor, x, y, runs, metrics, scale, style.underline)
+  const chunkOf = (role: LabelChunk['role'], anchor: LabelChunk['anchor'], x: number, y: number, runs: LabelRun[], shadow = style.shadow) =>
+    chunk(font, role, anchor, x, y, runs, metrics, scale, style.underline, shadow)
   const symbolText = atom.kind === 'query' && atom.query ? queryLabel(atom.query) : atom.element
   const symbolRun = chemicalRun(symbolText, LABEL_SIZE, 0, 'symbol', 500)
   // The symbol's reserved box, centred on the atom: radical dots go above it, marks below.
-  const symbol = chunkOf('text', 'middle', 0, 0, [symbolRun])
+  const symbol = chunkOf('text', 'middle', 0, 0, [symbolRun], false)
   const before: LabelRun[] = []
   const after: LabelRun[] = []
   const hydrogens: LabelRun[] = []
@@ -606,21 +615,21 @@ function layout(atom: AtomView, hydrogensLeft: boolean, style: Readonly<LabelSty
     width: content.width + 2 * PADDING,
     height: content.height + 2 * PADDING,
   }
-  return { chunks, marks, dots, box, font }
+  return { chunks, marks, dots, box, font, shadow: style.shadow }
 }
 
 /** Graph-preserving Et uses the same weight and geometry as a chemical symbol. */
 export function compactLabel(text: string, style: Readonly<LabelStyle>): AtomLabel {
-  if (style.weight !== 'bold' && style.style !== 'italic' && !style.underline && !style.outline) {
+  if (style.weight !== 'bold' && style.style !== 'italic' && !style.underline && !style.outline && !style.shadow) {
     const width = textWidth(text, style.size, style.font)
     const box = { x: -width / 2 - 1, y: -style.size * 0.65, width: width + 2, height: style.size * 1.3 }
-    return { chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0, runs: [run(text, style.size, 0, 'symbol', 500)], box, underlines: [], measured: false, metricKey: chunkMetricKey([run(text, style.size, 0, 'symbol', 500)], style.font, 'middle') }], marks: [], dots: [], box, font: style.font }
+    return { shadow: false, chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0, runs: [run(text, style.size, 0, 'symbol', 500)], box, underlines: [], measured: false, metricKey: chunkMetricKey([run(text, style.size, 0, 'symbol', 500)], style.font, 'middle') }], marks: [], dots: [], box, font: style.font }
   }
   const item = run(text, style.size, 0, 'symbol', style.weight === 'bold' ? 700 : 500, style.style, style.outline)
-  const content = chunk(style.font, 'text', 'middle', 0, 0, [item], style.metrics, 1, style.underline)
+  const content = chunk(style.font, 'text', 'middle', 0, 0, [item], style.metrics, 1, style.underline, style.shadow)
   const padding = style.size / LABEL_SIZE
   return {
-    chunks: [content], marks: [], dots: [], font: style.font,
+    shadow: style.shadow, chunks: [content], marks: [], dots: [], font: style.font,
     box: { x: content.box.x - padding, y: content.box.y - padding, width: content.box.width + 2 * padding, height: content.box.height + 2 * padding },
   }
 }

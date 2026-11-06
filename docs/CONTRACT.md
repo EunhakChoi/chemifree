@@ -1355,8 +1355,9 @@ A document is a titled drawing: one chemical graph (`m1`) and one page (`p1`) wi
       "references": []
     },
     "selection": { "objects": [], "atoms": [], "bonds": [] },
-    "settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "sans-serif", "label_size_pt": 12,
-                  "carbon_labels": "default", "display_unit": "pt" }
+    "settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "sans-serif",
+                  "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false, "label_shadow": false,
+                  "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" }
   },
   "session": { "saved_revision": 0, "unsaved_changes": true, "undo_depth": 1, "redo_depth": 0, "draft_revision": 1, "draft_failure": null },
   "recovery": null
@@ -1412,7 +1413,7 @@ Transaction body: `{ "request_id": string, "expected_revision": number, "command
 | `move_selection` | `selection`, `delta: { x, y }`, optional `instance` | Moves the effective union of selected subtrees, atoms and bond endpoints once; [scope and atomicity](#effective-selection-scope-and-movement-p32a) |
 | `move_objects` | `objects`, `delta: { x, y }` | Moves graphics and instance positions in the selected subtrees once, even when an ancestor and child are both named |
 | `add_reference`, `remove_reference` | `source`, `target: { kind, id }` | Add or remove a directed reference; no chemical semantics are inferred |
-| `update_settings` | optional `bond_length_pt`, `line_width_pt`, `label_font`, `label_size_pt`, `carbon_labels`, `display_unit` | Changes the named document settings; omitted fields remain unchanged |
+| `update_settings` | optional `bond_length_pt`, `line_width_pt`, `label_font`, `label_weight`, `label_style`, `label_underline`, `label_outline`, `label_shadow`, `label_size_pt`, `carbon_labels`, `display_unit` | Changes the named document settings; omitted fields remain unchanged |
 | `set_bond_mark` | `bond` (an ID or `$N`), `mark`: `null` or `{ kind: "wedge" \| "hash", narrow: "begin" \| "end" }`, `{ kind: "wavy" }`, `{ kind: "crossed" }` | Sets or clears how the bond is drawn; `null` clears. Both keys are required |
 | `set_atom_configuration` | `atom` (an ID or `$N`), `configuration`: `null`, `{ kind: "tetrahedral", neighbors: [four slots], turn }` or `{ kind: "unknown", neighbors: [four slots] }` | States or clears a stereocenter's configuration; neighbors may be listed in any order |
 | `set_bond_configuration` | `bond` (an ID or `$N`), `configuration`: `null`, `{ kind: "relative", begin_neighbor, end_neighbor, relation: "same_side" \| "opposite_sides" }` or `{ kind: "unknown" }` | States or clears a double bond's configuration |
@@ -1589,6 +1590,7 @@ Every document has its own **settings**, its style. They are saved with it, chan
 | `label_style` | `normal \| italic` | `normal` |
 | `label_underline` | boolean | `false` |
 | `label_outline` | boolean | `false` |
+| `label_shadow` | boolean | `false` |
 | `label_size_pt` | finite, 4–72 | 12 |
 | `carbon_labels` | `default` (a bonded carbon that records nothing is a bare vertex; every other carbon is labelled) `\| all` | `default` |
 | `display_unit` | `pt \| mm \| cm \| in` | `pt` |
@@ -1605,7 +1607,7 @@ Lengths are always stored in pt (1 in = 72 pt = 25.4 mm); `display_unit` only sa
 ```json
 { "api_version": "v1", "revision": 2, "ui": { "theme": "dark" },
   "new_documents": { "label_font": "serif" },
-  "new_document_settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false, "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" },
+  "new_document_settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false, "label_shadow": false, "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" },
   "computation": {
     "nmr": { "status": "not_implemented", "owner": "preferences", "followup": "P66", "note": "..." },
     "numeric_precision": { "status": "not_implemented", "owner": "preferences", "followup": "P60", "note": "..." },
@@ -1768,15 +1770,15 @@ Allowed web origins default to `http://127.0.0.1:5173`, `http://localhost:5173`,
 
 ## Document file format
 
-`<data-dir>/documents/<id>.json` is owner-only on Unix. Version 21 is compact JSON with a final newline. It contains `format: "chemifree.document"`, `format_version: 21`, `document`, and `history`. The document contains its `id`, `revision`, `title`, molecule and one page, ordered `roots`, typed `objects`, directed `references`, instance/atom `positions`, `stereo`, `stereo_groups`, `selection`, `settings`, and `next_atom`, `next_bond`, `next_object`, and `next_group` counters. Instances name `m1`; groups contain ordered child IDs; graphics contain their shape and two points. Atom and bond states are as in the API, except that a bond state may also hold a stereo `mark` (below). `stereo_groups` is a required list of enhanced-stereo groups `{ "id": "e<n>", "state": { "kind": "absolute" | "and" | "or", "number": <integer> | null, "members": [atom IDs] } }` in ID order (written ascending, read in any order like every list in the file; a member listed twice is refused); `number` is always present and is stored as stated (the full 32-bit integer range, `0` and negatives included, `null` for none), `next_group` is at least one above every group ID in the document or its history, and each history entry holds a required `stereo_groups` list of `{ "id", "before", "after" }` with the whole group or `null`. A document that does not satisfy the stored-group rules is unreadable: every member is an atom with a stored tetrahedral configuration (not `unknown`), a group has at least one member and no member twice, an atom is in at most one group, an `absolute` group has no number and there is at most one, and per kind (`and`, `or`) no two groups have the same number, where no number counts as `0`. The groups are edited and shown as described under [Stereo groups](#stereo-groups).
+`<data-dir>/documents/<id>.json` is owner-only on Unix. Version 22 is compact JSON with a final newline. It contains `format: "chemifree.document"`, `format_version: 22`, `document`, and `history`. The document contains its `id`, `revision`, `title`, molecule and one page, ordered `roots`, typed `objects`, directed `references`, instance/atom `positions`, `stereo`, `stereo_groups`, `selection`, `settings`, and `next_atom`, `next_bond`, `next_object`, and `next_group` counters. Instances name `m1`; groups contain ordered child IDs; graphics contain their shape and two points. Atom and bond states are as in the API, except that a bond state may also hold a stereo `mark` (below). `stereo_groups` is a required list of enhanced-stereo groups `{ "id": "e<n>", "state": { "kind": "absolute" | "and" | "or", "number": <integer> | null, "members": [atom IDs] } }` in ID order (written ascending, read in any order like every list in the file; a member listed twice is refused); `number` is always present and is stored as stated (the full 32-bit integer range, `0` and negatives included, `null` for none), `next_group` is at least one above every group ID in the document or its history, and each history entry holds a required `stereo_groups` list of `{ "id", "before", "after" }` with the whole group or `null`. A document that does not satisfy the stored-group rules is unreadable: every member is an atom with a stored tetrahedral configuration (not `unknown`), a group has at least one member and no member twice, an atom is in at most one group, an `absolute` group has no number and there is at most one, and per kind (`and`, `or`) no two groups have the same number, where no number counts as `0`. The groups are edited and shown as described under [Stereo groups](#stereo-groups).
 
-Every v21 `settings` object, in the current document and both before/after history
-states, requires boolean `label_outline` and `label_underline`. Versions 1–20
+Every v22 `settings` object, in the current document and both before/after history
+states, requires boolean `label_shadow`, `label_outline` and `label_underline`. Versions 1–21 omit shadow and migrate it to false. Versions 1–20
 omit outline and migrate it to false. Versions 1–19 omit underline and
 migrate it to false; a field hidden behind an earlier header is refused. The
 existing `label_weight` requirement starts at v18 and `label_style` at v19;
-earlier versions migrate each to normal. Reading accepts versions 1–21 and
-refuses future versions, including v22, without rewriting their bytes.
+earlier versions migrate each to normal. Reading accepts versions 1–22 and
+refuses future versions, including v23, without rewriting their bytes.
 
 The v9 document also requires `abbreviations: [{ instance, anchor, terminal }]`, including
 an empty list when no Et display exists. Every history entry requires `abbreviations` changes
@@ -2082,7 +2084,7 @@ None of these checks validate chemical behavior or compatibility with any other 
 
 P35i independent caption run shadow (P35 in progress): `shadow` is a boolean; omission means false, explicit null and other types are malformed. It composes with every existing run field and never changes graph identity, text, advances or anchor. The shared application provides UI/API/CLI, replay and undo/redo. Chemifree renders a second copy at (+1,+1) pt with opacity 0.35 and zero blur, using the effective run color (theme foreground for null); hollow outlines stay hollow and underline rectangles receive the same shadow. This is an independent visual policy, without a claim of legacy rendering equivalence. Only visible shaped glyph/stroke ink and positive-width underlines enter the translated union; whitespace, invisible formatting and zero-advance shaping follow browser measurements. Fit/selection/hit bounds use the current actual SVG viewport measurement provenance.
 
-Native document/draft v17 requires boolean shadow in every current/history run. v8–16 forbid that field and migrate to false, preserving all original bytes in versioned archives before replacement. Future v21 is refused untouched (v19 adds label style and v20 adds underline, below). Shadow=false keeps the exact v16 admission weights (160 without outline, 192 with it); shadow=true admits at224 bytes/run. Physical metadata reserves192 bytes for at most185 encoded metadata bytes. History physical weight is at most6/5 of its8MiB admission; current admission is48MiB and at most32,000 runs add at most1,024,000 physical bytes. The conservative complete-file bound is61,421,978 bytes, below64MiB with more than5MiB spare, including the existing4096-byte envelope. Existing maximal109-caption current/undo/redo states must not be trimmed or refused during migration. External caption roundtrip and scientific labels remain unsupported.
+Native document/draft v17 requires boolean shadow in every current/history run. v8–16 forbid that field and migrate to false, preserving all original bytes in versioned archives before replacement. Future v23 is refused untouched (v19 adds label style and v20 adds underline, below). Shadow=false keeps the exact v16 admission weights (160 without outline, 192 with it); shadow=true admits at224 bytes/run. Physical metadata reserves192 bytes for at most185 encoded metadata bytes. History physical weight is at most6/5 of its8MiB admission; current admission is48MiB and at most32,000 runs add at most1,024,000 physical bytes. The conservative complete-file bound is61,421,978 bytes, below64MiB with more than5MiB spare, including the existing4096-byte envelope. Existing maximal109-caption current/undo/redo states must not be trimmed or refused during migration. External caption roundtrip and scientific labels remain unsupported.
 
 
 Shadow compositing policy: all shadow glyphs and underline rectangles paint together in one translated SVG group behind every foreground glyph and underline. The group receives opacity0.35 once, so overlapping descenders/underline shadows do not accumulate opacity and later-run shadows cannot cover foreground ink. A real-browser regression rasterizes the actual detached shadow tree with frozen computed styles onto a transparent canvas and asserts nonempty alpha≤90/255, including g/j descenders, alongside DOM paint order and the existing geometry/theme checks. Written only; execution remains parent-owned.
@@ -2160,7 +2162,7 @@ No explicit font registration or equivalence with another renderer is claimed.
 Native document/draft v19 requires `label_style` as normal/italic in current and
 all history settings before/after states. v1–18 forbid this field and migrate
 all such states to normal; v18 still requires normal/bold weight. Reading does
-not write; overwrite/recovery archives exact prior bytes. Future v21 is refused
+not write; overwrite/recovery archives exact prior bytes. Future v23 is refused
 untouched. Existing settings reservations, caption history admission and the
 physical 64 MiB bound are unchanged. Native clipboard/template versions remain
 unchanged: omission of style means normal; explicit null/unknown/type errors are
@@ -2192,7 +2194,7 @@ and replay carry the same field. Native document/draft v20 requires the boolean
 in current settings and every before/after settings history state. Versions 1–19
 forbid the new field and migrate to false in memory; first rewrite/recovery
 preserves exact old bytes under the existing archive protocol. Weight remains
-required from v18 and style from v19. Future v21 is refused. Existing history
+required from v18 and style from v19. Future v23 is refused. Existing history
 admission and 64 MiB provider file limits stay unchanged. Older clipboard/template
 payloads may omit the field (false); explicit null or a nonboolean is invalid.
 Copy validation compares the complete migrated style. External exports keep the
@@ -2221,7 +2223,7 @@ fit and bounds; bond trimming, hit testing and selection share the measured box.
 
 Native document and draft v21 require a boolean in every current and historical
 settings state. Versions 1–20 omit it, migrate to false and retain exact source
-bytes before their first replacement; v22 is refused untouched. Clipboard and
+bytes before their first replacement; v23 is refused untouched. Clipboard and
 template payloads may omit it for false; explicit invalid values are refused and
 style matching includes outline. Existing nondefault-settings interchange losses
 cover this style. Existing history admission and 64 MiB read limits are retained.
@@ -2229,4 +2231,49 @@ cover this style. Existing history admission and 64 MiB read limits are retained
 Checks are registered as `npm run test:browser:label-outline` in CI and client,
 application, clipboard and strict-native boundary coverage. They have not been
 executed in this implementation session, at the user's request. P35 remains
-`in_progress`; shadow and other chemical label typography remain future work.
+`in_progress`; Further chemical label typography remains future work; shadow is described in P35n below.
+
+
+## Chemical label shadow (P35n, in progress)
+
+`label_shadow` is a document boolean, default false, copied from preferences only
+when creating a document. It is shared by settings/reset/templates, HTTP/CLI,
+queued edits/replay, undo/redo, save/reopen, recovery and save as copy. It changes
+only the appearance of element/query, stated H/count, isotope, charge and the
+retained-graph Et glyphs. Radical dots/text, attachment marks and independent
+captions keep their own style. Graph, recorded states and stereo are unchanged.
+
+Chemifree adopts its P35i caption shadow policy for chemical glyphs: a +1,+1 pt
+copy in the current foreground color, opacity 0.35, no blur. All chemical shadow
+copies across placements are rendered together in one SVG opacity group before
+foreground drawing; overlap within the shadow stays at 0.35. Filled glyphs,
+hollow outline strokes and positive-width explicit underline rectangles keep
+their appearance in the copy. Shadow duplicates carry no foreground measurement
+selectors, atom labels, hit targets or accessible names.
+
+Shadow requires actual mounted chunk metrics, including normal 400/500 glyphs.
+The shared bounds union foreground glyph/stroke/underline ink and its translated
+copy. Font readiness, document identity and the currently painted viewport gate
+fit and readiness; trimming, hit and selection share these boxes. State marks
+receive no shadow expansion. Disabling shadow restores the prior style path.
+
+Native document/draft v22 requires a boolean in every current and historical
+settings state; v1–21 forbid that field and migrate to false. Reading leaves
+source bytes intact; first replacement/recovery preserves exact source archives.
+Future v23 is refused untouched. Old template/clipboard payloads may omit shadow
+for false; explicit invalid values are refused and style equality includes it.
+Existing nondefault-settings interchange loss reporting covers shadow.
+
+The v16–21 admission weights remain unchanged. Settings physically reserve 320
+bytes instead of 256; at most 100 history entries plus current settings add
+12,864 bytes. The conservative complete-file bound is 61,434,842 bytes, below
+64 MiB, including envelopes. Maximal legacy current/undo/redo histories remain
+covered by the existing migration fixture extended through v21.
+
+`npm run test:browser:label-shadow` is registered in CI; authored checks cover
+actual fonts, sizes, weight/style, fill/outline/underline, both themes, overlapping
+shadow alpha, rendering order, translated ink/fit/trim/hit/selection, graph/Et,
+settings/native history, switched documents and late font loading. Client,
+application, clipboard and strict-native boundary checks accompany it. These
+checks have not been executed in this implementation session at the user's
+request. P35 remains `in_progress`; no legacy rendering equivalence is claimed.

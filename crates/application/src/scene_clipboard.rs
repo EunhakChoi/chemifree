@@ -114,6 +114,7 @@ fn settings(value: SettingsDto) -> Result<Settings, ApplicationError> {
             label_style: Some(value.label_style),
             label_underline: Some(value.label_underline),
             label_outline: Some(value.label_outline),
+            label_shadow: Some(value.label_shadow),
             label_size_pt: Some(value.label_size_pt),
             carbon_labels: Some(value.carbon_labels),
             display_unit: Some(value.display_unit),
@@ -287,7 +288,7 @@ mod tests {
     fn payload() -> Value {
         json!({
             "format":"chemifree.clipboard","version":2,"kind":"graphics",
-            "settings":{"bond_length_pt":30.0,"line_width_pt":1.2,"label_font":"sans-serif","label_weight":"normal","label_style":"normal","label_underline":false,"label_outline":false,
+            "settings":{"bond_length_pt":30.0,"line_width_pt":1.2,"label_font":"sans-serif","label_weight":"normal","label_style":"normal","label_underline":false,"label_outline":false,"label_shadow":false,
                 "label_size_pt":12.0,"carbon_labels":"default","display_unit":"pt"},
             "roots":["s10","s3"],
             "objects":[
@@ -338,6 +339,7 @@ mod tests {
         let expected = decode(&current.to_string()).unwrap();
         for omitted in [
             vec!["label_outline"],
+            vec!["label_shadow"],
             vec!["label_underline"],
             vec!["label_underline", "label_style", "label_weight"],
             vec!["label_style"],
@@ -501,6 +503,9 @@ mod tests {
             ("/settings/label_outline", Value::Null),
             ("/settings/label_outline", json!("true")),
             ("/settings/label_outline", json!(1)),
+            ("/settings/label_shadow", Value::Null),
+            ("/settings/label_shadow", json!("true")),
+            ("/settings/label_shadow", json!(1)),
             ("/settings/label_underline", Value::Null),
             ("/settings/label_underline", json!("true")),
             ("/settings/label_underline", json!(1)),

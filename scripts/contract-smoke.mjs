@@ -1714,7 +1714,7 @@ try {
     const beforeBytes = readFileSync(join(dataDir, 'documents', `${before.id}.json`), 'utf8')
 
     // The CLI process writes first; the API's write from the same base is a conflict.
-    const change = { ui: { theme: 'dark' }, new_documents: { label_font: 'monospace', label_weight: 'bold', label_underline: true, label_outline: true, bond_length_pt: 40 } }
+    const change = { ui: { theme: 'dark' }, new_documents: { label_font: 'monospace', label_weight: 'bold', label_underline: true, label_outline: true, label_shadow: true, bond_length_pt: 40 } }
     const viaCli = cli('preferences', 'set', '--expected-revision', '0', '--json', '--preferences', JSON.stringify(change))
     assert.deepEqual([viaCli.status, viaCli.body.revision], [0, 1])
     const stale = await put({ request_id: 'prefs-stale', expected_revision: 0, ...change })
@@ -1755,7 +1755,7 @@ try {
     const afterHttp = (await write('/api/v1/documents', { request_id: 'style-after', title: 'After preferences' })).body.document
     const afterCli = cli('documents', 'create', '--title', 'After preferences (CLI)', '--json').body.document
     for (const created of [afterHttp, afterCli]) {
-      assert.deepEqual([created.settings.label_font, created.settings.bond_length_pt, created.settings.line_width_pt, created.settings.label_weight, created.settings.label_underline, created.settings.label_outline], ['monospace', 40, 1.2, 'bold', true, true])
+      assert.deepEqual([created.settings.label_font, created.settings.bond_length_pt, created.settings.line_width_pt, created.settings.label_weight, created.settings.label_underline, created.settings.label_outline, created.settings.label_shadow], ['monospace', 40, 1.2, 'bold', true, true, true])
     }
     assert.equal(readFileSync(join(dataDir, 'documents', `${before.id}.json`), 'utf8'), beforeBytes, 'the earlier file is untouched')
     assert.equal(cli('documents', 'show', before.id, '--json').body.document.settings.label_font, 'sans-serif')
@@ -1788,7 +1788,7 @@ try {
 
     // Edited from the CLI, reset and imported over HTTP and from the CLI, each one undoable edit.
     const styled = cli('documents', 'apply', cliDoc, '--expected-revision', '0', '--json', '--commands',
-      JSON.stringify([{ op: 'update_settings', carbon_labels: 'all', display_unit: 'mm', label_weight: 'bold', label_underline: true, label_outline: true }]))
+      JSON.stringify([{ op: 'update_settings', carbon_labels: 'all', display_unit: 'mm', label_weight: 'bold', label_underline: true, label_outline: true, label_shadow: true }]))
     assert.deepEqual([styled.status, styled.body.document.settings.carbon_labels], [0, 'all'])
     assert.deepEqual(cli('documents', 'settings', 'show', cliDoc, '--json').body, styled.body.document.settings)
     const imported = await write(`/api/v1/documents/${afterHttp.id}/settings/import`, { request_id: 'style-import', expected_revision: 0, source: cliDoc })
@@ -1847,7 +1847,7 @@ try {
     const savedV1 = await write('/api/v1/documents/doc-00000000000000a1/save', { request_id: 'v1-save', expected_revision: 5 })
     assert.equal(savedV1.status, 200)
     assert.equal(readFileSync(kept('doc-00000000000000a1'), 'utf8'), viaHttp.bytes, 'the first save kept the exact version 1 bytes')
-    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 21)
+    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 22)
     assert.deepEqual(cli('documents', 'show', 'doc-00000000000000a1', '--json').body.document, savedV1.body.document)
 
     const viaCli = placed('v1-document.json', 'doc-00000000000000a2')
@@ -1890,7 +1890,7 @@ try {
     const savedV2 = await write('/api/v1/documents/doc-00000000000000b2/save', { request_id: 'v2-save', expected_revision: 7 })
     assert.equal(savedV2.status, 200)
     assert.equal(readFileSync(keptV2('doc-00000000000000b2'), 'utf8'), v2.bytes, 'the first save kept the exact version 2 bytes')
-    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 21)
+    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 22)
     assert.equal(cli('documents', 'show', 'doc-00000000000000b2', '--json').body.document.atoms[0].radical, 'doublet')
     const undoneV2 = cli('documents', 'undo', 'doc-00000000000000b2', '--expected-revision', '7', '--json')
     assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 15')
@@ -1935,19 +1935,19 @@ try {
     const savedV4 = await write(`/api/v1/documents/${v4Id}/save`, { request_id: 'v4-save', expected_revision: 3 })
     assert.equal(savedV4.status, 200)
     assert.equal(readFileSync(join(dataDir, 'migrated', `${v4Id}.v4.json`), 'utf8'), v4.bytes)
-    assert.equal(JSON.parse(readFileSync(v4.path, 'utf8')).format_version, 21)
+    assert.equal(JSON.parse(readFileSync(v4.path, 'utf8')).format_version, 22)
     const undoneV4 = cli('documents', 'undo', v4Id, '--expected-revision', '3', '--json')
     assert.equal(undoneV4.body.document.settings.label_font, 'sans-serif')
     assert.deepEqual(undoneV4.body.document.scene.references, openedV4.body.document.scene.references)
 
     const newer = placed('v4-document.json', 'doc-00000000000000a3')
-    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 22')
+    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 23')
     writeFileSync(newer.path, newer.bytes)
     const refused = await call('/api/v1/documents/doc-00000000000000a3')
     assert.deepEqual([refused.status, refused.body.code], [500, 'document_unreadable'])
-    assert.match(refused.body.message, /version 22/)
+    assert.match(refused.body.message, /version 23/)
     const unreadable = (await call('/api/v1/documents')).body.unreadable.find((item) => item.id === 'doc-00000000000000a3')
-    assert.match(unreadable?.message ?? '', /version 22; this build reads versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, and 21/)
+    assert.match(unreadable?.message ?? '', /version 23; this build reads versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, and 22/)
     assert.equal(cli('documents', 'show', 'doc-00000000000000a3', '--json').body.code, 'document_unreadable')
     assert.equal(readFileSync(newer.path, 'utf8'), newer.bytes, 'a newer file is left untouched')
     assert.equal(existsSync(kept('doc-00000000000000a3')), false)

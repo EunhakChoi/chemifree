@@ -92,6 +92,7 @@ export function changed(settings: Readonly<DocumentSettings>, edit: SettingsEdit
     result[field] = value
   }
   if (edit.label_outline !== undefined && edit.label_outline !== settings.label_outline) result.label_outline = edit.label_outline
+  if (edit.label_shadow !== undefined && edit.label_shadow !== settings.label_shadow) result.label_shadow = edit.label_shadow
   if (edit.label_underline !== undefined && edit.label_underline !== settings.label_underline) result.label_underline = edit.label_underline
   if (edit.label_style !== undefined && edit.label_style !== settings.label_style) result.label_style = edit.label_style
   if (edit.label_weight !== undefined && edit.label_weight !== settings.label_weight) result.label_weight = edit.label_weight

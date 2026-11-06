@@ -20,9 +20,10 @@ const BOND: usize = 256;
 const POSITION: usize = 192;
 const REFERENCE: usize = 128;
 const STEREO: usize = 256;
-// v21 label_outline, v20 label_underline, v19 label_style and v18 label_weight fit the existing settings
-// reservation; no admission/physical budget changes.
-const SETTINGS: usize = 256;
+// v22 adds another required settings boolean. Keep the v16–21 admission budget
+// unchanged; reserve extra physical bytes for current and both history sides.
+const SETTINGS_ADMISSION: usize = 256;
+const SETTINGS: usize = 320;
 // Three IDs in content; the history form also carries both optional terminal IDs.
 const ABBREVIATION: usize = 192;
 
@@ -88,7 +89,8 @@ fn changed_weight<K, T>(changes: &[(K, Change<Option<T>>)], weight: impl Fn(&T) 
 // Current content has <=1,000 objects and <=32 runs each, so the extra physical
 // reservation over admission is <=32*32,000 =1,024,000 bytes (regardless of text).
 // Whole-file bound: 48 MiB +1,024,000 +8 MiB*6/5 =61,421,977.6 bytes <64 MiB,
-// leaving >5 MiB reserve; the 4 KiB envelope already covers document/draft metadata.
+// v22 settings add <=64*(1+2*100)=12,864 physical bytes, for <=61,434,842.
+// This leaves >5 MiB reserve; the 4 KiB envelope already covers document/draft metadata.
 pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) -> usize {
     sets.into_iter().fold(0_usize, |total, set| {
         total.saturating_add(set.history_admission_weight())
@@ -104,17 +106,22 @@ impl Content {
     }
 
     pub(super) fn persistence_weight(&self, selection: &Selection) -> usize {
-        self.weight(selection, object_weight)
+        self.weight(selection, object_weight, SETTINGS)
     }
 
     pub(super) fn caption_admission_weight(&self, selection: &Selection) -> usize {
-        self.weight(selection, admission_object_weight)
+        self.weight(selection, admission_object_weight, SETTINGS_ADMISSION)
     }
 
-    fn weight(&self, selection: &Selection, object_weight: fn(&SceneObject) -> usize) -> usize {
+    fn weight(
+        &self,
+        selection: &Selection,
+        object_weight: fn(&SceneObject) -> usize,
+        settings_weight: usize,
+    ) -> usize {
         // Format/draft envelopes, counters, document metadata and all fixed list keys.
         4096 + text_weight(&self.title)
-            + SETTINGS
+            + settings_weight
             + self.atoms.len() * ATOM
             + self.bonds.len() * BOND
             + self.positions.len() * POSITION
@@ -148,14 +155,14 @@ impl ChangeSet {
     }
 
     pub(super) fn persistence_weight(&self) -> usize {
-        self.weight(object_weight)
+        self.weight(object_weight, SETTINGS)
     }
 
     pub(super) fn history_admission_weight(&self) -> usize {
-        self.weight(admission_object_weight)
+        self.weight(admission_object_weight, SETTINGS_ADMISSION)
     }
 
-    fn weight(&self, object_weight: fn(&SceneObject) -> usize) -> usize {
+    fn weight(&self, object_weight: fn(&SceneObject) -> usize, settings_weight: usize) -> usize {
         let mut total = 256
             + selection_weight(&self.selection.before)
             + selection_weight(&self.selection.after);
@@ -163,7 +170,7 @@ impl ChangeSet {
             total += text_weight(&title.before) + text_weight(&title.after);
         }
         if self.settings.is_some() {
-            total += 2 * SETTINGS;
+            total += 2 * settings_weight;
         }
         if let Some(roots) = &self.roots {
             total += ids_weight(roots.before.len()) + ids_weight(roots.after.len());
@@ -184,7 +191,7 @@ impl Document {
     /// Conservative persistence reservation for current content and both history stacks.
     /// This is neither memory usage nor an exact serialized size; providers must verify
     /// that their encoding fits it. Caption-bearing accepted states reserve at most
-    /// 61,421,978 bytes (48 MiB + 1,024,000 + 8 MiB × 6/5), below the 64 MiB
+    /// 61,434,842 bytes (48 MiB + 1,024,000 + 8 MiB × 6/5 + 12,864), below the 64 MiB
     /// native limit, including fixed file/draft envelopes.
     #[must_use]
     pub fn persistence_weight(&self) -> usize {
