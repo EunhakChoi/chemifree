@@ -1,6 +1,6 @@
 /** Hand-maintained mirror of the v1 document contract in crates/application/src/contract.rs. */
 import { API_VERSION } from '@/lib/contract'
-import { sceneClipboardCopyMatches, sceneClipboardPasteMapping } from '@/lib/scene-clipboard-contract'
+import { sceneClipboardCopyMatches, sceneClipboardCutHasIncoming, sceneClipboardCutMatches, sceneClipboardPasteMapping } from '@/lib/scene-clipboard-contract'
 import { readCipFailure, readCipReply, type CipBody, type CipScope } from '@/lib/cip-contract'
 import { ctabParameters, ctRefusalSentence, DEFAULT_CTAB, writtenDialectMatches, type CtabChoice, type CtDirection } from '@/lib/ct-conversion'
 import {
@@ -2026,12 +2026,12 @@ export class DocumentClient {
 
   /** Freeze one clipboard mutation body, process generation and request ID for every outcome check. */
   private clipboardAttempt<T>(
-    kind: 'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'smiles_import',
+    kind: 'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'scene_cut' | 'smiles_import',
     path: string,
     body: Record<string, unknown>,
     parse: (value: unknown, request: string) => T,
   ): { send(): Promise<T> } {
-    const action = kind === 'mol_import' ? 'MOL import' : kind === 'smiles_import' ? 'SMILES import' : kind === 'scene_paste' ? 'graphics paste' : kind
+    const action = kind === 'mol_import' ? 'MOL import' : kind === 'smiles_import' ? 'SMILES import' : kind === 'scene_paste' ? 'graphics paste' : kind === 'scene_cut' ? 'graphics Cut' : kind
     const request = requestId()
     const preparedSession = this.token
     let sentTo: string | undefined
@@ -2151,6 +2151,28 @@ export class DocumentClient {
       const objects = sceneClipboardPasteMapping(payload, result.mapping, parameters.offset, before, snapshot.document, settingsOf(before))
       if (!objects) throw clipboardIncompatible()
       return { snapshot, mapping: { objects } }
+    })
+  }
+
+  /** Called only after clipboard writing succeeds; deletes the exact prepared graphic roots. */
+  createSceneClipboardCut(copy: NativeSceneClipboardCopy, selectionBefore: SelectionView): NativeClipboardCutAttempt {
+    const frozen = structuredClone(copy)
+    const selection = clipboardSelection(selectionBefore)
+    const source = frozen.snapshot.document
+    if (!sceneClipboardCopyMatches(frozen.payload, frozen.copied, frozen.roots, selection, source, settingsOf(source)) ||
+        sceneClipboardCutHasIncoming(source, frozen.copied.objects)) {
+      throw new ApiError('clipboard_scene_cut_invalid', 'The graphics Cut source is invalid or has incoming references. Prepare Cut again, or use Copy.', 0)
+    }
+    return this.clipboardAttempt('scene_cut', `${documentPath(source.id)}/transactions`, {
+      expected_revision: source.revision,
+      commands: [{ op: 'delete_objects', objects: frozen.roots, mode: 'subtree' }],
+      selection_before: selection,
+      selection_after: { objects: [], atoms: [], bonds: [] },
+    }, (value) => {
+      const snapshot = DocumentClient.document(value)
+      if (snapshot.document.revision !== source.revision + 1 || snapshot.notes?.length ||
+          !sceneClipboardCutMatches(source, snapshot.document, frozen.copied.objects)) throw clipboardIncompatible()
+      return snapshot
     })
   }
 

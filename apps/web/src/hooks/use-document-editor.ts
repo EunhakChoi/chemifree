@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useAutosave } from '@/hooks/use-autosave'
+import { sceneClipboardCutHasIncoming } from '@/lib/scene-clipboard-contract'
 import { mergeGroupSelection, selectionAfterGroup, selectionIds, selectionSnapshot } from '@/editor/scene-selection'
 import {
   ApiError,
@@ -102,12 +103,20 @@ export interface NativeClipboardCutPlan {
   generation: number
 }
 
+/** A graphic Cut preserves its captured raw selection, source forest and process. */
+export interface NativeSceneClipboardCutPlan {
+  copy: NativeSceneClipboardCopy
+  selection: SelectionView
+  generation: number
+}
+
 type ClipboardMutation = {
   documentId: string
   generation: number
   terminalConflict?: boolean
 } & ({ kind: 'paste'; attempt: NativeClipboardPasteAttempt } | { kind: 'cut'; attempt: NativeClipboardCutAttempt } |
   { kind: 'mol_import'; attempt: NativeClipboardMolImportAttempt } | { kind: 'scene_paste'; attempt: NativeSceneClipboardPasteAttempt } |
+  { kind: 'scene_cut'; attempt: NativeClipboardCutAttempt } |
   { kind: 'smiles_import'; attempt: SmilesClipboardImportAttempt })
 
 function requireCutEligible(copy: NativeClipboardCopy) {
@@ -199,7 +208,7 @@ export function useDocumentEditor() {
   const clipboardAttempt = useRef<ClipboardMutation | null>(null)
   const [clipboardPending, setClipboardPending] = useState(false)
   const [clipboardNeedsReload, setClipboardNeedsReload] = useState(false)
-  const [clipboardAction, setClipboardAction] = useState<'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'smiles_import' | null>(null)
+  const [clipboardAction, setClipboardAction] = useState<'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'scene_cut' | 'smiles_import' | null>(null)
 
   const adoptSelection = useCallback((next: Set<string>) => {
     selectionRef.current = next
@@ -352,8 +361,8 @@ export function useDocumentEditor() {
         setClipboardPending(false)
         setClipboardNeedsReload(false)
         setClipboardAction(null)
-        if (pendingPaste.kind === 'cut') {
-          throw new ApiError(error.code, `The fragment was copied, but Cut deletion was refused. ${error.message}`, error.status, {
+        if (pendingPaste.kind === 'cut' || pendingPaste.kind === 'scene_cut') {
+          throw new ApiError(error.code, `The ${pendingPaste.kind === 'scene_cut' ? 'graphics were' : 'fragment was'} copied, but Cut deletion was refused. ${error.message}`, error.status, {
             currentRevision: error.currentRevision,
             commandIndex: error.commandIndex,
             reason: error.reason,
@@ -382,6 +391,25 @@ export function useDocumentEditor() {
       throw new ApiError('clipboard_source_changed', 'The drawing or service changed. Prepare the fragment again.', 0)
     }
     return { copy: result, selection: selected, generation }
+  }, [])
+
+  const readSceneClipboard = useCallback(async (
+    documentId: string, pressed: ReadonlySet<string>, generation: number,
+  ): Promise<NativeSceneClipboardCutPlan> => {
+    const shown = currentRef.current?.document
+    if (!shown || shown.id !== documentId || generation !== serviceGenerationRef.current) {
+      throw new ApiError('clipboard_scene_source_changed', 'The drawing or service changed. Prepare the graphics again.', 0)
+    }
+    const selected = selectionSnapshot(pressed, shown)
+    if (selectionIds(selected).size !== pressed.size) {
+      throw new ApiError('clipboard_scene_selection_unknown', 'The captured selection changed. Select the graphics again.', 0)
+    }
+    const copy = await client.clipboardSceneCopy(documentId, selected)
+    if (generation !== serviceGenerationRef.current || !currentRef.current ||
+        !sameConversionSnapshot(shown, copy.snapshot.document) || !sameConversionSnapshot(shown, currentRef.current.document)) {
+      throw new ApiError('clipboard_scene_source_changed', 'The drawing or service changed. Prepare the graphics again.', 0)
+    }
+    return { copy, selection: selected, generation }
   }, [])
 
   const id = () => currentRef.current?.document.id ?? ''
@@ -517,23 +545,39 @@ export function useDocumentEditor() {
     copySceneGraphics: useCallback((documentId: string): Promise<NativeSceneClipboardCopy> => {
       const pressed = new Set(selectionRef.current)
       const generation = serviceGenerationRef.current
+      return clipboardTask(async () => (await readSceneClipboard(documentId, pressed, generation)).copy)
+    }, [clipboardTask, readSceneClipboard]),
+    prepareSceneCut: useCallback((documentId: string): Promise<NativeSceneClipboardCutPlan> => {
+      const pressed = new Set(selectionRef.current)
+      const generation = serviceGenerationRef.current
       return clipboardTask(async () => {
-        const shown = currentRef.current?.document
-        if (!shown || shown.id !== documentId || generation !== serviceGenerationRef.current) {
-          throw new ApiError('clipboard_scene_source_changed', 'The drawing or service changed. Copy the graphics again.', 0)
+        const plan = await readSceneClipboard(documentId, pressed, generation)
+        if (sceneClipboardCutHasIncoming(plan.copy.snapshot.document, plan.copy.copied.objects)) {
+          throw new ApiError('clipboard_scene_cut_references', 'Objects outside these graphics reference them. Remove those references before Cut, or use Copy.', 0)
         }
-        const selected = selectionSnapshot(pressed, shown)
-        if (selectionIds(selected).size !== pressed.size) {
-          throw new ApiError('clipboard_scene_selection_unknown', 'The captured selection changed. Select the graphics again.', 0)
-        }
-        const result = await client.clipboardSceneCopy(documentId, selected)
-        if (generation !== serviceGenerationRef.current || currentRef.current?.document.id !== documentId ||
-            !sameConversionSnapshot(shown, result.snapshot.document)) {
-          throw new ApiError('clipboard_scene_source_changed', 'The drawing or service changed. Copy the graphics again.', 0)
-        }
-        return result
+        return plan
       })
-    }, [clipboardTask]),
+    }, [clipboardTask, readSceneClipboard]),
+    cutSceneGraphics: useCallback((plan: NativeSceneClipboardCutPlan, write: Promise<void>): Promise<void> => {
+      const written = write.then(() => ({ ok: true as const }), () => ({ ok: false as const }))
+      const frozen = structuredClone(plan)
+      return clipboardTask(async () => {
+        if (!(await written).ok) {
+          throw new ApiError('clipboard_write_failed', 'Clipboard writing failed. The graphics were retained; copy the native text manually.', 0)
+        }
+        const shown = currentRef.current?.document
+        const source = frozen.copy.snapshot.document
+        if (!shown || frozen.generation !== serviceGenerationRef.current || !sameConversionSnapshot(shown, source)) {
+          throw new ApiError('clipboard_scene_cut_source_changed', 'The graphics were copied, but the drawing or service changed. No Cut deletion was sent. Prepare Cut again.', 0)
+        }
+        clipboardAttempt.current = {
+          kind: 'scene_cut', documentId: source.id, generation: frozen.generation,
+          attempt: client.createSceneClipboardCut(frozen.copy, frozen.selection),
+        }
+        setClipboardAction('scene_cut')
+        await finishClipboardMutation()
+      })
+    }, [clipboardTask, finishClipboardMutation]),
     prepareCut: useCallback((documentId: string, instance: string | null): Promise<NativeClipboardCutPlan> => {
       const pressed = new Set(selectionRef.current)
       return clipboardTask(async () => {
