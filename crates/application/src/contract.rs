@@ -17,7 +17,7 @@ use chemifree_domain::scene::{
     SelectionTransform, TransactionSelection,
 };
 use chemifree_domain::settings::{
-    CarbonLabels, DisplayUnit, LabelFont, LabelWeight, Settings, SettingsEdit,
+    CarbonLabels, DisplayUnit, LabelFont, LabelStyle, LabelWeight, Settings, SettingsEdit,
 };
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
@@ -179,6 +179,15 @@ pub enum LabelWeightDto {
     Bold,
 }
 
+/// The chemical label style; independent captions retain their own run style.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LabelStyleDto {
+    #[default]
+    Normal,
+    Italic,
+}
+
 /// Which carbons are labelled: `default` leaves a bonded carbon that records nothing bare.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -207,6 +216,8 @@ pub struct SettingsDto {
     /// Pre-weight clipboard/template payloads inherit normal; explicit null remains invalid.
     #[serde(default)]
     pub label_weight: LabelWeightDto,
+    #[serde(default)]
+    pub label_style: LabelStyleDto,
     pub label_size_pt: f64,
     pub carbon_labels: CarbonLabelsDto,
     pub display_unit: DisplayUnitDto,
@@ -225,6 +236,8 @@ pub struct SettingsEditDto {
     pub label_font: Option<LabelFontDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_weight: Option<LabelWeightDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_style: Option<LabelStyleDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_size_pt: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -643,6 +656,8 @@ pub enum CommandDto {
         label_font: Option<LabelFontDto>,
         #[serde(default)]
         label_weight: Option<LabelWeightDto>,
+        #[serde(default)]
+        label_style: Option<LabelStyleDto>,
         #[serde(default)]
         label_size_pt: Option<f64>,
         #[serde(default)]
@@ -1305,6 +1320,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             line_width_pt,
             label_font,
             label_weight,
+            label_style,
             label_size_pt,
             carbon_labels,
             display_unit,
@@ -1313,6 +1329,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             line_width_pt: *line_width_pt,
             label_font: *label_font,
             label_weight: *label_weight,
+            label_style: *label_style,
             label_size_pt: *label_size_pt,
             carbon_labels: *carbon_labels,
             display_unit: *display_unit,
@@ -1496,6 +1513,10 @@ pub(crate) fn to_settings_edit(edit: &SettingsEditDto) -> SettingsEdit {
             LabelWeightDto::Normal => LabelWeight::Normal,
             LabelWeightDto::Bold => LabelWeight::Bold,
         }),
+        label_style: edit.label_style.map(|style| match style {
+            LabelStyleDto::Normal => LabelStyle::Normal,
+            LabelStyleDto::Italic => LabelStyle::Italic,
+        }),
         label_size_pt: edit.label_size_pt,
         carbon_labels: edit.carbon_labels.map(|labels| match labels {
             CarbonLabelsDto::Default => CarbonLabels::Default,
@@ -1516,6 +1537,7 @@ pub(crate) fn settings_edit_view(edit: &SettingsEdit) -> SettingsEditDto {
         line_width_pt: edit.line_width_pt,
         label_font: edit.label_font.map(font_view),
         label_weight: edit.label_weight.map(weight_view),
+        label_style: edit.label_style.map(style_view),
         label_size_pt: edit.label_size_pt,
         carbon_labels: edit.carbon_labels.map(carbon_labels_view),
         display_unit: edit.display_unit.map(unit_view),
@@ -1528,6 +1550,7 @@ pub(crate) fn settings_view(settings: &Settings) -> SettingsDto {
         line_width_pt: settings.line_width_pt,
         label_font: font_view(settings.label_font),
         label_weight: weight_view(settings.label_weight),
+        label_style: style_view(settings.label_style),
         label_size_pt: settings.label_size_pt,
         carbon_labels: carbon_labels_view(settings.carbon_labels),
         display_unit: unit_view(settings.display_unit),
@@ -1538,6 +1561,13 @@ fn weight_view(weight: LabelWeight) -> LabelWeightDto {
     match weight {
         LabelWeight::Normal => LabelWeightDto::Normal,
         LabelWeight::Bold => LabelWeightDto::Bold,
+    }
+}
+
+fn style_view(style: LabelStyle) -> LabelStyleDto {
+    match style {
+        LabelStyle::Normal => LabelStyleDto::Normal,
+        LabelStyle::Italic => LabelStyleDto::Italic,
     }
 }
 

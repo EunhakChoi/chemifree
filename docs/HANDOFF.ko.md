@@ -344,6 +344,10 @@ P35는 in_progress다. 구현 에이전트는 테스트·빌드·cargo check·br
 - P15의 수치 기반 범위는 완료됐다. `chemifree-numerics`는 부호 있는 정확한 유리수와 Real48·binary32·binary64·80비트 확장 형식의 원시 저장 비트 사이를 명시된 반올림으로 변환한다. 유한 사칙연산의 중간 저장은 호출자가 형식을 선택하고, 비유한 값·지원하지 않는 부호화·0 제수·오버플로는 오류로 다룬다. 선택된 각도 계산은 확장 중간 연산의 순서와 binary64 저장을 지키며 불규칙도는 반쪽을 위로 반올림한다. 컴퓨터 point 등 길이 단위와 명시적 양수 몰질량을 쓰는 Real48 mol/L–g/L 변환은 독립 물리 정책으로 제공한다. 6자리 기본·0–8자리 고정 문자열과 정확한 유리수의 3자리 반올림 후 F32 저장은 서로 다른 정책이다. 다른 화학 단위·레거시 상수와 화학 결과 UI는 아직 미구현이다. 일반 계산 정밀도는 계속 `not_implemented`이고 P19는 질량 표시 자릿수만 별도로 저장해 새 결과에 적용한다. 경계와 독립 기준은 [NUMERICS.ko.md](NUMERICS.ko.md)에 있다.
 - 이후 문서나 코드가 변경될 수 있으므로 작업 시작 시 git status, git log와 현재 CI를 다시 확인한다. 기존 사용자 변경은 보존한다.
 
+## P35k 전달
+
+문서 `label_style: normal|italic`을 추가했다(기본 normal). 기존 400/500 또는 bold 700과 조합하고 화학 라벨 텍스트에만 적용한다. radical/attachment와 독립 caption은 그대로다. API/CLI/설정/환경 설정/복사/undo/replay/저장 복구가 같은 값을 전달한다. native v19는 current/history 필드를 엄격히 검사하고 v1–18을 normal로 읽으며 예전 바이트를 보존한다. SVG italic 실측은 문서와 viewport/font provenance를 따른다. P35는 in_progress이며 `docs/verification/p35k-label-style.md`의 점검은 작성만 했고 실행하지 않았다.
+
 ## 먼저 읽을 파일
 
 1. 프로젝트 루트의 AGENTS.md.

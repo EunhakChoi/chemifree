@@ -44,7 +44,7 @@ import {
   type Hit,
   type Stroke,
 } from '@/editor/geometry'
-import { atomLabel, atomName, labelStyleOf, measureBoldLabels, placed, type AtomLabel, type Box, type LabelChunk, type LabelMetrics } from '@/editor/label'
+import { atomLabel, atomName, labelStyleOf, measureChemicalLabels, placed, type AtomLabel, type Box, type LabelChunk, type LabelMetrics } from '@/editor/label'
 
 export type { DrawnOrder } from '@/editor/bond-gestures'
 
@@ -280,7 +280,7 @@ export function StructureCanvas({
           }
           boxes.set(id, { x: left - 2, y: top - 2, width: right - left + 4, height: bottom - top + 4 })
         }
-        setCaptionMeasurement({ document, boxes, labelMetrics: measureBoldLabels(svg), fontsReady: globalThis.document.fonts.status === 'loaded', viewBox: svg.getAttribute('viewBox') ?? undefined })
+        setCaptionMeasurement({ document, boxes, labelMetrics: measureChemicalLabels(svg), fontsReady: globalThis.document.fonts.status === 'loaded', viewBox: svg.getAttribute('viewBox') ?? undefined })
       })
     }
     const observer = new ResizeObserver(measure)
@@ -371,19 +371,19 @@ export function StructureCanvas({
   )
 
   const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
-  const boldLabels = settingsOf(document).label_weight === 'bold'
-  const captionMeasurementComplete = (captionCount === 0 && !boldLabels) || (captionMeasurement?.document === document &&
+  const measuredLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic'
+  const captionMeasurementComplete = (captionCount === 0 && !measuredLabels) || (captionMeasurement?.document === document &&
     captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount)
   const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box, {
     // Opening fit needs the first complete measurement, even though fitting will
     // change the viewport and require a second measurement there.
     boundsReady: captionMeasurementComplete,
-    measuredViewBox: (captionCount > 0 || boldLabels) && captionMeasurement?.document === document ? captionMeasurement.viewBox : undefined,
+    measuredViewBox: (captionCount > 0 || measuredLabels) && captionMeasurement?.document === document ? captionMeasurement.viewBox : undefined,
     contentIdentity: document,
   })
   // Font metrics can change with SVG scale. Completeness permits initial fitting;
   // readiness describes bounds measured in the viewport that is actually painted.
-  const captionBoundsReady = captionMeasurementComplete && ((captionCount === 0 && !boldLabels) || captionMeasurement?.viewBox === canvasViewBox)
+  const captionBoundsReady = captionMeasurementComplete && ((captionCount === 0 && !measuredLabels) || captionMeasurement?.viewBox === canvasViewBox)
   const unitsPerPixel = 1 / viewport.scale
 
   function drawingOf(instance: string | null) {
@@ -1082,6 +1082,7 @@ function ChunkText({ chunk, at, ...rest }: { chunk: LabelChunk; at: Position; cl
             dy={shift === 0 ? undefined : shift}
             fontSize={run.size}
             fontWeight={run.weight}
+            fontStyle={run.style}
             dominantBaseline="central"
             data-part={run.part}
           >

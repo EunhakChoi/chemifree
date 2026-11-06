@@ -72,7 +72,7 @@ fn old_document_bytes_and_history_survive_read_and_first_v9_save() {
     let path = root.path().join("documents/caption-native.json");
     let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     strip_caption_shadows(&mut stored);
-    assert_eq!(stored["format_version"], 18);
+    assert_eq!(stored["format_version"], 19);
     strip_abbreviations(&mut stored);
     strip_label_weights(&mut stored);
     stored["format_version"] = json!(7);
@@ -169,7 +169,7 @@ fn old_draft_bytes_are_preserved_before_the_first_changed_v9_draft() {
         Some(edited.document.revision)
     );
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 18);
+    assert_eq!(rewritten["format_version"], 19);
     assert_eq!(rewritten["document"]["revision"], edited.document.revision);
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 7)).unwrap(),
@@ -1992,6 +1992,7 @@ fn strip_label_weights(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(object) => {
             object.remove("label_weight");
+            object.remove("label_style");
             for child in object.values_mut() {
                 strip_label_weights(child);
             }

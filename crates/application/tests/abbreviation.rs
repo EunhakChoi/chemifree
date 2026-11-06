@@ -327,3 +327,110 @@ fn chemical_label_weight_preserves_ethyl_graph_inspections_and_all_export_payloa
         "read-only results and exports leave the style edit intact"
     );
 }
+
+#[test]
+fn chemical_label_style_preserves_ethyl_graph_inspections_and_all_export_payloads() {
+    let (app, _root, id) = setup();
+    assert_eq!(
+        call(&app, "document.transaction", collapse(&id))["outcome"],
+        "ok"
+    );
+    let original = snapshot(&app, &id);
+    let operations = [
+        ("chem.validate", json!({"document_id":id})),
+        ("chem.aromaticity", json!({"document_id":id})),
+        ("chem.identity", json!({"document_id":id,"mode":"recorded"})),
+        ("chem.identity", json!({"document_id":id,"mode":"chemical"})),
+        (
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"formula"}),
+        ),
+    ];
+    let before: Vec<Value> = operations
+        .iter()
+        .map(|(operation, parameters)| {
+            let mut result = call(&app, operation, parameters.clone());
+            assert_eq!(result["outcome"], "ok", "{result}");
+            result["result"].as_object_mut().unwrap().remove("snapshot");
+            result["result"].as_object_mut().unwrap().remove("revision");
+            result["result"].clone()
+        })
+        .collect();
+    let exports = [
+        json!({"format":"mol","records":[{"document_id":id}]}),
+        json!({"format":"sdf","records":[{"document_id":id}]}),
+        json!({"format":"smiles","document_id":id,"style":"recorded"}),
+        json!({"format":"cdxml","document_id":id}),
+        json!({"format":"cdx","document_id":id}),
+    ];
+    let payloads: Vec<Value> = exports
+        .iter()
+        .map(|parameters| {
+            let result = call(&app, "document.export", parameters.clone());
+            assert_eq!(result["outcome"], "partial", "{result}");
+            assert!(result["result"]["content"].is_string(), "{result}");
+            result["result"]["content"].clone()
+        })
+        .collect();
+    let params = json!({"document_id":id,"expected_revision":2,"commands":[{"op":"update_settings","label_style":"italic"}]});
+    let changed = send(
+        &app,
+        "chemical-label-italic",
+        "document.transaction",
+        params.clone(),
+    );
+    assert_eq!(changed["outcome"], "ok", "{changed}");
+    assert_eq!(
+        send(
+            &app,
+            "chemical-label-italic",
+            "document.transaction",
+            params
+        ),
+        changed
+    );
+    let now = snapshot(&app, &id);
+    for field in [
+        "atoms",
+        "bonds",
+        "scene",
+        "stereo",
+        "abbreviations",
+        "molecule",
+        "selection",
+    ] {
+        assert_eq!(
+            now["document"][field], original["document"][field],
+            "{field}"
+        );
+    }
+    assert_eq!(now["document"]["settings"]["label_style"], "italic");
+    for ((operation, parameters), expected) in operations.iter().zip(before) {
+        let mut result = call(&app, operation, parameters.clone());
+        result["result"].as_object_mut().unwrap().remove("snapshot");
+        result["result"].as_object_mut().unwrap().remove("revision");
+        assert_eq!(result["result"], expected, "{operation}");
+    }
+    for (parameters, payload) in exports.iter().zip(payloads) {
+        let result = call(&app, "document.export", parameters.clone());
+        assert_eq!(result["outcome"], "partial", "{result}");
+        assert_eq!(
+            result["result"]["content"], payload,
+            "{parameters}: {result}"
+        );
+        assert!(
+            result["loss_report"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|loss| loss["feature"] == "drawing_settings"
+                    && loss["semantic_impact"] == "rendering"),
+            "{result}"
+        );
+    }
+    assert_eq!(
+        snapshot(&app, &id),
+        now,
+        "read-only results and exports leave the style edit intact"
+    );
+}

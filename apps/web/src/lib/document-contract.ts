@@ -261,6 +261,7 @@ export interface BondView {
 export type LabelFont = 'sans-serif' | 'serif' | 'monospace'
 /** Chemical label weight, independent of caption run weights. */
 export type LabelWeight = 'normal' | 'bold'
+export type LabelStyle = 'normal' | 'italic'
 /** `default`: a bonded carbon recording nothing is a bare vertex; `all`: every carbon is labelled. */
 export type CarbonLabels = 'default' | 'all'
 /** The unit lengths are shown in; lengths are always stored in pt (1 in = 72 pt = 25.4 mm). */
@@ -272,6 +273,7 @@ export interface DocumentSettings {
   line_width_pt: number
   label_font: LabelFont
   label_weight: LabelWeight
+  label_style: LabelStyle
   label_size_pt: number
   carbon_labels: CarbonLabels
   display_unit: DisplayUnit
@@ -286,6 +288,7 @@ export const DEFAULT_SETTINGS: Readonly<DocumentSettings> = Object.freeze({
   line_width_pt: 1.2,
   label_font: 'sans-serif',
   label_weight: 'normal',
+  label_style: 'normal',
   label_size_pt: 12,
   carbon_labels: 'default',
   display_unit: 'pt',
@@ -299,6 +302,7 @@ export const SETTING_RANGES = Object.freeze({
 } as const)
 export type NumericSetting = keyof typeof SETTING_RANGES
 
+export const LABEL_STYLES: readonly LabelStyle[] = ['normal', 'italic']
 export const LABEL_WEIGHTS: readonly LabelWeight[] = ['normal', 'bold']
 export const LABEL_FONTS: readonly LabelFont[] = ['sans-serif', 'serif', 'monospace']
 export const CARBON_LABELS: readonly CarbonLabels[] = ['default', 'all']
@@ -959,13 +963,15 @@ function withDocumentStates(document: DocumentView): DocumentView {
 
 const isCountOrNull = (value: unknown) => value === null || isCount(value)
 
-const SETTING_FIELDS = ['bond_length_pt', 'line_width_pt', 'label_font', 'label_weight', 'label_size_pt', 'carbon_labels', 'display_unit']
+const SETTING_FIELDS = ['bond_length_pt', 'line_width_pt', 'label_font', 'label_weight', 'label_style', 'label_size_pt', 'carbon_labels', 'display_unit']
 
 /** Whether `value` is a valid value of the setting `field`. */
 function isSettingValue(field: string, value: unknown): boolean {
   const range = Object.entries(SETTING_RANGES).find(([name]) => name === field)?.[1]
   if (range) return isFiniteNumber(value) && value >= range[0] && value <= range[1]
   switch (field) {
+    case 'label_style':
+      return (LABEL_STYLES as readonly unknown[]).includes(value)
     case 'label_weight':
       return (LABEL_WEIGHTS as readonly unknown[]).includes(value)
     case 'label_font':
