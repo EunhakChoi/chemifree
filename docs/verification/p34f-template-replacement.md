@@ -72,5 +72,19 @@ Rust patterns/testing·TypeScript patterns/testing·API design·shadcn 지침을
   요구사항 임의 보충·state/stereo/ID 보존·no-op/거절·스킬 품질에 수정할 P0–P3 finding은
   없었다. source/schema/약어 범위 확장도 찾지 못했다. 실행 검증을 하지 않았으며 새 main
   통합·full/CI가 필요하다는 한계를 기록했다. 수정 뒤 추가 리뷰는 요청하지 않는다.
+- 검토 후 private helper 이름을 `created_atom`에서 `mapped_atom`으로 바꿔 existing/Created
+  두 binding을 나타내고 replacement preview의 복사된 doc comment를 바로잡았다. 동작 변경은
+  없으며 review finding 처분을 위해 별도 재리뷰를 요청하지 않는다.
 
-선행 P34e PR 완료 후 최신 main 통합과 실제 검증은 부모가 이어간다.
+## 선행 main 통합
+
+구현을 `821e669`로 커밋한 뒤 origin/main `1618988`(#180 P34e squash)을 fetch/merge했다.
+공통 Git ancestor가 P34d여서 P34e 추가 파일·줄이 다수 충돌했지만, 승인 base `7ce1c66`과
+최신 main의 차이는 P34e 검증 기록20줄과 contract fixture request_id fix뿐임을 대조했다.
+P34f source/검사/40개 catalog와 main의 P34e 거절 reason·기존38개 catalog fix를 보존했다.
+또 main의 request_id 형식 단정 및 plan/attach의64자 이내 fixture IDs를 적용하고 P34f의
+추가 replacement HTTP=CLI flow를 유지했다. 양쪽 문서와 browser/공통 검사 연결도 보존했다.
+
+통합 담당자는 rustfmt와 git diff --check만 실행했다. 테스트·빌드·브라우저·mutation·push,
+skill gates 및 통합 full/CI는 실행하지 않았으며 부모 검증 대기다. 과학 기능/배포 완료나
+P34 완료로 기록하지 않는다. PR Codex 리뷰도 부모 단계에서 pending이다.

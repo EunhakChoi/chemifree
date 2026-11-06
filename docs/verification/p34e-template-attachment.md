@@ -171,6 +171,26 @@ OperationId::ALL의 38개 순서와 일치한다. transaction 48/37/11 및 그�
 이력으로 보존했다. 정적 대조는 실행 통과 근거가 아니며 새 HEAD의 full/CI는 pending이다.
 작성자는 테스트·빌드·브라우저·push 없이 fmt/diff 검사만 수행했다.
 
+## 세 번째 full 실행의 HTTP/CLI fixture request ID 수정
+
+부모의 `7ce1c66e14ca712b402beb754203e630919757b5` 격리 full 로그
+`/tmp/chemifree-p29d-verify-j4KjPa/p34e-final2-full.log`는 Rust 실행 뒤 test:contracts의
+contract-smoke.mjs:1141에서 실패했다. 거절 원인 검사용 request ID에 operation 문자열
+document.template_plan을 그대로 넣어 금지된 점이 들어갔고, 가장 긴 snapshot 경우는
+64자도 넘을 수 있었다. 서버가 protocol_error/invalid_request 및 HTTP400으로 거절해
+본래 semantic reason 검사가 실행되지 않은 것이다.
+
+loop를 명시 plan/attach action과 실제 operation 쌍으로 바꿔 ID에는 짧은 action만 넣는다.
+고정 prefix·사례명·snapshot suffix를 포함한 최대 길이는 54자이며 ID가 고유하다.
+성공·거절 fixture request builder에는 1–64 ASCII 허용문자 assertion을 넣어 입력 생성
+오류를 네트워크 전송 전에 드러내며 입력을 정규화하거나 서버 검증을 완화하지 않는다.
+같은 파일의 모든 동적 ID 생성과 template Application/browser/client fixture를 rg로
+대조했다. 나머지는 숫자·필드명·고정 plan/apply·유효 reason/style로 구성하거나 client의
+원래 request ID를 응답에 그대로 반영한다. 다른 operation 문자열을 ID에 넣는 경우는
+검색에서 없었다. 기존 missing target/dangling fragment 분류·HTTP=CLI·문서 불변 exact
+assertions는 유지한다. 작성자는 테스트·빌드·브라우저·push를 실행하지 않았다.
+수정 HEAD의 full/CI는 재검증 대기다.
+
 ## 실행 대기
 
 부모의 공유 격리 실행 지시에 따라 테스트·빌드·브라우저·lint/typecheck/clippy·mutation·
