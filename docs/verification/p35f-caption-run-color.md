@@ -50,3 +50,12 @@ other strip_caption_styles call sites found the v8–13 equality matrix already 
 normal defaults; strict field matrices intentionally compare acceptance rather than the
 pre-projection document. Italic remains in current-version size/color and maximal-encoding
 fixtures where it is representable. Only formatting and diff inspection ran for this fix.
+
+Codex PR #191 review P2 dispositions (two documentation findings): fixed. The native
+migration overview and first-overwrite backup range now include v13 (1–13). The canonical
+caption snapshot shape now lists color, and CLI text/JSON descriptions include the color
+component with explicit inherited, #RRGGBB and black semantics. Static comparison against
+README, the native-version paragraphs and CLI rendering also corrected two current
+P35a–e profile references to P35a–f. Historical v1–12 size-field prohibition and prior
+slice verification records remain version-specific. Only diff inspection ran for this fix;
+no tests or builds were executed.
