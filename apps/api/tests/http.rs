@@ -744,7 +744,7 @@ async fn document_settings_are_edited_reset_and_imported_over_http() {
     assert_eq!(
         body["document"]["settings"],
         json!({"bond_length_pt": 30.0, "line_width_pt": 1.2, "label_font": "sans-serif",
-            "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"})
+            "label_weight": "normal", "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"})
     );
     assert_eq!(body["session"]["undo_depth"], 2);
 
