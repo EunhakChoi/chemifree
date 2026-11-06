@@ -353,13 +353,18 @@ export function StructureCanvas({
   )
 
   const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
-  const captionBoundsReady = captionCount === 0 || (captionMeasurement?.document === document &&
+  const captionMeasurementComplete = captionCount === 0 || (captionMeasurement?.document === document &&
     captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount)
   const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box, {
-    boundsReady: captionBoundsReady,
+    // Opening fit needs the first complete measurement, even though fitting will
+    // change the viewport and require a second measurement there.
+    boundsReady: captionMeasurementComplete,
     measuredViewBox: captionCount > 0 && captionMeasurement?.document === document ? captionMeasurement.viewBox : undefined,
     contentIdentity: document,
   })
+  // Font metrics can change with SVG scale. Completeness permits initial fitting;
+  // readiness describes bounds measured in the viewport that is actually painted.
+  const captionBoundsReady = captionMeasurementComplete && (captionCount === 0 || captionMeasurement?.viewBox === canvasViewBox)
   const unitsPerPixel = 1 / viewport.scale
 
   function drawingOf(instance: string | null) {

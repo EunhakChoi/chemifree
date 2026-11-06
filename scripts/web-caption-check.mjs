@@ -143,6 +143,10 @@ createRoot(document.getElementById('root')).render(<Harness />)
   page = await browser.newPage()
   page.on('pageerror', (error) => errors.push(error.message))
   const button = (name) => page.getByRole('button', { name, exact: true })
+  const waitForCaptionMeasurement = () => page.waitForFunction(() => {
+    const canvas = document.querySelector('[data-structure-canvas]')
+    return canvas?.dataset.captionBoundsReady === 'true' && canvas.dataset.captionMeasuredViewBox === canvas.getAttribute('viewBox')
+  })
   const snapshot = async () => JSON.parse(await page.getByLabel('Caption snapshot', { exact: true }).textContent())
   const caption = async () => (await snapshot()).document.scene.objects.find((object) => object.kind === 'caption')
   stage = 'create explicit Unicode runs through the production form'
@@ -192,7 +196,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   assert.equal(familyStyles[1], 'monospace')
   assert.ok(familyStyles[2].includes('Geist'), familyStyles[2])
   stage = 'theme foreground inheritance and opaque overrides preserve geometry'
-  await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+  await waitForCaptionMeasurement()
   const inkBeforeTheme = await page.locator('[data-caption-text]').evaluate((node) => { const b = node.getBBox(); return [b.x, b.y, b.width, b.height] })
   await page.evaluate(() => { document.documentElement.classList.remove('dark'); document.documentElement.style.setProperty('--foreground', '#102030') })
   const lightInk = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fill))
@@ -245,7 +249,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.waitForFunction(() => Number(document.querySelector('[data-caption-text] tspan')?.getAttribute('font-size')) === 24)
   assert.deepEqual((await caption()).runs, expected)
   stage = 'measure actual glyph and script bounds with the loaded fonts'
-  await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+  await waitForCaptionMeasurement()
   assert.equal(await page.locator('[data-structure-canvas]').getAttribute('viewBox'), beforeCreateViewBox, 'creating a caption preserves the chosen viewport')
   // The new baseline is at y=0, so its ascenders can be above the existing frame.
   // Editing does not auto-fit: use the same explicit control offered by the product.
@@ -273,14 +277,14 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await page.getByLabel('Run 1 text', { exact: true }).fill(sample)
     await button('Apply caption').click()
     await page.waitForFunction((sample) => document.querySelector('[data-caption-text] tspan')?.textContent === sample, sample)
-    await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+    await waitForCaptionMeasurement()
     const plain = await glyphMetrics()
     const plainSnapshot = await caption()
     await button('Edit selected caption…').click()
     for (let run = 1; run <= 3; run++) await page.getByRole('group', { name: `Run ${run} underline`, exact: true }).getByRole('button', { name: 'On', exact: true }).click()
     await button('Apply caption').click()
     await page.waitForFunction(() => [...document.querySelectorAll('[data-caption-underline]')].length === 3 && [...document.querySelectorAll('[data-caption-underline]')].every((line) => line.hasAttribute('height')))
-    await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+    await waitForCaptionMeasurement()
     assert.deepEqual(await glyphMetrics(), plain, `underline leaves all character advances and anchor fixed: ${sample}`)
     assert.deepEqual((await caption()).runs, plainSnapshot.runs.map((run) => ({ ...run, underline: true })))
     await button('Fit drawing').click()
@@ -319,6 +323,26 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await page.waitForFunction(() => document.querySelectorAll('[data-caption-underline]').length === 0)
   }
   stage = 'hollow run outlines, theme colors, stroke bounds and undo'
+  await page.evaluate(() => {
+    const canvas = document.querySelector('[data-structure-canvas]')
+    const output = document.createElement('output')
+    output.hidden = true
+    output.dataset.captionReadinessProbe = ''
+    document.body.append(output)
+    const evidence = { viewChanges: 0, pendingViewports: 0, violations: [] }
+    let previous = canvas.getAttribute('viewBox')
+    const observer = new MutationObserver(() => {
+      const current = canvas.getAttribute('viewBox')
+      const measured = canvas.dataset.captionMeasuredViewBox
+      const ready = canvas.dataset.captionBoundsReady === 'true'
+      if (current !== previous) evidence.viewChanges++
+      if (measured !== current && !ready) evidence.pendingViewports++
+      if (measured !== current && ready) evidence.violations.push({ current, measured })
+      previous = current
+      output.textContent = JSON.stringify(evidence)
+    })
+    observer.observe(canvas, { attributes: true, attributeFilter: ['viewBox', 'data-caption-bounds-ready', 'data-caption-measured-view-box'] })
+  })
   for (const sample of ['H', '   ffi office   ', '  العربية אבג  ', 'e\u0301 👩‍🔬 🧪', '   ', '\ufeff', '\u0301']) {
     await button('Select caption').click()
     await button('Edit selected caption…').click()
@@ -326,7 +350,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await page.getByLabel('Run 1 size (pt)', { exact: true }).fill('72')
     await button('Apply caption').click()
     await page.waitForFunction((sample) => document.querySelector('[data-caption-text] tspan')?.textContent === sample, sample)
-    await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+    await waitForCaptionMeasurement()
     const plain = await glyphMetrics()
     assert.deepEqual(await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).stroke)), ['none', 'none', 'none'], 'filled glyphs do not inherit theme stroke')
     const original = await caption()
@@ -335,11 +359,11 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await page.getByRole('group', { name: 'Run 1 underline', exact: true }).getByRole('button', { name: 'On', exact: true }).click()
     await button('Apply caption').click()
     await page.waitForFunction(() => document.querySelectorAll('[data-caption-outline="true"]').length === 3)
-    await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+    await waitForCaptionMeasurement()
     assert.deepEqual(await glyphMetrics(), plain, `outline retains all advances and fixed anchor: ${sample}`)
     assert.deepEqual((await caption()).runs, original.runs.map((run, index) => ({ ...run, outline: true, underline: index === 0 })))
     await button('Fit drawing').click()
-    await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+    await waitForCaptionMeasurement()
     const outline = await page.locator('[data-caption-text]').evaluate((node) => {
       const ink = node.getBBox()
       let left = ink.x, top = ink.y, right = ink.x + ink.width, bottom = ink.y + ink.height
@@ -393,11 +417,15 @@ createRoot(document.getElementById('root')).render(<Harness />)
   }
   await button('Select caption').click()
   await button('Edit selected caption…').click()
+  const readiness = JSON.parse(await page.locator('[data-caption-readiness-probe]').textContent())
+  assert.ok(readiness.viewChanges > 0, 'outline fits changed the actual SVG viewport')
+  assert.ok(readiness.pendingViewports > 0, 'viewport changes invalidate measured bounds until remeasurement')
+  assert.deepEqual(readiness.violations, [], 'ready never exposes bounds measured in another viewport')
   await page.getByLabel('Run 1 text', { exact: true }).fill(text)
   await page.getByLabel('Run 1 size (pt)', { exact: true }).fill('24')
   await button('Apply caption').click()
   await page.waitForFunction((text) => document.querySelector('[data-caption-text] tspan')?.textContent === text, text)
-  await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+  await waitForCaptionMeasurement()
   await button('Fit drawing').click()
   const scriptY = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute('y'))))
   assert.deepEqual(scriptY, [0, 6, -5])
