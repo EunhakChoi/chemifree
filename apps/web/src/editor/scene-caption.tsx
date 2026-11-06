@@ -18,7 +18,8 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
     <g data-scene-object={object.id} data-caption="" onPointerDown={onPointerDown}
       transform={delta ? `translate(${delta.x} ${delta.y})` : undefined}>
       {box && <rect {...box} className={selected ? 'fill-primary/10 stroke-primary' : 'fill-transparent'} strokeWidth={selected ? 0.8 : 0} />}
-      <text x={object.anchor.x} y={object.anchor.y} xmlSpace="preserve" style={{ whiteSpace: 'pre' }}
+      <text x={object.anchor.x} y={object.anchor.y} xmlSpace="preserve" style={{ whiteSpace: 'pre', direction: 'ltr', unicodeBidi: 'isolate' }}
+        textAnchor="start" data-caption-alignment={object.alignment} data-caption-anchor-x={object.anchor.x}
         className={cn('fill-foreground', settings.label_font === 'sans-serif' && 'font-sans')}
         fontFamily={settings.label_font === 'sans-serif' ? undefined : settings.label_font}
         fontSize={size} data-caption-text={object.id} role="img"

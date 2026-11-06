@@ -510,7 +510,7 @@ pub enum Command {
         parent: Option<ObjectId>,
         index: Option<usize>,
     },
-    /// Replaces a caption's complete anchor and run state atomically.
+    /// Replaces a caption's complete anchor, alignment and run state atomically.
     UpdateCaption {
         object: ObjectId,
         caption: Caption,

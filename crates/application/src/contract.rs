@@ -11,10 +11,10 @@ use chemifree_domain::document::{
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
-    AlignMode, Caption, CaptionRun, CaptionScript, CaptionStyle, CaptionWeight, DeleteMode,
-    DistributionAxis, Graphic, GraphicShape, ObjectArrangement, ObjectRef, ReferenceTarget,
-    SceneError, SceneObject, SceneReference, Selection, SelectionRequest, SelectionTransform,
-    TransactionSelection,
+    AlignMode, Caption, CaptionAlignment, CaptionRun, CaptionScript, CaptionStyle, CaptionWeight,
+    DeleteMode, DistributionAxis, Graphic, GraphicShape, ObjectArrangement, ObjectRef,
+    ReferenceTarget, SceneError, SceneObject, SceneReference, Selection, SelectionRequest,
+    SelectionTransform, TransactionSelection,
 };
 use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, Settings, SettingsEdit};
 use chemifree_domain::states::{
@@ -568,6 +568,8 @@ pub enum CommandDto {
     },
     AddCaption {
         anchor: PointDto,
+        #[serde(default)]
+        alignment: CaptionAlignmentDto,
         runs: Vec<CaptionRunDto>,
         #[serde(default)]
         parent: Option<String>,
@@ -577,6 +579,8 @@ pub enum CommandDto {
     UpdateCaption {
         object: String,
         anchor: PointDto,
+        #[serde(default)]
+        alignment: CaptionAlignmentDto,
         runs: Vec<CaptionRunDto>,
     },
     AddGraphic {
@@ -1201,22 +1205,24 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             anchor: atom_id(anchor)?,
         },
         CommandDto::AddCaption {
+            alignment,
             anchor,
             runs,
             parent,
             index,
         } => Command::AddCaption {
-            caption: caption(*anchor, runs)?,
+            caption: caption(*anchor, *alignment, runs)?,
             parent: parent.as_deref().map(instance_id).transpose()?,
             index: *index,
         },
         CommandDto::UpdateCaption {
+            alignment,
             object,
             anchor,
             runs,
         } => Command::UpdateCaption {
             object: instance_id(object)?,
-            caption: caption(*anchor, runs)?,
+            caption: caption(*anchor, *alignment, runs)?,
         },
         CommandDto::AddGraphic {
             shape,
@@ -1870,6 +1876,7 @@ pub enum SceneObjectView {
         id: String,
         parent: Option<String>,
         anchor: PositionView,
+        alignment: CaptionAlignmentDto,
         runs: Vec<CaptionRunDto>,
     },
     Instance {
@@ -1888,6 +1895,36 @@ pub enum SceneObjectView {
         shape: GraphicShapeDto,
         points: [PositionView; 2],
     },
+}
+
+/// Physical alignment of a complete caption, independent of paragraph direction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptionAlignmentDto {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+impl From<CaptionAlignmentDto> for CaptionAlignment {
+    fn from(value: CaptionAlignmentDto) -> Self {
+        match value {
+            CaptionAlignmentDto::Left => Self::Left,
+            CaptionAlignmentDto::Center => Self::Center,
+            CaptionAlignmentDto::Right => Self::Right,
+        }
+    }
+}
+
+impl From<CaptionAlignment> for CaptionAlignmentDto {
+    fn from(value: CaptionAlignment) -> Self {
+        match value {
+            CaptionAlignment::Left => Self::Left,
+            CaptionAlignment::Center => Self::Center,
+            CaptionAlignment::Right => Self::Right,
+        }
+    }
 }
 
 /// A complete run value; no byte or UTF-16 substring indices cross the wire.
@@ -1950,8 +1987,13 @@ impl From<&CaptionRun> for CaptionRunDto {
 // Coordinate conversion follows the other scene commands: its String becomes a Refusal
 // at to_command, and to_commands supplies the failing command index. Caption content is
 // validated by the Domain so its typed caption_invalid reason is preserved there.
-fn caption(anchor: PointDto, runs: &[CaptionRunDto]) -> Result<Caption, String> {
+fn caption(
+    anchor: PointDto,
+    alignment: CaptionAlignmentDto,
+    runs: &[CaptionRunDto],
+) -> Result<Caption, String> {
     Ok(Caption {
+        alignment: alignment.into(),
         anchor: point(anchor)?,
         runs: runs
             .iter()
@@ -2404,6 +2446,7 @@ impl DocumentResponse {
                                         x: caption.anchor.x(),
                                         y: caption.anchor.y(),
                                     },
+                                    alignment: caption.alignment.into(),
                                     runs: caption.runs.iter().map(CaptionRunDto::from).collect(),
                                 },
                                 SceneObject::Instance => SceneObjectView::Instance {

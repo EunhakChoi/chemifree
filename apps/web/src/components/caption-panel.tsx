@@ -6,7 +6,7 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import { validCaptionRuns, type CaptionRun, type DocumentView, type SceneObject } from '@/lib/document-contract'
+import { validCaptionRuns, type CaptionAlignment, type CaptionRun, type DocumentView, type SceneObject } from '@/lib/document-contract'
 
 type Caption = Extract<SceneObject, { kind: 'caption' }>
 
@@ -17,7 +17,7 @@ export function CaptionPanel({ document, editor }: { document: DocumentView; edi
   const caption = selected.length === 1 && selected[0].kind === 'caption' ? selected[0] : null
   return (
     <section aria-label="Captions" className="flex flex-col gap-2 rounded-lg border p-3">
-      <p className="text-xs text-muted-foreground">Independent text with explicit script, weight and style runs. Captions do not change atoms or chemical formulas. Single line, left aligned; uses the drawing label font and size.</p>
+      <p className="text-xs text-muted-foreground">Independent text with explicit script, weight and style runs. Captions do not change atoms or chemical formulas. Single line with left, center or right alignment at a fixed anchor; uses the drawing label font and size.</p>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" disabled={editor.busy} onClick={() => setDraft({ original: null })}>Add caption…</Button>
         <Button variant="outline" size="sm" disabled={editor.busy || caption === null} onClick={() => caption && setDraft({ original: caption })}>Edit selected caption…</Button>
@@ -35,6 +35,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
 }) {
   const id = useId()
   const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal' }])
+  const [alignment, setAlignment] = useState<CaptionAlignment>(original?.alignment ?? 'left')
   const [x, setX] = useState(String(original?.anchor.x ?? 0))
   const [y, setY] = useState(String(original?.anchor.y ?? 0))
   const [composing, setComposing] = useState(false)
@@ -49,9 +50,9 @@ function CaptionDialog({ documentId, original, editor, close }: {
         const target = latest.scene?.objects?.find((object) => object.id === original.id)
         // An external edit/move/group while this form is open invalidates the captured target.
         if (JSON.stringify(target) !== JSON.stringify(original)) return null
-        return [{ op: 'update_caption', object: original.id, anchor, runs: frozen }]
+        return [{ op: 'update_caption', object: original.id, anchor, alignment, runs: frozen }]
       }
-      return [{ op: 'add_caption', anchor, runs: frozen }]
+      return [{ op: 'add_caption', anchor, alignment, runs: frozen }]
     })
     close()
   }
@@ -60,9 +61,17 @@ function CaptionDialog({ documentId, original, editor, close }: {
       <DialogContent className="max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{original ? `Edit caption ${original.id}` : 'Add caption'}</DialogTitle>
-          <DialogDescription>Each input stores one complete Unicode run. Text is kept verbatim. Script, weight and style change appearance only. Run boundaries may split shaping; avoid splitting combining or emoji sequences.</DialogDescription>
+          <DialogDescription>Each input stores one complete Unicode run. Text is kept verbatim. Script, weight and style change appearance only. Alignment includes leading and trailing spaces. Paragraph direction is fixed left-to-right; RTL shaping is browser-native within each run, with runs kept in stored order. Run boundaries may split shaping; avoid splitting combining or emoji sequences.</DialogDescription>
         </DialogHeader>
         <FieldGroup>
+          <Field><FieldLabel id={`${id}-alignment`}>Caption alignment</FieldLabel>
+            <ToggleGroup variant="outline" size="sm" aria-labelledby={`${id}-alignment`} value={[alignment]} onValueChange={(values) => {
+              const value = values[0]
+              if (value === 'left' || value === 'center' || value === 'right') setAlignment(value)
+            }}>
+              <ToggleGroupItem value="left">Left</ToggleGroupItem><ToggleGroupItem value="center">Center</ToggleGroupItem><ToggleGroupItem value="right">Right</ToggleGroupItem>
+            </ToggleGroup>
+          </Field>
           <Field><FieldLabel htmlFor={`${id}-x`}>Caption horizontal position (pt)</FieldLabel><Input id={`${id}-x`} value={x} onChange={(event) => setX(event.target.value)} /></Field>
           <Field><FieldLabel htmlFor={`${id}-y`}>Caption vertical position (pt)</FieldLabel><Input id={`${id}-y`} value={y} onChange={(event) => setY(event.target.value)} /></Field>
           {runs.map((run, index) => (

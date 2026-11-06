@@ -203,6 +203,14 @@ export function StructureCanvas({
         for (const text of svg.querySelectorAll<SVGTextElement>('[data-caption-text]')) {
           const id = text.getAttribute('data-caption-text')
           if (id === null) continue
+          // Each y-positioned script run starts an SVG text chunk. text-anchor would
+          // align those chunks separately; shift the complete advance instead.
+          // getComputedTextLength includes preserved leading/trailing whitespace.
+          const anchor = Number(text.getAttribute('data-caption-anchor-x'))
+          const alignment = text.getAttribute('data-caption-alignment')
+          const advance = text.getComputedTextLength()
+          const offset = alignment === 'right' ? advance : alignment === 'center' ? advance / 2 : 0
+          text.setAttribute('x', String(anchor - offset))
           const ink = text.getBBox()
           boxes.set(id, { x: ink.x - 2, y: ink.y - 2, width: ink.width + 4, height: ink.height + 4 })
         }

@@ -12,7 +12,7 @@ const runs = () => [{ text: '한글 e\u0301 👩‍🔬 H', script: 'baseline', 
 function source() {
   const result = ringSource()
   result.document.scene.roots.push('s8')
-  result.document.scene.objects.push({ kind: 'caption', id: 's8', parent: null, anchor: { x: 100, y: 40 }, runs: runs() })
+  result.document.scene.objects.push({ kind: 'caption', id: 's8', parent: null, anchor: { x: 100, y: 40 }, alignment: 'left', runs: runs() })
   return result
 }
 
@@ -51,7 +51,7 @@ test('caption-only moves retain the captured object and stale edits lapse', () =
   assert.deepEqual(selectionMove(document, new Set(['s8']), null, { x: 5, y: 7 }), [{
     op: 'move_selection', selection: { objects: ['s8'], atoms: [], bonds: [] }, delta: { x: 5, y: 7 },
   }])
-  const edit = [{ op: 'update_caption', object: 's8', anchor: { x: 0, y: 0 }, runs: runs() }]
+  const edit = [{ op: 'update_caption', object: 's8', anchor: { x: 0, y: 0 }, alignment: 'left', runs: runs() }]
   assert.deepEqual(stillApplicable(edit, document), edit)
   document.scene.objects.pop()
   document.scene.roots.pop()
@@ -98,3 +98,14 @@ for (const [field, value] of [['weight', 'heavy'], ['weight', 700], ['weight', n
     assert.equal(isDocumentResponse(result), false)
   })
 }
+
+for (const alignment of ['left', 'center', 'right']) test(`caption response accepts ${alignment}`, () => {
+  const result = source()
+  result.document.scene.objects.at(-1).alignment = alignment
+  assert.equal(isDocumentResponse(result), true)
+})
+for (const alignment of [undefined, null, 'start', 'middle', 0, ['left']]) test(`caption response rejects alignment ${String(alignment)}`, () => {
+  const result = source()
+  result.document.scene.objects.at(-1).alignment = alignment
+  assert.equal(isDocumentResponse(result), false)
+})

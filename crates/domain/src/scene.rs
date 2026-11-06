@@ -92,6 +92,15 @@ pub enum CaptionScript {
     Superscript,
 }
 
+/// Physical horizontal alignment of the complete caption advance at its fixed anchor.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CaptionAlignment {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
 /// Explicit caption run weight, independent of script and chemical meaning.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CaptionWeight {
@@ -117,9 +126,10 @@ pub struct CaptionRun {
     pub style: CaptionStyle,
 }
 
-/// A single-line independent annotation, anchored at the start of its baseline.
+/// A single-line independent annotation, with a fixed baseline anchor and physical horizontal alignment.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Caption {
+    pub alignment: CaptionAlignment,
     pub anchor: Point,
     pub runs: Vec<CaptionRun>,
 }

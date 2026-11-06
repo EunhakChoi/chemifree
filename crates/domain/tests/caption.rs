@@ -13,6 +13,7 @@ fn object(serial: u32) -> ObjectId {
 }
 fn caption(text: &str) -> Caption {
     Caption {
+        alignment: Default::default(),
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![CaptionRun {
             text: text.into(),
@@ -37,6 +38,7 @@ fn document() -> Document {
 fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
     let mut doc = document();
     let value = Caption {
+        alignment: Default::default(),
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![
             CaptionRun {
@@ -215,5 +217,57 @@ fn weight_and_style_only_edits_combine_with_every_script_and_undo_independently(
             assert_eq!(doc.scene_objects()[1].2, &expected);
             doc.undo().unwrap();
         }
+    }
+}
+
+#[test]
+fn whole_caption_alignment_keeps_anchor_runs_graph_and_one_undo_step() {
+    use chemifree_domain::scene::CaptionAlignment;
+
+    let mut doc = document();
+    let original = caption("  H e\u{301} 👩‍🔬  ");
+    doc.apply(&[add(original.clone())]).unwrap();
+    for alignment in [
+        CaptionAlignment::Center,
+        CaptionAlignment::Right,
+        CaptionAlignment::Left,
+    ] {
+        let before = doc.clone();
+        let mut next = original.clone();
+        next.alignment = alignment;
+        next.runs[0].script = CaptionScript::Superscript;
+        next.runs[0].weight = CaptionWeight::Bold;
+        next.runs[0].style = CaptionStyle::Italic;
+        assert_eq!(
+            doc.apply(&[Command::UpdateCaption {
+                object: object(2),
+                caption: next.clone()
+            }])
+            .unwrap(),
+            Outcome::Changed
+        );
+        assert_eq!(
+            doc.scene_objects()[1].2,
+            &SceneObject::Caption(next.clone())
+        );
+        assert_eq!(next.anchor, original.anchor);
+        assert_eq!(doc.atoms().count(), 0);
+        assert_eq!(doc.bonds().count(), 0);
+        assert_eq!(doc.abbreviations().count(), 0);
+        let depth = doc.undo_depth();
+        assert_eq!(
+            doc.apply(&[Command::UpdateCaption {
+                object: object(2),
+                caption: next.clone()
+            }])
+            .unwrap(),
+            Outcome::Unchanged
+        );
+        assert_eq!(doc.undo_depth(), depth);
+        doc.undo().unwrap();
+        assert_eq!(doc.scene_objects(), before.scene_objects());
+        doc.redo().unwrap();
+        assert_eq!(doc.scene_objects()[1].2, &SceneObject::Caption(next));
+        doc.undo().unwrap();
     }
 }
