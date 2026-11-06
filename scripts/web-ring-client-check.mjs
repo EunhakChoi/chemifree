@@ -205,3 +205,56 @@ test('five-ring recovery never changes its size or resends after restart', async
   assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
   assert.equal(bodies[2].commands[0].size, 5)
 })
+
+test('Kekulé reply loss freezes pattern and exact request until confirmation', async (t) => {
+  const bodies = service(t, (_body, count) => {
+    if (count <= 2) throw new TypeError('Reply lost.')
+    return json(ringAfter(6, 'kekule'))
+  })
+  const attempt = new DocumentClient().createRingInsertion(ringSource().document, 's1', { x: 100, y: 100 }, ringSelection(), 6, 'kekule')
+  await assert.rejects(attempt.send(), { code: 'clipboard_ring_unconfirmed' })
+  const result = await attempt.send()
+  assert.deepEqual(result.document.bonds.slice(1).map((bond) => bond.order), ['double', 'single', 'double', 'single', 'double', 'single'])
+  assert.deepEqual(bodies[0].commands, [{ op: 'insert_ring', instance: 's1', center: { x: 100, y: 100 }, pattern: 'kekule' }])
+  assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
+})
+
+for (const [name, pattern, reply] of [
+  ['all-single reply to Kekulé request', 'kekule', () => ringAfter()],
+  ['Kekulé reply to default request', 'single', () => ringAfter(6, 'kekule')],
+  ['wrong alternating phase', 'kekule', () => {
+    const after = ringAfter(6, 'kekule')
+    const orders = ['single', 'double', 'single', 'double', 'single', 'double']
+    after.document.bonds.slice(1).forEach((bond, index) => { bond.order = orders[index] })
+    return after
+  }],
+]) {
+  test(`ring pattern validation rejects ${name}`, async (t) => {
+    service(t, () => json(reply()))
+    const attempt = new DocumentClient().createRingInsertion(ringSource().document, 's1', { x: 100, y: 100 }, ringSelection(), 6, pattern)
+    await assert.rejects(attempt.send(), { code: 'clipboard_ring_unconfirmed' })
+  })
+}
+
+test('invalid runtime patterns and five-carbon Kekulé fail before HTTP', (t) => {
+  const bodies = service(t, () => { throw new Error('Must not send.') })
+  for (const pattern of [null, 'aromatic', 'Kekule', '', 1, true, {}, []]) {
+    assert.throws(() => new DocumentClient().createRingInsertion(ringSource().document, 's1', { x: 100, y: 100 }, ringSelection(), 6, pattern), { code: 'ring_pattern_invalid' })
+  }
+  assert.throws(() => new DocumentClient().createRingInsertion(ringSource().document, 's1', { x: 100, y: 100 }, ringSelection(), 5, 'kekule'), { code: 'ring_pattern_invalid' })
+  assert.deepEqual(bodies, [])
+})
+
+test('Kekulé recovery never resends into a restarted process', async (t) => {
+  const bodies = service(t, (_body, count) => {
+    if (count <= 2) throw new TypeError('Reply lost.')
+    return json({ api_version: 'v1', code: 'unauthorized', message: 'New process.' }, 401)
+  })
+  const attempt = new DocumentClient().createRingInsertion(ringSource().document, 's1', { x: 100, y: 100 }, ringSelection(), 6, 'kekule')
+  await assert.rejects(attempt.send(), { code: 'clipboard_ring_unconfirmed' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_ring_restarted' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_ring_restarted' })
+  assert.equal(bodies.length, 3)
+  assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
+  assert.equal(bodies[2].commands[0].pattern, 'kekule')
+})

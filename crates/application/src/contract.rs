@@ -7,7 +7,7 @@ use std::fmt;
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondRef, BondTo, Command, Document,
     GroupId, GroupRef, MAX_CHARGE, MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID,
-    Point, RingSize, Vector,
+    Point, RingPattern, RingSize, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
@@ -429,12 +429,14 @@ pub enum RadicalDto {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandDto {
-    /// Independent five- or six-carbon single-bond regular ring in one placement.
+    /// Independent regular carbon ring, optionally a six-carbon Kekulé recipe.
     InsertRing {
         instance: String,
         center: PointDto,
         #[serde(default, deserialize_with = "ring_size")]
         size: RingSize,
+        #[serde(default, deserialize_with = "ring_pattern")]
+        pattern: RingPattern,
     },
     /// A fresh regular carbon ring connected to an existing atom by one single bond.
     AttachRing {
@@ -943,6 +945,15 @@ fn ring_size<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RingSize, D::
     }
 }
 
+// Omission preserves all-single; explicit null and unknown patterns are malformed.
+fn ring_pattern<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RingPattern, D::Error> {
+    match String::deserialize(deserializer)?.as_str() {
+        "single" => Ok(RingPattern::Single),
+        "kekule" => Ok(RingPattern::Kekule),
+        _ => Err(de::Error::custom("ring pattern must be single or kekule")),
+    }
+}
+
 /// Finite nonzero attachment direction, normalized by the Domain; magnitude is ignored.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -957,10 +968,12 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             instance,
             center,
             size,
+            pattern,
         } => Command::InsertRing {
             instance: instance_id(instance)?,
             center: point(*center)?,
             size: *size,
+            pattern: *pattern,
         },
         CommandDto::AttachRing {
             instance,

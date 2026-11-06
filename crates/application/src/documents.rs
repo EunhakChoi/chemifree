@@ -30,7 +30,7 @@ use crate::contract::{
     SettingsSource, TransactionSelections, TrashListResponse, TrashedSummary, UnreadableDocument,
 };
 use crate::draft_schedule::DraftSchedule;
-use crate::error::{ApplicationError, ErrorCode, StorageReason};
+use crate::error::{ApplicationError, ErrorCode, RingRefusal, StorageReason};
 use crate::operations::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use crate::repository::{
     DocumentRepository, Draft, DraftRecoveryTarget, DraftStatus, StorageError,
@@ -3216,6 +3216,11 @@ fn rejected_edit(error: TransactionError) -> ApplicationError {
             _ => None,
         },
         invalid_scene: error.error.scene_error(),
+        invalid_ring: match error.error {
+            EditError::RingPatternInvalid => Some(RingRefusal::Pattern),
+            EditError::RingDirectionInvalid => Some(RingRefusal::Direction),
+            _ => None,
+        },
         ..ApplicationError::new(code, error.to_string())
     }
 }
@@ -3712,6 +3717,26 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(transaction.command_index, Some(3));
+    }
+
+    #[test]
+    fn rejected_ring_edits_keep_the_domain_reason_in_the_v1_envelope() {
+        for (cause, reason) in [
+            (EditError::RingPatternInvalid, "ring_pattern_invalid"),
+            (EditError::RingDirectionInvalid, "ring_direction_invalid"),
+        ] {
+            assert_eq!(cause.reason(), Some(reason));
+            let error = rejected_edit(TransactionError {
+                index: Some(1),
+                error: cause,
+            });
+            assert_eq!(error.code, ErrorCode::InvalidCommand);
+            assert_eq!(error.reason_code(), Some(reason));
+            let envelope = serde_json::to_value(error.to_response()).unwrap();
+            assert_eq!(envelope["code"], "invalid_command");
+            assert_eq!(envelope["command_index"], 1);
+            assert_eq!(envelope["reason"], reason);
+        }
     }
 
     #[test]

@@ -117,6 +117,7 @@ export interface SelectionView {
 }
 
 export type RingSize = 5 | 6
+export type RingPattern = 'single' | 'kekule'
 
 type RingPlacement = { kind: 'independent'; center: Position } | { kind: 'attach'; atom: string; direction: { dx: number; dy: number } }
 
@@ -651,7 +652,7 @@ export type SelectionTransform =
   | { type: 'reflect_vertical' }
 
 export type Command =
-  | { op: 'insert_ring'; instance: string; center: Position; size?: RingSize }
+  | { op: 'insert_ring'; instance: string; center: Position; size?: RingSize; pattern?: RingPattern }
   | { op: 'attach_ring'; instance: string; atom: string; direction: { dx: number; dy: number }; size?: RingSize }
   /** Named by exactly one of `element` and `query`; a query atom carries no charge or isotope. */
   | ({ op: 'add_atom'; bond_to?: { atom: AtomRef } & BondKind } & ({ element: string } | { query: QueryAtom }) &
@@ -2053,8 +2054,8 @@ export class DocumentClient {
   }
 
   /** Freeze a bounded ring insertion; outcome checks reuse its exact body and process. */
-  createRingInsertion(destination: DocumentView, instance: string, center: Position, selectionBefore: SelectionView, size: RingSize = 6): RingInsertionAttempt {
-    return this.createRingAttempt(destination, instance, selectionBefore, size, { kind: 'independent', center })
+  createRingInsertion(destination: DocumentView, instance: string, center: Position, selectionBefore: SelectionView, size: RingSize = 6, pattern: RingPattern = 'single'): RingInsertionAttempt {
+    return this.createRingAttempt(destination, instance, selectionBefore, size, { kind: 'independent', center }, pattern)
   }
 
   /** Freeze the target, direction and size of a ring attached by an ordinary single bond. */
@@ -2062,12 +2063,15 @@ export class DocumentClient {
     return this.createRingAttempt(destination, instance, selectionBefore, size, { kind: 'attach', atom, direction })
   }
 
-  private createRingAttempt(destination: DocumentView, instance: string, selectionBefore: SelectionView, size: RingSize, placement: RingPlacement): RingInsertionAttempt {
+  private createRingAttempt(destination: DocumentView, instance: string, selectionBefore: SelectionView, size: RingSize, placement: RingPlacement, pattern: RingPattern = 'single'): RingInsertionAttempt {
     const before = structuredClone(withDocumentStates(destination))
     if (before.scene?.instances.length !== 1 || before.scene.instances[0].id !== instance) {
       throw new ApiError('ring_destination_invalid', 'Ring insertion requires one existing placement.', 0)
     }
     if (size !== 5 && size !== 6) throw new ApiError('ring_size_invalid', 'Ring size must be 5 or 6.', 0)
+    if ((pattern !== 'single' && pattern !== 'kekule') || (pattern === 'kekule' && (size !== 6 || placement.kind !== 'independent'))) {
+      throw new ApiError('ring_pattern_invalid', 'Kekulé pattern requires an independent six-carbon ring.', 0)
+    }
     let point: Position
     let unit: { dx: number; dy: number } | null = null
     let target: string | null = null
@@ -2077,7 +2081,7 @@ export class DocumentClient {
       if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
         throw new ApiError('ring_destination_invalid', 'Ring insertion requires a finite center.', 0)
       }
-      command = { op: 'insert_ring', instance, center: point, ...(size === 6 ? {} : { size }) }
+      command = { op: 'insert_ring', instance, center: point, ...(size === 6 ? {} : { size }), ...(pattern === 'single' ? {} : { pattern }) }
     } else {
       const source = before.atoms.find((atom) => atom.id === placement.atom)
       if (!source) throw new ApiError('ring_destination_invalid', 'The attachment atom no longer exists.', 0)
@@ -2131,7 +2135,7 @@ export class DocumentClient {
             atom.isotope !== null || atom.hydrogens.mode !== 'inferred' || atom.radical !== 'none' ||
             atom.attachment_points.length !== 0 || Math.abs(atom.position.x - expected.x) > tolerance ||
             Math.abs(atom.position.y - expected.y) > tolerance || bonds[index].begin !== atom.id ||
-            bonds[index].end !== atoms[(index + 1) % size].id || bonds[index].order !== 'single' ||
+            bonds[index].end !== atoms[(index + 1) % size].id || bonds[index].order !== (pattern === 'kekule' && index % 2 === 0 ? 'double' : 'single') ||
             bonds[index].query !== null || bonds[index].mark !== null) throw clipboardIncompatible()
       }
       if (target) {

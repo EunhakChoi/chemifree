@@ -1,6 +1,6 @@
 //! The bounded recipe shares ordinary transaction replay, persistence and refusal semantics.
 
-use chemifree_application::Application;
+use chemifree_application::{Application, CommandDto};
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde_json::{Value, json};
 
@@ -25,11 +25,15 @@ fn snapshot(app: &App, id: &str) -> Value {
 #[test]
 fn ring_replay_history_and_reopen_preserve_existing_drawing_and_selection() {
     for size in [None, Some(5), Some(6)] {
-        ring_persistence(size);
+        ring_persistence(size, None);
     }
+    ring_persistence(Some(5), Some("single"));
+    ring_persistence(None, Some("single"));
+    ring_persistence(None, Some("kekule"));
+    ring_persistence(Some(6), Some("kekule"));
 }
 
-fn ring_persistence(size: Option<u8>) {
+fn ring_persistence(size: Option<u8>, pattern: Option<&str>) {
     let directory = tempfile::tempdir().unwrap();
     let app = Application::new(
         LocalCapabilities,
@@ -62,6 +66,9 @@ fn ring_persistence(size: Option<u8>) {
     if let Some(size) = size {
         command["size"] = json!(size);
     }
+    if let Some(pattern) = pattern {
+        command["pattern"] = json!(pattern);
+    }
     let count = usize::from(size.unwrap_or(6));
     let parameters = json!({"document_id":id,"expected_revision":1,"commands":[command],
         "selection_before":selection});
@@ -83,6 +90,19 @@ fn ring_persistence(size: Option<u8>) {
         1 + count
     );
     assert_eq!(inserted["result"]["document"]["selection"], selection);
+    let orders: Vec<_> = inserted["result"]["document"]["bonds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .skip(1)
+        .map(|bond| bond["order"].as_str().unwrap())
+        .collect();
+    let expected = if pattern == Some("kekule") {
+        vec!["double", "single", "double", "single", "double", "single"]
+    } else {
+        vec!["single"; count]
+    };
+    assert_eq!(orders, expected);
     for field in ["title", "settings", "stereo"] {
         assert_eq!(
             inserted["result"]["document"][field], seeded["result"]["document"][field],
@@ -107,6 +127,21 @@ fn ring_persistence(size: Option<u8>) {
     assert_eq!(
         request(&app, "ring", "document.transaction", parameters.clone()),
         inserted
+    );
+    let mut changed_pattern = parameters.clone();
+    changed_pattern["commands"][0]["pattern"] = json!(if pattern == Some("kekule") {
+        "single"
+    } else {
+        "kekule"
+    });
+    let reused = request(&app, "ring", "document.transaction", changed_pattern);
+    assert_eq!(
+        reused["diagnostics"][0]["code"], "request_id_reused",
+        "{reused}"
+    );
+    assert_eq!(
+        snapshot(&app, id)["document"],
+        inserted["result"]["document"]
     );
     let undone = request(
         &app,
@@ -284,7 +319,6 @@ fn malformed_ring_sizes_preserve_revision_history_and_redo() {
 
 #[test]
 fn omitted_and_explicit_six_have_identical_command_semantics() {
-    use chemifree_application::CommandDto;
     let omitted: CommandDto =
         serde_json::from_value(json!({"op":"insert_ring","instance":"s1","center":{"x":0,"y":0}}))
             .unwrap();
@@ -293,4 +327,110 @@ fn omitted_and_explicit_six_have_identical_command_semantics() {
     )
     .unwrap();
     assert_eq!(omitted, explicit);
+    let explicit_single: CommandDto = serde_json::from_value(
+        json!({"op":"insert_ring","instance":"s1","center":{"x":0,"y":0},"size":6,"pattern":"single"}),
+    )
+    .unwrap();
+    assert_eq!(omitted, explicit_single);
+}
+
+#[test]
+fn unsupported_ring_patterns_preserve_revision_selection_and_redo() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let created = request(&app, "create", "document.create", json!({}));
+    let id = created["result"]["document"]["id"].as_str().unwrap();
+    let seeded = request(
+        &app,
+        "seed",
+        "document.transaction",
+        json!({
+        "document_id":id,"expected_revision":0,"commands":[
+        {"op":"insert_ring","instance":"s1","center":{"x":0,"y":0},"pattern":"kekule"}]}),
+    );
+    assert_eq!(seeded["outcome"], "ok", "{seeded}");
+    let undone = request(
+        &app,
+        "undo",
+        "history.undo",
+        json!({"document_id":id,"expected_revision":1}),
+    );
+    assert_eq!(undone["outcome"], "ok", "{undone}");
+    let before = snapshot(&app, id);
+    for (index, pattern) in [
+        json!(null),
+        json!("aromatic"),
+        json!("Kekule"),
+        json!(""),
+        json!(5),
+        json!(true),
+        json!({}),
+        json!([]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let refused = request(
+            &app,
+            &format!("pattern-{index}"),
+            "document.transaction",
+            json!({
+            "document_id":id,"expected_revision":2,"commands":[
+            {"op":"rename","title":"Must roll back"},
+            {"op":"insert_ring","instance":"s1","center":{"x":0,"y":0},"pattern":pattern}]}),
+        );
+        assert_eq!(
+            refused["diagnostics"][0]["code"], "invalid_request",
+            "{refused}"
+        );
+        assert_eq!(snapshot(&app, id), before, "pattern {pattern}");
+    }
+    let five = request(
+        &app,
+        "five-kekule",
+        "document.transaction",
+        json!({
+        "document_id":id,"expected_revision":2,"commands":[
+        {"op":"rename","title":"Must roll back"},
+        {"op":"insert_ring","instance":"s1","center":{"x":0,"y":0},"size":5,"pattern":"kekule"}]}),
+    );
+    assert_eq!(five["diagnostics"][0]["code"], "invalid_command", "{five}");
+    assert_eq!(
+        five["diagnostics"][0]["details"]["reason"],
+        "ring_pattern_invalid"
+    );
+    assert_eq!(five["diagnostics"][0]["details"]["command_index"], 1);
+    let commands: Vec<CommandDto> = serde_json::from_value(json!([
+        {"op":"rename","title":"Must roll back"},
+        {"op":"insert_ring","instance":"s1","center":{"x":0,"y":0},"size":5,"pattern":"kekule"},
+    ]))
+    .unwrap();
+    let direct = app
+        .apply_transaction(id, Some("v1-five-kekule"), 2, commands)
+        .unwrap_err();
+    let envelope = serde_json::to_value(direct.to_response()).unwrap();
+    assert_eq!(envelope["code"], "invalid_command");
+    assert_eq!(envelope["command_index"], 1);
+    assert_eq!(envelope["reason"], "ring_pattern_invalid");
+    assert_eq!(
+        envelope["reason"],
+        five["diagnostics"][0]["details"]["reason"]
+    );
+    assert_eq!(snapshot(&app, id), before);
+    let attached = request(
+        &app,
+        "attach-pattern",
+        "document.transaction",
+        json!({
+        "document_id":id,"expected_revision":2,"commands":[
+        {"op":"attach_ring","instance":"s1","atom":"a1","direction":{"dx":1,"dy":0},"pattern":"kekule"}]}),
+    );
+    assert_eq!(
+        attached["diagnostics"][0]["code"], "invalid_request",
+        "{attached}"
+    );
+    assert_eq!(snapshot(&app, id), before);
 }

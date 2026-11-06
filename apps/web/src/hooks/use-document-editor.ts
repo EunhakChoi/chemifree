@@ -28,6 +28,7 @@ import {
   type NativeSceneClipboardPasteAttempt,
   type RingInsertionAttempt,
   type RingSize,
+  type RingPattern,
   type TemplateAttachmentOffer,
   type TemplateReplacementOffer,
   type SelectionView,
@@ -816,7 +817,7 @@ export function useDocumentEditor() {
       })
     }, [clipboardTask, finishClipboardMutation]),
     checkClipboardPaste: useCallback(() => clipboardTask(finishClipboardMutation, true), [clipboardTask, finishClipboardMutation]),
-    insertRing: useCallback((documentId: string, instance: string | null, center: { x: number; y: number }, size: RingSize = 6) => {
+    insertRing: useCallback((documentId: string, instance: string | null, center: { x: number; y: number }, size: RingSize = 6, pattern: RingPattern = 'single') => {
       const pressed = new Set(selectionRef.current)
       const generation = serviceGenerationRef.current
       const point = { ...center }
@@ -831,7 +832,7 @@ export function useDocumentEditor() {
           throw new ApiError('ring_selection_changed', 'The captured selection no longer exists. Click again to insert the ring.', 0)
         }
         clipboardAttempt.current = { kind: 'ring', documentId, generation,
-          attempt: client.createRingInsertion(shown, instance, point, before, size) }
+          attempt: client.createRingInsertion(shown, instance, point, before, size, pattern) }
         setClipboardAction('ring')
         await finishClipboardMutation()
       })

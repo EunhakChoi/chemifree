@@ -575,7 +575,7 @@ const TRANSACTION_PARTS: [Entry; 48] = [
     runs("attach_ring", "Connects a fresh five/six-carbon single-bond ring to an existing atom along an explicit direction in the only placement. Ordinary bond-addition stereo clearing and group notes apply. No fusion or layout."),
     runs(
         "insert_ring",
-        "Appends an independent five- or six-carbon single-bond regular ring (size 5 or 6, omitted means 6) at an explicit center in the only placement, using the current bond length. No attachment, fusion, aromaticity or conformation calculation.",
+        "Appends an independent regular carbon ring (size 5 or 6, default 6; pattern single by default, or explicit kekule for size 6) at an explicit center in the only placement, using the current bond length. Kekule states alternating double/single orders. No attachment, fusion, aromaticity or conformation calculation.",
     ),
     runs(
         "add_atom",

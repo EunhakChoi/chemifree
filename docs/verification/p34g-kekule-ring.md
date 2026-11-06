@@ -1,0 +1,105 @@
+# P34g 독립 Kekulé 6탄소 고리 후보
+
+## 범위와 결정
+
+P34f HEAD `3b3b2a7cdc6187ee47c6f7736c6cf504bdfb9b98` 기반 별도
+`feat/p34g-kekule-ring` 후보다. 약어 표현은 사용자 의미 결정 대기이며 이 후보는
+방향 변경 없는 명시 고리 recipe만 추가한다. P34 전체는 **in_progress**다.
+
+- 기존 `insert_ring`에 optional `pattern:"single"|"kekule"`을 추가한다. 생략과 명시
+  single은 기존 size5/6 all-single 동작·geometry를 유지한다. kekule은 독립 size6에만
+  가능하며 오른쪽 vertex0부터 시계방향 edge0/2/4는 double, edge1/3/5는 single이다.
+  고리 선택·결합 순서는 명시 recipe이며 방향족성·입체·공명·최적 geometry를 추론하지 않는다.
+- null/unknown/non-string pattern은 invalid_request다. size5+kekule은 Domain의
+  invalid_command/ring_pattern_invalid로 transaction 전체를 거절한다. AttachRing은
+  pattern을 받지 않으며 기존 all-single recipe다. DTO·Domain·client가 같은 경계를 가진다.
+- 단일 기존 placement·현재 bond length·neutral natural-abundance C6·inferred H·fresh
+  atom/bond IDs·한 Undo 단계·atomic rollback·replay/save/reopen을 재사용한다. `$N` 생성,
+  새 schema/provider/DATA/DLL, 약어·fusion/spiro·layout·conformation·입체 유도는 없다.
+- 실제 Ring UI는 independent size6에서만 All single bonds / Kekulé alternating bonds를
+  보인다. 기본은 single이며 size5 또는 Attach 전환 시 single로 되돌린다. busy/drag 중
+  control을 잠그고 클릭 시 captured pattern을 queue와 immutable attempt에 고정한다.
+  client는 정확한 alternating phase까지 확인하며 lost reply는 같은 body/request/process만
+  재확인한다. 새 process로 재전송하지 않으며 OS clipboard를 쓰지 않는다.
+- catalog 연산 수와 transaction 명령 수는 변하지 않는다. insert_ring의 지원 설명만 고친다.
+
+## 작성한 회귀와 실행 대기
+
+- `crates/domain/tests/insert_ring.rs`: 독립 edge/ID/order oracle, 현재 기본 geometry,
+  기존 default constructor의 명시 single, 한 Undo/Redo 단계, size5 거절, late coordinate/ID
+  실패의 prior command/counters/redo 보존, atom budget at/over 및 없는/복수 placement 거절.
+- `crates/application/tests/insert_ring.rs`: 기존 omitted/5/6에 explicit single과
+  omitted/explicit6 Kekulé를 더해 기존 stereo/scene/selection 보존·replay·요청 ID 재사용
+  거절·Undo/Redo·save/reopen을 검사한다. null/unknown/non-string과 size5/Attach 거절의
+  revision/history/selection/redo 무변경을 검사한다.
+- `scripts/web-ring-client-check.mjs`: exact request body/phase, single↔Kekulé 오응답,
+  역 phase 거절, runtime-invalid 입력의 HTTP 비전송, lost reply 동일 body 확인과
+  restart 이후 미전송이다. 기존 `npm run test:client` 경로를 사용한다.
+- `scripts/contract-smoke.mjs`: 실제 HTTP=CLI에 Kekulé 삽입·정확한 orders·기존 결합 보존·
+  replay·null/unsupported/size5 거절·Undo/Redo를 추가한다.
+- `scripts/web-ring-check.mjs`: 실제 production workspace의 기본 선택·명시 Kekulé·
+  size5/Attach 전환 reset·응답 전송 실패2회·pending 중 controls/Close 잠금·동일 request
+  복구·Undo/Redo를 작성했다. HTTP는 boundary fixture이며 real backend browser라고
+  주장하지 않는다. 기존 `npm run test:browser:ring` 및 CI 연결을 사용한다.
+
+부모의 명시 지시로 **테스트·빌드·브라우저·mutation·push는 실행하지 않았다.**
+rustfmt는 소스 서식 편집으로만 실행했다. 기능 검증 통과나 test-failure proof는 없다.
+`git diff --check`는 공백 오류 없이 끝났으며 실행 검증이 아니다.
+후속 실행 담당자는 `npm run check`, `npm run test:browser:ring`, 표준 browser/routes 및
+기존 attach-ring/template 회귀를 적절한 통합 snapshot에서 실행하고 실제 결과를 기록해야 한다.
+새 checks가 통과하기 전 납품 완료나 P34 전체 완료로 기록하지 않는다.
+
+## 리뷰와 disposition
+
+- 구현자 자체 Codex 정적 검토: 로컬 diff를 Domain recipe→DTO→client response validation→
+  queue/frozen recovery→production control→회귀→계약 순서로 읽었다. 기존 default request
+  body/6원 좌표 산술·Attach single 유지, 정확한 교대 phase, unsupported 조합 거절과
+  pending 동안 요청 의미 고정을 대조했다. 새 domain 회귀의 StereoTable과 persistable Vec
+  간 타입 불일치를 정적 검토에서 찾아 persistable stereo끼리 비교하도록 고쳤다. 실행 검증과 PR Codex
+  리뷰는 대체하지 않는다. PR Codex 리뷰는 부모의 후속 단계에서 **pending**이다.
+- fresh-context 독립 subagent `/root/p34g_decision/p34g_review`: 2026-11-06 07:43:49 UTC,
+  base full SHA 위의 로컬 uncommitted code/tests/README/CONTRACT/handoff/roadmap diff를
+  읽기 전용 검토했다. 실질 finding 없음. 미정 요구의 임의 확장이나 기본 호환성·recipe·
+  거절·atomic history·replay·frozen recovery의 문제를 찾지 못했다.
+- 문법 `The tool and sends`와 새 Rust test 서식을 경미 정리로 지적했다. 문장을 고치고
+  rustfmt로 서식을 편집했다. 자체 마무리에서 pattern 변경의 request_id_reused 단정과
+  atom-budget/placement 경계 회귀를 추가했다. 이 기록은 리뷰 후 작성했으므로 독립 리뷰
+  대상에 포함되지 않았다. 수정 후 테스트·빌드·브라우저는 미실행이다.
+
+Rust/TypeScript patterns·testing 지침을 적용했으며 금지된 실행 gate는 돌리지 않았다.
+shadcn skill로 기존 ToggleGroup을 재사용했고 CLI docs 결과와
+[공식 Base UI ToggleGroup 문서](https://ui.shadcn.com/docs/components/base/toggle-group)를
+확인했다. 컴포넌트 설치나 dependency 변경은 없다.
+
+## P34f main 통합
+
+구현 commit `12bda9382c9a03fd75d010c4717c5769a0bc5d46`과 독립 리뷰 완료 뒤 부모 지시로
+origin/main `f51e0ed`(#181 P34f squash)을 fetch/merge했다. 시작 base `3b3b2a7`과
+main squash의 tree는 모두 `ddfb49f5512a13c67167d99564241f5c396e5571`로 동일하다.
+README/handoff/roadmap JSON·HTML의 공통 ancestor 문맥 충돌은 이미 동일한 P34f 본문과
+P34g 추가분을 모두 가진 구현본으로 해결했다. 자동 병합 뒤 staged source 차이가 없음을
+대조했으며 P34f의40개 catalog/tests와 P34g 변경을 그대로 보존했다. `git diff --check`는
+공백 오류 없이 끝났다. 새 통합 snapshot의 테스트·빌드·브라우저·push는 실행하지 않았다.
+
+## 부모 targeted 실패와 ring refusal mapping 수정
+
+- 부모 실행 담당자의 `/tmp/chemifree-p29d-verify-j4KjPa/p34g-targeted.log`에서 통합
+  `7ce6021`의 Domain insert_ring은12/12 통과했다. Application insert_ring은4/5로 실패했고
+  `unsupported_ring_patterns_preserve_revision_selection_and_redo`의 size5+kekule 진단에
+  기대한 `details.reason:"ring_pattern_invalid"`이 없었다. JSON 인덱싱의 actual null은
+  필드 누락을 뜻한다. 이후 검사 실행이나 전체 성공을 주장하지 않는다.
+- 제품 오류다. Domain `EditError::reason()`은 코드를 주지만 `documents::rejected_edit`는
+  state/scene/settings/stereo만 ApplicationError에 실었다. `operations::failure`는
+  `ApplicationError::reason_code()`가 준 값만 details에 넣으므로 reason이 사라졌다.
+  동일 경로의 기존 RingDirectionInvalid도 누락됐다. 거절 자체와 rollback은 유지됐다.
+- 작은 closed `RingRefusal::{Pattern,Direction}`를 ApplicationError에 넣고 transaction
+  mapper에서 Domain의 두 variant를 명시 전달한다. 추가 문자열 포인터 대신 두 값만 갖는
+  작은 enum을 쓰며 기존 typed reason과 public code/index 의미는 유지한다. 두 public
+  envelope가 같은 reason_code를 사용하므로 v1/operation 모두 같은 코드를 받는다.
+- 실패한 기존 단정을 유지하고 command_index1, 직접 Application transaction의 v1
+  `to_response()` reason/index 및 operation 진단과의 일치를 추가했다. mapper의 두 ring
+  reason 회귀와 실제 HTTP=CLI zero-direction reason 단정도 작성했다. 단정을 완화하거나
+  거절을 다른 code로 바꾸지 않았다.
+- 수정은 정적 검토와 rustfmt 소스 서식 편집만 했다. 부모 지시로 수정본 테스트·빌드·
+  브라우저·mutation·push는 미실행이다. 실패 근거는 원본대로 보존하며 재실행은 부모의
+  실행 담당자 단계다. finding 수정은 추가 독립 리뷰 라운드를 요구하지 않는다.
