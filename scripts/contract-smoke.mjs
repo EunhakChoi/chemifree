@@ -1072,11 +1072,30 @@ try {
       assert.deepEqual(compact.result.document.bonds, drawn.result.document.bonds)
       assert.deepEqual(compact.result.document.scene, drawn.result.document.scene)
       assert.deepEqual(await both(parameters), compact, 'Et replay does not add history')
-      const bad = await both((id) => request('op-et-boundary', 'document.transaction', { document_id: id, expected_revision: 2,
+      const labelParameters = (id) => request('op-et-label', 'document.transaction', { document_id: id, expected_revision: 2,
+        commands: [{ op: 'update_abbreviation_label', instance: 's1', anchor: 'a2', text: 'Ph' }] })
+      const labeled = await both(labelParameters)
+      assert.equal(labeled.outcome, 'ok')
+      assert.equal(labeled.result.document.revision, 3)
+      assert.equal(labeled.result.session.undo_depth, compact.result.session.undo_depth + 1)
+      assert.deepEqual(labeled.result.document.abbreviations, [{ instance: 's1', anchor: 'a2', terminal: 'a3', display_label: 'Ph' }])
+      for (const field of ['atoms', 'bonds', 'scene', 'stereo', 'settings']) {
+        assert.deepEqual(labeled.result.document[field], compact.result.document[field], `display text preserves ${field}`)
+      }
+      assert.deepEqual(await both(labelParameters), labeled, 'custom display label replay does not add history')
+      const labeledFormula = await both((id) => request('op-et-label-formula', 'chem.properties', { document_id: id, scope: 'molecule', property: 'formula' }))
+      assert.equal(labeledFormula.result.components[0].formula, 'C2H6O', 'Ph display text never replaces the underlying ethyl chemistry')
+      const reset = await both((id) => request('op-et-label-reset', 'document.transaction', { document_id: id, expected_revision: 3,
+        commands: [{ op: 'update_abbreviation_label', instance: 's1', anchor: 'a2', text: null }] }))
+      assert.equal(reset.outcome, 'ok')
+      assert.equal(reset.result.document.revision, 4)
+      assert.equal(reset.result.session.undo_depth, labeled.result.session.undo_depth + 1)
+      assert.deepEqual(reset.result.document, { ...compact.result.document, revision: 4 }, 'null resets only display metadata to default Et')
+      const bad = await both((id) => request('op-et-boundary', 'document.transaction', { document_id: id, expected_revision: 4,
         commands: [{ op: 'rename', title: 'must roll back' }, { op: 'collapse_ethyl', instance: 's1', anchor: 'a3', terminal: 'a2' }] }))
       assert.equal(bad.diagnostics[0].details.reason, 'abbreviation_invalid')
       assert.equal(bad.diagnostics[0].details.command_index, 1)
-      const malformed = await both((id) => request('op-et-null', 'document.transaction', { document_id: id, expected_revision: 2,
+      const malformed = await both((id) => request('op-et-null', 'document.transaction', { document_id: id, expected_revision: 4,
         commands: [{ op: 'collapse_ethyl', instance: null, anchor: 'a2', terminal: 'a3' }] }))
       assert.equal(malformed.diagnostics[0].code, 'invalid_request')
       const copy = await both((id) => request('op-et-copy', 'document.clipboard_copy', { document_id: id, instance: 's1', selection: { atoms: ['a2', 'a3'], bonds: ['b2'] } }))
@@ -1085,15 +1104,15 @@ try {
       assert.equal(copy.diagnostics[0].details.reason, 'clipboard_abbreviation_display_unsupported')
       const formula = await both((id) => request('op-et-formula', 'chem.properties', { document_id: id, scope: 'molecule', property: 'formula' }))
       assert.equal(formula.result.components[0].formula, 'C2H6O')
-      const moved = await both((id) => request('op-et-move', 'document.transaction', { document_id: id, expected_revision: 2,
+      const moved = await both((id) => request('op-et-move', 'document.transaction', { document_id: id, expected_revision: 4,
         commands: [{ op: 'move_selection', instance: 's1', selection: { atoms: ['a2', 'a3'], bonds: ['b2'] }, delta: { x: 7, y: -2 } }] }))
       assert.deepEqual(moved.result.document.abbreviations, compact.result.document.abbreviations)
-      const changed = await both((id) => request('op-et-charge', 'document.transaction', { document_id: id, expected_revision: 3, commands: [{ op: 'update_atom', atom: 'a3', charge: 1 }] }))
+      const changed = await both((id) => request('op-et-charge', 'document.transaction', { document_id: id, expected_revision: 5, commands: [{ op: 'update_atom', atom: 'a3', charge: 1 }] }))
       assert.deepEqual(changed.result.document.abbreviations, [])
-      const restored = await both((id) => request('op-et-undo', 'history.undo', { document_id: id, expected_revision: 4 }))
+      const restored = await both((id) => request('op-et-undo', 'history.undo', { document_id: id, expected_revision: 6 }))
       assert.deepEqual(restored.result.document.abbreviations, compact.result.document.abbreviations)
-      await both((id) => request('op-et-save', 'document.save', { document_id: id, expected_revision: 5 }))
-      await both((id) => request('op-et-close', 'document.close', { document_id: id, expected_revision: 5, discard_unsaved: false }))
+      await both((id) => request('op-et-save', 'document.save', { document_id: id, expected_revision: 7 }))
+      await both((id) => request('op-et-close', 'document.close', { document_id: id, expected_revision: 7, discard_unsaved: false }))
       const reopened = await both((id) => request('op-et-reopen', 'document.snapshot', { document_id: id }))
       assert.deepEqual(reopened.result.document, restored.result.document)
       httpDoc = outerHttp
