@@ -4,7 +4,7 @@
 
 ## P34g 독립 Kekulé 6탄소 고리 후보
 
-- P34f HEAD `3b3b2a7` 기반 `feat/p34g-kekule-ring` 후보다. P34 전체는 in_progress다.
+- P34f HEAD `3b3b2a7` 기반 `feat/p34g-kekule-ring` 후보다. 구현 `12bda93` 뒤 동일 tree의 #181 main squash `f51e0ed`를 통합했다. P34 전체는 in_progress다.
 - `insert_ring`의 optional `pattern`은 single 기본 또는 명시 kekule이다. kekule은 독립 size6만 지원하며 0→1/2→3/4→5 double, 나머지는 single이다. size5 조합은 ring_pattern_invalid이고 null/unknown/non-string은 invalid_request다. Attach는 pattern을 받지 않고 기존 single을 유지한다.
 - geometry·현재 bond length·fresh IDs·한 Undo 단계·atomic rollback·replay/save/reopen과 immutable ring recovery를 재사용한다. client는 패턴별 정확한 bond order를 확인한다. UI는 독립6에서만 패턴을 보이고5/Attach 전환시 single로 되돌리며 busy/drag 중 잠근다. 클릭 시 패턴은 큐에 고정된다.
 - Domain/Application·HTTP=CLI/client·실제 production UI recovery browser 회귀를 작성했다. 부모 지시로 테스트·빌드·브라우저·push는 실행하지 않았다. [P34g 기록](verification/p34g-kekule-ring.md)의 리뷰·미실행 검증을 따른다.

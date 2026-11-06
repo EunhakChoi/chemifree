@@ -70,3 +70,13 @@ Rust/TypeScript patterns·testing 지침을 적용했으며 금지된 실행 gat
 shadcn skill로 기존 ToggleGroup을 재사용했고 CLI docs 결과와
 [공식 Base UI ToggleGroup 문서](https://ui.shadcn.com/docs/components/base/toggle-group)를
 확인했다. 컴포넌트 설치나 dependency 변경은 없다.
+
+## P34f main 통합
+
+구현 commit `12bda9382c9a03fd75d010c4717c5769a0bc5d46`과 독립 리뷰 완료 뒤 부모 지시로
+origin/main `f51e0ed`(#181 P34f squash)을 fetch/merge했다. 시작 base `3b3b2a7`과
+main squash의 tree는 모두 `ddfb49f5512a13c67167d99564241f5c396e5571`로 동일하다.
+README/handoff/roadmap JSON·HTML의 공통 ancestor 문맥 충돌은 이미 동일한 P34f 본문과
+P34g 추가분을 모두 가진 구현본으로 해결했다. 자동 병합 뒤 staged source 차이가 없음을
+대조했으며 P34f의40개 catalog/tests와 P34g 변경을 그대로 보존했다. `git diff --check`는
+공백 오류 없이 끝났다. 새 통합 snapshot의 테스트·빌드·브라우저·push는 실행하지 않았다.
