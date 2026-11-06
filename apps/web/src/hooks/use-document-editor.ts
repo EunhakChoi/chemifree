@@ -1157,9 +1157,12 @@ export function useDocumentEditor() {
       (discardUnsaved: boolean) => {
         // The revision on screen when the user confirmed: a discard never drops edits that
         // another client made after it.
-        const shown = currentRef.current?.document.revision
+        const shown = currentRef.current?.document
         return run(async () => {
-          await client.close(id(), discardUnsaved, shown)
+          // `run` also refuses unresolved mutations after earlier queued work settles.
+          // A navigation queued first must not redirect Close to another document.
+          if (!shown || currentRef.current?.document.id !== shown.id) return
+          await client.close(shown.id, discardUnsaved, shown.revision)
           setCurrent(null)
           refreshList()
         })

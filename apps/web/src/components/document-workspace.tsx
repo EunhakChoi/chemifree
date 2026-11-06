@@ -1133,14 +1133,14 @@ function CloseButton({ editor, unsaved }: { editor: DocumentEditor; unsaved: boo
   // client edited meanwhile), the conflict notice behind it must be reachable.
   const [confirming, setConfirming] = useState(false)
   const button = (
-    <Button size="icon" variant="ghost" aria-label="Close document" onClick={unsaved ? undefined : () => void editor.close(false)}>
+    <Button size="icon" variant="ghost" aria-label="Close document" disabled={editor.busy} onClick={unsaved ? undefined : () => void editor.close(false)}>
       <XIcon aria-hidden="true" />
     </Button>
   )
   if (!unsaved) return <Hint label="Close">{button}</Hint>
   return (
     <AlertDialog open={confirming} onOpenChange={setConfirming}>
-      <AlertDialogTrigger render={button} />
+      <AlertDialogTrigger disabled={editor.busy} render={button} />
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
@@ -1152,6 +1152,7 @@ function CloseButton({ editor, unsaved }: { editor: DocumentEditor; unsaved: boo
           <AlertDialogCancel>Keep editing</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
+            disabled={editor.busy}
             onClick={() => {
               setConfirming(false)
               void editor.close(true)

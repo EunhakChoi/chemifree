@@ -11,6 +11,7 @@ const fixture = `
 import React, { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { StructureCanvas } from '/src/editor/structure-canvas.tsx'
+import { DocumentWorkspace } from '/src/components/document-workspace.tsx'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
 import '/src/index.css'
 function Harness() {
@@ -19,6 +20,7 @@ function Harness() {
   window.ringHarness = editor
   return <main>
     <output aria-label="Current atom count">{editor.current?.document.atoms.length ?? 'loading'}</output>
+    <output aria-label="Current document">{editor.current?.document.id ?? 'none'}</output>
     <output aria-label="Pending ring">{String(editor.clipboardPending)}</output>
     <output aria-label="Editor error">{editor.error?.message}</output>
     <button disabled={editor.busy} onClick={() => void editor.undo()}>Undo</button>
@@ -30,7 +32,7 @@ function Harness() {
       onMark={() => {}} onRing={(instance, center) => void editor.insertRing(editor.current.document.id, instance, center)} disabled={editor.busy}/></div>}
   </main>
 }
-createRoot(document.getElementById('root')).render(<Harness />)
+createRoot(document.getElementById('root')).render(location.search.includes('workspace') ? <DocumentWorkspace /> : <Harness />)
 `
 const server = await createServer({
   root: fileURLToPath(new URL('../apps/web', import.meta.url)),
@@ -58,14 +60,39 @@ try {
   page.on('pageerror', (error) => errors.push(error.message))
   let state = ringSource()
   let lost = 2
+  let droppedBeforeDispatch = 0
+  let holdBeforeDispatch = false
+  let releaseHeld
+  let heldReady
+  let expectedSelection = ringSelection()
   const bodies = []
   const replies = new Map()
+  const navigation = []
   const reply = (route, body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path === '/api/v1/session') return reply(route, { header: 'x-chemifree-session', token: 'ring-service' })
-    if (path === '/api/v1/documents' || path === '/api/v1/trash') return reply(route, { api_version: 'v1', documents: [], unreadable: [] })
+    if (path === '/api/v1/preferences') {
+      const computation = { status: 'not_implemented', owner: 'preferences', followup: 'P19', note: 'Not yet.' }
+      return reply(route, { api_version: 'v1', revision: 0, ui: { theme: 'system' }, new_documents: {},
+        new_document_settings: state.document.settings, computation: { nmr: computation, numeric_precision: computation } })
+    }
+    if (path === '/api/v1/documents') {
+      if (route.request().method() !== 'GET') navigation.push(path)
+      return reply(route, { api_version: 'v1', documents: [{ id: 'drawing', title: state.document.title,
+        revision: state.document.revision, atom_count: 2, bond_count: 1, open: true,
+        unsaved_changes: state.session.unsaved_changes, recovery: null, saved_at_ms: 1 }], unreadable: [] })
+    }
+    if (path === '/api/v1/trash') return reply(route, { api_version: 'v1', documents: [], unreadable: [] })
     if (path === '/api/v1/documents/drawing') return reply(route, state)
+    if (path === '/api/v1/documents/other') {
+      navigation.push(path)
+      return reply(route, { ...state, document: { ...state.document, id: 'other' } })
+    }
+    if (path.endsWith('/close')) {
+      navigation.push(path)
+      return reply(route, { api_version: 'v1', discarded_changes: route.request().postDataJSON().discard_unsaved })
+    }
     if (path.endsWith('/autosave')) return reply(route, state)
     if (path.endsWith('/undo') || path.endsWith('/redo')) {
       const revision = state.document.revision + 1
@@ -77,15 +104,28 @@ try {
       state.session.redo_depth = undo ? 1 : 0
       return reply(route, state)
     }
-    assert.equal(path, '/api/v1/documents/drawing/transactions')
+    assert.ok(path === '/api/v1/documents/drawing/transactions' || path === '/api/v1/operations', path)
     const body = route.request().postDataJSON()
     bodies.push(body)
+    if (holdBeforeDispatch) {
+      holdBeforeDispatch = false
+      await new Promise((resolve) => { releaseHeld = resolve; heldReady() })
+    }
+    if (droppedBeforeDispatch > 0) { droppedBeforeDispatch -= 1; return route.abort('failed') }
+    if (path === '/api/v1/operations') {
+      assert.ok(['document.clipboard_paste', 'document.clipboard_scene_paste'].includes(body.operation))
+      return reply(route, { contract: 1, envelope: 'operation_result', request_id: body.request_id,
+        operation: body.operation, profile: 'preserve-semantics', document_revision: null,
+        outcome: 'error', result: null, diagnostics: [{ code: 'invalid_command', message: 'Confirmed refusal.',
+          severity: 'error', path: null, details: {} }], loss_report: [] })
+    }
     assert.deepEqual(body.commands, [{ op: 'insert_ring', instance: 's1', center: { x: 100, y: 100 } }])
     let confirmed = replies.get(body.request_id)
     if (!confirmed) {
       assert.equal(body.expected_revision, 3)
-      assert.deepEqual(body.selection_before, ringSelection())
+      assert.deepEqual(body.selection_before, expectedSelection)
       state = ringAfter()
+      state.document.selection = structuredClone(expectedSelection)
       confirmed = structuredClone(state)
       replies.set(body.request_id, confirmed)
     }
@@ -127,8 +167,120 @@ try {
   await page.getByLabel('Current atom count', { exact: true }).filter({ hasText: '8' }).waitFor()
   assert.deepEqual(state.document.atoms, ringAfter().document.atoms)
   assert.deepEqual(state.document.bonds, ringAfter().document.bonds)
+
+  const url = `http://127.0.0.1:${address.port}/ring-check`
+  const emptySelection = { objects: [], atoms: [], bonds: [] }
+  function resetRequests() {
+    state = ringSource()
+    lost = 0
+    droppedBeforeDispatch = 2
+    expectedSelection = emptySelection
+    bodies.length = 0
+    navigation.length = 0
+    replies.clear()
+  }
+
+  // Production CloseButton + ring recovery UI: neither failed send reaches the service.
+  resetRequests()
+  await page.goto(`${url}?workspace`)
+  await page.locator('[data-document-id="drawing"]').getByRole('button', { name: 'Open', exact: true }).click()
+  await page.getByLabel('Document title', { exact: true }).waitFor()
+  const close = page.getByRole('button', { name: 'Close document', exact: true })
+  assert.equal(await close.isEnabled(), true, 'a clean idle document can close')
+  await page.getByRole('button', { name: 'Insert carbon six-member ring', exact: true }).click()
+  const productionCanvas = page.locator('[data-structure-canvas]')
+  await productionCanvas.scrollIntoViewIfNeeded()
+  await productionCanvas.focus()
+  for (let index = 0; index < 5; index += 1) await productionCanvas.press('-')
+  const center = await productionCanvas.evaluate((svg) => {
+    const location = new DOMPoint(100, 100).matrixTransform(svg.getScreenCTM())
+    return { x: location.x, y: location.y }
+  })
+  await page.mouse.click(center.x, center.y)
+  const checkRing = page.getByRole('button', { name: 'Check ring insertion outcome', exact: true })
+  await checkRing.waitFor()
+  assert.equal(state.session.unsaved_changes, false)
+  assert.equal(replies.size, 0, 'both sends failed before dispatch')
+  assert.equal(await close.isDisabled(), true, 'Close cannot remove the production recovery controls')
+  assert.equal(await page.getByLabel('Document title', { exact: true }).inputValue(), 'Independent ring')
+  assert.deepEqual(navigation, [])
+  await checkRing.click()
+  await checkRing.waitFor({ state: 'hidden' })
+  assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
+  await close.click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Discard and close', exact: true }).click()
+  await page.getByText('No document open', { exact: true }).waitFor()
+  assert.deepEqual(navigation, ['/api/v1/documents/drawing/close'])
+  assert.equal(await page.getByRole('button', { name: 'New document', exact: true }).isEnabled(), true)
+
+  // Hook callers can queue navigation before a sending ring becomes "unconfirmed".
+  resetRequests()
+  holdBeforeDispatch = true
+  const firstRequestHeld = new Promise((resolve) => { heldReady = resolve })
+  await page.goto(url)
+  await page.getByLabel('Current document', { exact: true }).filter({ hasText: 'drawing' }).waitFor()
+  await page.evaluate(() => {
+    const editor = window.ringHarness
+    void editor.insertRing('drawing', 's1', { x: 100, y: 100 })
+    window.queuedNavigation = Promise.all([editor.close(false), editor.close(true), editor.open('other'), editor.create('Blocked')])
+  })
+  await firstRequestHeld
+  releaseHeld()
+  await page.evaluate(() => window.queuedNavigation)
+  await page.getByLabel('Pending ring', { exact: true }).filter({ hasText: 'true' }).waitFor()
+  assert.deepEqual(navigation, [], 'run checks the unresolved ref after earlier queued work fails')
+  assert.equal(await page.getByLabel('Current document', { exact: true }).textContent(), 'drawing')
+  assert.equal(state.document.atoms.length, 2)
+  await page.evaluate(async () => { await window.ringHarness.close(false); await window.ringHarness.open('other') })
+  assert.deepEqual(navigation, [], 'direct close/open calls cannot bypass the hook gate')
+  await page.getByRole('button', { name: 'Check ring insertion outcome', exact: true }).click()
+  await page.getByLabel('Pending ring', { exact: true }).filter({ hasText: 'false' }).waitFor()
+  await page.evaluate(() => window.ringHarness.close(true))
+  assert.deepEqual(navigation, ['/api/v1/documents/drawing/close'])
+  assert.equal(await page.getByLabel('Current document', { exact: true }).textContent(), 'none')
+
+  // Existing graph and scene attempts share the same navigation gate and remain checkable.
+  const graphPayload = JSON.stringify({ format: 'chemifree.clipboard', version: 1, settings: ringSource().document.settings,
+    atoms: [{ id: 'a1', kind: { type: 'element', symbol: 'C' }, charge: 0, isotope: null,
+      hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], position: { x: 0, y: 0 } }], bonds: [], stereo: [] })
+  const scenePayload = JSON.stringify({ format: 'chemifree.clipboard', version: 2, kind: 'graphics', settings: ringSource().document.settings,
+    roots: ['s9'], objects: [{ id: 's9', kind: 'graphic', shape: 'line', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] }], references: [] })
+  for (const [kind, payload] of [['paste', graphPayload], ['scene_paste', scenePayload]]) {
+    resetRequests()
+    await page.goto(url)
+    await page.getByLabel('Current document', { exact: true }).filter({ hasText: 'drawing' }).waitFor()
+    await page.evaluate(({ kind, payload }) => {
+      const editor = window.ringHarness
+      const pending = kind === 'paste' ? editor.pasteFragment('drawing', payload, { x: 0, y: 0 })
+        : editor.pasteSceneGraphics('drawing', payload, { x: 0, y: 0 })
+      void pending.catch((failure) => { window.expectedMutationFailure = failure.code })
+    }, { kind, payload })
+    await page.getByLabel('Pending ring', { exact: true }).filter({ hasText: 'true' }).waitFor()
+    await page.evaluate(async () => { await window.ringHarness.close(false); await window.ringHarness.close(true); await window.ringHarness.open('other') })
+    assert.deepEqual(navigation, [], `${kind}: direct navigation stays blocked`)
+    assert.equal(await page.getByLabel('Current document', { exact: true }).textContent(), 'drawing')
+    const refusal = await page.evaluate(async () => {
+      try { await window.ringHarness.checkClipboardPaste(); return 'unexpected success' }
+      catch (failure) { return failure.code }
+    })
+    assert.equal(refusal, 'invalid_command', 'a definitive refusal settles the original attempt')
+    await page.getByLabel('Pending ring', { exact: true }).filter({ hasText: 'false' }).waitFor()
+    assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
+    await page.evaluate(() => window.ringHarness.close(false))
+    assert.deepEqual(navigation, ['/api/v1/documents/drawing/close'])
+    assert.equal(await page.getByLabel('Current document', { exact: true }).textContent(), 'none')
+  }
+
+  // A Close already queued behind a successful Open must not close the new document.
+  resetRequests()
+  droppedBeforeDispatch = 0
+  await page.goto(url)
+  await page.getByLabel('Current document', { exact: true }).filter({ hasText: 'drawing' }).waitFor()
+  await page.evaluate(() => Promise.all([window.ringHarness.open('other'), window.ringHarness.close(false)]))
+  assert.deepEqual(navigation, ['/api/v1/documents/other'])
+  assert.equal(await page.getByLabel('Current document', { exact: true }).textContent(), 'other')
   assert.deepEqual(errors, [])
-  console.log('Ring canvas, queue, outcome recovery and history checks passed.')
+  console.log('Ring canvas, navigation guards, outcome recovery and history checks passed.')
 } finally {
   await browser?.close()
   await server.close()

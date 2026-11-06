@@ -125,6 +125,12 @@ or unsupported placement count refuses the captured action. An uncertain respons
 edits and shows **Check ring insertion outcome**, reusing the same request/body/process.
 Restart or a terminal revision conflict requires explicit reload/reconciliation and never
 resends the insertion to a new process. Checking and history never access the OS clipboard.
+Close and its discard confirmation are disabled while the editor is busy, including an
+unresolved ring or clipboard mutation. Hook callers still pass the queue-time unresolved
+attempt guard; closing or opening cannot remove recovery controls while an attempt is pending.
+A Close queued behind an Open never redirects to the newly shown document: it keeps the
+document ID and revision captured when Close was requested and lapses if that ID is no longer
+shown. Normal clean Close and the existing unsaved-discard confirmation resume after settlement.
 
 This is an independently defined 2D regular-ring drawing recipe, not conformation prediction,
 aromaticity assignment, chemical layout or collision avoidance. Multiple placements, other ring

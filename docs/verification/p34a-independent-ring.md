@@ -34,6 +34,9 @@ Domain/Application transaction·replay·history·persistence를 공유한다. HT
   client를 사용하고 HTTP 경계만 대체한다. zoom/pan 뒤 중심 클릭, lost committed reply
   이후 변경 잠금·같은 attempt 확인, 기존 선택·한 Undo/Redo를 검사한다. 실제 backend의
   canvas 연계 검증이나 화학/외부 앱 호환 증거는 아니다.
+  후속 회귀는 실제 `DocumentWorkspace`의 clean Close·복구 UI·정상 discard dialog,
+  dispatch 전 두 전송 실패, 미확정이 되기 전에 이미 큐에 들어간 direct close/open/create,
+  graph/scene clipboard 미확정의 navigation gate, Open 뒤 stale Close를 다룬다.
 
 ## 실행 상태
 
@@ -85,6 +88,24 @@ request-ID 재생성·process guard 제거는 lost-response/restart 검사로 �
   선택 누락/추가/교체/중복 거절 회귀를 더했다. 이 수정과 추가 회귀는 공유 격리
   검증 중인 이전 snapshot과 별개이며 아직 실행하지 않았다.
   전체 검증과 PR/병합 CI는 pending이며 위 targeted 통과로 완료 처리하지 않는다.
+- [추가 Codex 지적](https://github.com/EunhakChoi/chemifree/pull/174#discussion_r4488519609)은
+  dispatch 전 두 ring 전송이 실패한 clean 문서에서 Close가 복구 UI를 없애는 경로를
+  지적했다. 정적으로 확인한 기존 코드에서는 `close()`도 `run()`을 거치며,
+  `run()`은 큐 실행 시 `clipboardAttempt.current`를 확인한다. 따라서 먼저 큐에 넣은
+  close/open도 앞선 ring이 미확정으로 남으면 HTTP를 보내지 않는 방어가 이미 있다.
+  이 방어가 없었다거나 기존 코드에서 Close 성공을 재현했다고 주장하지 않는다.
+  반면 실제 Close trigger에는 busy 조건이 없어 미확정 상태에도 누를 수 있었다.
+  trigger와 discard action을 `editor.busy` 동안 disable해 복구 UI와 일치시켰다.
+  hook의 기존 gate를 유지하고 Close의 문서 ID/리비전을 함께 캡처해, 앞서 큐에 든
+  Open이 성공해도 다른 문서를 닫지 않고 lapse하게 했다.
+  전용 browser 회귀는 실제 production Close의 disabled 상태·복구 후 정상 discard,
+  전송 중 대기시킨 ring 뒤 direct clean/discard Close·Open·Create의 HTTP 부재,
+  graph/scene 미확정의 같은 방어와 명시 결과 확인 뒤 정상 clean Close,
+  성공 Open 뒤 stale Close의 대상 불변을 단정하도록 작성했다. UI disable을 제거하면
+  production Close 단정, run gate를 제거하면 navigation HTTP 부재 단정,
+  캡처한 ID 확인을 제거하면 새 문서 유지 단정이 실패해야 한다.
+  이번 수정에서는 테스트·빌드·브라우저·mutation을 실행하지 않았다. 부모가 보고한
+  이전 `78b5124` 전체 검사와 `bda7835` targeted 통과는 이 추가 수정의 실행 증거가 아니다.
 
 Rust/TypeScript patterns/testing skills를 적용했다. shadcn의 기존 Button/Alert/ToggleGroup
 구성을 재사용하며 새로운 UI primitive나 dependency는 추가하지 않았다.
