@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import { chromium } from 'playwright-core'
+import { installReadyCanvasSampler } from './lib/ready-canvas-sample.mjs'
 
 const work = mkdtempSync(join(tmpdir(), 'chemifree-label-underline-'))
 let api
@@ -122,6 +123,7 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
   await page.evaluate(() => document.fonts.ready)
   // Load diagnostics before the matrix, so sampling itself has no async gap.
   await page.evaluate(async () => { window.__chemicalLabelMeasure = (await import('/src/editor/label.ts')).measureChemicalLabels })
+  await page.evaluate(installReadyCanvasSampler)
   const original = (await snapshot()).document
   const normalWeights = await page.locator('[data-atom-label="a4"] [data-chunk="text"] tspan').evaluateAll((spans) => spans.map((span) => span.getAttribute('font-weight')))
   assert.deepEqual(normalWeights, ['500', '400', '400', '500', '400'])
@@ -138,11 +140,7 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
         return current.document.revision > beforeRevision && current.document.settings.label_font === font && current.document.settings.label_size_pt === size && current.document.settings.label_style === style && current.document.settings.label_weight === weight && current.document.settings.label_underline === true && !svg.classList.contains('cursor-progress') && svg.dataset.captionMeasuredViewBox === svg.getAttribute('viewBox') && svg.dataset.captionBoundsReady === 'true'
       }, { font, size, style, weight, beforeRevision })
       await page.getByRole('button', { name: 'Fit drawing', exact: true }).click()
-      await page.waitForFunction(() => {
-        const svg = document.querySelector('svg[data-structure-canvas]')
-        return svg.dataset.captionBoundsReady === 'true' && svg.dataset.captionMeasuredViewBox === svg.getAttribute('viewBox') && !svg.classList.contains('cursor-progress')
-      })
-      const geometry = await page.locator('svg[data-structure-canvas]').evaluate((svg) => {
+      const geometry = await page.locator('svg[data-structure-canvas]').evaluate((svg, expected) => window.__captureReadyChemicalCanvas(svg, expected, () => {
         // Capture all evidence in one JS turn. Fresh metrics are diagnostic only:
         // production rectangles and bounds remain the subject of every assertion.
         const fresh = window.__chemicalLabelMeasure(svg)
@@ -165,7 +163,7 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
               positions:Array.from({length:span.getNumberOfChars()},(_,index)=>{ const start=span.getStartPositionOfChar(index),end=span.getEndPositionOfChar(index);return {start:{x:start.x,y:start.y},end:{x:end.x,y:end.y}} })}))})),
           marks: [...label.querySelectorAll('text[data-mark]')].map((mark) => ({part:mark.dataset.mark,box:box(mark.dataset.box),ink:rect(mark.getBBox()),weights:[...mark.querySelectorAll('tspan')].map((span)=>span.getAttribute('font-weight')),styles:[...mark.querySelectorAll('tspan')].map((span)=>span.getAttribute('font-style'))})) }))
         return {context, labels, viewBox:rect(svg.viewBox.baseVal), strokes:[...svg.querySelectorAll('[data-bond="b1"], [data-bond="b3"]')].map((line) => ({x1:Number(line.getAttribute('x1')),y1:Number(line.getAttribute('y1')),x2:Number(line.getAttribute('x2')),y2:Number(line.getAttribute('y2'))})),captionWeights:[...svg.querySelectorAll('[data-caption-text] tspan')].map((span) => span.getAttribute('font-weight')),captionStyles:[...svg.querySelectorAll('[data-caption-text] tspan')].map((span) => getComputedStyle(span).fontStyle),stretched:svg.querySelectorAll('[data-atom-label] [textLength]').length}
-      })
+      }), { documentId:id,revision:beforeRevision+1,settings:{label_font:font,label_size_pt:size,label_style:style,label_weight:weight,label_underline:true} })
       assert.equal(geometry.context.ready,'true',JSON.stringify({stage,context:geometry.context}))
       assert.equal(geometry.context.measuredViewBox,geometry.context.paintedViewBox,JSON.stringify({stage,context:geometry.context}))
       assert.equal(geometry.context.fonts,'loaded',JSON.stringify({stage,context:geometry.context}))
@@ -238,13 +236,9 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
       assert.ok(pickEvent?.insideCanvas,`the native pointer event reached the canvas: ${JSON.stringify({screen,pickEvent})}`)
       assert.ok(JSON.parse(await page.getByLabel('Weight selection', { exact:true }).textContent()).includes('a4'),
         `right edge of the measured label is pickable: ${JSON.stringify({beforeScroll,screen,pickEvent,label})}`)
-      await page.waitForFunction(() => {
-        const svg = document.querySelector('svg[data-structure-canvas]')
-        return svg.dataset.captionBoundsReady === 'true' && svg.dataset.captionMeasuredViewBox === svg.getAttribute('viewBox') && !svg.classList.contains('cursor-progress')
-      })
       // Selection can trigger a render after scrolling and pointer hover. Compare
       // the two mounted consumers in the same turn, not a pre-interaction box.
-      const selectedGeometry = await page.locator('svg[data-structure-canvas]').evaluate((svg) => {
+      const selectedGeometry = await page.locator('svg[data-structure-canvas]').evaluate((svg, expected) => window.__captureReadyChemicalCanvas(svg, expected, () => {
         const atom = svg.querySelector('[data-instance="s1"] [data-atom-label="a4"]')
         const underlay = svg.querySelector('[data-instance="s1"] [data-atom-underlay="a4"]')
         const values = atom?.getAttribute('data-box')?.split(' ').map(Number)
@@ -256,7 +250,7 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
           ready:svg.dataset.captionBoundsReady,measuredViewBox:svg.dataset.captionMeasuredViewBox,paintedViewBox:svg.getAttribute('viewBox'),
           fonts:document.fonts.status,busy:svg.classList.contains('cursor-progress'),
           atom:atom?.outerHTML,underlay:underlay?.outerHTML }
-      })
+      }), {documentId:geometry.context.documentId,revision:geometry.context.revision,settings:geometry.context.settings})
       const selectionEvidence = JSON.stringify({stage,beforeScroll,screen,pickEvent,before:label,after:selectedGeometry})
       assert.equal(selectedGeometry.ready,'true',selectionEvidence)
       assert.equal(selectedGeometry.measuredViewBox,selectedGeometry.paintedViewBox,selectionEvidence)

@@ -88,3 +88,33 @@ and settings provenance. A changed pre/post measurement is logged explicitly so
 the parent can establish a stale earlier sample without inferring it from a pass.
 No geometry algorithm or scientific behavior was changed. Source inspection and
 `git diff --check` only; execution remains with the parent.
+
+## Event-driven atomic readiness sampling
+
+The next supplied isolated log passed underline and failed outline at normal,
+bold, monospace, 72 pt: revision 27 and requested settings were correct, fonts
+were loaded, but the sample reported ready=false and no measured-viewBox
+attribute after a separate readiness gate had passed. In StructureCanvas that
+attribute is omitted when the stored measurement's document object is not the
+currently mounted document. Read/autosave adoption supplies a concrete source
+path for this same-revision invalidation: describesShown verifies equal revision
+and content, while adoptedView installs reply.document as a new object. The log
+does not identify which adoption fired, so autosave itself is not claimed as a
+traced event. The product correctly withdraws readiness while measuring a new
+document object; a previous successful gate is not a guarantee for a later
+Playwright task.
+
+A shared browser-side sampler now observes DOM and font events and waits for the
+expected document ID, exact revision, requested settings, idle state, loaded
+fonts and measured/current viewport agreement. It checks that provenance and
+executes the synchronous geometry read in the same JavaScript turn, resolving
+with that one snapshot. Selection uses the same mechanism. Assertions run once
+on the captured data; glyph/underline counts, stroke geometry, tolerances and
+selection equality remain unchanged. No read or assertion is retried. A changed
+document, advanced revision, read exception or 30-second readiness deadline fails
+with provenance diagnostics. Listeners, observer and timer are removed on every
+settlement. This closes the demonstrated gate-to-read inter-task race without
+changing document/font provenance or suppressing valid product transitions.
+
+Validation: source review and `git diff --check` only. No build/test/browser
+execution was performed in this follow-up.
