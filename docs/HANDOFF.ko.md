@@ -14,6 +14,7 @@ P35a–n과 Et 표시 #185는 병합되었고 각 PR의 check/browser CI가 통�
 - UI는 explicit member/anchor/text·실제 retained IDs와 “Display text does not define chemistry”를 보여 준다. label typography·실제 SVG shared trim/fit/hit/selection bounds를 쓰고 화학 export는 full graph와 `abbreviation_display` rendering loss다. native clipboard/Cut/template export는 member 교차를 거절하고 Expand를 안내한다.
 - native v24 document/draft current/history는 `fragment_displays`를 필수로 읽는다. v1–23는 empty/current/history-only 새 필드를 모두 거절하며 empty map으로 migration한다. 읽기는 쓰지 않고 첫 overwrite/recovery 전에 exact old bytes를 보관한다. future v25는 untouched 거절한다. 기존 current48MiB/history8MiB admission·physical64MiB 한도에 member/text를 포함한다.
 - 이 항목은 P35o 이후 추가 후보이며 P35a–n 병합/CI 근거와 별개다. P35는 `in_progress`; 일반 nickname dictionary·text-to-graph·external label roundtrip·일반 multistyle chemical label은 미지원이다. 테스트·빌드·cargo check·browser와 Codex/독립 subagent 리뷰는 대기다. 문서 source 대조만 했으며 실행 검증을 주장하지 않는다. [P35p 기록](verification/p35p-fragment-display.md).
+- 기존 Et 정책과 같이 외부 boundary 이웃 원자의 좌표만 이동하면 표시를 유지한다. 그 이웃의 atom state·boundary bond·local stereo 변경이나 retained member의 부분 이동은 자동 펼친다.
 
 ## P35o 기존 ethyl 그래프의 plain display label 후보
 

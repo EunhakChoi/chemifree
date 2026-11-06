@@ -285,7 +285,9 @@ request replay and Undo/Redo. An unchanged display is a no-op; expanding an
 existing atom without a display is a no-op. Whole-member rigid moves/transforms
 retain the display. Partial geometry or affected member/boundary chemistry,
 local stereo or placement multiplicity changes reveal it in the same Undo step.
-Expansion reveals original geometry without layout.
+Moving only the outside boundary neighbor's coordinates retains the display,
+matching the existing Et policy; changing that neighbor's atom state or boundary
+bond/stereo still reveals it. Expansion reveals original geometry without layout.
 
 The web panel requires explicit selected members, text and anchor, shows retained
 atom IDs and the chemistry warning, and provides Apply and Expand controls.

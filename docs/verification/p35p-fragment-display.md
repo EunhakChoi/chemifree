@@ -27,6 +27,9 @@ Atomic transactions, no-op, request replay, revision checks and Undo/Redo follow
 the existing path. Whole-member rigid motion retains the display. Partial member
 geometry or affected chemistry/local stereo/placement changes reveal it in the
 same transaction. Expansion performs no layout and reveals stored coordinates.
+Moving only the outside boundary neighbor's coordinates retains the display, as
+for Et. Changes to that neighbor's atom state, the boundary bond or local stereo
+still reveal it; this is separate from a partial move of retained members.
 
 The actual panel asks for member selection, text and explicit anchor, displays
 retained IDs and the chemistry warning, and provides text editing and expansion.
