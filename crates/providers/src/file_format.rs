@@ -1500,14 +1500,14 @@ fn check_caption_style_fields(bytes: &[u8], format: Version) -> Result<(), Strin
     fn check(value: &serde_json::Value, current: bool) -> Result<(), String> {
         match value {
             serde_json::Value::Object(object) => {
-                if object.get("kind").and_then(serde_json::Value::as_str) == Some("caption") {
-                    if let Some(runs) = object.get("runs").and_then(serde_json::Value::as_array) {
-                        for run in runs {
-                            for field in ["weight", "style"] {
-                                let present = run.get(field).is_some();
-                                if present != current || (present && run[field].is_null()) {
-                                    return Err("Caption weight/style are required in v10 and forbidden in v1–9, including history.".into());
-                                }
+                if object.get("kind").and_then(serde_json::Value::as_str) == Some("caption")
+                    && let Some(runs) = object.get("runs").and_then(serde_json::Value::as_array)
+                {
+                    for run in runs {
+                        for field in ["weight", "style"] {
+                            let present = run.get(field).is_some();
+                            if present != current || (present && run[field].is_null()) {
+                                return Err("Caption weight/style are required in v10 and forbidden in v1–9, including history.".into());
                             }
                         }
                     }

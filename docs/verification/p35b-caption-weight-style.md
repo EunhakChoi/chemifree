@@ -48,3 +48,8 @@ to hide a broken script validator. Fixed by giving each array/object/unknown/mis
 fixture valid normal weight and style, so script is its sole malformed field. Execution
 and mutation verification remain assigned to the parent session; this fix ran only
 `git diff --check` and does not claim passing tests.
+
+The parent's first full check reached Clippy and failed on `collapsible_if` in the native
+caption style-field scan. Fixed with the Rust 1.95 let-chain form, preserving both predicates
+and the validation body. The implementation worker inspected other added conditional code,
+ran formatting and `git diff --check`; the parent owns the next build/test run.
