@@ -350,7 +350,11 @@ fn drawing_loss(
     reason: &str,
 ) -> Loss {
     Loss {
-        consent: LossConsent::NotRequired,
+        consent: if feature == "caption" {
+            LossConsent::Required
+        } else {
+            LossConsent::NotRequired
+        },
         feature: feature.into(),
         source_path: format!("{prefix}{path}"),
         disposition: LossDisposition::Dropped,
@@ -441,6 +445,12 @@ pub(crate) fn drawing_losses(
     }
     for object in &doc.scene.objects {
         match object {
+            SceneObjectView::Caption { id, .. } => push(
+                &format!(".scene.objects[{id}]"),
+                "caption",
+                SemanticImpact::Rendering,
+                "Independent caption text and script styles are not written by this export profile.",
+            ),
             SceneObjectView::Group { id, .. } | SceneObjectView::Graphic { id, .. } => push(
                 &format!(".scene.objects[{id}]"),
                 "scene_object",

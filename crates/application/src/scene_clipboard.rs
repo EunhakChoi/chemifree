@@ -149,6 +149,11 @@ pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
                 id: entry.id.to_string(),
                 children: children.iter().map(ToString::to_string).collect(),
             },
+            SceneObject::Caption(_) => {
+                return Err(invalid(
+                    "Captions are outside the graphics clipboard profile",
+                ));
+            }
             SceneObject::Instance => {
                 return Err(invalid(
                     "Molecule placements are outside the graphics clipboard profile",

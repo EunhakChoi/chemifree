@@ -299,6 +299,7 @@ fn grid_commands(read: &SmilesRead, target: &DocumentView) -> Result<Vec<Command
     // Everything the drawing holds that has a position: atoms and the points of graphics.
     let graphic_points = target.scene.objects.iter().flat_map(|object| match object {
         SceneObjectView::Graphic { points, .. } => points.iter().collect::<Vec<_>>(),
+        SceneObjectView::Caption { anchor, .. } => vec![anchor],
         SceneObjectView::Instance { .. } | SceneObjectView::Group { .. } => Vec::new(),
     });
     let (left, bottom) = target

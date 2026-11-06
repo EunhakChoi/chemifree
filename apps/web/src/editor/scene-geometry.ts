@@ -14,6 +14,7 @@ interface SceneGeometry {
   hasGraphTargets: boolean
   hasEmptyUnits: boolean
   hasMissingTargets: boolean
+  hasCaptions: boolean
 }
 
 export type SceneGeometryAction =
@@ -38,6 +39,7 @@ export function sceneGeometry(document: DocumentView, selected: ReadonlySet<stri
   })
   let bounds: GeometryBounds | null = null
   let hasEmptyUnits = false
+  let hasCaptions = false
   for (const root of roots) {
     const pending = [root]
     const points: Position[] = []
@@ -45,6 +47,9 @@ export function sceneGeometry(document: DocumentView, selected: ReadonlySet<stri
       const object = pending.pop()
       if (!object) continue
       switch (object.kind) {
+        case 'caption':
+          hasCaptions = true
+          break
         case 'graphic':
           points.push(...object.points)
           break
@@ -77,13 +82,13 @@ export function sceneGeometry(document: DocumentView, selected: ReadonlySet<stri
       }
     }
   }
-  return { objects: roots.map((object) => object.id), bounds, hasGraphTargets, hasEmptyUnits, hasMissingTargets }
+  return { objects: roots.map((object) => object.id), bounds, hasGraphTargets, hasEmptyUnits, hasMissingTargets, hasCaptions }
 }
 
 /** Rebuild a captured action against the queued document; missing targets lapse as a whole. */
 export function sceneGeometryCommands(document: DocumentView, selected: ReadonlySet<string>, action: SceneGeometryAction): Command[] | null {
   const geometry = sceneGeometry(document, selected)
-  if (geometry.hasMissingTargets || geometry.hasGraphTargets || geometry.bounds === null) return null
+  if (geometry.hasCaptions || geometry.hasMissingTargets || geometry.hasGraphTargets || geometry.bounds === null) return null
   if (action.kind === 'arrange') {
     const required = action.mode.startsWith('distribute_') ? 3 : 2
     if (geometry.hasEmptyUnits || geometry.objects.length < required) return null

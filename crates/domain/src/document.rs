@@ -14,17 +14,19 @@
 //! instance, bounded values, valid state combinations). The drawing model does not alter
 //! recorded states to perform chemistry; interpretation belongs to separate domain rules.
 
+mod persistence;
+
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;
 
 use crate::element::Element;
 use crate::scene;
 use crate::scene::{
-    ArrangementPlan, ArrangementUnit, Bounds, DeleteMode, Graphic, GraphicShape, MAX_DEPTH,
-    MAX_OBJECTS, MAX_REFERENCES, ObjectArrangement, ObjectKind, ObjectRef, ReferenceTarget,
-    SceneError, SceneObject, SceneReference, SceneTree, Selection, SelectionRequest,
-    SelectionScope, SelectionTransform, TransactionSelection, TransformPlan, TransformedGraphic,
-    TransformedPosition,
+    ArrangementPlan, ArrangementUnit, Bounds, Caption, DeleteMode, Graphic, GraphicShape,
+    MAX_DEPTH, MAX_OBJECTS, MAX_REFERENCES, ObjectArrangement, ObjectKind, ObjectRef,
+    ReferenceTarget, SceneError, SceneObject, SceneReference, SceneTree, Selection,
+    SelectionRequest, SelectionScope, SelectionTransform, TransactionSelection, TransformPlan,
+    TransformedGraphic, TransformedPosition,
 };
 use crate::settings::{Settings, SettingsEdit, SettingsError};
 use crate::states::{
@@ -68,6 +70,12 @@ pub const MAX_EDIT_REVISION: u64 = MAX_REVISION - 1;
 /// Entity changes kept across all history entries. With the entity limits this bounds the
 /// stored history, so a saved document stays within what storage providers read back.
 pub const HISTORY_CHANGE_LIMIT: usize = 100_000;
+/// Maximum current-state persistence reservation when captions exist in content or history.
+/// Combined with the history reservation, this stays below the native 64 MiB read cap.
+pub const CAPTION_CONTENT_WEIGHT_LIMIT: usize = 48 * 1024 * 1024;
+/// Whole-history persistence reservation for caption-bearing documents. The latest edit
+/// must fit by itself; older undo entries are discarded to make room.
+pub const CAPTION_HISTORY_WEIGHT_LIMIT: usize = 8 * 1024 * 1024;
 const MAX_DOCUMENT_ID_CHARS: usize = 64;
 
 /// Storage-safe document identifier: 1-64 characters of `[a-z0-9-]`, starting alphanumeric.
@@ -484,6 +492,17 @@ pub enum Command {
     },
     /// Adds a graphic under `parent` (a group, or the page when `None`) at `index` among its
     /// children (the end when `None`).
+    /// Adds a bounded independent caption to the ordered scene.
+    AddCaption {
+        caption: Caption,
+        parent: Option<ObjectId>,
+        index: Option<usize>,
+    },
+    /// Replaces a caption's complete anchor and run state atomically.
+    UpdateCaption {
+        object: ObjectId,
+        caption: Caption,
+    },
     AddGraphic {
         graphic: Graphic,
         parent: Option<ObjectId>,
@@ -651,6 +670,9 @@ pub enum Command {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditError {
+    CaptionInvalid,
+    CaptionPersistenceLimit,
+    CaptionUnsupported(ObjectId),
     EmptyTransaction,
     TooManyCommands,
     EmptyTargetList,
@@ -755,6 +777,9 @@ impl EditError {
     /// The scene rule a command violated, when the error has a scene-specific code.
     pub fn scene_error(&self) -> Option<SceneError> {
         Some(match self {
+            Self::CaptionInvalid => SceneError::CaptionInvalid,
+            Self::CaptionPersistenceLimit => SceneError::CaptionPersistenceLimit,
+            Self::CaptionUnsupported(_) => SceneError::CaptionUnsupported,
             Self::UnknownObject(_) => SceneError::ObjectUnknown,
             Self::ObjectKindMismatch { .. } => SceneError::ObjectKindMismatch,
             Self::GroupMixedParents => SceneError::GroupMixedParents,
@@ -919,6 +944,9 @@ impl fmt::Display for EditError {
                 formatter,
                 "rectangle {object} requires an exact quarter-turn rotation; arbitrary angles cannot be represented by its two axis-aligned corners"
             ),
+            Self::CaptionPersistenceLimit => formatter.write_str("The caption edit exceeds the persistence budget; reduce text or transaction size."),
+            Self::CaptionInvalid => formatter.write_str("Caption needs 1–32 nonempty single-line runs, at most 16384 UTF-8 bytes, and non-whitespace text."),
+            Self::CaptionUnsupported(id) => write!(formatter, "This operation cannot preserve caption {id}; nothing was changed."),
             Self::SceneTreeInvalid(detail) => formatter.write_str(detail),
             Self::InvalidState(error) => error.fmt(formatter),
             Self::Settings(error) => error.fmt(formatter),
@@ -1366,7 +1394,7 @@ impl Content {
                 SceneObject::Graphic(_) => {
                     scope.graphics.insert(*object);
                 }
-                SceneObject::Group { .. } => {}
+                SceneObject::Caption(_) | SceneObject::Group { .. } => {}
             }
         }
         let mut atoms = selection.atoms.clone();
@@ -1398,6 +1426,11 @@ impl Content {
                 },
                 None,
             )?;
+            for id in &scope.objects {
+                if matches!(self.scene.get(*id)?, SceneObject::Caption(_)) {
+                    return Err(EditError::CaptionUnsupported(*id));
+                }
+            }
             let mut points = Vec::new();
             for key in &scope.positions {
                 points.push(
@@ -1453,6 +1486,11 @@ impl Content {
         transform: SelectionTransform,
     ) -> Result<TransformPlan, EditError> {
         let scope = self.selection_scope(selection, instance)?;
+        for id in &scope.objects {
+            if matches!(self.scene.get(*id)?, SceneObject::Caption(_)) {
+                return Err(EditError::CaptionUnsupported(*id));
+            }
+        }
         let prepared = scene::PreparedTransform::new(transform)?;
         let mut positions = Vec::with_capacity(scope.positions.len());
         let mut graphics = Vec::with_capacity(scope.graphics.len());
@@ -1783,6 +1821,11 @@ impl Draft {
     fn translate_scope(&mut self, scope: &SelectionScope, delta: Vector) -> Result<(), EditError> {
         if !delta.dx.is_finite() || !delta.dy.is_finite() {
             return Err(EditError::CoordinateOutOfRange);
+        }
+        for id in &scope.objects {
+            if let Some(SceneObject::Caption(caption)) = self.content.scene.objects.get_mut(id) {
+                caption.anchor = caption.anchor.translated(delta)?;
+            }
         }
         for key in &scope.positions {
             self.translate(key.instance, [key.atom], delta)?;
@@ -2309,6 +2352,29 @@ impl Draft {
                 let instance = self.content.require_instance(*instance)?;
                 self.delete_objects(&BTreeSet::from([instance]), DeleteMode::ObjectOnly)?;
             }
+            Command::AddCaption {
+                caption,
+                parent,
+                index,
+            } => {
+                caption.validate()?;
+                let id = self.allocate_object()?;
+                self.content.scene.insert(
+                    id,
+                    SceneObject::Caption(caption.clone()),
+                    *parent,
+                    *index,
+                )?;
+                created = Created::Object(id);
+            }
+            Command::UpdateCaption { object, caption } => {
+                caption.validate()?;
+                self.content.scene.require(*object, ObjectKind::Caption)?;
+                self.content
+                    .scene
+                    .objects
+                    .insert(*object, SceneObject::Caption(caption.clone()));
+            }
             Command::AddGraphic {
                 graphic,
                 parent,
@@ -2742,11 +2808,16 @@ impl Document {
                  entry's selection after nor the nearest redo entry's selection before",
             ));
         }
+        let caption_budget =
+            content.has_captions() || undo.iter().chain(&redo).any(ChangeSet::has_captions);
         // Editing keeps undo + redo within the limits (undo and redo only move entries between
         // them). A stored history beyond them, e.g. written under looser limits, is trimmed the
         // way editing trims: oldest undo entries first, then the farthest redo entries.
         while undo.len() + redo.len() > HISTORY_LIMIT
             || history_size(&undo) + history_size(&redo) > HISTORY_CHANGE_LIMIT
+            || (caption_budget
+                && persistence::history_weight(undo.iter().chain(&redo))
+                    > CAPTION_HISTORY_WEIGHT_LIMIT)
         {
             if undo.pop_front().is_none() {
                 redo.remove(0);
@@ -2757,6 +2828,11 @@ impl Document {
             && let Some(next) = redo.last()
         {
             selection.clone_from(&next.selection.before);
+        }
+        if caption_budget && content.persistence_weight(&selection) > CAPTION_CONTENT_WEIGHT_LIMIT {
+            return Err(invalid(
+                "caption content exceeds the persistence reservation",
+            ));
         }
         let document = Self {
             id: parts.id,
@@ -3185,6 +3261,20 @@ impl Document {
                 group_notes: Vec::new(),
             });
         }
+        let caption_budget = draft.content.has_captions()
+            || changes.has_captions()
+            || self
+                .undo
+                .iter()
+                .chain(&self.redo)
+                .any(ChangeSet::has_captions);
+        if caption_budget
+            && (draft.content.persistence_weight(&changes.selection.after)
+                > CAPTION_CONTENT_WEIGHT_LIMIT
+                || changes.persistence_weight() > CAPTION_HISTORY_WEIGHT_LIMIT)
+        {
+            return Err(whole(EditError::CaptionPersistenceLimit));
+        }
         let cleared: Vec<StereoKey> = draft
             .cascaded
             .iter()
@@ -3210,7 +3300,11 @@ impl Document {
         self.revision += 1;
         self.undo.push_back(changes);
         self.redo.clear();
-        while self.undo.len() > HISTORY_LIMIT || history_size(&self.undo) > HISTORY_CHANGE_LIMIT {
+        while self.undo.len() > HISTORY_LIMIT
+            || history_size(&self.undo) > HISTORY_CHANGE_LIMIT
+            || (caption_budget
+                && persistence::history_weight(&self.undo) > CAPTION_HISTORY_WEIGHT_LIMIT)
+        {
             self.undo.pop_front();
         }
         Ok(Applied {

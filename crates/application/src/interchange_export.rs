@@ -61,7 +61,11 @@ fn fail(code: &'static str, message: impl Into<String>) -> InterchangeError {
 
 fn loss(path: impl Into<String>, feature: &str, impact: SemanticImpact, reason: &str) -> Loss {
     Loss {
-        consent: LossConsent::NotRequired,
+        consent: if feature == "caption" {
+            LossConsent::Required
+        } else {
+            LossConsent::NotRequired
+        },
         feature: feature.into(),
         source_path: path.into(),
         disposition: LossDisposition::Dropped,
@@ -151,6 +155,12 @@ fn drawing_losses(view: &DocumentView) -> Vec<Loss> {
     }
     for item in &view.scene.objects {
         match item {
+            SceneObjectView::Caption { id, .. } => push(
+                format!("document.scene.objects[{id}]"),
+                "caption",
+                SemanticImpact::Rendering,
+                "Independent caption text and script styles are not written by this export profile.",
+            ),
             SceneObjectView::Group { id, .. } | SceneObjectView::Graphic { id, .. } => push(
                 format!("document.scene.objects[{id}]"),
                 "scene_object",

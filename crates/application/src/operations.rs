@@ -571,8 +571,9 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 48] = [
+const TRANSACTION_PARTS: [Entry; 50] = [
     runs("attach_ring", "Connects a fresh regular carbon ring to an existing atom along an explicit direction in the only placement (size 5 or 6, default 6; pattern single by default, or explicit kekule for size 6). Connector stays single. Ordinary bond-addition stereo clearing and group notes apply. No fusion, aromaticity inference or layout."),
+
     runs(
         "insert_ring",
         "Appends an independent regular carbon ring (size 5 or 6, default 6; pattern single by default, or explicit kekule for size 6) at an explicit center in the only placement, using the current bond length. Kekule states alternating double/single orders. No attachment, fusion, aromaticity or conformation calculation.",
@@ -628,6 +629,8 @@ const TRANSACTION_PARTS: [Entry; 48] = [
         "delete_instance",
         "Deletes a scene instance with its positions; the last one stays.",
     ),
+    runs("add_caption", "Adds an independent single-line Unicode caption with explicit script runs."),
+    runs("update_caption", "Replaces a caption anchor and its complete script runs."),
     runs(
         "add_graphic",
         "Adds a line, rectangle, or arrow to a page or group.",
@@ -757,6 +760,8 @@ const TRANSACTION_PARTS: [Entry; 48] = [
     )
     .carried_out_by(&[
         "add_graphic",
+        "add_caption",
+        "update_caption",
         "group",
         "ungroup",
         "reorder",

@@ -1,6 +1,6 @@
 import type { DocumentView, NativeClipboardIdMapping, Position, SceneObject, SceneReference, SelectionView } from '@/lib/document-contract'
 
-type GraphicObject = Exclude<SceneObject, { kind: 'instance' }>
+type GraphicObject = Extract<SceneObject, { kind: 'graphic' | 'group' }>
 type PayloadObject = Omit<Extract<GraphicObject, { kind: 'graphic' }>, 'parent'> | Omit<Extract<GraphicObject, { kind: 'group' }>, 'parent'>
 
 interface GraphicPayload {
@@ -117,7 +117,7 @@ export function sceneClipboardCopyMatches(
     const selected = included || wanted.has(id)
     if (!included && selected) expectedRoots.push(id)
     if (selected) {
-      if (object.kind === 'instance') return false
+      if (object.kind === 'instance' || object.kind === 'caption') return false
       if (object.kind === 'group') objects.push({ kind: object.kind, id, children: object.children })
       else objects.push({ kind: object.kind, id, shape: object.shape, points: object.points })
     }

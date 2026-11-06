@@ -441,6 +441,9 @@ fn every_scene_reason_code_is_distinct_and_stable() {
     assert_eq!(
         codes,
         [
+            "caption_invalid",
+            "caption_persistence_limit",
+            "caption_unsupported",
             "object_unknown",
             "object_kind_mismatch",
             "group_mixed_parents",

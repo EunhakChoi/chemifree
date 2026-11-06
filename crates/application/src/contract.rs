@@ -11,9 +11,9 @@ use chemifree_domain::document::{
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
-    AlignMode, DeleteMode, DistributionAxis, Graphic, GraphicShape, ObjectArrangement, ObjectRef,
-    ReferenceTarget, SceneError, SceneObject, SceneReference, Selection, SelectionRequest,
-    SelectionTransform, TransactionSelection,
+    AlignMode, Caption, CaptionRun, CaptionScript, DeleteMode, DistributionAxis, Graphic,
+    GraphicShape, ObjectArrangement, ObjectRef, ReferenceTarget, SceneError, SceneObject,
+    SceneReference, Selection, SelectionRequest, SelectionTransform, TransactionSelection,
 };
 use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, Settings, SettingsEdit};
 use chemifree_domain::states::{
@@ -555,6 +555,19 @@ pub enum CommandDto {
     },
     DeleteInstance {
         instance: String,
+    },
+    AddCaption {
+        anchor: PointDto,
+        runs: Vec<CaptionRunDto>,
+        #[serde(default)]
+        parent: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    UpdateCaption {
+        object: String,
+        anchor: PointDto,
+        runs: Vec<CaptionRunDto>,
     },
     AddGraphic {
         shape: GraphicShapeDto,
@@ -1163,6 +1176,24 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
         },
         CommandDto::DeleteInstance { instance } => Command::DeleteInstance {
             instance: instance_id(instance)?,
+        },
+        CommandDto::AddCaption {
+            anchor,
+            runs,
+            parent,
+            index,
+        } => Command::AddCaption {
+            caption: caption(*anchor, runs)?,
+            parent: parent.as_deref().map(instance_id).transpose()?,
+            index: *index,
+        },
+        CommandDto::UpdateCaption {
+            object,
+            anchor,
+            runs,
+        } => Command::UpdateCaption {
+            object: instance_id(object)?,
+            caption: caption(*anchor, runs)?,
         },
         CommandDto::AddGraphic {
             shape,
@@ -1802,6 +1833,12 @@ pub struct SceneView {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SceneObjectView {
+    Caption {
+        id: String,
+        parent: Option<String>,
+        anchor: PositionView,
+        runs: Vec<CaptionRunDto>,
+    },
     Instance {
         id: String,
         parent: Option<String>,
@@ -1818,6 +1855,55 @@ pub enum SceneObjectView {
         shape: GraphicShapeDto,
         points: [PositionView; 2],
     },
+}
+
+/// A complete run value; no byte or UTF-16 substring indices cross the wire.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CaptionRunDto {
+    pub text: String,
+    pub script: CaptionScriptDto,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptionScriptDto {
+    Baseline,
+    Subscript,
+    Superscript,
+}
+
+impl From<&CaptionRun> for CaptionRunDto {
+    fn from(run: &CaptionRun) -> Self {
+        Self {
+            text: run.text.clone(),
+            script: match run.script {
+                CaptionScript::Baseline => CaptionScriptDto::Baseline,
+                CaptionScript::Subscript => CaptionScriptDto::Subscript,
+                CaptionScript::Superscript => CaptionScriptDto::Superscript,
+            },
+        }
+    }
+}
+
+// Coordinate conversion follows the other scene commands: its String becomes a Refusal
+// at to_command, and to_commands supplies the failing command index. Caption content is
+// validated by the Domain so its typed caption_invalid reason is preserved there.
+fn caption(anchor: PointDto, runs: &[CaptionRunDto]) -> Result<Caption, String> {
+    Ok(Caption {
+        anchor: point(anchor)?,
+        runs: runs
+            .iter()
+            .map(|run| CaptionRun {
+                text: run.text.clone(),
+                script: match run.script {
+                    CaptionScriptDto::Baseline => CaptionScript::Baseline,
+                    CaptionScriptDto::Subscript => CaptionScript::Subscript,
+                    CaptionScriptDto::Superscript => CaptionScript::Superscript,
+                },
+            })
+            .collect(),
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -2234,6 +2320,15 @@ impl DocumentResponse {
                             let id = id.to_string();
                             let parent = parent.map(|parent| parent.to_string());
                             match object {
+                                SceneObject::Caption(caption) => SceneObjectView::Caption {
+                                    id,
+                                    parent,
+                                    anchor: PositionView {
+                                        x: caption.anchor.x(),
+                                        y: caption.anchor.y(),
+                                    },
+                                    runs: caption.runs.iter().map(CaptionRunDto::from).collect(),
+                                },
                                 SceneObject::Instance => SceneObjectView::Instance {
                                     id,
                                     parent,

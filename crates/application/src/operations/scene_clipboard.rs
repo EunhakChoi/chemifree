@@ -103,6 +103,7 @@ pub(crate) fn mapping(
             let id = match object {
                 SceneObjectView::Instance { id, .. }
                 | SceneObjectView::Group { id, .. }
+                | SceneObjectView::Caption { id, .. }
                 | SceneObjectView::Graphic { id, .. } => id.as_str(),
             };
             (id, object)

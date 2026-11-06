@@ -7,9 +7,9 @@ use std::process::ExitCode;
 
 use chemifree_application::{
     Application, ApplicationError, AtomConfigurationDto, AtomKindView, AtomView,
-    BondConfigurationDto, BondEndDto, BondQueryDto, BondView, CommandDto, CopyResponse,
-    DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse, ErrorCode,
-    GraphicShapeDto, HydrogensDto, ListQuery, ListSort, MarkDto, OperationResponse,
+    BondConfigurationDto, BondEndDto, BondQueryDto, BondView, CaptionScriptDto, CommandDto,
+    CopyResponse, DeleteResponse, DocumentListResponse, DocumentResponse, DraftDiscardResponse,
+    ErrorCode, GraphicShapeDto, HydrogensDto, ListQuery, ListSort, MarkDto, OperationResponse,
     PreferencesChange, PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto,
     RegistryEntryStatus, RestoreResponse, SceneObjectView, SelectionDto, SettingsDto,
     SettingsSource, StereoGroupKindDto, StereoView, TransactionSelections, TrashListResponse,
@@ -792,6 +792,33 @@ fn document_text(response: &DocumentResponse) -> String {
     );
     for object in &document.scene.objects {
         match object {
+            SceneObjectView::Caption {
+                id,
+                parent,
+                anchor,
+                runs,
+            } => {
+                // ASCII escaping makes Unicode scalar values and quotes unambiguous without
+                // sending directional/format controls from user text to the terminal.
+                let runs: Vec<String> = runs
+                    .iter()
+                    .map(|run| {
+                        let script = match run.script {
+                            CaptionScriptDto::Baseline => "baseline",
+                            CaptionScriptDto::Subscript => "subscript",
+                            CaptionScriptDto::Superscript => "superscript",
+                        };
+                        format!("{script}(\"{}\")", run.text.escape_default())
+                    })
+                    .collect();
+                lines.push(format!(
+                    "  {id}  caption in {} at ({}, {}): {}",
+                    parent.as_deref().unwrap_or("page"),
+                    anchor.x,
+                    anchor.y,
+                    runs.join(" ")
+                ));
+            }
             SceneObjectView::Instance {
                 id,
                 parent: Some(parent),
@@ -1082,6 +1109,52 @@ mod tests {
         application
             .apply_transaction(&id, None, 0, commands)
             .unwrap()
+    }
+
+    #[test]
+    fn caption_output_keeps_parent_anchor_run_order_and_explicit_script() {
+        let text = shown(json!([
+            {"op":"add_caption","anchor":{"x":5,"y":7},"runs":[
+                {"text":"H","script":"baseline"},{"text":"2","script":"subscript"},{"text":"+","script":"superscript"}
+            ]},
+            {"op":"add_graphic","shape":"line","points":[{"x":0,"y":0},{"x":10,"y":0}]},
+            {"op":"group","objects":["s2","s3"]}
+        ]));
+        let caption: Vec<_> = text
+            .lines()
+            .filter(|line| line.contains("  caption in "))
+            .collect();
+        assert_eq!(
+            caption,
+            [r#"  s2  caption in s4 at (5, 7): baseline("H") subscript("2") superscript("+")"#]
+        );
+    }
+
+    #[test]
+    fn caption_output_escapes_unicode_and_quoting_without_changing_stored_text() {
+        let original = "한글 e\u{301} \u{202e}\"\\ & <>";
+        let response = drawn(json!([
+            {"op":"add_caption","anchor":{"x":0,"y":0},"runs":[{"text":original,"script":"baseline"}]}
+        ]));
+        let text = document_text(&response);
+        let caption: Vec<_> = text
+            .lines()
+            .filter(|line| line.contains("  caption in "))
+            .collect();
+        assert_eq!(
+            caption,
+            [
+                r#"  s2  caption in page at (0, 0): baseline("\u{d55c}\u{ae00} e\u{301} \u{202e}\"\\ & <>")"#
+            ]
+        );
+        assert!(
+            !text.contains('\u{202e}'),
+            "terminal output must not contain the user's bidi control"
+        );
+        assert_eq!(
+            serde_json::to_value(response.document).unwrap()["scene"]["objects"][1]["runs"][0]["text"],
+            original
+        );
     }
 
     #[test]

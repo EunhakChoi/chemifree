@@ -699,6 +699,8 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "add_instance",
             "move_instance",
             "delete_instance",
+            "add_caption",
+            "update_caption",
             "add_graphic",
             "group",
             "ungroup",
@@ -742,6 +744,8 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
         carried_out_by("scene_tree"),
         [
             "add_graphic",
+            "add_caption",
+            "update_caption",
             "group",
             "ungroup",
             "reorder",
@@ -794,12 +798,12 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "split_stereo_group"
         ]
     );
-    assert_eq!(commands.len(), 37, "{commands:?}");
+    assert_eq!(commands.len(), 39, "{commands:?}");
     assert_eq!(capabilities.len(), 11, "{capabilities:?}");
     assert_eq!(
         transaction["sub_operations"].as_array().unwrap().len(),
-        48,
-        "37 command rows and 11 capability rows"
+        50,
+        "39 command rows and 11 capability rows"
     );
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }

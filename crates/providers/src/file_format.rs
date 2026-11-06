@@ -1,8 +1,9 @@
-//! Chemifree document file format, version 7 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 8 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
-//! Version 7 stores the chemical graph (`molecule`), the page's ordered scene tree, directed
+//! Version 8 adds independent Unicode captions to version 7. It stores the chemical graph
+//! (`molecule`), the page's ordered scene tree, directed
 //! references, positions, stated stereo configurations (`stereo`), enhanced-stereo groups
 //! (`stereo_groups`), selection, and document settings. History records their changes together.
 //! An atom state records its kind (an element or a query), charge, isotope, hydrogen state,
@@ -18,7 +19,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 7. Other versions
+//! so they read with none. Reading never writes; the next write is version 8. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -30,7 +31,8 @@ use chemifree_domain::document::{
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
-    Graphic, GraphicShape, ReferenceTarget, SceneObject, SceneReference, Selection,
+    Caption, CaptionRun, CaptionScript, Graphic, GraphicShape, ReferenceTarget, SceneObject,
+    SceneReference, Selection,
 };
 use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, Settings};
 use chemifree_domain::states::{
@@ -44,9 +46,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 7;
+const FORMAT_VERSION: u32 = 8;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 7;
+const DRAFT_FORMAT_VERSION: u32 = 8;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -129,6 +131,10 @@ enum StoredGroupKind {
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum SceneState {
+    Caption {
+        anchor: StoredPoint,
+        runs: Vec<StoredCaptionRun>,
+    },
     Instance {
         molecule: String,
     },
@@ -139,6 +145,21 @@ enum SceneState {
         shape: StoredShape,
         points: [StoredPoint; 2],
     },
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredCaptionRun {
+    text: String,
+    script: StoredCaptionScript,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredCaptionScript {
+    Baseline,
+    Subscript,
+    Superscript,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -1103,6 +1124,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Seven,
     Six,
     Five,
     Four,
@@ -1121,6 +1143,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        7 => Ok(Version::Seven),
         VERSION_6 => Ok(Version::Six),
         VERSION_5 => Ok(Version::Five),
         VERSION_4 => Ok(Version::Four),
@@ -1129,7 +1152,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, and \
              {current}"
         )),
     }
@@ -1265,7 +1288,7 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
     Ok(probe.document.revision)
 }
 
-/// The earlier version of a document file this build reads (1 to 6), which a save
+/// The earlier version of a document file this build reads (1 to 7), which a save
 /// replaces only after keeping a copy of it; `None` otherwise.
 pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
     earlier(version(bytes, FORMAT, FORMAT_VERSION, "document"))
@@ -1284,15 +1307,17 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Four) => Some(VERSION_4),
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
+        Ok(Version::Seven) => Some(7),
         Ok(Version::Current) | Err(_) => None,
     }
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1 to 6 file
+/// Parses and fully validates a stored document, including its history; a version 1 to 7 file
 /// is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
-    let parts = match version(bytes, FORMAT, FORMAT_VERSION, "document")? {
-        Version::Current => {
+    let format = version(bytes, FORMAT, FORMAT_VERSION, "document")?;
+    let parts = match format {
+        Version::Current | Version::Seven => {
             let file: SceneFile = parse(bytes, "document")?;
             scene_parts(file.document, file.history)?
         }
@@ -1323,56 +1348,77 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
             migrate(file.document, file.history)?
         }
     };
+    refuse_earlier_captions(format, &parts)?;
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1 to 6 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1 to 7 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
-    let (parts, base_revision, saved_at_ms) =
-        match version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")? {
-            Version::Current => {
-                let file: SceneDraftFile = parse(bytes, "draft")?;
-                let parts = scene_parts(file.document, file.history)?;
-                (parts, file.base_revision, file.saved_at_ms)
-            }
-            Version::Six => {
-                let file: v6::Draft = parse(bytes, "draft")?;
-                let parts = scene_parts(file.document.into(), file.history.into())?;
-                (parts, file.base_revision, file.saved_at_ms)
-            }
-            Version::Five => {
-                let file: v5::Draft = parse(bytes, "draft")?;
-                let parts = scene_parts(file.document.into(), file.history.into())?;
-                (parts, file.base_revision, file.saved_at_ms)
-            }
-            Version::Four => {
-                let file: v4::Draft = parse(bytes, "draft")?;
-                let (document, history): (v5::Document, v5::History) =
-                    (file.document.into(), file.history.into());
-                let parts = scene_parts(document.into(), history.into())?;
-                (parts, file.base_revision, file.saved_at_ms)
-            }
-            Version::Three => {
-                let file: DraftFile<AtomState, UnmarkedBondState> = parse(bytes, "draft")?;
-                let parts = parts(file.document, file.history)?;
-                (parts, file.base_revision, file.saved_at_ms)
-            }
-            Version::Two => {
-                let file: DraftFile<v2::AtomState, v2::BondState> = parse(bytes, "draft")?;
-                let parts = parts(file.document, file.history)?;
-                (parts, file.base_revision, file.saved_at_ms)
-            }
-            Version::One => {
-                let file: v1::Draft = parse(bytes, "draft")?;
-                let parts = migrate(file.document, file.history)?;
-                (parts, file.base_revision, file.saved_at_ms)
-            }
-        };
+    let format = version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")?;
+    let (parts, base_revision, saved_at_ms) = match format {
+        Version::Current | Version::Seven => {
+            let file: SceneDraftFile = parse(bytes, "draft")?;
+            let parts = scene_parts(file.document, file.history)?;
+            (parts, file.base_revision, file.saved_at_ms)
+        }
+        Version::Six => {
+            let file: v6::Draft = parse(bytes, "draft")?;
+            let parts = scene_parts(file.document.into(), file.history.into())?;
+            (parts, file.base_revision, file.saved_at_ms)
+        }
+        Version::Five => {
+            let file: v5::Draft = parse(bytes, "draft")?;
+            let parts = scene_parts(file.document.into(), file.history.into())?;
+            (parts, file.base_revision, file.saved_at_ms)
+        }
+        Version::Four => {
+            let file: v4::Draft = parse(bytes, "draft")?;
+            let (document, history): (v5::Document, v5::History) =
+                (file.document.into(), file.history.into());
+            let parts = scene_parts(document.into(), history.into())?;
+            (parts, file.base_revision, file.saved_at_ms)
+        }
+        Version::Three => {
+            let file: DraftFile<AtomState, UnmarkedBondState> = parse(bytes, "draft")?;
+            let parts = parts(file.document, file.history)?;
+            (parts, file.base_revision, file.saved_at_ms)
+        }
+        Version::Two => {
+            let file: DraftFile<v2::AtomState, v2::BondState> = parse(bytes, "draft")?;
+            let parts = parts(file.document, file.history)?;
+            (parts, file.base_revision, file.saved_at_ms)
+        }
+        Version::One => {
+            let file: v1::Draft = parse(bytes, "draft")?;
+            let parts = migrate(file.document, file.history)?;
+            (parts, file.base_revision, file.saved_at_ms)
+        }
+    };
+    refuse_earlier_captions(format, &parts)?;
     Ok(Draft {
         document: Document::restore(parts).map_err(|error| error.to_string())?,
         base_revision,
         saved_at_ms,
     })
+}
+
+/// Caption variants are forbidden in all earlier versions, including history-only states.
+fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(), String> {
+    if format == Version::Current {
+        return Ok(());
+    }
+    let caption = |object: &SceneObject| matches!(object, SceneObject::Caption(_));
+    if parts.objects.iter().any(|(_, object)| caption(object))
+        || parts.undo.iter().chain(&parts.redo).any(|change| {
+            change.objects.iter().any(|(_, state)| {
+                state.before.as_ref().is_some_and(caption)
+                    || state.after.as_ref().is_some_and(caption)
+            })
+        })
+    {
+        return Err("Captions require file format version 8.".into());
+    }
+    Ok(())
 }
 
 /// Reads a draft's header without restoring its document; `decode_draft` validates.
@@ -1474,6 +1520,21 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
 
 fn stored_scene_state(object: &SceneObject) -> SceneState {
     match object {
+        SceneObject::Caption(caption) => SceneState::Caption {
+            anchor: stored_point(&caption.anchor),
+            runs: caption
+                .runs
+                .iter()
+                .map(|run| StoredCaptionRun {
+                    text: run.text.clone(),
+                    script: match run.script {
+                        CaptionScript::Baseline => StoredCaptionScript::Baseline,
+                        CaptionScript::Subscript => StoredCaptionScript::Subscript,
+                        CaptionScript::Superscript => StoredCaptionScript::Superscript,
+                    },
+                })
+                .collect(),
+        },
         SceneObject::Instance => SceneState::Instance {
             molecule: MOLECULE_ID.to_owned(),
         },
@@ -1517,6 +1578,24 @@ fn read_reference(reference: StoredReference) -> Result<SceneReference, String> 
 
 fn read_scene_state(object: SceneState) -> Result<SceneObject, String> {
     Ok(match object {
+        SceneState::Caption { anchor, runs } => {
+            let caption = Caption {
+                anchor: point(anchor.x, anchor.y)?,
+                runs: runs
+                    .into_iter()
+                    .map(|run| CaptionRun {
+                        text: run.text,
+                        script: match run.script {
+                            StoredCaptionScript::Baseline => CaptionScript::Baseline,
+                            StoredCaptionScript::Subscript => CaptionScript::Subscript,
+                            StoredCaptionScript::Superscript => CaptionScript::Superscript,
+                        },
+                    })
+                    .collect(),
+            };
+            caption.validate().map_err(|cause| cause.to_string())?;
+            SceneObject::Caption(caption)
+        }
         SceneState::Instance { molecule } => {
             parents(PAGE_ID, &molecule)?;
             SceneObject::Instance

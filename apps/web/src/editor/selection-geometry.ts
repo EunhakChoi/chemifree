@@ -41,6 +41,7 @@ export function selectionGeometry(document: DocumentView, selected: ReadonlySet<
     if (!object) return null
     switch (object.kind) {
       case 'group': pending.push(...object.children); break
+      case 'caption': break
       case 'graphic': scope.graphics.add(id); break
       case 'instance': {
         const placement = instances.find((item) => item.id === id)
@@ -84,7 +85,9 @@ export function marqueeSelection(document: DocumentView, instance: string | null
 /** Build one captured union move; unknown targets or an expired placement lapse as a whole. */
 export function selectionMove(document: DocumentView, selected: ReadonlySet<string>, instance: string | null, delta: Position): Command[] | null {
   const scope = selectionGeometry(document, selected, instance)
-  if (!scope || (scope.positions.size === 0 && scope.graphics.size === 0)) return null
+  if (!scope) return null
+  const hasCaption = document.scene?.objects?.some((object) => object.kind === 'caption' && scope.objects.has(object.id)) ?? false
+  if (scope.positions.size === 0 && scope.graphics.size === 0 && !hasCaption) return null
   const selection = selectionSnapshot(new Set(selected), document)
   if (!document.scene?.objects) {
     return [{ op: 'move_atoms', atoms: [...(scope.positions.get(instance) ?? [])], delta, ...(instance === null ? {} : { instance }) }]
@@ -100,7 +103,7 @@ export function selectionTransform(document: DocumentView, selected: ReadonlySet
   const hasGraphTargets = selection.atoms.length > 0 || selection.bonds.length > 0
   const context = hasGraphTargets ? instance : null
   const scope = selectionGeometry(document, selected, context)
-  if (!scope) return null
+  if (!scope || document.scene.objects.some((object) => object.kind === 'caption' && scope.objects.has(object.id))) return null
   const points: Position[] = []
   for (const placement of document.scene.instances) {
     const atoms = scope.positions.get(placement.id)
