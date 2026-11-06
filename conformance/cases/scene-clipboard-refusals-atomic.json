@@ -1,0 +1,1890 @@
+{
+  "id": "scene-clipboard-refusals-atomic",
+  "title": "Scene clipboard rejects unsupported source selections, external references, wrong profiles, commands, style and overflowing coordinates without changing state or redo",
+  "requirements": [
+    "OPS-01",
+    "OPS-02",
+    "API-01",
+    "MODEL-01"
+  ],
+  "axis": "scene",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "source",
+      "title": "Scene source"
+    },
+    {
+      "call": "transact",
+      "document": "source",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "op": "add_graphic",
+          "shape": "line",
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 10,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "op": "add_graphic",
+          "shape": "arrow",
+          "points": [
+            {
+              "x": 20,
+              "y": 0
+            },
+            {
+              "x": 30,
+              "y": 0
+            }
+          ]
+        },
+        {
+          "op": "group",
+          "objects": [
+            "s2",
+            "s3"
+          ]
+        },
+        {
+          "op": "add_graphic",
+          "shape": "rectangle",
+          "points": [
+            {
+              "x": 40,
+              "y": 10
+            },
+            {
+              "x": 50,
+              "y": 20
+            }
+          ]
+        },
+        {
+          "op": "add_graphic",
+          "shape": "line",
+          "points": [
+            {
+              "x": -10,
+              "y": -10
+            },
+            {
+              "x": -20,
+              "y": -20
+            }
+          ]
+        },
+        {
+          "op": "add_reference",
+          "source": "s2",
+          "target": {
+            "kind": "object",
+            "id": "s2"
+          }
+        },
+        {
+          "op": "add_reference",
+          "source": "s2",
+          "target": {
+            "kind": "object",
+            "id": "s3"
+          }
+        },
+        {
+          "op": "add_reference",
+          "source": "s3",
+          "target": {
+            "kind": "object",
+            "id": "s2"
+          }
+        },
+        {
+          "op": "add_reference",
+          "source": "s4",
+          "target": {
+            "kind": "object",
+            "id": "s2"
+          }
+        },
+        {
+          "op": "add_reference",
+          "source": "s6",
+          "target": {
+            "kind": "object",
+            "id": "s2"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": [],
+          "scene": {
+            "roots": [
+              "s1",
+              "s4",
+              "s5",
+              "s6"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              },
+              {
+                "kind": "graphic",
+                "id": "s2",
+                "parent": "s4",
+                "shape": "line",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s3",
+                "parent": "s4",
+                "shape": "arrow",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 0
+                  },
+                  {
+                    "x": 30,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "group",
+                "id": "s4",
+                "parent": null,
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s5",
+                "parent": null,
+                "shape": "rectangle",
+                "points": [
+                  {
+                    "x": 40,
+                    "y": 10
+                  },
+                  {
+                    "x": 50,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s6",
+                "parent": null,
+                "shape": "line",
+                "points": [
+                  {
+                    "x": -10,
+                    "y": -10
+                  },
+                  {
+                    "x": -20,
+                    "y": -20
+                  }
+                ]
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s3"
+                }
+              },
+              {
+                "source": "s3",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s4",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s6",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "source",
+      "request": {
+        "contract": 1,
+        "request_id": "scene-copy-instance",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_scene_copy",
+        "parameters": {
+          "selection": {
+            "objects": [
+              "s1"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_scene_instance_unsupported"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "source",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": [],
+          "scene": {
+            "roots": [
+              "s1",
+              "s4",
+              "s5",
+              "s6"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              },
+              {
+                "kind": "graphic",
+                "id": "s2",
+                "parent": "s4",
+                "shape": "line",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s3",
+                "parent": "s4",
+                "shape": "arrow",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 0
+                  },
+                  {
+                    "x": 30,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "group",
+                "id": "s4",
+                "parent": null,
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s5",
+                "parent": null,
+                "shape": "rectangle",
+                "points": [
+                  {
+                    "x": 40,
+                    "y": 10
+                  },
+                  {
+                    "x": 50,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s6",
+                "parent": null,
+                "shape": "line",
+                "points": [
+                  {
+                    "x": -10,
+                    "y": -10
+                  },
+                  {
+                    "x": -20,
+                    "y": -20
+                  }
+                ]
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s3"
+                }
+              },
+              {
+                "source": "s3",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s4",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s6",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "source",
+      "request": {
+        "contract": 1,
+        "request_id": "scene-copy-mixed",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_scene_copy",
+        "parameters": {
+          "selection": {
+            "objects": [
+              "s4"
+            ],
+            "atoms": [
+              "a1"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_scene_graph_selection_unsupported"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "source",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": [],
+          "scene": {
+            "roots": [
+              "s1",
+              "s4",
+              "s5",
+              "s6"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              },
+              {
+                "kind": "graphic",
+                "id": "s2",
+                "parent": "s4",
+                "shape": "line",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s3",
+                "parent": "s4",
+                "shape": "arrow",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 0
+                  },
+                  {
+                    "x": 30,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "group",
+                "id": "s4",
+                "parent": null,
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s5",
+                "parent": null,
+                "shape": "rectangle",
+                "points": [
+                  {
+                    "x": 40,
+                    "y": 10
+                  },
+                  {
+                    "x": 50,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s6",
+                "parent": null,
+                "shape": "line",
+                "points": [
+                  {
+                    "x": -10,
+                    "y": -10
+                  },
+                  {
+                    "x": -20,
+                    "y": -20
+                  }
+                ]
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s3"
+                }
+              },
+              {
+                "source": "s3",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s4",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s6",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "source",
+      "request": {
+        "contract": 1,
+        "request_id": "scene-copy-outgoing",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_scene_copy",
+        "parameters": {
+          "selection": {
+            "objects": [
+              "s2"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_scene_reference_unsupported"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "source",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": [],
+          "scene": {
+            "roots": [
+              "s1",
+              "s4",
+              "s5",
+              "s6"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              },
+              {
+                "kind": "graphic",
+                "id": "s2",
+                "parent": "s4",
+                "shape": "line",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s3",
+                "parent": "s4",
+                "shape": "arrow",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 0
+                  },
+                  {
+                    "x": 30,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "group",
+                "id": "s4",
+                "parent": null,
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s5",
+                "parent": null,
+                "shape": "rectangle",
+                "points": [
+                  {
+                    "x": 40,
+                    "y": 10
+                  },
+                  {
+                    "x": 50,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s6",
+                "parent": null,
+                "shape": "line",
+                "points": [
+                  {
+                    "x": -10,
+                    "y": -10
+                  },
+                  {
+                    "x": -20,
+                    "y": -20
+                  }
+                ]
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s3"
+                }
+              },
+              {
+                "source": "s3",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s4",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s6",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "source",
+      "request": {
+        "contract": 1,
+        "request_id": "scene-copy-empty",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_scene_copy",
+        "parameters": {
+          "selection": {}
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_scene_empty_selection"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "source",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": [],
+          "scene": {
+            "roots": [
+              "s1",
+              "s4",
+              "s5",
+              "s6"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              },
+              {
+                "kind": "graphic",
+                "id": "s2",
+                "parent": "s4",
+                "shape": "line",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s3",
+                "parent": "s4",
+                "shape": "arrow",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 0
+                  },
+                  {
+                    "x": 30,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "group",
+                "id": "s4",
+                "parent": null,
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s5",
+                "parent": null,
+                "shape": "rectangle",
+                "points": [
+                  {
+                    "x": 40,
+                    "y": 10
+                  },
+                  {
+                    "x": 50,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s6",
+                "parent": null,
+                "shape": "line",
+                "points": [
+                  {
+                    "x": -10,
+                    "y": -10
+                  },
+                  {
+                    "x": -20,
+                    "y": -20
+                  }
+                ]
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s3"
+                }
+              },
+              {
+                "source": "s3",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s4",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s6",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "source",
+      "request": {
+        "contract": 1,
+        "request_id": "scene-copy-valid",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_scene_copy",
+        "parameters": {
+          "selection": {
+            "objects": [
+              "s4",
+              "s2"
+            ]
+          }
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "roots": [
+            "s4"
+          ],
+          "copied": {
+            "objects": [
+              "s4",
+              "s2",
+              "s3"
+            ],
+            "atoms": [],
+            "bonds": []
+          }
+        }
+      },
+      "capture": {
+        "forest": "/result/payload"
+      }
+    },
+    {
+      "call": "operation",
+      "document": "source",
+      "request": {
+        "contract": 1,
+        "request_id": "graph-copy-valid",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_copy",
+        "parameters": {
+          "selection": {
+            "atoms": [
+              "a1"
+            ]
+          },
+          "instance": "s1"
+        }
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "copied": {
+            "objects": [],
+            "atoms": [
+              "a1"
+            ],
+            "bonds": []
+          },
+          "boundary_bonds": []
+        }
+      },
+      "capture": {
+        "graph": "/result/payload"
+      }
+    },
+    {
+      "call": "create",
+      "bind": "target",
+      "title": "Scene unchanged"
+    },
+    {
+      "call": "transact",
+      "document": "target",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": -50,
+            "y": -50
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "transact",
+      "document": "target",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "rename",
+          "title": "Temporary title"
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2
+        }
+      }
+    },
+    {
+      "call": "undo",
+      "document": "target",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Scene unchanged"
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Scene unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            }
+          ],
+          "bonds": [],
+          "stereo": {
+            "atoms": [],
+            "bonds": [],
+            "groups": []
+          },
+          "settings": {
+            "bond_length_pt": 30,
+            "line_width_pt": 1.2,
+            "label_font": "sans-serif",
+            "label_size_pt": 12,
+            "carbon_labels": "default",
+            "display_unit": "pt"
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          },
+          "scene": {
+            "roots": [
+              "s1"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              }
+            ],
+            "references": [],
+            "instances": [
+              {
+                "id": "s1",
+                "page": "p1",
+                "molecule": "m1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": -50,
+                    "y": -50
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "scene-paste-version",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_scene_paste",
+        "parameters": {
+          "expected_revision": 3,
+          "payload": "{\"format\":\"chemifree.clipboard\",\"version\":3,\"future_body\":{\"commands\":[]}}",
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_format_unsupported"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Scene unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            }
+          ],
+          "bonds": [],
+          "stereo": {
+            "atoms": [],
+            "bonds": [],
+            "groups": []
+          },
+          "settings": {
+            "bond_length_pt": 30,
+            "line_width_pt": 1.2,
+            "label_font": "sans-serif",
+            "label_size_pt": 12,
+            "carbon_labels": "default",
+            "display_unit": "pt"
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          },
+          "scene": {
+            "roots": [
+              "s1"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              }
+            ],
+            "references": [],
+            "instances": [
+              {
+                "id": "s1",
+                "page": "p1",
+                "molecule": "m1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": -50,
+                    "y": -50
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "scene-paste-graph-profile",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_scene_paste",
+        "parameters": {
+          "expected_revision": 3,
+          "payload": "",
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_format_unsupported"
+            }
+          }
+        ]
+      },
+      "substitute": {
+        "/parameters/payload": "graph"
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Scene unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            }
+          ],
+          "bonds": [],
+          "stereo": {
+            "atoms": [],
+            "bonds": [],
+            "groups": []
+          },
+          "settings": {
+            "bond_length_pt": 30,
+            "line_width_pt": 1.2,
+            "label_font": "sans-serif",
+            "label_size_pt": 12,
+            "carbon_labels": "default",
+            "display_unit": "pt"
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          },
+          "scene": {
+            "roots": [
+              "s1"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              }
+            ],
+            "references": [],
+            "instances": [
+              {
+                "id": "s1",
+                "page": "p1",
+                "molecule": "m1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": -50,
+                    "y": -50
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "scene-paste-command-injection",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_scene_paste",
+        "parameters": {
+          "expected_revision": 3,
+          "payload": "{\"format\":\"chemifree.clipboard\",\"version\":2,\"kind\":\"graphics\",\"settings\":{\"bond_length_pt\":30,\"line_width_pt\":1.2,\"label_font\":\"sans-serif\",\"label_size_pt\":12,\"carbon_labels\":\"default\",\"display_unit\":\"pt\"},\"roots\":[\"s2\"],\"objects\":[{\"kind\":\"graphic\",\"id\":\"s2\",\"shape\":\"line\",\"points\":[{\"x\":0,\"y\":0},{\"x\":10,\"y\":0}]}],\"references\":[],\"commands\":[{\"op\":\"delete_atoms\",\"atoms\":[\"a1\"]}]}",
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_fragment_invalid"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Scene unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            }
+          ],
+          "bonds": [],
+          "stereo": {
+            "atoms": [],
+            "bonds": [],
+            "groups": []
+          },
+          "settings": {
+            "bond_length_pt": 30,
+            "line_width_pt": 1.2,
+            "label_font": "sans-serif",
+            "label_size_pt": 12,
+            "carbon_labels": "default",
+            "display_unit": "pt"
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          },
+          "scene": {
+            "roots": [
+              "s1"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              }
+            ],
+            "references": [],
+            "instances": [
+              {
+                "id": "s1",
+                "page": "p1",
+                "molecule": "m1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": -50,
+                    "y": -50
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "scene-paste-style",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_scene_paste",
+        "parameters": {
+          "expected_revision": 3,
+          "payload": "{\"format\":\"chemifree.clipboard\",\"version\":2,\"kind\":\"graphics\",\"settings\":{\"bond_length_pt\":30,\"line_width_pt\":2,\"label_font\":\"sans-serif\",\"label_size_pt\":12,\"carbon_labels\":\"default\",\"display_unit\":\"pt\"},\"roots\":[\"s2\"],\"objects\":[{\"kind\":\"graphic\",\"id\":\"s2\",\"shape\":\"line\",\"points\":[{\"x\":0,\"y\":0},{\"x\":10,\"y\":0}]}],\"references\":[]}",
+          "offset": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_scene_style_mismatch"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Scene unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            }
+          ],
+          "bonds": [],
+          "stereo": {
+            "atoms": [],
+            "bonds": [],
+            "groups": []
+          },
+          "settings": {
+            "bond_length_pt": 30,
+            "line_width_pt": 1.2,
+            "label_font": "sans-serif",
+            "label_size_pt": 12,
+            "carbon_labels": "default",
+            "display_unit": "pt"
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          },
+          "scene": {
+            "roots": [
+              "s1"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              }
+            ],
+            "references": [],
+            "instances": [
+              {
+                "id": "s1",
+                "page": "p1",
+                "molecule": "m1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": -50,
+                    "y": -50
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "target",
+      "request": {
+        "contract": 1,
+        "request_id": "scene-paste-overflow",
+        "profile": "preserve-semantics",
+        "operation": "document.clipboard_scene_paste",
+        "parameters": {
+          "expected_revision": 3,
+          "payload": "",
+          "offset": {
+            "x": 100000,
+            "y": 0
+          }
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "invalid_command",
+            "details": {
+              "reason": "clipboard_scene_fragment_invalid"
+            }
+          }
+        ]
+      },
+      "substitute": {
+        "/parameters/payload": "forest"
+      }
+    },
+    {
+      "call": "get",
+      "document": "target",
+      "expect": {
+        "document": {
+          "revision": 3,
+          "title": "Scene unchanged",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            }
+          ],
+          "bonds": [],
+          "stereo": {
+            "atoms": [],
+            "bonds": [],
+            "groups": []
+          },
+          "settings": {
+            "bond_length_pt": 30,
+            "line_width_pt": 1.2,
+            "label_font": "sans-serif",
+            "label_size_pt": 12,
+            "carbon_labels": "default",
+            "display_unit": "pt"
+          },
+          "selection": {
+            "objects": [],
+            "atoms": [],
+            "bonds": []
+          },
+          "scene": {
+            "roots": [
+              "s1"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              }
+            ],
+            "references": [],
+            "instances": [
+              {
+                "id": "s1",
+                "page": "p1",
+                "molecule": "m1",
+                "positions": [
+                  {
+                    "atom": "a1",
+                    "x": -50,
+                    "y": -50
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 1
+        }
+      }
+    },
+    {
+      "call": "redo",
+      "document": "target",
+      "expected_revision": 3,
+      "expect": {
+        "document": {
+          "revision": 4,
+          "title": "Temporary title",
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": -50,
+                "y": -50
+              }
+            }
+          ],
+          "bonds": [],
+          "scene": {
+            "roots": [
+              "s1"
+            ],
+            "references": []
+          }
+        },
+        "session": {
+          "undo_depth": 2,
+          "redo_depth": 0
+        }
+      }
+    },
+    {
+      "call": "get",
+      "document": "source",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C",
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "bonds": [],
+          "scene": {
+            "roots": [
+              "s1",
+              "s4",
+              "s5",
+              "s6"
+            ],
+            "objects": [
+              {
+                "kind": "instance",
+                "id": "s1",
+                "parent": null,
+                "molecule": "m1"
+              },
+              {
+                "kind": "graphic",
+                "id": "s2",
+                "parent": "s4",
+                "shape": "line",
+                "points": [
+                  {
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 10,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s3",
+                "parent": "s4",
+                "shape": "arrow",
+                "points": [
+                  {
+                    "x": 20,
+                    "y": 0
+                  },
+                  {
+                    "x": 30,
+                    "y": 0
+                  }
+                ]
+              },
+              {
+                "kind": "group",
+                "id": "s4",
+                "parent": null,
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s5",
+                "parent": null,
+                "shape": "rectangle",
+                "points": [
+                  {
+                    "x": 40,
+                    "y": 10
+                  },
+                  {
+                    "x": 50,
+                    "y": 20
+                  }
+                ]
+              },
+              {
+                "kind": "graphic",
+                "id": "s6",
+                "parent": null,
+                "shape": "line",
+                "points": [
+                  {
+                    "x": -10,
+                    "y": -10
+                  },
+                  {
+                    "x": -20,
+                    "y": -20
+                  }
+                ]
+              }
+            ],
+            "references": [
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s2",
+                "target": {
+                  "kind": "object",
+                  "id": "s3"
+                }
+              },
+              {
+                "source": "s3",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s4",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              },
+              {
+                "source": "s6",
+                "target": {
+                  "kind": "object",
+                  "id": "s2"
+                }
+              }
+            ]
+          }
+        },
+        "session": {
+          "undo_depth": 1,
+          "redo_depth": 0
+        }
+      }
+    }
+  ]
+}

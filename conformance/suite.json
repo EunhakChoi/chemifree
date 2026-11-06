@@ -1,5 +1,5 @@
 {
-  "suite_version": 29,
+  "suite_version": 30,
   "cases": [
     "cases/transaction-all-or-nothing.json",
     "cases/transaction-revision-and-no-op.json",
@@ -107,6 +107,8 @@
     "cases/selection-transform-plan-history.json",
     "cases/selection-transform-refusal-atomic.json",
     "cases/native-clipboard-copy-paste-history.json",
-    "cases/native-clipboard-refusals-atomic.json"
+    "cases/native-clipboard-refusals-atomic.json",
+    "cases/scene-clipboard-forest-history.json",
+    "cases/scene-clipboard-refusals-atomic.json"
   ]
 }
