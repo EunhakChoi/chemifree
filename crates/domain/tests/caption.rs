@@ -302,7 +302,10 @@ fn font_only_replacement_is_one_edit_and_preserves_mixed_runs_and_graph() {
             object: object(2),
             caption: value.clone(),
         };
-        assert_eq!(doc.apply(&[command.clone()]).unwrap(), Outcome::Changed);
+        assert_eq!(
+            doc.apply(std::slice::from_ref(&command)).unwrap(),
+            Outcome::Changed
+        );
         assert_eq!(doc.undo_depth(), depth + 1);
         assert_eq!(
             doc.scene_objects()[1].2,
