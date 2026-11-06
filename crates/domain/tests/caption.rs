@@ -16,6 +16,7 @@ fn caption(text: &str) -> Caption {
         alignment: Default::default(),
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![CaptionRun {
+            underline: false,
             color: None,
             size_pt: None,
             font: None,
@@ -45,6 +46,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![
             CaptionRun {
+                underline: false,
                 color: None,
                 size_pt: None,
                 font: None,
@@ -54,6 +56,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
                 style: Default::default(),
             },
             CaptionRun {
+                underline: false,
                 color: None,
                 size_pt: None,
                 font: None,
@@ -63,6 +66,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
                 style: Default::default(),
             },
             CaptionRun {
+                underline: false,
                 color: None,
                 size_pt: None,
                 font: None,

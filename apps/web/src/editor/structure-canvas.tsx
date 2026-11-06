@@ -212,7 +212,42 @@ export function StructureCanvas({
           const offset = alignment === 'right' ? advance : alignment === 'center' ? advance / 2 : 0
           text.setAttribute('x', String(anchor - offset))
           const ink = text.getBBox()
-          boxes.set(id, { x: ink.x - 2, y: ink.y - 2, width: ink.width + 4, height: ink.height + 4 })
+          let left = ink.x
+          let top = ink.y
+          let right = ink.x + ink.width
+          let bottom = ink.y + ink.height
+          // SVG text getBBox does not promise decoration ink. Our underline is an
+          // explicit rectangle whose geometry also enters fit, selection and hit testing.
+          for (const line of text.parentElement?.querySelectorAll<SVGRectElement>('[data-caption-underline]') ?? []) {
+            const span = text.children.item(Number(line.getAttribute('data-caption-underline')))
+            if (!(span instanceof SVGTSpanElement)) continue
+            const characters = span.getNumberOfChars()
+            // A fully invisible run may expose no addressable SVG characters. It
+            // paints no underline; its empty position must not enlarge content bounds.
+            let start = characters === 0 ? span.getBBox().x : Infinity
+            let end = characters === 0 ? start : -Infinity
+            for (let index = 0; index < characters; index++) {
+              const a = span.getStartPositionOfChar(index).x
+              const b = span.getEndPositionOfChar(index).x
+              start = Math.min(start, a, b)
+              end = Math.max(end, a, b)
+            }
+            if (!Number.isFinite(start) || !Number.isFinite(end)) continue
+            const size = Number(span.getAttribute('font-size'))
+            const y = Number(span.getAttribute('y')) + size / 12
+            const height = size / 16
+            line.setAttribute('x', String(start))
+            line.setAttribute('y', String(y))
+            line.setAttribute('width', String(end - start))
+            line.setAttribute('height', String(height))
+            if (end > start) {
+              left = Math.min(left, start)
+              top = Math.min(top, y)
+              right = Math.max(right, end)
+              bottom = Math.max(bottom, y + height)
+            }
+          }
+          boxes.set(id, { x: left - 2, y: top - 2, width: right - left + 4, height: bottom - top + 4 })
         }
         setCaptionMeasurement({ document, boxes, fontsReady: globalThis.document.fonts.status === 'loaded', viewBox: svg.getAttribute('viewBox') ?? undefined })
       })

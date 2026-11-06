@@ -1931,6 +1931,9 @@ impl From<CaptionAlignment> for CaptionAlignmentDto {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CaptionRunDto {
+    /// Omission means false; null and non-booleans are malformed.
+    #[serde(default)]
+    pub underline: bool,
     /// Null or omission follows the theme foreground; overrides are opaque sRGB #RRGGBB.
     #[serde(default)]
     pub color: Option<String>,
@@ -1975,6 +1978,7 @@ pub enum CaptionStyleDto {
 impl From<&CaptionRun> for CaptionRunDto {
     fn from(run: &CaptionRun) -> Self {
         Self {
+            underline: run.underline,
             color: run.color.clone(),
             size_pt: run.size_pt,
             font: run.font.map(font_view),
@@ -2010,6 +2014,7 @@ fn caption(
         runs: runs
             .iter()
             .map(|run| CaptionRun {
+                underline: run.underline,
                 color: run.color.clone(),
                 size_pt: run.size_pt,
                 font: run.font.map(|font| match font {

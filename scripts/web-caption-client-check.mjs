@@ -157,3 +157,14 @@ for (const color of ['', '#ABCDEF\n', '#ABCDEF\r', 'black', '#abc', '#abcdef', '
   value.document.scene.objects.at(-1).runs[0].color = color
   assert.equal(isDocumentResponse(value), false)
 })
+
+for (const underline of [undefined, false, true]) test(`caption underline accepts ${String(underline)}`, () => {
+  const result = source()
+  result.document.scene.objects.at(-1).runs[0].underline = underline
+  assert.equal(isDocumentResponse(result), true)
+})
+for (const underline of [null, 0, 1, 'true', 'false', [], {}]) test(`caption underline rejects ${JSON.stringify(underline)}`, () => {
+  const result = source()
+  result.document.scene.objects.at(-1).runs[0].underline = underline
+  assert.equal(isDocumentResponse(result), false)
+})
