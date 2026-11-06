@@ -107,6 +107,20 @@ native payload에 필요한 charge/isotope 완전 상태 필드는 제거하지 
 않았다. 수정 HEAD의 Application 이후 검사·current full/CI는 부모 재실행 대기다. 이
 fixture 실패 이전에 기능 검사가 통과했다거나 수정 후 통과했다고 주장하지 않는다.
 
+## 두 번째 targeted 결과와 TypeScript narrowing 수정
+
+부모가 fixture 수정 HEAD `695be66056a858f35da4edf78d1941f9a7e6866f`를 격리 실행했다.
+`/tmp/chemifree-p29d-verify-j4KjPa/p34e-targeted2.log`에서 Domain 5/5, Application 2/2,
+npm run lint는 통과했다. typecheck는 document-contract.ts의 두 copied atom/bond lookup에서
+callback 안의 mutable record.id가 unknown으로 돌아가 Map.get(string)에 전달될 수 없다는
+TS2345로 실패했다. sandbox exit2이며 이후 client/build/browser 통과 근거는 없다.
+
+기존 runtime isRecord/id-string/좌표/kind 검사를 모두 유지하고, 검증 직후 Map lookup을
+동기 실행해 const copiedId에 담은 뒤 find callback에서는 그 결과만 캡처하도록 수정했다.
+unknown을 assertion/any로 우회하거나 잘못된 record를 허용하지 않는다. 같은 검증 함수의
+다른 callback 경계도 정적으로 대조했다. 작성자는 typecheck·테스트·빌드·브라우저·push를
+실행하지 않았다. 수정 HEAD의 재검증과 full/CI는 부모 실행 대기다.
+
 ## 실행 대기
 
 부모의 공유 격리 실행 지시에 따라 테스트·빌드·브라우저·lint/typecheck/clippy·mutation·

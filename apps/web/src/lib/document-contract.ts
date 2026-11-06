@@ -2387,14 +2387,16 @@ export class DocumentClient {
     const offset = { x: target.position.x + length * dx / norm - sourceAnchor.position.x, y: target.position.y + length * dy / norm - sourceAnchor.position.y }
     for (const atom of sourceAtoms) {
       if (!isRecord(atom) || typeof atom.id !== 'string' || !isRecord(atom.kind) || !isRecord(atom.position) || !isFiniteNumber(atom.position.x) || !isFiniteNumber(atom.position.y) || Math.abs(atom.position.x) > 100_000 || Math.abs(atom.position.y) > 100_000) throw clipboardIncompatible()
-      const copied = after.atoms.find((entry) => entry.id === atomIds.get(atom.id))
+      const copiedId = atomIds.get(atom.id)
+      const copied = after.atoms.find((entry) => entry.id === copiedId)
       if (!copied || copied.kind !== atom.kind.type || (atom.kind.type === 'element' ? copied.element !== atom.kind.symbol || copied.query !== null : !sameJson(copied.query, atom.kind.query)) ||
           Math.abs(copied.position.x - (atom.position.x + offset.x)) > 1e-10 || Math.abs(copied.position.y - (atom.position.y + offset.y)) > 1e-10 ||
           !sameJson([copied.charge, copied.isotope, copied.hydrogens, copied.radical, copied.attachment_points], [atom.charge, atom.isotope, atom.hydrogens, atom.radical, atom.attachment_points])) throw clipboardIncompatible()
     }
     for (const bond of sourceBonds) {
       if (!isRecord(bond) || typeof bond.id !== 'string') throw clipboardIncompatible()
-      const copied = after.bonds.find((entry) => entry.id === bondIds.get(bond.id))
+      const copiedId = bondIds.get(bond.id)
+      const copied = after.bonds.find((entry) => entry.id === copiedId)
       if (!copied || !sameJson([copied.order, copied.query, copied.mark], [bond.order, bond.query, bond.mark])) throw clipboardIncompatible()
     }
     const centers: string[] = []
