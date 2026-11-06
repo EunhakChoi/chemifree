@@ -486,3 +486,16 @@ PR마다 Codex 리뷰 1회와 독립 subagent 리뷰 1회를 하고 지적을 �
 P35는 in_progress이며 atom/Et·color·wrapping·clipboard는 이 변경 범위 밖이다.
 회귀 코드는 작성했으며 격리 실행 결과는 부모 검증 단계에서 기록한다.
 세부: [P35e 기록](verification/p35e-caption-run-size.md).
+
+## P35f caption run 색상 후속
+
+독립 caption run의 `color`는 null/생략이면 현재 theme foreground를 동적으로 상속한다.
+명시 override는 대문자 ASCII hex의 불투명 sRGB `#RRGGBB`만 받으며 테마 전환에도 고정된다.
+검정 `#000000`과 상속은 구별한다. alpha/CSS 표현식·palette 등록·atom/Et label 색상은 범위 밖이다.
+기존 script/font/size/alignment 및 UI/HTTP/CLI/SVG·undo/replay/save/draft/loss를 유지한다.
+native v14는 current/history의 nullable color가 필수이며 v8–13은 상속으로 이동한다.
+이전 header의 color는 null도 거절하며 원본 byte 보존을 유지한다. metadata 상한은
+기본89+size29+color18=136 byte이므로 run 예약을128→160으로 올렸고 history 경계 fixture도 재계산했다.
+P35는 in_progress다. 회귀는 작성했으며 구현 agent는 포맷/diff만 실행했다.
+테스트/빌드/cargo check/browser 및 리뷰 결과는 부모의 격리 검증 후 기록한다.
+세부: [P35f 기록](verification/p35f-caption-run-color.md).

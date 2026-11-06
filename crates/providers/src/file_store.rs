@@ -1244,12 +1244,13 @@ mod tests {
                     anchor: Point::new(-99_999.999_999, 99_999.999_999).unwrap(),
                     runs: vec![
                         CaptionRun {
-                            size_pt: Some(4.000_000_000_000_001),
+                            color: Some("#ABCDEF".into()),
+                            size_pt: Some(4.000_000_000_000_003_6),
                             font: Some(chemifree_domain::settings::LabelFont::SansSerif),
                             text: "\"".repeat(512),
                             script: CaptionScript::Superscript,
                             weight: Default::default(),
-                            style: Default::default(),
+                            style: chemifree_domain::scene::CaptionStyle::Italic,
                         };
                         32
                     ],
@@ -1324,15 +1325,15 @@ mod tests {
             .unwrap();
         // Isolate the maximal current state, then nearly fill its separate history budget
         // with both complete caption states and the maximal before/after selections.
-        // The 7,000 selected entities reserve 224,576 entry bytes; 109 maximal caption
-        // updates add 8,099,136 bytes and fit 8 MiB, while 110 would exceed it.
+        // The 7,000 selected entities reserve 224,576 entry bytes; 106 maximal caption
+        // updates add 8,093,312 bytes and fit 8 MiB, while 107 would exceed it.
         let mut parts = document.to_parts();
         parts.undo.clear();
         parts.redo.clear();
         document = Document::restore(parts).unwrap();
         document
             .apply(&[Command::MoveObjects {
-                objects: (MAX_INSTANCES + 1..MAX_INSTANCES + 110)
+                objects: (MAX_INSTANCES + 1..MAX_INSTANCES + 107)
                     .map(|serial| ObjectId::from_serial(serial as u32).unwrap())
                     .collect(),
                 delta: Vector {

@@ -95,7 +95,7 @@ export interface InstanceView {
 
 export type CaptionAlignment = 'left' | 'center' | 'right'
 
-export interface CaptionRun { size_pt?: number | null; font?: LabelFont | null; text: string; script: 'baseline' | 'subscript' | 'superscript'; weight: 'normal' | 'bold'; style: 'normal' | 'italic' }
+export interface CaptionRun { color?: string | null; size_pt?: number | null; font?: LabelFont | null; text: string; script: 'baseline' | 'subscript' | 'superscript'; weight: 'normal' | 'bold'; style: 'normal' | 'italic' }
 
 export type GraphicShape = 'line' | 'rectangle' | 'arrow'
 
@@ -1062,6 +1062,11 @@ function isSelection(value: unknown): value is SelectionView {
   return isRecord(value) && isStringArray(value.objects) && isStringArray(value.atoms) && isStringArray(value.bonds)
 }
 
+/** Canonical opaque sRGB override; the length check also excludes final line terminators. */
+export function isCaptionColor(value: unknown): value is string {
+  return typeof value === 'string' && value.length === 7 && /^#[0-9A-F]{6}$/.test(value)
+}
+
 /** Strict Unicode scalar text, preserving run order and bytes without normalization. */
 export function validCaptionRuns(value: unknown): value is CaptionRun[] {
   if (!Array.isArray(value) || value.length === 0 || value.length > 32) return false
@@ -1072,6 +1077,7 @@ export function validCaptionRuns(value: unknown): value is CaptionRun[] {
         (typeof run.script !== 'string' || !['baseline', 'subscript', 'superscript'].includes(run.script)) ||
         (run.weight !== 'normal' && run.weight !== 'bold') ||
         (run.style !== 'normal' && run.style !== 'italic') ||
+        (run.color !== undefined && run.color !== null && !isCaptionColor(run.color)) ||
         (run.size_pt !== undefined && run.size_pt !== null && (!isFiniteNumber(run.size_pt) || run.size_pt < 4 || run.size_pt > 72)) ||
         (run.font !== undefined && run.font !== null && !LABEL_FONTS.some((font) => font === run.font)) ||
         /[\p{Cc}\u2028\u2029]/u.test(run.text)) return false

@@ -12,6 +12,7 @@ fn widest(text: char) -> Caption {
         anchor: Point::new(0.0, 0.0).unwrap(),
         runs: vec![
             CaptionRun {
+                color: None,
                 size_pt: None,
                 font: None,
                 text: text.to_string().repeat(512),
@@ -54,9 +55,9 @@ fn first(doc: &Document) -> &str {
 
 #[test]
 fn largest_single_caption_transaction_keeps_undo_and_the_next_size_refuses_atomically() {
-    let mut doc = document(113);
+    let mut doc = document(110);
     let before = doc.clone();
-    let refused = doc.apply(&updates(113, '\\')).unwrap_err();
+    let refused = doc.apply(&updates(110, '\\')).unwrap_err();
     assert_eq!(
         refused.index, None,
         "this is a whole-transaction reservation"
@@ -64,10 +65,10 @@ fn largest_single_caption_transaction_keeps_undo_and_the_next_size_refuses_atomi
     assert_eq!(refused.error, EditError::CaptionPersistenceLimit);
     assert_eq!(refused.error.reason(), Some("caption_persistence_limit"));
     assert_eq!(doc, before);
-    // At 128 metadata bytes per run, each complete before/after update reserves
-    // 74,304 bytes. With the 576-byte empty-selection entry overhead, 112 fit 8 MiB;
-    // the 113th does not.
-    doc.apply(&updates(112, '\\')).unwrap();
+    // At 160 metadata bytes per run, each complete before/after update reserves
+    // 76,352 bytes. With 576 bytes of entry overhead, 109 fit 8 MiB;
+    // the 110th does not.
+    doc.apply(&updates(109, '\\')).unwrap();
     assert_eq!(
         doc.undo_depth(),
         1,
@@ -142,6 +143,7 @@ fn reservations_count_utf8_bytes_and_escape_overhead_without_changing_text_limit
             alignment: Default::default(),
             anchor: Point::new(0.0, 0.0).unwrap(),
             runs: vec![CaptionRun {
+                color: None,
                 size_pt: None,
                 font: None,
                 text,

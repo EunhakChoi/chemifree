@@ -146,3 +146,14 @@ for (const text of ['0x10', '0X10', '0b100', '0B100', '0o10', '0O10', ' 0x10 ',
     assert.equal(parseCaptionSize(text), undefined)
   })
 }
+
+for (const color of [undefined, null, '#000000', '#FFFFFF', '#2A7BCD']) test(`caption color accepts ${String(color)}`, () => {
+  const value = source()
+  value.document.scene.objects.at(-1).runs[0].color = color
+  assert.equal(isDocumentResponse(value), true)
+})
+for (const color of ['', '#ABCDEF\n', '#ABCDEF\r', 'black', '#abc', '#abcdef', '#12345678', 'rgba(0,0,0,0)', 'var(--foreground)', 'url(javascript:alert(1))', 0, false, [], {}]) test(`caption color rejects ${JSON.stringify(color)}`, () => {
+  const value = source()
+  value.document.scene.objects.at(-1).runs[0].color = color
+  assert.equal(isDocumentResponse(value), false)
+})

@@ -121,6 +121,8 @@ pub enum CaptionStyle {
 /// Text stored verbatim: no Unicode normalization or index-based edits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CaptionRun {
+    /// None inherits the current foreground; overrides are opaque canonical sRGB #RRGGBB.
+    pub color: Option<String>,
     /// None follows the document label size dynamically; overrides are finite 4–72 pt.
     pub size_pt: Option<f64>,
     /// None follows the document label font; overrides use the same closed vocabulary.
@@ -144,14 +146,21 @@ impl Caption {
     ///
     /// # Errors
     /// Returns `CaptionInvalid` for empty, over-limit, multiline or control-bearing text,
-    /// or a nonfinite/out-of-range run size.
+    /// a nonfinite/out-of-range run size, or a noncanonical color.
     pub fn validate(&self) -> Result<(), EditError> {
         let bytes: usize = self.runs.iter().map(|run| run.text.len()).sum();
         if self.runs.is_empty()
             || self.runs.len() > 32
             || bytes > 16_384
             || self.runs.iter().any(|run| {
-                run.size_pt
+                run.color.as_ref().is_some_and(|color| {
+                    color.len() != 7
+                        || !color.starts_with('#')
+                        || !color.as_bytes()[1..]
+                            .iter()
+                            .all(|byte| byte.is_ascii_digit() || (b'A'..=b'F').contains(byte))
+                }) || run
+                    .size_pt
                     .is_some_and(|size| !size.is_finite() || !LABEL_SIZE_RANGE.contains(&size))
                     || run.text.is_empty()
                     || run
