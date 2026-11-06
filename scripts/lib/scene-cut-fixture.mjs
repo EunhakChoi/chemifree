@@ -5,7 +5,7 @@ export function sceneCutSource() {
     charge: 0, isotope: null, hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], position: { x: index * 30, y: 0 } }))
   return { api_version: 'v1', document: { id: 'drawing', title: 'Graphic Cut', revision: 3, atoms,
     bonds: [{ id: 'b1', begin: 'a1', end: 'a2', order: 'single', query: null, mark: null }],
-    stereo: { atoms: [], bonds: [], groups: [] }, molecule: { id: 'm1' }, settings,
+    stereo: { atoms: [], bonds: [], groups: [] }, fragment_displays: [], molecule: { id: 'm1' }, settings,
     scene: { pages: [{ id: 'p1' }], instances: ['s1', 's2'].map((id, index) => ({ id, page: 'p1', molecule: 'm1',
       positions: [{ atom: 'a1', x: index * 100, y: 0 }, { atom: 'a2', x: index * 100 + 30, y: 0 }] })),
       roots: ['s1', 's2', 's3'], objects: [

@@ -38,7 +38,7 @@ const searchRequests = await import('../apps/web/src/lib/substructure-requests.t
 
 const document = (id, revision = 0) => ({
   api_version: 'v1',
-  document: { id, title: 'Scripted', revision, atoms: [], bonds: [] },
+  document: { id, title: 'Scripted', revision, atoms: [], bonds: [], fragment_displays: [] },
   session: { saved_revision: revision, unsaved_changes: false, undo_depth: 0, redo_depth: 0, draft_revision: null },
   recovery: null,
 })

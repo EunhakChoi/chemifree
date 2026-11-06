@@ -379,7 +379,7 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
   await button('Save weight').click()
   await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent).session.unsaved_changes === false)
   const native = JSON.parse(readFileSync(join(work,'documents',`${id}.json`),'utf8'))
-  assert.equal(native.format_version,23)
+  assert.equal(native.format_version,24)
   assert.equal(native.document.settings.label_shadow,true)
   await page.reload()
   await page.waitForFunction(() => document.querySelector('svg[data-structure-canvas]')?.dataset.captionBoundsReady === 'true')
