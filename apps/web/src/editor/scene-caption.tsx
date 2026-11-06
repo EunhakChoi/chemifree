@@ -27,7 +27,7 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
         {object.runs.map((run, index) => {
           const runSize = run.size_pt ?? size
           return (
-            <tspan key={index} data-caption-script={run.script}
+            <tspan fill={run.color ?? undefined} key={index} data-caption-script={run.script}
               className={run.font === 'sans-serif' ? 'font-sans' : undefined}
               fontFamily={run.font === 'sans-serif' ? undefined : run.font ?? undefined} fontWeight={run.weight} fontStyle={run.style}
               fontSize={run.script === 'baseline' ? runSize : runSize * 2 / 3}

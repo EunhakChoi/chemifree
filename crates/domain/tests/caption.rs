@@ -16,6 +16,7 @@ fn caption(text: &str) -> Caption {
         alignment: Default::default(),
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![CaptionRun {
+            color: None,
             size_pt: None,
             font: None,
             text: text.into(),
@@ -44,6 +45,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![
             CaptionRun {
+                color: None,
                 size_pt: None,
                 font: None,
                 text: "한글 e\u{301} 👩‍🔬 H".into(),
@@ -52,6 +54,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
                 style: Default::default(),
             },
             CaptionRun {
+                color: None,
                 size_pt: None,
                 font: None,
                 text: "2".into(),
@@ -60,6 +63,7 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
                 style: Default::default(),
             },
             CaptionRun {
+                color: None,
                 size_pt: None,
                 font: None,
                 text: "+".into(),
@@ -387,4 +391,66 @@ fn size_overrides_are_finite_bounded_and_undoable_without_capturing_document_def
         sized.scene_objects(),
         "drawing size changes retain null inheritance and explicit overrides"
     );
+}
+
+#[test]
+fn colors_are_nullable_canonical_opaque_srgb_and_invalid_updates_roll_back() {
+    let mut doc = document();
+    let mut value = caption("ink");
+    doc.apply(&[add(value.clone())]).unwrap();
+    for color in ["#000000", "#FFFFFF", "#2A7BCD"] {
+        value.runs[0].color = Some(color.into());
+        doc.apply(&[Command::UpdateCaption {
+            object: object(2),
+            caption: value.clone(),
+        }])
+        .unwrap();
+        assert_eq!(
+            doc.scene_objects()[1].2,
+            &SceneObject::Caption(value.clone())
+        );
+    }
+    for color in [
+        "",
+        "black",
+        "#abc",
+        "#abcdef",
+        "#12345678",
+        "rgba(0,0,0,0)",
+        "var(--foreground)",
+        "url(javascript:alert(1))",
+        "#１２３４５６",
+    ] {
+        let before = doc.clone();
+        let mut invalid = value.clone();
+        invalid.runs[0].color = Some(color.into());
+        assert_eq!(
+            doc.apply(&[
+                Command::Rename {
+                    title: "rollback".into()
+                },
+                Command::UpdateCaption {
+                    object: object(2),
+                    caption: invalid
+                }
+            ])
+            .unwrap_err()
+            .error,
+            EditError::CaptionInvalid
+        );
+        assert_eq!(doc, before);
+    }
+    value.runs[0].color = None;
+    doc.apply(&[Command::UpdateCaption {
+        object: object(2),
+        caption: value.clone(),
+    }])
+    .unwrap();
+    doc.undo().unwrap();
+    let SceneObject::Caption(undone) = doc.scene_objects()[1].2 else {
+        panic!("caption")
+    };
+    assert_eq!(undone.runs[0].color.as_deref(), Some("#2A7BCD"));
+    doc.redo().unwrap();
+    assert_eq!(doc.scene_objects()[1].2, &SceneObject::Caption(value));
 }

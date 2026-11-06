@@ -33,6 +33,7 @@ fn caption() -> Command {
             anchor: Point::new(-0.0, 4.0).unwrap(),
             runs: vec![
                 CaptionRun {
+                    color: None,
                     size_pt: None,
                     font: None,
                     text: "한글 👩‍🔬 e\u{301}".into(),
@@ -41,6 +42,7 @@ fn caption() -> Command {
                     style: Default::default(),
                 },
                 CaptionRun {
+                    color: None,
                     size_pt: None,
                     font: None,
                     text: "2".into(),
@@ -63,7 +65,7 @@ fn old_document_bytes_and_history_survive_read_and_first_v9_save() {
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/caption-native.json");
     let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(stored["format_version"], 13);
+    assert_eq!(stored["format_version"], 14);
     strip_abbreviations(&mut stored);
     stored["format_version"] = json!(7);
     let original = serde_json::to_vec_pretty(&stored).unwrap();
@@ -157,7 +159,7 @@ fn old_draft_bytes_are_preserved_before_the_first_changed_v9_draft() {
         Some(edited.document.revision)
     );
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 13);
+    assert_eq!(rewritten["format_version"], 14);
     assert_eq!(rewritten["document"]["revision"], edited.document.revision);
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 7)).unwrap(),
@@ -234,12 +236,13 @@ fn repeated_maximal_caption_updates_save_reload_and_keep_the_latest_undo() {
         anchor: Point::new(0.0, 0.0).unwrap(),
         runs: vec![
             CaptionRun {
-                size_pt: Some(4.000_000_000_000_001),
-                font: None,
+                color: Some("#ABCDEF".into()),
+                size_pt: Some(4.000_000_000_000_003_6),
+                font: Some(chemifree_domain::settings::LabelFont::SansSerif),
                 text: character.to_string().repeat(512),
                 script: CaptionScript::Superscript,
                 weight: Default::default(),
-                style: Default::default(),
+                style: chemifree_domain::scene::CaptionStyle::Italic,
             };
             32
         ],
@@ -333,6 +336,7 @@ fn strip_caption_styles(value: &mut Value) {
                 object.remove("alignment");
             }
             if object.contains_key("script") && object.contains_key("text") {
+                object.remove("color");
                 object.remove("size_pt");
                 object.remove("font");
                 object.remove("weight");
@@ -363,11 +367,13 @@ fn v9_caption_current_history_and_draft_migrate_without_rewriting_and_archive_ex
             alignment: Default::default(),
             anchor: Point::new(7.0, 8.0).unwrap(),
             runs: vec![CaptionRun {
+                color: None,
                 size_pt: None,
                 font: None,
                 text: "changed".into(),
                 script: CaptionScript::Superscript,
                 weight: Default::default(),
+                // V9 has no style field, so both history directions must use its normal default.
                 style: Default::default(),
             }],
         },
@@ -493,8 +499,8 @@ fn strip_caption_alignment(value: &mut Value) {
 }
 
 #[test]
-fn v8_to_v12_caption_migration_keeps_current_history_and_exact_document_and_draft_bytes() {
-    for version in [8, 9, 10, 11, 12] {
+fn v8_to_v13_caption_migration_keeps_current_history_and_exact_document_and_draft_bytes() {
+    for version in [8, 9, 10, 11, 12, 13] {
         for draft in [false, true] {
             // Document migration commits advance the saved revision; draft recovery needs
             // its own unchanged base document and matching saved stamp.
@@ -527,7 +533,10 @@ fn v8_to_v12_caption_migration_keeps_current_history_and_exact_document_and_draf
                 "documents/caption-native.json"
             });
             let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-            strip_caption_sizes(&mut stored);
+            strip_caption_colors(&mut stored);
+            if version < 13 {
+                strip_caption_sizes(&mut stored);
+            }
             if version < 12 {
                 strip_caption_fonts(&mut stored);
             }
@@ -702,6 +711,7 @@ fn strip_caption_fonts(value: &mut Value) {
     match value {
         Value::Object(object) => {
             if object.contains_key("script") && object.contains_key("text") {
+                object.remove("color");
                 object.remove("size_pt");
                 object.remove("font");
             }
@@ -733,7 +743,7 @@ fn font_fields_are_strict_in_current_and_history_in_documents_and_drafts() {
     repo.save(&doc, Some(doc.revision() - 1)).unwrap();
     let history_only: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     for history in [false, true] {
-        for version in [8, 9, 10, 11, 12, 13] {
+        for version in [8, 9, 10, 11, 12, 13, 14] {
             for font in [
                 None,
                 Some(json!(null)),
@@ -750,6 +760,9 @@ fn font_fields_are_strict_in_current_and_history_in_documents_and_drafts() {
                 } else {
                     current.clone()
                 };
+                if version < 14 {
+                    strip_caption_colors(&mut stored);
+                }
                 if version < 13 {
                     strip_caption_sizes(&mut stored);
                 }
@@ -857,7 +870,7 @@ fn size_fields_are_strict_in_current_history_documents_and_drafts_and_never_rewr
     repo.save(&doc, Some(doc.revision() - 1)).unwrap();
     let history_only: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     for history in [false, true] {
-        for version in [8, 9, 10, 11, 12, 13] {
+        for version in [8, 9, 10, 11, 12, 13, 14] {
             for size in [
                 None,
                 Some(json!(null)),
@@ -876,6 +889,9 @@ fn size_fields_are_strict_in_current_history_documents_and_drafts_and_never_rewr
                 } else {
                     current.clone()
                 };
+                if version < 14 {
+                    strip_caption_colors(&mut stored);
+                }
                 strip_caption_sizes(&mut stored);
                 if version < 12 {
                     strip_caption_fonts(&mut stored);
@@ -899,7 +915,7 @@ fn size_fields_are_strict_in_current_history_documents_and_drafts_and_never_rewr
                     state["runs"][0]["size_pt"] = size.clone();
                 }
                 // All runs in v13 need an explicit nullable size, including untargeted runs.
-                if version == 13 {
+                if version >= 13 {
                     state["runs"][1]["size_pt"] = Value::Null;
                 }
                 let valid = if version < 13 {
@@ -994,5 +1010,223 @@ fn v13_mixed_size_runs_save_reopen_and_recover_with_undo_history() {
     assert_eq!(
         snapshot["scene"]["objects"][1]["runs"][1]["font"],
         "monospace"
+    );
+}
+
+fn strip_caption_colors(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if object.contains_key("script") && object.contains_key("text") {
+                object.remove("color");
+            }
+            for child in object.values_mut() {
+                strip_caption_colors(child);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                strip_caption_colors(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn color_fields_are_strict_in_current_and_history_in_documents_and_drafts() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = document();
+    doc.apply(&[caption()]).unwrap();
+    repo.save(&doc, None).unwrap();
+    let path = root.path().join("documents/caption-native.json");
+    let mut current: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    current["history"]["undo"] = json!([]);
+    current["history"]["redo"] = json!([]);
+    doc.undo().unwrap();
+    repo.save(&doc, Some(doc.revision() - 1)).unwrap();
+    let history_only: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for history in [false, true] {
+        for version in 8..=14 {
+            for color in [
+                None,
+                Some(json!(null)),
+                Some(json!("#000000")),
+                Some(json!("#FFFFFF")),
+                Some(json!("#2A7BCD")),
+                Some(json!("#abcdef")),
+                Some(json!("#12345678")),
+                Some(json!("red")),
+                Some(json!("var(--foreground)")),
+                Some(json!("url(javascript:alert(1))")),
+                Some(json!(0)),
+                Some(json!(false)),
+                Some(json!([])),
+                Some(json!({})),
+            ] {
+                let mut stored = if history {
+                    history_only.clone()
+                } else {
+                    current.clone()
+                };
+                strip_caption_colors(&mut stored);
+                if version < 13 {
+                    strip_caption_sizes(&mut stored);
+                }
+                if version < 12 {
+                    strip_caption_fonts(&mut stored);
+                }
+                if version < 11 {
+                    strip_caption_alignment(&mut stored);
+                }
+                if version < 10 {
+                    strip_caption_styles(&mut stored);
+                }
+                if version == 8 {
+                    strip_abbreviations(&mut stored);
+                }
+                stored["format_version"] = json!(version);
+                let state = if history {
+                    &mut stored["history"]["redo"][0]["objects"][0]["after"]
+                } else {
+                    &mut stored["document"]["objects"][1]["state"]
+                };
+                if let Some(color) = &color {
+                    state["runs"][0]["color"] = color.clone();
+                }
+                if version == 14 {
+                    state["runs"][1]["color"] = Value::Null;
+                }
+                let valid = if version < 14 {
+                    color.is_none()
+                } else {
+                    matches!(color, Some(Value::Null))
+                        || color
+                            .as_ref()
+                            .and_then(Value::as_str)
+                            .is_some_and(|color| ["#000000", "#FFFFFF", "#2A7BCD"].contains(&color))
+                };
+                let bytes = serde_json::to_vec(&stored).unwrap();
+                fs::write(&path, &bytes).unwrap();
+                assert_eq!(
+                    repo.load(doc.id()).is_ok(),
+                    valid,
+                    "v{version} history={history} color={color:?}"
+                );
+                assert_eq!(fs::read(&path).unwrap(), bytes);
+                stored["format"] = json!("chemifree.draft");
+                stored["base_revision"] = json!(0);
+                stored["saved_at_ms"] = json!(42);
+                let draft_path = root.path().join("drafts/caption-native.json");
+                fs::create_dir_all(root.path().join("drafts")).unwrap();
+                let bytes = serde_json::to_vec(&stored).unwrap();
+                fs::write(&draft_path, &bytes).unwrap();
+                assert_eq!(
+                    repo.claim_draft(doc.id()).unwrap().unwrap().is_ok(),
+                    valid,
+                    "draft v{version} history={history} color={color:?}"
+                );
+                repo.release_draft(doc.id());
+                assert_eq!(fs::read(&draft_path).unwrap(), bytes);
+            }
+        }
+    }
+}
+
+#[test]
+fn v14_color_save_reopen_and_draft_keep_complete_undo_redo_states() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = document();
+    let Command::AddCaption {
+        caption: mut ink, ..
+    } = caption()
+    else {
+        panic!("caption")
+    };
+    ink.runs[0].color = Some("#000000".into());
+    doc.apply(&[Command::AddCaption {
+        caption: ink.clone(),
+        parent: None,
+        index: None,
+    }])
+    .unwrap();
+    repo.save(&doc, None).unwrap();
+    let saved_revision = doc.revision();
+    ink.runs[0].color = Some("#2A7BCD".into());
+    doc.apply(&[Command::UpdateCaption {
+        object: ObjectId::from_serial(2).unwrap(),
+        caption: ink,
+    }])
+    .unwrap();
+    doc.undo().unwrap();
+    repo.save(&doc, Some(saved_revision)).unwrap();
+    assert_eq!(repo.load(doc.id()).unwrap(), Some(doc.clone()));
+    repo.write_draft(&Draft {
+        document: doc.clone(),
+        base_revision: doc.revision(),
+        saved_at_ms: 42,
+    })
+    .unwrap();
+    repo.release_draft(doc.id());
+    let mut restored = repo
+        .claim_draft(doc.id())
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .document;
+    assert_eq!(restored, doc);
+    restored.redo().unwrap();
+    let SceneObject::Caption(ink) = restored.scene_objects()[1].2 else {
+        panic!("caption")
+    };
+    assert_eq!(ink.runs[0].color.as_deref(), Some("#2A7BCD"));
+    assert_eq!(ink.runs[1].color, None);
+    restored.undo().unwrap();
+    let SceneObject::Caption(ink) = restored.scene_objects()[1].2 else {
+        panic!("caption")
+    };
+    assert_eq!(ink.runs[0].color.as_deref(), Some("#000000"));
+}
+
+#[test]
+fn maximum_run_metadata_exceeds_the_old_reservation_and_fits_the_new_one() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = document();
+    let Command::AddCaption {
+        caption: mut ink, ..
+    } = caption()
+    else {
+        panic!("caption")
+    };
+    ink.runs.truncate(1);
+    ink.runs[0].text = "H".into();
+    ink.runs[0].color = Some("#ABCDEF".into());
+    ink.runs[0].size_pt = Some(4.000_000_000_000_003_6);
+    ink.runs[0].font = Some(chemifree_domain::settings::LabelFont::SansSerif);
+    ink.runs[0].script = CaptionScript::Superscript;
+    ink.runs[0].style = chemifree_domain::scene::CaptionStyle::Italic;
+    doc.apply(&[Command::AddCaption {
+        caption: ink,
+        parent: None,
+        index: None,
+    }])
+    .unwrap();
+    repo.save(&doc, None).unwrap();
+    let stored: Value = serde_json::from_slice(
+        &fs::read(root.path().join("documents/caption-native.json")).unwrap(),
+    )
+    .unwrap();
+    let encoded =
+        serde_json::to_vec(&stored["document"]["objects"][1]["state"]["runs"][0]).unwrap();
+    assert_eq!(
+        encoded.len() - 1,
+        136,
+        "metadata excludes the single unescaped H byte"
+    );
+    assert!(
+        encoded.len() <= 160 + 2,
+        "provider encoding fits the domain reservation"
     );
 }

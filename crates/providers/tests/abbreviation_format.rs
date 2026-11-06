@@ -41,6 +41,7 @@ fn drawing() -> Document {
                 alignment: Default::default(),
                 anchor: Point::new(10.0, 50.0).unwrap(),
                 runs: vec![CaptionRun {
+                    color: None,
                     size_pt: None,
                     font: None,
                     text: "Et 원문 e\u{301}".into(),
@@ -95,7 +96,7 @@ fn v9_document_and_draft_round_trip_display_undo_redo_and_unicode_caption() {
     let value: Value =
         serde_json::from_slice(&fs::read(root.path().join("documents/ethyl-native.json")).unwrap())
             .unwrap();
-    assert_eq!(value["format_version"], 13);
+    assert_eq!(value["format_version"], 14);
     assert_eq!(
         value["document"]["abbreviations"],
         json!([{"instance":"s1","anchor":"a2","terminal":"a3"}])
@@ -230,7 +231,7 @@ fn v8_drafts_migrate_with_caption_and_keep_original_bytes_before_recovery() {
     app.autosave("ethyl-native", Some("rewrite-v9-ethyl"))
         .unwrap();
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 13);
+    assert_eq!(rewritten["format_version"], 14);
     assert_eq!(rewritten["document"]["revision"], edited.document.revision);
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 8)).unwrap(),
@@ -333,6 +334,7 @@ fn strip_caption_styles(value: &mut Value) {
                 object.remove("alignment");
             }
             if object.contains_key("script") && object.contains_key("text") {
+                object.remove("color");
                 object.remove("size_pt");
                 object.remove("font");
                 object.remove("weight");
