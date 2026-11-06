@@ -40,7 +40,7 @@ try {
     return response.json()
   }
   const id = (await write('/documents', { request_id: 'weight-create', title: 'Chemical label ink' })).document.id
-  const seeded = await write(`/documents/${id}/transactions`, { request_id: 'weight-seed', expected_revision: 0, commands: [
+  const drawn = await write(`/documents/${id}/transactions`, { request_id: 'weight-seed', expected_revision: 0, commands: [
     { op: 'add_atom', element: 'O', position: { x: -300, y: 0 } },
     { op: 'add_atom', element: 'C', position: { x: 0, y: 0 }, bond_to: { atom: '$0', order: 'single' } },
     { op: 'add_atom', element: 'C', position: { x: 40, y: 40 }, bond_to: { atom: '$1', order: 'single' } },
@@ -48,20 +48,25 @@ try {
     { op: 'add_atom', element: 'C', position: { x: -100, y: 220 }, bond_to: { atom: '$3', order: 'single' } },
     { op: 'add_atom', query: { kind: 'list', negated: true, elements: ['C', 'Cl', 'Br', 'I'] }, position: { x: 600, y: 220 } },
     { op: 'add_caption', anchor: { x: -300, y: 600 }, alignment: 'left', runs: [{ text: 'Independent caption', script: 'baseline', weight: 'normal' }] },
-    { op: 'update_atom', atom: '$3', isotope: 15, charge: 2 },
   ] })
-  await write(`/documents/${id}/transactions`, { request_id: 'weight-compact', expected_revision: 1, commands: [{ op: 'collapse_ethyl', instance: 's1', anchor: 'a2', terminal: 'a3' }] })
+  const seeded = await write(`/documents/${id}/transactions`, { request_id: 'weight-atom-states', expected_revision: drawn.document.revision,
+    commands: [{ op: 'update_atom', atom: drawn.document.atoms[3].id, isotope: 15, charge: 2 }] })
+  await write(`/documents/${id}/transactions`, { request_id: 'weight-compact', expected_revision: seeded.document.revision,
+    commands: [{ op: 'collapse_ethyl', instance: 's1', anchor: seeded.document.atoms[1].id, terminal: seeded.document.atoms[2].id }] })
   const coldId = (await write('/documents', { request_id: 'weight-cold-create', title: 'Delayed bold source' })).document.id
   const alternateId = (await write('/documents', { request_id: 'weight-cold-alternate', title: 'Delayed bold destination' })).document.id
   for (const [documentId, alternate] of [[coldId, false], [alternateId, true]]) {
-    await write(`/documents/${documentId}/transactions`, { request_id: `weight-cold-seed-${alternate}`, expected_revision: 0, commands: [
+    let seededCold = await write(`/documents/${documentId}/transactions`, { request_id: `weight-cold-seed-${alternate}`, expected_revision: 0, commands: [
       { op: 'update_settings', label_weight: 'bold', label_font: 'sans-serif', label_size_pt: 72 },
       alternate
         ? { op: 'add_atom', query: { kind: 'list', negated: true, elements: ['C', 'Cl', 'Br', 'I'] }, position: { x: 4000, y: -2000 } }
         : { op: 'add_atom', element: 'N', position: { x: -2500, y: 1200 }, hydrogens: { mode: 'specified', count: 3 } },
-      ...(alternate ? [] : [{ op: 'update_atom', atom: '$1', isotope: 15, charge: 2 }]),
     ] })
-    await write(`/documents/${documentId}/save`, { request_id: `weight-cold-save-${alternate}`, expected_revision: 1 })
+    if (!alternate) {
+      seededCold = await write(`/documents/${documentId}/transactions`, { request_id: 'weight-cold-atom-states', expected_revision: seededCold.document.revision,
+        commands: [{ op: 'update_atom', atom: seededCold.document.atoms[0].id, isotope: 15, charge: 2 }] })
+    }
+    await write(`/documents/${documentId}/save`, { request_id: `weight-cold-save-${alternate}`, expected_revision: seededCold.document.revision })
   }
   const fixture = `
 import React, { useEffect } from 'react'
