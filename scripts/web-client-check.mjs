@@ -542,6 +542,39 @@ test('reading the document again after a re-read found a restart ties the page t
   assert.deepEqual(drafts.map((write) => write.token), ['token-1', 'token-2'])
 })
 
+test('an explicit get learns a replacement token before any old-token write is refused', async () => {
+  const changed = document('doc-1', 3)
+  changed.document.title = 'Replacement drawing'
+  const scripted = service({
+    'GET /doc-1': [() => json(200, document('doc-1', 3)), () => json(200, changed)],
+    '/autosave': [() => json(200, changed)],
+  })
+  const client = new DocumentClient()
+  let notices = 0
+  client.onRestart(() => { notices += 1 })
+  const old = await client.get('doc-1')
+  scripted.restart()
+  const fresh = await client.get('doc-1')
+  assert.equal(notices, 1)
+  assert.equal(fresh.document.title, 'Replacement drawing')
+  assert.equal(client.isCurrentSnapshot(old), false)
+  assert.equal(client.isCurrentSnapshot(fresh), true)
+  await client.autosave('doc-1')
+  assert.deepEqual(scripted.writes.map((write) => write.token), ['token-2'], 'the next request already uses the verified replacement token')
+})
+
+test('an explicit get refuses a snapshot when the process changes during the document read', async () => {
+  const scripted = service({
+    'GET /doc-1': [() => { scripted.restart(); return json(200, document('doc-1', 3)) },
+      () => json(200, document('doc-1', 4))],
+  })
+  const client = new DocumentClient()
+  await assert.rejects(client.get('doc-1'), { code: 'service_restarted' })
+  const fresh = await client.get('doc-1')
+  assert.equal(fresh.document.revision, 4)
+  assert.equal(client.isCurrentSnapshot(fresh), true)
+})
+
 const health = { api_version: 'v1', service: 'chemifree', version: '0.1.0', stage: 'scaffold', status: 'ok' }
 const capability = { id: 'document_editing', label: 'Editing', status: 'available', description: 'Drawings.' }
 const catalog = () => ({

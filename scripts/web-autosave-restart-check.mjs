@@ -11,6 +11,8 @@ const fixture = `
 import React, { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
+import { AromaticityPanel } from '/src/components/aromaticity-panel.tsx'
+import '/src/index.css'
 function Harness() {
   const editor = useDocumentEditor()
   useEffect(() => { void editor.open('drawing') }, [])
@@ -22,6 +24,7 @@ function Harness() {
     <button onClick={() => void editor.apply([{ op: 'rename', title: 'Edit' }])}>Edit</button>
     <button onClick={() => editor.autosave.retryNow()}>Retry autosave</button>
     {editor.error && <button onClick={() => void editor.reload()}>Reload</button>}
+    {editor.current && <AromaticityPanel document={editor.current.document} editor={editor} />}
   </main>
 }
 createRoot(document.getElementById('root')).render(<Harness />)
@@ -475,6 +478,79 @@ try {
   await oldResponseAfterRestart('reload')
   await oldResponseAfterRestart('import')
   await oldResponseAfterRestart('close')
+
+  // Two restarts can occur while the displayed snapshot still belongs to the first
+  // process. Explicit reads must refresh the token as well as the document contents.
+  const inspectionContext = await browser.newContext()
+  try {
+    await keepRequestInterception(inspectionContext)
+    const page = await inspectionContext.newPage()
+    const errors = []
+    page.on('pageerror', (error) => errors.push(error.message))
+    const source = ringSource()
+    source.document.title = 'Before consecutive restarts'
+    const replacement = structuredClone(source)
+    replacement.document.atoms[0].element = 'N'
+    let token = 'process-1'
+    let identityCalls = 0
+    let replaced = false
+    const transactions = []
+    const inspectionTokens = []
+    await inspectionContext.route('**/api/v1/**', async (route) => {
+      const request = route.request()
+      const path = new URL(request.url()).pathname
+      if (path === '/api/v1/session') return json(route, { header: 'x-chemifree-token', token })
+      if (path === '/api/v1/documents' || path === '/api/v1/trash') return json(route, { api_version: 'v1', documents: [] })
+      if (path === '/api/v1/documents/drawing') return json(route, replaced ? replacement : source)
+      if (request.headers()['x-chemifree-token'] !== token) {
+        return json(route, { api_version: 'v1', code: 'unauthorized', message: 'Old process token' }, 401)
+      }
+      const body = request.postDataJSON()
+      if (path.endsWith('/transactions')) {
+        transactions.push(body)
+        return json(route, replacement)
+      }
+      assert.equal(path, '/api/v1/operations')
+      if (body.operation === 'chem.identity') {
+        identityCalls += 1
+        if (identityCalls === 1) {
+          token = 'process-2'
+          return json(route, { api_version: 'v1', code: 'unauthorized', message: 'Old process token' }, 401)
+        }
+        return json(route, { api_version: 'v1', code: 'busy', message: 'Inspection deferred' }, 503)
+      }
+      assert.equal(body.operation, 'chem.aromaticity')
+      inspectionTokens.push(request.headers()['x-chemifree-token'])
+      return json(route, { outcome: 'ok', model_id: 'chemifree-aromaticity-2',
+        document_revision: replacement.document.revision, result: { snapshot: replacement, systems: [] } })
+    })
+    await page.goto(`http://127.0.0.1:${address.port}/autosave-check`)
+    await page.getByLabel('Drawing', { exact: true }).filter({ hasText: source.document.title }).waitFor()
+    await page.evaluate(async () => {
+      try { await window.autosaveHarness.inspectIdentity('drawing', 'chemical', null) }
+      catch (error) { if (error.code !== 'service_restarted') throw error }
+      try { await window.autosaveHarness.inspectIdentity('drawing', 'chemical', null) }
+      catch (error) { if (error.code !== 'busy') throw error }
+    })
+    assert.equal(identityCalls, 2, 'another inspection learned the second token without adopting the drawing')
+    token = 'process-3'
+    replaced = true
+    await page.evaluate(() => window.autosaveHarness.apply([{ op: 'update_atom', atom: 'a1', charge: 1 }]))
+    await page.getByLabel('Editor error', { exact: true }).filter({ hasText: 'service_restarted' }).waitFor()
+    assert.deepEqual(transactions, [], 'a read-only preflight refuses changed contents in the third process')
+    assert.deepEqual(await page.evaluate(() => window.autosaveHarness.current.document), source.document)
+    await page.getByRole('button', { name: 'Reload', exact: true }).click()
+    await page.getByLabel('Editor error', { exact: true }).filter({ hasText: 'none' }).waitFor()
+    assert.deepEqual(await page.evaluate(() => window.autosaveHarness.current.document), replacement.document)
+    const panel = page.getByRole('region', { name: 'Rings and aromaticity' })
+    await panel.getByRole('button', { name: 'Inspect rings', exact: true }).click()
+    await panel.getByTestId('aromaticity-result').getByText('No cyclic systems.', { exact: true }).waitFor()
+    assert.deepEqual(inspectionTokens, ['process-3'], 'the first inspection after Reload uses the verified current token')
+    assert.deepEqual(transactions, [], 'reconciliation and inspection change neither graph nor history')
+    assert.deepEqual(errors, [])
+  } finally {
+    await inspectionContext.close()
+  }
   console.log('Autosave process ownership, late replies, explicit reload and background error preservation passed.')
 } finally {
   await browser?.close()

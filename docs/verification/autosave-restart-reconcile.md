@@ -144,6 +144,37 @@ charge 편집 1회·새 snapshot·오류 해소·autosave 재개를 추가했다
 full 검사와 CI는 pending이며 이전 targeted/full의 성공 부분을 이번 수정의 근거로
 확대하지 않는다. 독립 리뷰는 기존 1회 기록을 유지하고 추가 요청하지 않았다.
 
+## d944960 standard browser 실패와 명시 read의 token 검증
+
+실행 담당자의 `/tmp/chemifree-p29d-verify-j4KjPa/autosave-same-targeted.log`에서
+`d944960`의 전용 `test:browser:autosave-restart`는 통과했으나 뒤의 standard browser는
+`aromaticity inspection and restart reconciliation`에서 aromatic cycle 결과를 기다리다
+실패했다. 최종 `sandbox-run: exit=1`, peak anon 1482 MiB·page cache 78 MiB·cap
+6144 MiB·swap 0이다. 전용 통과를 전체 성공으로 세지 않는다.
+
+첫 inspection이 restart를 알린 뒤 새 token을 배웠지만 화면은 여전히 이전 snapshot을
+유지했다. 두 번째 crash 뒤 명시 edit의 read-only preflight와 Reload는 cached token을
+그대로 사용하는 get으로 새 process의 drawing을 읽었다. get은 token 변경을 확인하지
+않아 그 snapshot을 이전 세대로 표시했고, 다음 Inspect rings는 오래된 token의 401로
+다시 세대가 바뀌어 결과가 표시되지 않았다. 기존 일반 edit의 401 경로는 이 token을
+갱신했지만 새 preflight의 read는 이 검증을 우회했다.
+
+명시 get은 cached token만 신뢰하지 않고 실제 session을 document 읽기 전과 후에
+확인한다. 이전 token과 다르면 replacement를 알리고 token과 세대를 갱신한다.
+읽는 동안 token 또는 generation이 바뀌면 해당 snapshot을 거절한다. 이미 reread가
+교체를 알린 경우 중복 통지는 피한다. Background reread의 stop/refusal 계약과
+명시 edit의 complete-content 비교, 중앙 old-origin 거절은 그대로 유지한다.
+
+실제 editor/autosave hook·Client·AromaticityPanel 회귀는 첫 inspection의 restart 통지와
+새 token 학습 뒤 미통지 두 번째 교체를 강제한다. 다른 내용 preflight의 mutation 부재·
+원본 보존, 명시 Reload의 새 snapshot 채택, 바로 뒤 첫 Inspect rings의 새 token과
+production panel 결과 표시를 검사한다. HTTP만 scripted이며 화학 계산 증거는 아니다.
+Client 회귀는 아직 401을 만나지 않은 cached token의 명시 get 갱신과 read 도중 교체의
+거절·후속 명시 재조회 성공을 검사하도록 작성했다.
+
+이번 수정·추가 회귀·mutation은 실행하지 않았다. 현재 HEAD의 full·browser·CI는
+pending이며 이전 전용 검사 성공을 이번 변경의 실행 근거로 확대하지 않는다.
+
 ## 리뷰
 
 - Codex 작성자 정적 검토: restart notification·token 재학습·snapshot 채택·autosave

@@ -3069,18 +3069,29 @@ export class DocumentClient {
   }
 
   /**
-   * Reads a document. The service process's session token is learned first, so the view is
-   * tied to that process and a later `reread` can tell that it restarted since, even when the
-   * page has not written anything yet.
+   * Explicitly reads the current process's document. A cached token may describe an older
+   * process even before any write has been refused, so verify the token around the read.
+   * A process change during the read refuses the snapshot rather than guessing its origin.
    */
   async get(id: string) {
-    if (this.replaced) {
-      this.token = null
-      this.replaced = false
+    const previous = this.token === null ? null : await this.session()
+    const observed = DocumentClient.sessionOf(await this.request('GET', '/api/v1/session'))
+    const alreadyNotified = this.replaced
+    this.token = Promise.resolve(observed)
+    this.replaced = false
+    if (previous !== null && previous.token !== observed.token && !alreadyNotified) {
+      this.notifyRestart()
     }
     const generation = this.generation
-    await this.session()
-    return DocumentClient.document(await this.request('GET', documentPath(id), undefined, {}, generation))
+    const value = await this.request('GET', documentPath(id), undefined, {}, generation)
+    const after = DocumentClient.sessionOf(await this.request('GET', '/api/v1/session'))
+    if (observed.token !== after.token) {
+      this.token = Promise.resolve(after)
+      if (this.generation === generation) this.notifyRestart()
+      throw restarted(200)
+    }
+    if (this.generation !== generation) throw restarted(200)
+    return DocumentClient.document(value)
   }
 
   /**

@@ -8,6 +8,7 @@
 - 실제 editor/autosave hook·client를 사용하는 `npm run test:browser:autosave-restart`를 작성해 CI에 연결했다. HTTP·브라우저 시간만 제어하며 실제 backend crash 검증은 아니다. 기존 smoke에는 aromaticity block의 누락된 step 이름만 보강했다. 부모 지시로 테스트·빌드·브라우저를 실행하지 않았고 current full/CI는 pending이다. 원인·리뷰·검증 대기는 [기록](verification/autosave-restart-reconcile.md)을 따른다.
 - 추가 PR #176 Codex P1은 일반 edit 등의 늦은 old-process 응답을 setCurrent가 최신 세대로 다시 표시하는 경계였다. 실제 HTTP attempt의 세대를 normalization 뒤에도 메모리에서 추적하고 중앙 snapshot 채택 guard를 적용했다. safe internal retry는 새 attempt의 세대를 사용하며 Close는 별도 요청 세대 guard로 화면 제거를 제한한다. held response의 edit/Open/Create/copy/recover/reload/import/Close 회귀를 작성했고 이번 수정도 테스트·빌드·브라우저는 미실행이다.
 - `635c6f9` full 격리 검사는 `npm run check` 뒤 Graph identity의 inspection이 먼저 restart를 알린 후 charge 편집하는 browser 단계에서 실패했다. 과도한 mutate 진입 거절이 기존 same-content 복구를 막은 원인이다. 새 명시 edit은 read-only 재조회·완전 content 확인 후 기존 재구성 경로로 진행하고 다른 내용은 유지·거절하도록 수정했다. read-only 알림 뒤 charge 1회·새 세대 autosave 재개와 다른-content 무변경 회귀를 추가했다. 이번 수정은 미실행이며 전체 성공으로 기록하지 않는다.
+- `d944960` 전용 autosave browser는 통과했으나 standard browser는 aromaticity의 두 번째 restart 뒤 Reload→Inspect rings에서 실패했다. 명시 get이 cached token을 재사용해 다른 process의 snapshot에 origin을 잘못 붙인 원인이었다. get은 실제 session을 읽기 전/후 확인해 token·세대를 갱신하며 read 도중 교체는 거절한다. 실제 hook+AromaticityPanel의 연속 두 restart·Reload·첫 검사 성공과 client의 미통지/도중 교체 회귀를 추가했다. 현재 수정은 미실행이며 full/CI pending이다.
 
 ## P34a 독립 탄소 6원 고리 후보
 
