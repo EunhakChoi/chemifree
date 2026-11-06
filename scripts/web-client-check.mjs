@@ -6139,6 +6139,71 @@ test('clipboard SMILES import preserves loss consent refusal and requires a new 
   assert.notEqual(scripted.writes[0].requestId, scripted.writes[1].requestId)
 })
 
+for (const lostReplies of [1, 2]) {
+  test(`clipboard SMILES consent refusal settles uncertainty after ${lostReplies} lost replies`, async () => {
+    const losses = [{ feature: 'stereo', source_path: 'source', disposition: 'dropped', semantic_impact: 'stereo', reason: 'Not retained.' }]
+    const scripted = service({ '/api/v1/operations': [
+      ...Array(lostReplies).fill(lost),
+      () => json(200, { ...nativeClipboardReply(scripted, 'document.import', null, 2), outcome: 'error',
+        diagnostics: [{ code: 'loss_consent_required', message: 'Accept inspected losses.', details: {
+          losses, features: ['stereo'], loss_digest: 'c'.repeat(64),
+        } }],
+      }),
+      () => json(200, clipboardSmilesReply(scripted, losses)),
+    ] })
+    const client = new DocumentClient()
+    const input = clipboardSmilesInput()
+    const attempt = client.createClipboardSmilesImport(input)
+    if (lostReplies === 2) {
+      await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_unconfirmed' })
+    }
+    const failure = await attempt.send().catch((error) => error)
+    assert.ok(failure instanceof ConsentRequired, 'definitive replay refusal must reach the loss-consent UI')
+    assert.deepEqual(failure.features, ['stereo'])
+    assert.deepEqual(failure.losses, losses)
+    assert.equal(failure.digest, input.digest)
+    assert.equal(outcomeOpen(failure), false, 'a confirmed consent refusal must release the mutation gate')
+    const refusedWrites = scripted.writes.length
+    await assert.rejects(attempt.send(), (error) => error === failure)
+    assert.equal(scripted.writes.length, refusedWrites, 'checking a definitive refusal makes no further request')
+    assert.equal(refusedWrites, lostReplies + 1)
+    assert.deepEqual(scripted.writes.map((write) => write.requestId), Array(refusedWrites).fill(scripted.writes[0].requestId))
+    assert.deepEqual(scripted.writes.map((write) => write.parameters), Array(refusedWrites).fill(scripted.writes[0].parameters))
+    assert.equal(scripted.writes[0].parameters.accept_loss, false)
+
+    const accepted = client.createClipboardSmilesImport({ ...input, acceptLoss: true })
+    assert.equal((await accepted.send()).document.revision, 3)
+    assert.equal(scripted.writes.length, refusedWrites + 1)
+    assert.equal(scripted.writes[refusedWrites].parameters.accept_loss, true)
+    assert.notEqual(scripted.writes[refusedWrites].requestId, scripted.writes[0].requestId)
+  })
+}
+
+test('clipboard SMILES malformed consent reply cannot clear lost-response uncertainty', async () => {
+  const losses = [{ feature: 'stereo', source_path: 'source', disposition: 'dropped', semantic_impact: 'stereo', reason: 'Not retained.' }]
+  const refusal = (reportedLosses) => json(200, {
+    ...nativeClipboardReply(scripted, 'document.import', null, 2), outcome: 'error',
+    diagnostics: [{ code: 'loss_consent_required', message: 'Accept inspected losses.', details: {
+      losses: reportedLosses, features: ['stereo'], loss_digest: 'c'.repeat(64),
+    } }],
+  })
+  const scripted = service({ '/api/v1/operations': [
+    lost,
+    () => refusal([{ feature: 'stereo' }]),
+    () => refusal(losses),
+  ] })
+  const attempt = new DocumentClient().createClipboardSmilesImport(clipboardSmilesInput())
+  await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_unconfirmed' })
+  assert.equal(scripted.writes.length, 2, 'malformed refusal leaves the original outcome unresolved')
+  const failure = await attempt.send().catch((error) => error)
+  assert.ok(failure instanceof ConsentRequired)
+  assert.deepEqual(failure.losses, losses)
+  assert.equal(scripted.writes.length, 3)
+  assert.deepEqual(scripted.writes.map((write) => write.requestId), Array(3).fill(scripted.writes[0].requestId))
+  await assert.rejects(attempt.send(), (error) => error === failure)
+  assert.equal(scripted.writes.length, 3)
+})
+
 for (const [name, change] of [
   ['request ID', (reply) => { reply.request_id = 'different' }],
   ['contract', (reply) => { reply.contract = 2 }],

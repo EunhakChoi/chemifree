@@ -2057,6 +2057,14 @@ export class DocumentClient {
           return parsed
         } catch (failure) {
           if (!(failure instanceof ApiError)) throw failure
+          if (failure instanceof ConsentRequired) {
+            // A validated consent refusal confirms that this immutable request did
+            // not commit, even when an earlier transport reply was lost. Retain
+            // the refusal so accepting losses requires a new explicit attempt.
+            uncertain = false
+            refused = failure
+            throw failure
+          }
           if (failure.code === 'service_restarted') {
             restartedAttempt = true
             throw new ApiError(`clipboard_${kind}_restarted`, `The service restarted before this ${action} was confirmed. Reload the drawing to reconcile it; this attempt will not be resent.`, failure.status)
