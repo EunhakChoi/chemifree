@@ -65,6 +65,7 @@ try {
   let releaseHeld
   let heldReady
   let expectedSelection = ringSelection()
+  let expectedSize = 6
   const bodies = []
   const replies = new Map()
   const navigation = []
@@ -97,7 +98,7 @@ try {
     if (path.endsWith('/undo') || path.endsWith('/redo')) {
       const revision = state.document.revision + 1
       const undo = path.endsWith('/undo')
-      state = undo ? ringSource() : ringAfter()
+      state = undo ? ringSource() : ringAfter(expectedSize)
       state.document.revision = revision
       state.document.selection = ringSelection()
       state.session.undo_depth = undo ? 0 : 1
@@ -126,12 +127,12 @@ try {
           message: conflict ? 'Revision changed before replay could confirm the attempt.' : 'Unrelated refusal after reply loss.',
           severity: 'error', path: null, details: conflict ? { current_revision: 4 } : {} }], loss_report: [] })
     }
-    assert.deepEqual(body.commands, [{ op: 'insert_ring', instance: 's1', center: { x: 100, y: 100 } }])
+    assert.deepEqual(body.commands, [{ op: 'insert_ring', instance: 's1', center: { x: 100, y: 100 }, ...(expectedSize === 6 ? {} : { size: expectedSize }) }])
     let confirmed = replies.get(body.request_id)
     if (!confirmed) {
       assert.equal(body.expected_revision, 3)
       assert.deepEqual(body.selection_before, expectedSelection)
-      state = ringAfter()
+      state = ringAfter(expectedSize)
       state.document.selection = structuredClone(expectedSelection)
       confirmed = structuredClone(state)
       replies.set(body.request_id, confirmed)
@@ -182,19 +183,26 @@ try {
     lost = 0
     droppedBeforeDispatch = 2
     expectedSelection = emptySelection
+    expectedSize = 6
     bodies.length = 0
     navigation.length = 0
     replies.clear()
   }
 
-  // Production CloseButton + ring recovery UI: neither failed send reaches the service.
+  // Production size control + CloseButton + frozen five-ring recovery; sends fail before dispatch.
   resetRequests()
+  expectedSize = 5
   await page.goto(`${url}?workspace`)
   await page.locator('[data-document-id="drawing"]').getByRole('button', { name: 'Open', exact: true }).click()
   await page.getByLabel('Document title', { exact: true }).waitFor()
   const close = page.getByRole('button', { name: 'Close document', exact: true })
   assert.equal(await close.isEnabled(), true, 'a clean idle document can close')
-  await page.getByRole('button', { name: 'Insert carbon six-member ring', exact: true }).click()
+  await page.getByRole('button', { name: 'Insert carbon ring', exact: true }).click()
+  const five = page.getByRole('button', { name: 'Five-member carbon ring', exact: true })
+  const six = page.getByRole('button', { name: 'Six-member carbon ring', exact: true })
+  assert.equal(await six.getAttribute('aria-pressed'), 'true', 'initial size is six')
+  await five.click()
+  assert.equal(await five.getAttribute('aria-pressed'), 'true')
   const productionCanvas = page.locator('[data-structure-canvas]')
   await productionCanvas.scrollIntoViewIfNeeded()
   await productionCanvas.focus()
@@ -206,6 +214,8 @@ try {
   await page.mouse.click(center.x, center.y)
   const checkRing = page.getByRole('button', { name: 'Check ring insertion outcome', exact: true })
   await checkRing.waitFor()
+  assert.equal(await five.isDisabled(), true, 'size cannot retarget an unresolved attempt')
+  assert.equal(await six.isDisabled(), true)
   assert.equal(state.session.unsaved_changes, false)
   assert.equal(replies.size, 0, 'both sends failed before dispatch')
   assert.equal(await close.isDisabled(), true, 'Close cannot remove the production recovery controls')
@@ -213,6 +223,10 @@ try {
   assert.deepEqual(navigation, [])
   await checkRing.click()
   await checkRing.waitFor({ state: 'hidden' })
+  assert.equal(state.document.atoms.length, 7, 'production size selection inserts five atoms')
+  assert.equal(await five.isEnabled(), true)
+  assert.equal(bodies[0].commands[0].size, 5)
+  assert.deepEqual(state.document.atoms, ringAfter(5).document.atoms)
   assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
   await close.click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Discard and close', exact: true }).click()

@@ -7,7 +7,7 @@ use std::fmt;
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondRef, BondTo, Command, Document,
     GroupId, GroupRef, MAX_CHARGE, MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID,
-    Point, Vector,
+    Point, RingSize, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
@@ -429,10 +429,12 @@ pub enum RadicalDto {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommandDto {
-    /// Independent six-carbon single-bond regular ring, supported in one placement only.
+    /// Independent five- or six-carbon single-bond regular ring in one placement.
     InsertRing {
         instance: String,
         center: PointDto,
+        #[serde(default, deserialize_with = "ring_size")]
+        size: RingSize,
     },
     /// Exactly one of `position` (while the document has one scene instance) and `positions`
     /// (a point for each scene instance, keyed by instance identifier).
@@ -924,11 +926,25 @@ pub(crate) fn to_commands(commands: &[CommandDto]) -> Result<Vec<Command>, Appli
         .collect()
 }
 
+// Missing size keeps the original six-ring recipe; explicit null is malformed.
+fn ring_size<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RingSize, D::Error> {
+    match u8::deserialize(deserializer)? {
+        5 => Ok(RingSize::Five),
+        6 => Ok(RingSize::Six),
+        _ => Err(de::Error::custom("ring size must be 5 or 6")),
+    }
+}
+
 fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
     Ok(match command {
-        CommandDto::InsertRing { instance, center } => Command::InsertRing {
+        CommandDto::InsertRing {
+            instance,
+            center,
+            size,
+        } => Command::InsertRing {
             instance: instance_id(instance)?,
             center: point(*center)?,
+            size: *size,
         },
         CommandDto::AddAtom {
             element: symbol,

@@ -24,6 +24,12 @@ fn snapshot(app: &App, id: &str) -> Value {
 
 #[test]
 fn ring_replay_history_and_reopen_preserve_existing_drawing_and_selection() {
+    for size in [None, Some(5), Some(6)] {
+        ring_persistence(size);
+    }
+}
+
+fn ring_persistence(size: Option<u8>) {
     let directory = tempfile::tempdir().unwrap();
     let app = Application::new(
         LocalCapabilities,
@@ -52,8 +58,12 @@ fn ring_replay_history_and_reopen_preserve_existing_drawing_and_selection() {
     );
     assert_eq!(seeded["outcome"], "ok", "{seeded}");
     let selection = json!({"objects":["s2"],"atoms":["a1"],"bonds":["b1"]});
-    let parameters = json!({"document_id":id,"expected_revision":1,"commands":[
-        {"op":"insert_ring","instance":"s1","center":{"x":100,"y":100}}],
+    let mut command = json!({"op":"insert_ring","instance":"s1","center":{"x":100,"y":100}});
+    if let Some(size) = size {
+        command["size"] = json!(size);
+    }
+    let count = usize::from(size.unwrap_or(6));
+    let parameters = json!({"document_id":id,"expected_revision":1,"commands":[command],
         "selection_before":selection});
     let inserted = request(&app, "ring", "document.transaction", parameters.clone());
     assert_eq!(inserted["outcome"], "ok", "{inserted}");
@@ -63,14 +73,14 @@ fn ring_replay_history_and_reopen_preserve_existing_drawing_and_selection() {
             .as_array()
             .unwrap()
             .len(),
-        8
+        2 + count
     );
     assert_eq!(
         inserted["result"]["document"]["bonds"]
             .as_array()
             .unwrap()
             .len(),
-        7
+        1 + count
     );
     assert_eq!(inserted["result"]["document"]["selection"], selection);
     for field in ["title", "settings", "stereo"] {
@@ -216,4 +226,71 @@ fn invalid_ring_requests_leave_document_revision_selection_and_redo_unchanged() 
     );
     assert_eq!(stale["diagnostics"][0]["code"], "revision_conflict");
     assert_eq!(snapshot(&app, id), before);
+}
+
+#[test]
+fn malformed_ring_sizes_preserve_revision_history_and_redo() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let created = request(&app, "create", "document.create", json!({}));
+    let id = created["result"]["document"]["id"].as_str().unwrap();
+    request(
+        &app,
+        "seed",
+        "document.transaction",
+        json!({"document_id":id,
+        "expected_revision":0,"commands":[{"op":"insert_ring","instance":"s1",
+        "center":{"x":0,"y":0},"size":5}]}),
+    );
+    let undone = request(
+        &app,
+        "undo",
+        "history.undo",
+        json!({"document_id":id,"expected_revision":1}),
+    );
+    assert_eq!(undone["outcome"], "ok", "{undone}");
+    let before = snapshot(&app, id);
+    for (index, size) in [
+        json!(null),
+        json!(0),
+        json!(4),
+        json!(7),
+        json!(-5),
+        json!(5.5),
+        json!("5"),
+        json!(true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let reply = request(
+            &app,
+            &format!("size-{index}"),
+            "document.transaction",
+            json!({
+            "document_id":id,"expected_revision":2,"commands":[{"op":"rename","title":"Must roll back"},
+            {"op":"insert_ring","instance":"s1","center":{"x":0,"y":0},"size":size}]}),
+        );
+        assert_eq!(
+            reply["diagnostics"][0]["code"], "invalid_request",
+            "{reply}"
+        );
+        assert_eq!(snapshot(&app, id), before, "size {size}");
+    }
+}
+
+#[test]
+fn omitted_and_explicit_six_have_identical_command_semantics() {
+    use chemifree_application::CommandDto;
+    let omitted: CommandDto =
+        serde_json::from_value(json!({"op":"insert_ring","instance":"s1","center":{"x":0,"y":0}}))
+            .unwrap();
+    let explicit: CommandDto = serde_json::from_value(
+        json!({"op":"insert_ring","instance":"s1","center":{"x":0,"y":0},"size":6}),
+    )
+    .unwrap();
+    assert_eq!(omitted, explicit);
 }

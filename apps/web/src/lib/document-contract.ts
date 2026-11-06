@@ -116,6 +116,8 @@ export interface SelectionView {
   bonds: string[]
 }
 
+export type RingSize = 5 | 6
+
 /** An immutable ring mutation whose send method checks the same request each time. */
 export interface RingInsertionAttempt {
   send(): Promise<DocumentResponse>
@@ -613,7 +615,7 @@ export type SelectionTransform =
   | { type: 'reflect_vertical' }
 
 export type Command =
-  | { op: 'insert_ring'; instance: string; center: Position }
+  | { op: 'insert_ring'; instance: string; center: Position; size?: RingSize }
   /** Named by exactly one of `element` and `query`; a query atom carries no charge or isotope. */
   | ({ op: 'add_atom'; bond_to?: { atom: AtomRef } & BondKind } & ({ element: string } | { query: QueryAtom }) &
       NewAtomPlacement &
@@ -1980,17 +1982,18 @@ export class DocumentClient {
   }
 
   /** Freeze a bounded ring insertion; outcome checks reuse its exact body and process. */
-  createRingInsertion(destination: DocumentView, instance: string, center: Position, selectionBefore: SelectionView): RingInsertionAttempt {
+  createRingInsertion(destination: DocumentView, instance: string, center: Position, selectionBefore: SelectionView, size: RingSize = 6): RingInsertionAttempt {
     const before = structuredClone(withDocumentStates(destination))
     if (before.scene?.instances.length !== 1 || before.scene.instances[0].id !== instance ||
         !Number.isFinite(center.x) || !Number.isFinite(center.y)) {
       throw new ApiError('ring_destination_invalid', 'Ring insertion requires one existing placement and a finite center.', 0)
     }
+    if (size !== 5 && size !== 6) throw new ApiError('ring_size_invalid', 'Ring size must be 5 or 6.', 0)
     const point = { x: center.x, y: center.y }
     const selection = clipboardSelection(selectionBefore)
     return this.clipboardAttempt('ring', `${documentPath(before.id)}/transactions`, {
       expected_revision: before.revision,
-      commands: [{ op: 'insert_ring', instance, center: point }],
+      commands: [{ op: 'insert_ring', instance, center: point, ...(size === 6 ? {} : { size }) }],
       selection_before: selection,
     }, (value) => {
       const snapshot = DocumentClient.document(value)
@@ -2001,13 +2004,17 @@ export class DocumentClient {
       const bonds = after.bonds.filter((bond) => !oldBonds.has(bond.id))
       // Scene captures follow paint order; the service returns ID-ordered sets.
       const selected = after.selection
-      if (after.revision !== before.revision + 1 || atoms.length !== 6 || bonds.length !== 6 ||
+      if (after.revision !== before.revision + 1 || atoms.length !== size || bonds.length !== size ||
           snapshot.notes?.length || !selected || !sameClipboardIds(selected.objects, selection.objects) ||
           !sameClipboardIds(selected.atoms, selection.atoms) || !sameClipboardIds(selected.bonds, selection.bonds)) throw clipboardIncompatible()
       const length = settingsOf(before).bond_length_pt
       const height = length * (Math.sqrt(3) / 2)
-      const offsets = [[length, 0], [length / 2, height], [-length / 2, height],
-        [-length, 0], [-length / 2, -height], [length / 2, -height]]
+      const radius = length / (2 * Math.sin(Math.PI / 5))
+      const offsets = size === 6
+        ? [[length, 0], [length / 2, height], [-length / 2, height],
+          [-length, 0], [-length / 2, -height], [length / 2, -height]]
+        : Array.from({ length: 5 }, (_, index) => [radius * Math.cos(index * 2 * Math.PI / 5),
+          radius * Math.sin(index * 2 * Math.PI / 5)])
       for (const [index, atom] of atoms.entries()) {
         const [x, y] = offsets[index]
         const expected = { x: point.x + x, y: point.y + y }
@@ -2016,7 +2023,7 @@ export class DocumentClient {
             atom.isotope !== null || atom.hydrogens.mode !== 'inferred' || atom.radical !== 'none' ||
             atom.attachment_points.length !== 0 || Math.abs(atom.position.x - expected.x) > tolerance ||
             Math.abs(atom.position.y - expected.y) > tolerance || bonds[index].begin !== atom.id ||
-            bonds[index].end !== atoms[(index + 1) % 6].id || bonds[index].order !== 'single' ||
+            bonds[index].end !== atoms[(index + 1) % size].id || bonds[index].order !== 'single' ||
             bonds[index].query !== null || bonds[index].mark !== null) throw clipboardIncompatible()
       }
       const fresh = new Set(atoms.map((atom) => atom.id))

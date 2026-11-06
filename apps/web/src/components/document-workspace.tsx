@@ -113,6 +113,7 @@ import {
   type DocumentView,
   type GraphicShape,
   type InstanceView,
+  type RingSize,
   type ListSort,
   type Position,
   type ReferenceTarget,
@@ -128,7 +129,7 @@ const TOOLS: { value: Tool; label: string; key: string; icon: ReactNode }[] = [
   { value: 'select', label: 'Select and move', key: 'V', icon: <MousePointer2Icon /> },
   { value: 'atom', label: 'Atom', key: 'A', icon: <AtomIcon /> },
   { value: 'bond', label: 'Bond', key: 'B', icon: <SlashIcon /> },
-  { value: 'ring', label: 'Insert carbon six-member ring', key: 'R', icon: <HexagonIcon /> },
+  { value: 'ring', label: 'Insert carbon ring', key: 'R', icon: <HexagonIcon /> },
   { value: 'erase', label: 'Erase', key: 'E', icon: <EraserIcon /> },
   { value: 'pan', label: 'Pan view', key: 'H', icon: <HandIcon /> },
 ]
@@ -568,6 +569,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [tool, setTool] = useState<Tool>('bond')
   const [element, setElement] = useState('C')
   const [bondKind, setBondKind] = useState<DrawnKind>('single')
+  const [ringSize, setRingSize] = useState<RingSize>(6)
   const [dragging, setDragging] = useState(false)
   const [ringRecoveryError, setRingRecoveryError] = useState<string | null>(null)
   const firstPlacement = document.scene?.instances[0]?.id ?? null
@@ -786,8 +788,22 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         )}
       </div>
 
+      {tool === 'ring' && <ToggleGroup
+        aria-label="Ring size"
+        variant="outline"
+        size="sm"
+        value={[String(ringSize)]}
+        disabled={editor.busy}
+        onValueChange={(values) => {
+          if (values[0] === '5') setRingSize(5)
+          if (values[0] === '6') setRingSize(6)
+        }}
+      >
+        <ToggleGroupItem value="5" aria-label="Five-member carbon ring">5</ToggleGroupItem>
+        <ToggleGroupItem value="6" aria-label="Six-member carbon ring">6</ToggleGroupItem>
+      </ToggleGroup>}
       {tool === 'ring' && <p className="text-xs text-muted-foreground">
-        Click the ring center to add an independent six-carbon single-bond ring using the current bond length.
+        Click the ring center to add an independent {ringSize}-carbon single-bond ring using the current bond length.
         One placement only. No attachment, fusion, collision avoidance or conformation calculation.
       </p>}
       {editor.clipboardPending && editor.clipboardAction === 'ring' && <Alert>
@@ -818,7 +834,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
               before === undefined ? undefined : { kind: 'gesture', before },
             )}
             onMark={(intent) => void editor.markBond((latest) => buildMark(latest, intent))}
-            onRing={(instance, center) => void editor.insertRing(document.id, instance, center)}
+            onRing={(instance, center) => void editor.insertRing(document.id, instance, center, ringSize)}
             rings={rings}
             cipLabels={labels}
             groupLabels={groupMarkList}
