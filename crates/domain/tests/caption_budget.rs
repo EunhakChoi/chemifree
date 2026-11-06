@@ -8,6 +8,7 @@ use chemifree_domain::scene::{Caption, CaptionRun, CaptionScript, SceneObject};
 
 fn widest(text: char) -> Caption {
     Caption {
+        alignment: Default::default(),
         anchor: Point::new(0.0, 0.0).unwrap(),
         runs: vec![
             CaptionRun {
@@ -134,6 +135,7 @@ fn reservations_count_utf8_bytes_and_escape_overhead_without_changing_text_limit
     let mut unicode = ascii.clone();
     let caption = |text: String| Command::AddCaption {
         caption: Caption {
+            alignment: Default::default(),
             anchor: Point::new(0.0, 0.0).unwrap(),
             runs: vec![CaptionRun {
                 text,

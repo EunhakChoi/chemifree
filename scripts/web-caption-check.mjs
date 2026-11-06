@@ -72,7 +72,7 @@ try {
   const alternateCreate = await fetch(`${base}/api/v1/documents`, { method: 'POST', headers: { 'content-type': 'application/json', [token.header]: token.token, origin: base }, body: JSON.stringify({ request_id: 'caption-browser-alternate', title: 'Alternate caption' }) })
   assert.equal(alternateCreate.status, 201)
   const alternateId = (await alternateCreate.json()).document.id
-  const alternateEdit = await fetch(`${base}/api/v1/documents/${alternateId}/transactions`, { method: 'POST', headers: { 'content-type': 'application/json', [token.header]: token.token, origin: base }, body: JSON.stringify({ request_id: 'caption-browser-alternate-edit', expected_revision: 0, commands: [{ op: 'add_caption', anchor: { x: -2400, y: -900 }, runs: [{ text: 'Alternate 한글 caption outside the old frame', script: 'baseline' }] }] }) })
+  const alternateEdit = await fetch(`${base}/api/v1/documents/${alternateId}/transactions`, { method: 'POST', headers: { 'content-type': 'application/json', [token.header]: token.token, origin: base }, body: JSON.stringify({ request_id: 'caption-browser-alternate-edit', expected_revision: 0, commands: [{ op: 'add_caption', anchor: { x: -2400, y: -900 }, alignment: 'right', runs: [{ text: '  עברית العربية Alternate 한글 caption outside the old frame  ', script: 'baseline' }] }] }) })
   assert.equal(alternateEdit.status, 200)
   const alternateSave = await fetch(`${base}/api/v1/documents/${alternateId}/save`, { method: 'POST', headers: { 'content-type': 'application/json', [token.header]: token.token, origin: base }, body: JSON.stringify({ request_id: 'caption-browser-alternate-save', expected_revision: 1 }) })
   assert.equal(alternateSave.status, 200)
@@ -147,13 +147,13 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await button('Fit drawing').click()
   const beforeCreateViewBox = await page.locator('[data-structure-canvas]').getAttribute('viewBox')
   await button('Add caption…').click()
-  const text = '한글 e\u0301 👩‍🔬 H'
+  const text = '   한글 e\u0301 👩‍🔬 H'
   await page.getByLabel('Run 1 text', { exact: true }).fill(text)
   await button('Add run').click()
   await page.getByLabel('Run 2 text', { exact: true }).fill('2')
   await page.getByRole('group', { name: 'Run 2 script', exact: true }).getByRole('button', { name: 'Subscript', exact: true }).click()
   await button('Add run').click()
-  await page.getByLabel('Run 3 text', { exact: true }).fill('+')
+  await page.getByLabel('Run 3 text', { exact: true }).fill('+   ')
   await page.getByRole('group', { name: 'Run 3 script', exact: true }).getByRole('button', { name: 'Superscript', exact: true }).click()
   await page.getByRole('group', { name: 'Run 1 weight', exact: true }).getByRole('button', { name: 'Bold', exact: true }).click()
   await page.getByRole('group', { name: 'Run 2 style', exact: true }).getByRole('button', { name: 'Italic', exact: true }).click()
@@ -161,7 +161,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.getByRole('group', { name: 'Run 3 style', exact: true }).getByRole('button', { name: 'Italic', exact: true }).click()
   await button('Create caption').click()
   await page.locator('[data-caption-text="s2"]').waitFor()
-  const expected = [{ text, script: 'baseline', weight: 'bold', style: 'normal' }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic' }, { text: '+', script: 'superscript', weight: 'bold', style: 'italic' }]
+  const expected = [{ text, script: 'baseline', weight: 'bold', style: 'normal' }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic' }, { text: '+   ', script: 'superscript', weight: 'bold', style: 'italic' }]
   assert.deepEqual((await caption()).runs, expected)
   assert.deepEqual(await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => [node.getAttribute('font-weight'), node.getAttribute('font-style')])), [['bold', 'normal'], ['normal', 'italic'], ['bold', 'italic']])
   stage = 'measure actual glyph and script bounds with the loaded fonts'
@@ -182,6 +182,37 @@ createRoot(document.getElementById('root')).render(<Harness />)
   })
   const scriptY = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute('y'))))
   assert.deepEqual(scriptY, [0, 4, -5])
+  stage = 'whole-caption alignment shifts all script chunks and includes edge spaces'
+  const leftMetrics = await page.locator('[data-caption-text]').evaluate((node) => ({
+    starts: [...node.querySelectorAll('tspan')].map((span) => span.getStartPositionOfChar(0).x),
+    advance: [...node.querySelectorAll('tspan')].reduce((sum, span) => sum + span.getComputedTextLength(), 0),
+  }))
+  assert.ok(leftMetrics.advance > 30)
+  const originalAnchor = (await caption()).anchor
+  for (const [alignment, fraction] of [['center', 0.5], ['right', 1], ['left', 0]]) {
+    await button('Select caption').click()
+    await button('Edit selected caption…').click()
+    await page.getByRole('group', { name: 'Caption alignment', exact: true }).getByRole('button', { name: alignment[0].toUpperCase() + alignment.slice(1), exact: true }).click()
+    await button('Apply caption').click()
+    await page.waitForFunction((alignment) => {
+      const text = document.querySelector('[data-caption-text]')
+      if (text?.dataset.captionAlignment !== alignment || text.ownerSVGElement.dataset.captionBoundsReady !== 'true') return false
+      const advance = text.getComputedTextLength()
+      const expected = Number(text.dataset.captionAnchorX) - advance * (alignment === 'right' ? 1 : alignment === 'center' ? 0.5 : 0)
+      return Math.abs(Number(text.getAttribute('x')) - expected) < 0.02
+    }, alignment)
+    assert.equal((await caption()).alignment, alignment)
+    assert.deepEqual((await caption()).anchor, originalAnchor)
+    assert.deepEqual((await caption()).runs, expected)
+    const starts = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((span) => span.getStartPositionOfChar(0).x))
+    starts.forEach((x, index) => assert.ok(Math.abs(x - (leftMetrics.starts[index] - leftMetrics.advance * fraction)) < 0.05, `${alignment} run ${index}: all runs shift by the whole advance`))
+  }
+  // A single alignment-only edit is one undo step; the anchor and mixed styling stay fixed.
+  await button('Undo caption').click()
+  await page.waitForFunction(() => document.querySelector('[data-caption-text]')?.dataset.captionAlignment === 'right')
+  assert.equal((await caption()).alignment, 'right')
+  await button('Redo caption').click()
+  await page.waitForFunction(() => document.querySelector('[data-caption-text]')?.dataset.captionAlignment === 'left')
   stage = 'style-only edit remeasures current ink and undo restores styles'
   await button('Select caption').click()
   const beforeStyleViewport = await page.locator('[data-structure-canvas]').getAttribute('viewBox')
@@ -202,25 +233,27 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.waitForFunction(() => document.querySelector('[data-caption-text]')?.firstElementChild?.getAttribute('font-weight') === 'bold')
   assert.deepEqual((await caption()).runs, expected)
   stage = 'edit through selection and preserve one undo step'
-  await page.getByRole('img', { name: `Caption s2: ${text}2+`, exact: true }).click()
+  await page.locator('[data-caption-text="s2"]').click()
   await button('Edit selected caption…').click()
-  const editedText = 'NFC é and NFD e\u0301 '.repeat(8)
+  const editedText = '  NFC é and NFD e\u0301 '.repeat(8)
   await page.getByLabel('Run 1 text', { exact: true }).fill(editedText)
+  await page.getByRole('group', { name: 'Caption alignment', exact: true }).getByRole('button', { name: 'Right', exact: true }).click()
   await page.getByLabel('Caption horizontal position (pt)', { exact: true }).fill('1200')
   await page.getByLabel('Caption vertical position (pt)', { exact: true }).fill('450')
   await button('Apply caption').click()
-  await page.waitForFunction((text) => document.querySelector('[data-caption-text]')?.textContent === `${text}2+`, editedText)
+  await page.waitForFunction((text) => document.querySelector('[data-caption-text]')?.textContent === `${text}2+   `, editedText)
   await button('Undo caption').click()
-  await page.waitForFunction((text) => document.querySelector('[data-caption-text]')?.textContent === `${text}2+`, text)
+  await page.waitForFunction((text) => document.querySelector('[data-caption-text]')?.textContent === `${text}2+   `, text)
   assert.deepEqual((await caption()).runs, expected)
   await button('Redo caption').click()
-  await page.waitForFunction((text) => document.querySelector('[data-caption-text]')?.textContent === `${text}2+`, editedText)
+  await page.waitForFunction((text) => document.querySelector('[data-caption-text]')?.textContent === `${text}2+   `, editedText)
   stage = 'save, reload and reopen the exact native runs'
   const edited = await caption()
   await button('Save caption drawing').click()
   await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Caption snapshot"]').textContent)?.session.unsaved_changes === false)
   const native = JSON.parse(readFileSync(join(work, 'documents', `${id}.json`), 'utf8'))
-  assert.equal(native.format_version, 10)
+  assert.equal(native.format_version, 11)
+  assert.equal(native.document.objects.find((object) => object.id === 's2').state.alignment, 'right')
   assert.deepEqual(native.document.objects.find((object) => object.id === 's2').state.runs, edited.runs)
   await page.reload()
   await page.locator('[data-caption-text="s2"]').waitFor()

@@ -79,9 +79,9 @@ pub use chemifree_domain::budget::{CancelFlag, Interrupt, Interrupted};
 pub use contract::{
     AbbreviationView, ArrangementModeDto, AtomConfigurationDto, AtomKindView, AtomPositionView,
     AtomStereoView, AtomView, BondConfigurationDto, BondEndDto, BondOrderDto, BondQueryDto,
-    BondStereoView, BondToDto, BondView, CaptionRunDto, CaptionScriptDto, CaptionStyleDto,
-    CaptionWeightDto, CarbonLabelsDto, CloseRequest, CloseResponse, CommandDto, CopyResponse,
-    CopySource, CreateDocumentRequest, DeleteModeDto, DeleteResponse, DisplayUnitDto,
+    BondStereoView, BondToDto, BondView, CaptionAlignmentDto, CaptionRunDto, CaptionScriptDto,
+    CaptionStyleDto, CaptionWeightDto, CarbonLabelsDto, CloseRequest, CloseResponse, CommandDto,
+    CopyResponse, CopySource, CreateDocumentRequest, DeleteModeDto, DeleteResponse, DisplayUnitDto,
     DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse,
     DraftFailureView, DraftRequest, GraphicShapeDto, HydrogensDto, ImportSettingsRequest,
     InstanceView, LabelFontDto, ListQuery, ListSort, MarkDto, MoleculeView, PageView, PointDto,

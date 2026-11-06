@@ -29,6 +29,7 @@ fn document() -> Document {
 fn caption() -> Command {
     Command::AddCaption {
         caption: Caption {
+            alignment: Default::default(),
             anchor: Point::new(-0.0, 4.0).unwrap(),
             runs: vec![
                 CaptionRun {
@@ -58,7 +59,7 @@ fn old_document_bytes_and_history_survive_read_and_first_v9_save() {
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/caption-native.json");
     let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(stored["format_version"], 10);
+    assert_eq!(stored["format_version"], 11);
     strip_abbreviations(&mut stored);
     stored["format_version"] = json!(7);
     let original = serde_json::to_vec_pretty(&stored).unwrap();
@@ -152,7 +153,7 @@ fn old_draft_bytes_are_preserved_before_the_first_changed_v9_draft() {
         Some(edited.document.revision)
     );
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 10);
+    assert_eq!(rewritten["format_version"], 11);
     assert_eq!(rewritten["document"]["revision"], edited.document.revision);
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 7)).unwrap(),
@@ -225,6 +226,7 @@ fn repeated_maximal_caption_updates_save_reload_and_keep_the_latest_undo() {
     let mut doc =
         Document::new(DocumentId::parse("caption-budget-store").unwrap(), "Budget").unwrap();
     let value = |character: char| Caption {
+        alignment: Default::default(),
         anchor: Point::new(0.0, 0.0).unwrap(),
         runs: vec![
             CaptionRun {
@@ -321,6 +323,9 @@ fn strip_abbreviations(value: &mut Value) {
 fn strip_caption_styles(value: &mut Value) {
     match value {
         Value::Object(object) => {
+            if object.get("kind").and_then(Value::as_str) == Some("caption") {
+                object.remove("alignment");
+            }
             if object.contains_key("script") && object.contains_key("text") {
                 object.remove("weight");
                 object.remove("style");
@@ -347,6 +352,7 @@ fn v9_caption_current_history_and_draft_migrate_without_rewriting_and_archive_ex
     doc.apply(&[Command::UpdateCaption {
         object: ObjectId::from_serial(2).unwrap(),
         caption: Caption {
+            alignment: Default::default(),
             anchor: Point::new(7.0, 8.0).unwrap(),
             runs: vec![CaptionRun {
                 text: "changed".into(),
@@ -433,6 +439,7 @@ fn v10_requires_style_fields_and_v9_refuses_them_even_in_history_only_captions()
         (9, "weight", Some(json!("bold"))),
     ] {
         let mut invalid = original.clone();
+        strip_caption_alignment(&mut invalid);
         if version == 9 {
             strip_caption_styles(&mut invalid);
         }
@@ -452,5 +459,222 @@ fn v10_requires_style_fields_and_v9_refuses_them_even_in_history_only_captions()
             "version {version}, field {field}"
         );
         assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
+}
+
+fn strip_caption_alignment(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            if object.get("kind").and_then(Value::as_str) == Some("caption") {
+                object.remove("alignment");
+            }
+            for child in object.values_mut() {
+                strip_caption_alignment(child);
+            }
+        }
+        Value::Array(values) => {
+            for child in values {
+                strip_caption_alignment(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn v8_to_v10_alignment_migration_keeps_current_history_and_exact_document_and_draft_bytes() {
+    for version in [8, 9, 10] {
+        let root = tempfile::tempdir().unwrap();
+        let repo = FileDocumentRepository::new(root.path());
+        let mut doc = document();
+        doc.apply(&[caption()]).unwrap();
+        let mut changed = match caption() {
+            Command::AddCaption { caption, .. } => caption,
+            _ => unreachable!(),
+        };
+        changed.runs[0].text = "redo text".into();
+        doc.apply(&[Command::UpdateCaption {
+            object: ObjectId::from_serial(2).unwrap(),
+            caption: changed,
+        }])
+        .unwrap();
+        doc.undo().unwrap();
+        repo.save(&doc, None).unwrap();
+        repo.write_draft(&Draft {
+            document: doc.clone(),
+            base_revision: doc.revision(),
+            saved_at_ms: 42,
+        })
+        .unwrap();
+        repo.release_draft(doc.id());
+        for draft in [false, true] {
+            let path = root.path().join(if draft {
+                "drafts/caption-native.json"
+            } else {
+                "documents/caption-native.json"
+            });
+            let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            strip_caption_alignment(&mut stored);
+            if version < 10 {
+                strip_caption_styles(&mut stored);
+            }
+            if version == 8 {
+                stored["document"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("abbreviations");
+                for stack in ["undo", "redo"] {
+                    for entry in stored["history"][stack].as_array_mut().unwrap() {
+                        entry.as_object_mut().unwrap().remove("abbreviations");
+                    }
+                }
+            }
+            stored["format_version"] = json!(version);
+            let bytes = serde_json::to_vec_pretty(&stored).unwrap();
+            fs::write(&path, &bytes).unwrap();
+            let mut loaded = if draft {
+                repo.claim_draft(doc.id())
+                    .unwrap()
+                    .unwrap()
+                    .unwrap()
+                    .document
+            } else {
+                repo.load(doc.id()).unwrap().unwrap()
+            };
+            assert_eq!(loaded, doc, "v{version}, draft={draft}");
+            assert_eq!(fs::read(&path).unwrap(), bytes);
+            loaded.redo().unwrap();
+            loaded.undo().unwrap();
+            assert_eq!(loaded.scene_objects(), doc.scene_objects());
+            if draft {
+                repo.prepare_draft_for_recovery(
+                    doc.id(),
+                    chemifree_application::DraftRecoveryTarget::Original {
+                        base_revision: doc.revision(),
+                    },
+                )
+                .unwrap();
+                repo.write_draft(&Draft {
+                    document: loaded,
+                    base_revision: doc.revision(),
+                    saved_at_ms: 43,
+                })
+                .unwrap();
+                assert_eq!(
+                    fs::read(repo.migrated_draft_path(doc.id(), version)).unwrap(),
+                    bytes
+                );
+                repo.release_draft(doc.id());
+            } else {
+                repo.save(&loaded, Some(doc.revision())).unwrap();
+                assert_eq!(
+                    fs::read(repo.migrated_path(doc.id(), version)).unwrap(),
+                    bytes
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn alignment_is_strict_in_current_and_history_for_documents_and_drafts() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = document();
+    doc.apply(&[caption()]).unwrap();
+    repo.save(&doc, None).unwrap();
+    let path = root.path().join("documents/caption-native.json");
+    let with_current: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    doc.undo().unwrap();
+    repo.save(&doc, Some(doc.revision() - 1)).unwrap();
+    let history_only: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    for history in [false, true] {
+        for version in [8, 9, 10, 11] {
+            for value in [
+                None,
+                Some(json!(null)),
+                Some(json!("middle")),
+                Some(json!(3)),
+                Some(json!("center")),
+            ] {
+                let mut stored = if history {
+                    history_only.clone()
+                } else {
+                    with_current.clone()
+                };
+                strip_caption_alignment(&mut stored);
+                if version < 10 {
+                    strip_caption_styles(&mut stored);
+                }
+                if version == 8 {
+                    stored["document"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("abbreviations");
+                    for stack in ["undo", "redo"] {
+                        for entry in stored["history"][stack].as_array_mut().unwrap() {
+                            entry.as_object_mut().unwrap().remove("abbreviations");
+                        }
+                    }
+                }
+                stored["format_version"] = json!(version);
+                // v11 needs alignment in every caption, before changing the chosen state.
+                if version == 11 {
+                    fn fill(value: &mut Value) {
+                        match value {
+                            Value::Object(object) => {
+                                if object.get("kind").and_then(Value::as_str) == Some("caption") {
+                                    object.insert("alignment".into(), json!("center"));
+                                }
+                                for child in object.values_mut() {
+                                    fill(child);
+                                }
+                            }
+                            Value::Array(values) => {
+                                for child in values {
+                                    fill(child);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    fill(&mut stored);
+                }
+                let state = if history {
+                    &mut stored["history"]["redo"][0]["objects"][0]["after"]
+                } else {
+                    &mut stored["document"]["objects"][1]["state"]
+                };
+                if let Some(value) = &value {
+                    state["alignment"] = value.clone();
+                } else {
+                    state.as_object_mut().unwrap().remove("alignment");
+                }
+                let valid = (version < 11 && value.is_none())
+                    || (version == 11 && value == Some(json!("center")));
+                let bytes = serde_json::to_vec(&stored).unwrap();
+                fs::write(&path, &bytes).unwrap();
+                assert_eq!(
+                    repo.load(doc.id()).is_ok(),
+                    valid,
+                    "v{version}, history={history}, value={value:?}"
+                );
+                assert_eq!(fs::read(&path).unwrap(), bytes);
+                stored["format"] = json!("chemifree.draft");
+                stored["base_revision"] = json!(0);
+                stored["saved_at_ms"] = json!(42);
+                let draft_path = root.path().join("drafts/caption-native.json");
+                fs::create_dir_all(root.path().join("drafts")).unwrap();
+                let bytes = serde_json::to_vec(&stored).unwrap();
+                fs::write(&draft_path, &bytes).unwrap();
+                assert_eq!(
+                    repo.claim_draft(doc.id()).unwrap().unwrap().is_ok(),
+                    valid,
+                    "draft v{version}, history={history}, value={value:?}"
+                );
+                repo.release_draft(doc.id());
+                assert_eq!(fs::read(&draft_path).unwrap(), bytes);
+            }
+        }
     }
 }

@@ -42,7 +42,7 @@ fn runs() -> Value {
 fn commands() -> Value {
     json!([
         {"op":"add_atom","element":"C","position":{"x":0,"y":0}},
-        {"op":"add_caption","anchor":{"x":40,"y":50},"runs":runs()}
+        {"op":"add_caption","anchor":{"x":40,"y":50},"alignment":"center","runs":runs()}
     ])
 }
 
@@ -65,6 +65,10 @@ fn caption_replay_save_reopen_and_crash_draft_preserve_text_scripts_and_history(
         send(&app, "caption-add", "document.transaction", parameters),
         added
     );
+    assert_eq!(
+        added["result"]["document"]["scene"]["objects"][1]["alignment"],
+        "center"
+    );
     let first_revision = added["result"]["document"]["revision"].as_u64().unwrap();
     app.save(&id, Some("save-caption"), first_revision).unwrap();
     app.close(&id, Some("close-caption"), false, Some(first_revision))
@@ -77,9 +81,13 @@ fn caption_replay_save_reopen_and_crash_draft_preserve_text_scripts_and_history(
     let changed = call(
         &app,
         "document.transaction",
-        json!({"document_id":id,"expected_revision":reopened.document.revision,"commands":[{"op":"update_caption","object":"s2","anchor":{"x":-20,"y":10},"runs":[{"text":"🧪 가나다 NFC é / NFD e\u{301}","script":"baseline"}]}]}),
+        json!({"document_id":id,"expected_revision":reopened.document.revision,"commands":[{"op":"update_caption","object":"s2","anchor":{"x":-20,"y":10},"alignment":"right","runs":[{"text":"🧪 가나다 NFC é / NFD e\u{301}","script":"baseline"}]}]}),
     );
     assert_eq!(changed["outcome"], "ok", "{changed}");
+    assert_eq!(
+        changed["result"]["document"]["scene"]["objects"][1]["alignment"],
+        "right"
+    );
     app.autosave(&id, Some("draft-caption")).unwrap();
     let expected = changed["result"]["document"]["scene"].clone();
     drop(app);
@@ -339,6 +347,7 @@ fn a_small_wire_request_cannot_create_an_oversized_caption_history_entry() {
     let captions: Vec<_> = (0..117)
         .map(|_| Command::AddCaption {
             caption: Caption {
+                alignment: Default::default(),
                 anchor: Point::new(0.0, 0.0).unwrap(),
                 runs: vec![
                     CaptionRun {
@@ -429,5 +438,78 @@ fn invalid_caption_styles_refuse_the_whole_transaction_and_omissions_default_to_
         json!([
             {"text":"H","script":"baseline","weight":"normal","style":"normal"}
         ])
+    );
+}
+
+#[test]
+fn alignment_defaults_are_whole_state_replacements_and_invalid_values_preserve_history() {
+    let (app, _root, id) = setup();
+    let added = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[{"op":"add_caption","anchor":{"x":7,"y":9},"runs":runs()}]}),
+    );
+    assert_eq!(
+        added["result"]["document"]["scene"]["objects"][1]["alignment"],
+        "left"
+    );
+    let parameters = json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_caption","object":"s2","anchor":{"x":7,"y":9},"alignment":"center","runs":runs()}]});
+    let centered = send(
+        &app,
+        "align-center",
+        "document.transaction",
+        parameters.clone(),
+    );
+    assert_eq!(
+        centered["result"]["document"]["scene"]["objects"][1]["alignment"],
+        "center"
+    );
+    assert_eq!(
+        send(&app, "align-center", "document.transaction", parameters),
+        centered
+    );
+    let changed_replay = send(
+        &app,
+        "align-center",
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_caption","object":"s2","anchor":{"x":7,"y":9},"alignment":"right","runs":runs()}]}),
+    );
+    assert_eq!(
+        changed_replay["diagnostics"][0]["code"],
+        "request_id_reused"
+    );
+    let before = snapshot(&app, &id);
+    for alignment in [
+        json!(null),
+        json!("start"),
+        json!(false),
+        json!(3),
+        json!(["left"]),
+    ] {
+        let refused = call(
+            &app,
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":2,"commands":[{"op":"rename","title":"rollback"},{"op":"update_caption","object":"s2","anchor":{"x":7,"y":9},"alignment":alignment,"runs":runs()}]}),
+        );
+        assert_eq!(
+            refused["diagnostics"][0]["code"], "invalid_request",
+            "{refused}"
+        );
+        assert_eq!(snapshot(&app, &id), before);
+    }
+    // Legacy update requests replace a complete caption: omission resets alignment to left.
+    let omitted = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":2,"commands":[{"op":"update_caption","object":"s2","anchor":{"x":7,"y":9},"runs":runs()}]}),
+    );
+    assert_eq!(
+        omitted["result"]["document"]["scene"]["objects"][1]["alignment"],
+        "left"
+    );
+    let undone = app.undo(&id, Some("align-undo"), 3).unwrap();
+    assert_eq!(
+        serde_json::to_value(undone.document).unwrap()["scene"]["objects"][1]["alignment"],
+        "center"
     );
 }

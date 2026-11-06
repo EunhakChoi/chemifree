@@ -7,13 +7,13 @@ use std::process::ExitCode;
 
 use chemifree_application::{
     Application, ApplicationError, AtomConfigurationDto, AtomKindView, AtomView,
-    BondConfigurationDto, BondEndDto, BondQueryDto, BondView, CaptionScriptDto, CaptionStyleDto,
-    CaptionWeightDto, CommandDto, CopyResponse, DeleteResponse, DocumentListResponse,
-    DocumentResponse, DraftDiscardResponse, ErrorCode, GraphicShapeDto, HydrogensDto, ListQuery,
-    ListSort, MarkDto, OperationResponse, PreferencesChange, PreferencesResponse, RadicalDto,
-    RecoveryState, ReferenceTargetDto, RegistryEntryStatus, RestoreResponse, SceneObjectView,
-    SelectionDto, SettingsDto, SettingsSource, StereoGroupKindDto, StereoView,
-    TransactionSelections, TrashListResponse,
+    BondConfigurationDto, BondEndDto, BondQueryDto, BondView, CaptionAlignmentDto,
+    CaptionScriptDto, CaptionStyleDto, CaptionWeightDto, CommandDto, CopyResponse, DeleteResponse,
+    DocumentListResponse, DocumentResponse, DraftDiscardResponse, ErrorCode, GraphicShapeDto,
+    HydrogensDto, ListQuery, ListSort, MarkDto, OperationResponse, PreferencesChange,
+    PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto, RegistryEntryStatus,
+    RestoreResponse, SceneObjectView, SelectionDto, SettingsDto, SettingsSource,
+    StereoGroupKindDto, StereoView, TransactionSelections, TrashListResponse,
 };
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
@@ -797,6 +797,7 @@ fn document_text(response: &DocumentResponse) -> String {
                 id,
                 parent,
                 anchor,
+                alignment,
                 runs,
             } => {
                 // ASCII escaping makes Unicode scalar values and quotes unambiguous without
@@ -823,8 +824,13 @@ fn document_text(response: &DocumentResponse) -> String {
                         )
                     })
                     .collect();
+                let alignment = match alignment {
+                    CaptionAlignmentDto::Left => "left",
+                    CaptionAlignmentDto::Center => "center",
+                    CaptionAlignmentDto::Right => "right",
+                };
                 lines.push(format!(
-                    "  {id}  caption in {} at ({}, {}): {}",
+                    "  {id}  caption in {} at ({}, {}) [{alignment}]: {}",
                     parent.as_deref().unwrap_or("page"),
                     anchor.x,
                     anchor.y,
@@ -1126,7 +1132,7 @@ mod tests {
     #[test]
     fn caption_output_keeps_parent_anchor_run_order_and_explicit_script() {
         let text = shown(json!([
-            {"op":"add_caption","anchor":{"x":5,"y":7},"runs":[
+            {"op":"add_caption","anchor":{"x":5,"y":7},"alignment":"center","runs":[
                 {"text":"H","script":"baseline"},{"text":"2","script":"subscript","weight":"bold","style":"italic"},{"text":"+","script":"superscript","style":"italic"}
             ]},
             {"op":"add_graphic","shape":"line","points":[{"x":0,"y":0},{"x":10,"y":0}]},
@@ -1139,7 +1145,7 @@ mod tests {
         assert_eq!(
             caption,
             [
-                r#"  s2  caption in s4 at (5, 7): baseline/normal/normal("H") subscript/bold/italic("2") superscript/normal/italic("+")"#
+                r#"  s2  caption in s4 at (5, 7) [center]: baseline/normal/normal("H") subscript/bold/italic("2") superscript/normal/italic("+")"#
             ]
         );
     }

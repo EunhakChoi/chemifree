@@ -1,7 +1,8 @@
-//! Chemifree document file format, version 10 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 11 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
+//! Version 11 adds explicit whole-caption alignment; versions 8–10 migrate as left.
 //! Version 10 adds explicit caption run weight/style; versions 8–9 migrate them as normal.
 //! Version 9 adds per-placement Et display metadata to version 8 captions. It stores the chemical graph
 //! (`molecule`), the page's ordered scene tree, directed
@@ -20,7 +21,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 10. Other versions
+//! so they read with none. Reading never writes; the next write is version 11. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -32,8 +33,8 @@ use chemifree_domain::document::{
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
-    Caption, CaptionRun, CaptionScript, CaptionStyle, CaptionWeight, Graphic, GraphicShape,
-    ReferenceTarget, SceneObject, SceneReference, Selection,
+    Caption, CaptionAlignment, CaptionRun, CaptionScript, CaptionStyle, CaptionWeight, Graphic,
+    GraphicShape, ReferenceTarget, SceneObject, SceneReference, Selection,
 };
 use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, Settings};
 use chemifree_domain::states::{
@@ -47,9 +48,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 10;
+const FORMAT_VERSION: u32 = 11;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 10;
+const DRAFT_FORMAT_VERSION: u32 = 11;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -64,7 +65,7 @@ const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Current v10 scene/history: groups, captions with explicit styles, and Et display maps.
+/// Current v11 scene/history: groups, styled/aligned captions, and Et display maps.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -135,6 +136,8 @@ enum StoredGroupKind {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum SceneState {
     Caption {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        alignment: Option<StoredCaptionAlignment>,
         anchor: StoredPoint,
         runs: Vec<StoredCaptionRun>,
     },
@@ -159,6 +162,14 @@ struct StoredCaptionRun {
     style: Option<StoredCaptionStyle>,
     #[serde(default)]
     weight: Option<StoredCaptionWeight>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StoredCaptionAlignment {
+    Left,
+    Center,
+    Right,
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]
@@ -1171,6 +1182,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Ten,
     Nine,
     Eight,
     Seven,
@@ -1192,6 +1204,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        10 => Ok(Version::Ten),
         9 => Ok(Version::Nine),
         8 => Ok(Version::Eight),
         7 => Ok(Version::Seven),
@@ -1203,7 +1216,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, and \
              {current}"
         )),
     }
@@ -1367,6 +1380,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Four) => Some(VERSION_4),
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
+        Ok(Version::Ten) => Some(10),
         Ok(Version::Nine) => Some(9),
         Ok(Version::Eight) => Some(8),
         Ok(Version::Seven) => Some(7),
@@ -1379,9 +1393,9 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let format = version(bytes, FORMAT, FORMAT_VERSION, "document")?;
     check_abbreviation_fields(bytes, format)?;
-    check_caption_style_fields(bytes, format)?;
+    check_caption_fields(bytes, format)?;
     let parts = match format {
-        Version::Current | Version::Nine | Version::Eight | Version::Seven => {
+        Version::Current | Version::Ten | Version::Nine | Version::Eight | Version::Seven => {
             let file: SceneFile = parse(bytes, "document")?;
             scene_parts(file.document, file.history)?
         }
@@ -1420,9 +1434,9 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let format = version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")?;
     check_abbreviation_fields(bytes, format)?;
-    check_caption_style_fields(bytes, format)?;
+    check_caption_fields(bytes, format)?;
     let (parts, base_revision, saved_at_ms) = match format {
-        Version::Current | Version::Nine | Version::Eight | Version::Seven => {
+        Version::Current | Version::Ten | Version::Nine | Version::Eight | Version::Seven => {
             let file: SceneDraftFile = parse(bytes, "draft")?;
             let parts = scene_parts(file.document, file.history)?;
             (parts, file.base_revision, file.saved_at_ms)
@@ -1472,7 +1486,7 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
 /// current/history state; earlier headers cannot smuggle even empty v9 fields.
 fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String> {
     let raw: serde_json::Value = parse(bytes, "document or draft")?;
-    let current = matches!(format, Version::Current | Version::Nine);
+    let current = matches!(format, Version::Current | Version::Ten | Version::Nine);
     let document = raw.get("document").ok_or("missing document")?;
     let history = raw.get("history").ok_or("missing history")?;
     let mut states = vec![document];
@@ -1495,30 +1509,35 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     Ok(())
 }
 
-/// Every caption run in a v10 current or historical state requires explicit styles.
-fn check_caption_style_fields(bytes: &[u8], format: Version) -> Result<(), String> {
-    fn check(value: &serde_json::Value, current: bool) -> Result<(), String> {
+/// Required caption fields are versioned for every current and historical state.
+fn check_caption_fields(bytes: &[u8], format: Version) -> Result<(), String> {
+    fn check(value: &serde_json::Value, styles: bool, alignment: bool) -> Result<(), String> {
         match value {
             serde_json::Value::Object(object) => {
-                if object.get("kind").and_then(serde_json::Value::as_str) == Some("caption")
-                    && let Some(runs) = object.get("runs").and_then(serde_json::Value::as_array)
-                {
-                    for run in runs {
-                        for field in ["weight", "style"] {
-                            let present = run.get(field).is_some();
-                            if present != current || (present && run[field].is_null()) {
-                                return Err("Caption weight/style are required in v10 and forbidden in v1–9, including history.".into());
+                if object.get("kind").and_then(serde_json::Value::as_str) == Some("caption") {
+                    let field = object.get("alignment");
+                    if field.is_some() != alignment || field.is_some_and(serde_json::Value::is_null)
+                    {
+                        return Err("Caption alignment is required in v11 and forbidden in v1–10, including history.".into());
+                    }
+                    if let Some(runs) = object.get("runs").and_then(serde_json::Value::as_array) {
+                        for run in runs {
+                            for field in ["weight", "style"] {
+                                let present = run.get(field).is_some();
+                                if present != styles || (present && run[field].is_null()) {
+                                    return Err("Caption weight/style are required in v10–11 and forbidden in v1–9, including history.".into());
+                                }
                             }
                         }
                     }
                 }
                 for child in object.values() {
-                    check(child, current)?;
+                    check(child, styles, alignment)?;
                 }
             }
             serde_json::Value::Array(values) => {
                 for child in values {
-                    check(child, current)?;
+                    check(child, styles, alignment)?;
                 }
             }
             _ => {}
@@ -1527,13 +1546,17 @@ fn check_caption_style_fields(bytes: &[u8], format: Version) -> Result<(), Strin
     }
     check(
         &parse(bytes, "document or draft")?,
+        matches!(format, Version::Current | Version::Ten),
         format == Version::Current,
     )
 }
 
 /// Caption variants are forbidden in all earlier versions, including history-only states.
 fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(), String> {
-    if matches!(format, Version::Current | Version::Nine | Version::Eight) {
+    if matches!(
+        format,
+        Version::Current | Version::Ten | Version::Nine | Version::Eight
+    ) {
         return Ok(());
     }
     let caption = |object: &SceneObject| matches!(object, SceneObject::Caption(_));
@@ -1663,6 +1686,11 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
 fn stored_scene_state(object: &SceneObject) -> SceneState {
     match object {
         SceneObject::Caption(caption) => SceneState::Caption {
+            alignment: Some(match caption.alignment {
+                CaptionAlignment::Left => StoredCaptionAlignment::Left,
+                CaptionAlignment::Center => StoredCaptionAlignment::Center,
+                CaptionAlignment::Right => StoredCaptionAlignment::Right,
+            }),
             anchor: stored_point(&caption.anchor),
             runs: caption
                 .runs
@@ -1728,8 +1756,17 @@ fn read_reference(reference: StoredReference) -> Result<SceneReference, String> 
 
 fn read_scene_state(object: SceneState) -> Result<SceneObject, String> {
     Ok(match object {
-        SceneState::Caption { anchor, runs } => {
+        SceneState::Caption {
+            alignment,
+            anchor,
+            runs,
+        } => {
             let caption = Caption {
+                alignment: match alignment.unwrap_or(StoredCaptionAlignment::Left) {
+                    StoredCaptionAlignment::Left => CaptionAlignment::Left,
+                    StoredCaptionAlignment::Center => CaptionAlignment::Center,
+                    StoredCaptionAlignment::Right => CaptionAlignment::Right,
+                },
                 anchor: point(anchor.x, anchor.y)?,
                 runs: runs
                     .into_iter()

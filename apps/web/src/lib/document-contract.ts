@@ -93,6 +93,8 @@ export interface InstanceView {
   positions: InstancePosition[]
 }
 
+export type CaptionAlignment = 'left' | 'center' | 'right'
+
 export interface CaptionRun { text: string; script: 'baseline' | 'subscript' | 'superscript'; weight: 'normal' | 'bold'; style: 'normal' | 'italic' }
 
 export type GraphicShape = 'line' | 'rectangle' | 'arrow'
@@ -100,7 +102,7 @@ export type GraphicShape = 'line' | 'rectangle' | 'arrow'
 export type SceneObject =
   | { kind: 'instance'; id: string; parent: string | null; molecule: string }
   | { kind: 'group'; id: string; parent: string | null; children: string[] }
-  | { kind: 'caption'; id: string; parent: string | null; anchor: Position; runs: CaptionRun[] }
+  | { kind: 'caption'; id: string; parent: string | null; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
   | { kind: 'graphic'; id: string; parent: string | null; shape: GraphicShape; points: [Position, Position] }
 
 export interface ReferenceTarget {
@@ -687,8 +689,8 @@ export type Command =
   | { op: 'delete_instance'; instance: string }
   | { op: 'collapse_ethyl'; instance: string; anchor: string; terminal: string }
   | { op: 'expand_ethyl'; instance: string; anchor: string }
-  | { op: 'add_caption'; anchor: Position; runs: CaptionRun[]; parent?: string; index?: number }
-  | { op: 'update_caption'; object: string; anchor: Position; runs: CaptionRun[] }
+  | { op: 'add_caption'; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[]; parent?: string; index?: number }
+  | { op: 'update_caption'; object: string; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
   | { op: 'add_graphic'; shape: GraphicShape; points: [Position, Position]; parent?: string; index?: number }
   | { op: 'group'; objects: string[] }
   | { op: 'ungroup'; group: string }
@@ -1090,7 +1092,7 @@ function isSceneObject(value: unknown): value is SceneObject {
     case 'group':
       return isStringArray(value.children)
     case 'caption':
-      return isRecord(value.anchor) && isFiniteNumber(value.anchor.x) && isFiniteNumber(value.anchor.y) && validCaptionRuns(value.runs)
+      return (value.alignment === 'left' || value.alignment === 'center' || value.alignment === 'right') && isRecord(value.anchor) && isFiniteNumber(value.anchor.x) && isFiniteNumber(value.anchor.y) && validCaptionRuns(value.runs)
     case 'graphic':
       return (
         (value.shape === 'line' || value.shape === 'rectangle' || value.shape === 'arrow') &&

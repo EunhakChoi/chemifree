@@ -251,6 +251,19 @@
 - 구현자는 cargo fmt와 diff 검토만 수행했다. 빌드·테스트·브라우저·변이 확인·PR 리뷰·CI는
   부모 세션에서 실행해야 한다. [검증기록](verification/p35b-caption-weight-style.md) 참조.
 
+## P35c caption 수평 정렬 후보
+
+- 최신 `origin/main` c685460 기반 `feat/p35c-caption-alignment` 후보다. 독립 single-line
+  caption 전체에 left/center/right를 저장하며 alignment-only 편집은 anchor/run/화학 그래프를
+  바꾸지 않는 한 Undo 단계다. 기존 script/bold/italic와 조합하며 UI/HTTP/CLI·save/recovery를 따른다.
+- native v11은 current/undo/redo alignment를 필수로 받고 v8–10은 left로 메모리 migration한다.
+  old header에 새 필드가 섞이면 history-only에서도 거절하며 원본 document/draft byte를 보존한다.
+- SVG y별 chunk를 따로 정렬하지 않고 font 측정에서 앞뒤 공백을 포함한 전체 advance로 x를 옮긴다.
+  물리 left/right와 고정 LTR paragraph 정책/RTL 한계, API 생략 시 add/update 모두 left와 구형
+  클라이언트의 표시·편집 한계를 CONTRACT.md에 기록했다.
+- 회귀를 작성했으며 부모 지시로 이 구현 작업에서는 테스트·빌드·browser·mutation을 실행하지 않았다.
+  검증·Codex/독립 리뷰·PR은 후속 gate다. P35 전체 완료가 아니다. `docs/verification/p35c-caption-alignment.md` 참조.
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.

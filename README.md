@@ -100,11 +100,12 @@ If preferences could not be read when the page started, open **Preferences** and
 
 P35a adds independent single-line Unicode captions with baseline/subscript/superscript runs;
 P35b adds explicit normal/bold weight and normal/italic style on each run, composable with script,
-ordinary Undo/Redo and native save/recovery (introduced in v8). Captions preserve text verbatim and do not
+ordinary Undo/Redo and native save/recovery (introduced in v8). P35c adds whole-caption
+left/center/right alignment at a fixed anchor, including edge spaces in the natural advance. Captions preserve text verbatim and do not
 change chemical graph or abbreviation meaning. Click or use Scene to select them;
 move/group/delete are supported, while caption-containing arrangement/transform/graphic
 clipboard requests refuse whole. Chemical exports require consent for caption loss.
-P35 remains in progress. P35b checks are written and execution is pending; see [scope and pending verification](docs/verification/p35b-caption-weight-style.md).
+P35 remains in progress. P35c checks are written and execution is pending; see [scope and pending verification](docs/verification/p35c-caption-alignment.md).
 
 P34i adds explicit terminal Et contraction/expansion over an existing two-carbon graph.
 Atoms, bonds, IDs, coordinates and calculations remain complete. Only the canvas contracts;
@@ -113,7 +114,7 @@ report a rendering loss and write the full graph. Local stereo and multiple plac
 outside this first contraction slice. New checks are written but unexecuted; see
 [scope and pending verification](docs/verification/p34i-ethyl-display.md).
 
-Version 10 documents and drafts require explicit caption run weight/style; v8–9 captions migrate these to normal. Version 9 added and v10 retains per-placement Et display maps and their history. Earlier displays default empty. Documents and drafts retain the scene, selection, style, the storage for stereo marks and stated configurations (shown in every snapshot and set by the stereo commands), and enhanced-stereo groups (eight commands, shown in every snapshot as `stereo.groups` and edited in the web Stereo panel; only MOL V3000 import and export reads and writes them as `COLLECTION` entries); versions 1–4 are read in memory with the default style, version 5 keeps its stored style, versions 1–5 have no stereo, and versions 1–6 have no groups. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.
+Version 11 documents and drafts require whole-caption left/center/right alignment (v8–10 migrate as left) and explicit caption run weight/style; v8–9 captions migrate these to normal. Version 9 added and v10–11 retain per-placement Et display maps and their history. Earlier displays default empty. Documents and drafts retain the scene, selection, style, the storage for stereo marks and stated configurations (shown in every snapshot and set by the stereo commands), and enhanced-stereo groups (eight commands, shown in every snapshot as `stereo.groups` and edited in the web Stereo panel; only MOL V3000 import and export reads and writes them as `COLLECTION` entries); versions 1–4 are read in memory with the default style, version 5 keeps its stored style, versions 1–5 have no stereo, and versions 1–6 have no groups. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.
 
 The P15 numeric library provides exact-rational Real48, binary32, binary64, and 80-bit extended storage conversions, finite arithmetic, selected ordered heading and deviation boundaries, independent length and concentration unit conversions, and explicit decimal display and F32 storage policies. The numeric library does not itself enable a chemistry engine. See [the numeric boundaries](docs/NUMERICS.ko.md).
 

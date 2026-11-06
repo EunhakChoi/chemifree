@@ -1240,6 +1240,7 @@ mod tests {
         let captions: Vec<_> = (0..count)
             .map(|_| Command::AddCaption {
                 caption: Caption {
+                    alignment: Default::default(),
                     anchor: Point::new(-99_999.999_999, 99_999.999_999).unwrap(),
                     runs: vec![
                         CaptionRun {
