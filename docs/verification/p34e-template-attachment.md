@@ -2,8 +2,8 @@
 
 ## 결정과 경계
 
-P34d HEAD `8113f0f`를 기반으로 분리한 `feat/p34e-template-attach` 후보다. 선행 변경과
-최신 main 통합은 부모가 후속 진행한다. P34는 in_progress이며 납품·과학 기능 완료를
+P34d HEAD `8113f0f`를 기반으로 분리한 `feat/p34e-template-attach` 후보다. 구현 커밋은
+`4ba2c8b58c9dcf583647062473d97d078c955f5d`이며 이후 main `91938d2`를 통합했다. P34는 in_progress이며 납품·과학 기능 완료를
 주장하지 않는다. `.chemifree-fragment.json`의 native v1 본문과 storage schema는 그대로다.
 
 명시 source anchor 하나와 destination atom/instance, finite nonzero direction으로 native
@@ -72,6 +72,20 @@ fusion/spiro/replace·복수 anchor·단절 fragment 연결·약어·template li
   invalidation, actual attach 두 reply loss 뒤 same-body 확인·selection/coordinates·Undo/Redo·
   source 불변·save/reload/reopen을 더했다. 기존 CI 명령에서 실행되도록 작성했을 뿐이며,
   이번 작업에서 브라우저나 HTTP/CLI 검사를 실행하지 않았다.
+
+## 선행 main 통합
+
+부모 지시에 따라 구현/리뷰 처분 커밋 이후 origin/main `91938d2`(P34d #178)를 fetch/merge했다.
+P34c #177·smoke teardown #179(`02def38`)도 포함한다. squash 겹침은 P34d 작성 HEAD
+`8113f0f`를 기준으로 양쪽 변경을 대조했다. main의 null-mode form 비표시·단일 recovery,
+save/insert FieldGroup key와 controlled/uncontrolled 회귀·modal 외부-event harness·diagnostics,
+request-log teardown 및 lifecycle 검사·package 명령을 모두 보존했다. 새 attach form에도
+독립 key를 주고 닫힌 뒤 단일 recovery를 region 안에서 확인하도록 맞췄다. P34e의 Domain/
+Application/client/HTTP=CLI/실제 template 연결 browser 단계와 공개 문서를 보존했다.
+
+P34d 전용 browser 근거를 적격 공통 evidence로 승격하지 않는 main의 unverified 부분·집계·
+실패/성공 기록도 그대로 유지한다. 이 통합에서 테스트·빌드·브라우저·mutation은 실행하지
+않았다. P34e current integrated head의 full/PR CI/병합 CI는 pending이다.
 
 ## 실행 대기
 

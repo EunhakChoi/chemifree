@@ -32,6 +32,7 @@ import { stripVTControlCharacters } from 'node:util'
 import { chromium } from 'playwright-core'
 
 import { keepRequestInterception } from './lib/request-interception.mjs'
+import { observeRequestLog } from './lib/request-log.mjs'
 
 const BASE = 'http://127.0.0.1:5173'
 const results = { skipped_steps: [] }
@@ -53,6 +54,7 @@ let apiServer = null
 let web = null
 let browser = null
 let page = null
+let stopRequestLog = () => {}
 /** Output of API processes that have ended; some steps kill the API and start a new one. */
 const endedApiLogs = []
 /** Every browser request: start offset and duration in ms (monotonic clock), method, path, outcome. */
@@ -60,6 +62,7 @@ const requestLog = []
 const buildLog = []
 /** Stops whatever has started. The temporary directory is removed unless `keepWork` is set. */
 async function cleanup({ keepWork = false } = {}) {
+  stopRequestLog()
   await browser?.close().catch(() => {})
   // The API holds files in the temporary directory until it has exited.
   const apiChild = apiServer?.child
@@ -89,6 +92,7 @@ function writeRecords(error) {
 }
 process.on('uncaughtException', async (error) => {
   console.error(`Browser smoke FAILED at step ${step}:`, error.message)
+  stopRequestLog()
   // No page (for example, the browser did not launch) means no screenshot.
   const shot = await page?.screenshot({ path: join(outDir, 'failure.png') }).then(
     () => true,
@@ -176,18 +180,9 @@ const context = await browser.newContext({ viewport: { width: 1280, height: 900 
 await keepRequestInterception(context)
 page = await context.newPage()
 page.on('console', (message) => message.type() === 'error' && consoleErrors.push(message.text()))
-// Durations use the monotonic clock: the wall clock can be stepped by time synchronization.
-const runStarted = performance.now()
-const started = new Map()
-page.on('request', (request) => started.set(request, performance.now()))
-const note = (request, outcome) => {
-  const at = started.get(request) ?? performance.now()
-  const { pathname, search } = new URL(request.url())
-  const path = `${pathname}${search}`
-  requestLog.push(`+${Math.round(at - runStarted)} ${request.method()} ${path} ${outcome} ${Math.round(performance.now() - at)}ms`)
-}
-page.on('requestfinished', async (request) => note(request, (await request.response())?.status()))
-page.on('requestfailed', (request) => note(request, request.failure()?.errorText))
+// Durations use a monotonic clock. Statuses are cached on response headers so completion
+// logging never leaves an asynchronous request.response() running during browser.close().
+stopRequestLog = observeRequestLog(page, (line) => requestLog.push(line))
 page.on('pageerror', (error) => consoleErrors.push(String(error)))
 
 const api = (path) => page.evaluate(async (p) => (await fetch(p)).json(), path)

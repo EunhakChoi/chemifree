@@ -80,3 +80,75 @@ TypeScript patterns/testing과 shadcn 스킬을 적용하고 공식 Base UI comp
   독립 기대값으로 검사한다. mixed 선택도 정확한 backend refusal reason을 먼저 검사한다.
   따라서 Origin 403이나 더 이른 stereo 거절은 단순 alert timeout으로 감춰지지 않는다.
 - 이 수정 담당자는 테스트·빌드·브라우저·push를 실행하지 않았다. 부모의 재검증 대기다.
+
+## 부모 격리 재검증의 두 번째 실패와 form 수명 수정
+
+- 부모의 `8113f0f` real-backend browser 재검증은 crossing/mixed 선택과 실제 다운로드를
+  통과해 stale-source 단계까지 진행했으나, modal이 열린 동안 `Reload drawing`을 찾는
+  role locator(`scripts/web-user-template-check.mjs:252`)에서 실패했다. 로그는 로컬
+  `/tmp/chemifree-p29d-verify-j4KjPa/p34d-browser2.log`다. 실행 성공으로 기록하지 않는다.
+- Base UI modal은 배경 toolbar를 접근성 트리에서 숨긴다. fixture는 외부 snapshot 갱신을
+  일으키려고 background harness button에 DOM event를 dispatch했지만, 그 전에 기본
+  `getByRole`이 숨겨진 button을 제외했다. harness-only 외부 갱신/navigation dispatch는
+  `includeHidden: true` helper로 명시했다. 실제 사용자 저장/선택/삽입/recovery는 계속
+  일반 role locator와 실제 click을 쓴다. 배경 toolbar를 사용자가 modal 너머 누를 수
+  있다고 주장하지 않으며 전체 editor navigation 검증도 아니다.
+- 같은 실행의 controlled→uncontrolled warning은 제품 form 수명 문제다. `close()`가
+  mode를 null로 바꿨을 때 닫히는 Dialog의 남아 있는 body가 insert 분기로 바뀌어,
+  filename의 controlled text Input과 uncontrolled file Input을 재사용할 수 있었다.
+  null mode에서는 form을 렌더하지 않고 save/insert FieldGroup에 서로 다른 key를 줘
+  입력기의 수명을 분리했다. native file Input을 controlled로 바꾸지는 않는다.
+- browser console의 controlled/uncontrolled 경고를 수집해 최종 기대값 `[]`를 추가했다.
+  실패 시 dialog/alert/current-document text도 실행 로그에 남겨 다음 실패를 상태와
+  함께 확인하게 했다. 이 수정은 읽기 전용 검토와 `git diff --check`만 수행했으며,
+  테스트·빌드·브라우저·push는 부모 재검증 대기다.
+
+## 부모 격리 재검증의 세 번째 실패와 portal 종료 동기화
+
+- `409c0f6`의 부모 재검증은 실제 파일 삽입의 lost-reply 단계까지 진행했지만 Close 직후
+  전역 Check locator가 두 버튼(닫히는 dialog와 본문 panel)에 동시에 일치해 실패했다.
+  로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34d-browser3.log`이며 lint/type/client535개와
+  build는 통과했다. 새 browser 성공은 아니다.
+- mode null일 때 닫히는 portal 내부 recovery도 렌더하지 않게 하여 persistent panel과
+  종료 중 dialog가 같은 recovery action을 중복 노출하지 않도록 했다. 미확정 attempt는
+  기존대로 유지하고, 닫힌 뒤 본문 recovery만 남긴다.
+- fixture는 dialog 내부 Check를 명시 확인한 뒤 Close하고, portal의 실제 detached 상태를
+  기다린 다음 **User graph templates** region의 Check 한 개를 눌러 확인한다. 성공 뒤 그
+  persistent Check의 제거까지 기다린다. `first()`/임의 sleep 없이 이 테스트의 의도인
+  “닫은 뒤에도 남는 recovery”와 실제 사용자 영역을 검사한다.
+- 수정 담당자는 `git diff --check`만 실행했다. 테스트·빌드·브라우저·push와 부모의
+  재검증은 pending이다.
+
+## Targeted 통과와 #179 main 통합
+
+- 부모가 `5c9e148170ecdb1694b54c9a414650b306e92db8`의 격리 targeted 검사에서
+  lint/typecheck/test:client/build와 `test:browser:user-template`를 통과시켰다.
+  로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34d-browser4.log`이며 마지막 전용 browser는
+  `User graph template download, file selection, real backend insertion, refusals and recovery passed.`
+  와 exit 0을 기록했다. 이전 세 실패 기록은 수정 근거로 유지한다.
+- 그 뒤 `origin/main`의 #179 smoke 종료 경합 fix `02def38`를 합쳤다. 충돌은 HANDOFF의
+  최상단 새 항목 두 개뿐이며 P34d와 smoke 종료 경합 인계를 모두 보존했다. main의
+  request-log observer/tests와 `test:checks` 연결, P34d의 `test:browser:user-template`
+  script·CI step·제품 source·검증 문서를 유지했다.
+- 이 통합 담당자는 테스트·빌드·브라우저·push를 실행하지 않았다. 위 targeted 성공은
+  `5c9e148` 근거이며 #179를 합친 통합본의 `npm run check`·standard browser와 PR/main
+  CI 성공으로 확대하지 않는다. 통합 full/CI 및 Codex PR 리뷰는 pending이다. P34 전체는
+  계속 in_progress다.
+
+## 통합 full의 traceability 실패와 evidence 상태 정정
+
+- 부모의 `a19062d` 격리 `npm run check`는 traceability에서 실패했다. 로그는
+  `/tmp/chemifree-p29d-verify-j4KjPa/p34d-full.log`다. 그 앞의 Rust workspace,
+  HTTP/CLI contract와 conformance 109/109는 통과했지만 전체 check 성공은 아니다.
+- 새 `OPS-01.user-template-files`의 evidence로 전용 `test:browser:user-template`를
+  연결했으나, 현 검사 규칙은 `npm run check`가 호출하는 script만 적격 check evidence로
+  인정한다. 전용 browser의 `5c9e148` targeted 통과는 실제 결과로 유지하되 공통
+  evidence로 취급하지 않는다. 관련 없는 client 단위 검사 이름을 대신 붙이지 않는다.
+- 구현 경로와 후속 P34는 유지하고 이 부분을 `unverified`/evidence 빈 배열로 정정했다.
+  이는 제품 코드 부재나 browser 미실행이라는 뜻이 아니라 공통 정책상 적격 evidence
+  부재의 표현이다. traceability 검사와 그 테스트·호출 범위는 변경하지 않았다.
+- TRACEABILITY/HANDOFF의 유일한 현재 집계를 부분108개(implemented60·partial12·
+  unverified3·not_implemented33)로 맞췄다. 상위 요구사항33개와 conformance109개 및
+  공개 선언 집계는 변하지 않는다. P34 전체 in_progress를 유지한다.
+- 이 정정 담당자는 `git diff --check`만 실행했다. 테스트·빌드·브라우저·push는 실행하지
+  않았으며 수정본 full/CI와 Codex PR 리뷰는 pending이다.

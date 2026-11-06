@@ -17,6 +17,7 @@ let api
 let apiLog = ''
 let server
 let browser
+let page
 let stage = 'build'
 let passed = false
 
@@ -159,10 +160,14 @@ try {
   browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
   const context = await browser.newContext({ acceptDownloads: true })
   await keepRequestInterception(context)
-  const page = await context.newPage()
+  page = await context.newPage()
   const errors = []
+  const inputWarnings = []
   const mutations = []
   page.on('pageerror', (error) => errors.push(error.message))
+  page.on('console', (message) => {
+    if (/controlled.*uncontrolled|uncontrolled.*controlled/i.test(message.text())) inputWarnings.push(message.text())
+  })
   page.on('request', (request) => {
     if (request.url().endsWith('/api/v1/operations') && request.postDataJSON()?.operation === 'document.clipboard_paste') mutations.push(request.postDataJSON())
   })
@@ -181,7 +186,12 @@ try {
     }
   })
   const button = (name) => page.getByRole('button', { name, exact: true })
+  // Modal accessibility correctly hides these harness-only external-event controls.
+  // Dispatching them exercises incoming snapshot/navigation changes, not a user's
+  // ability to press background toolbar buttons through the modal.
+  const externalEvent = (name) => page.getByRole('button', { name, exact: true, includeHidden: true }).evaluate((element) => element.click())
   const dialog = () => page.getByRole('dialog')
+  const templatePanel = page.getByRole('region', { name: 'User graph templates', exact: true })
   const fileInput = () => page.getByLabel('Template file', { exact: true })
   const shown = async () => JSON.parse(await page.getByLabel('Current snapshot').innerText())
   async function open(name, id) {
@@ -249,7 +259,7 @@ try {
   await button('Save template file…').click()
   await page.getByRole('status').filter({ hasText: '3 atoms, 0 bonds from s1' }).waitFor()
   await request(`/documents/${stale}/transactions`, { expected_revision: 1, commands: [{ op: 'rename', title: 'Changed source snapshot' }] })
-  await button('Reload drawing').evaluate((element) => element.click())
+  await externalEvent('Reload drawing')
   await page.getByText('The drawing changed. Close this dialog and prepare the template again.', { exact: true }).waitFor()
   assert.equal(await button('Download template').isDisabled(), true)
   await button('Close').click()
@@ -290,9 +300,7 @@ try {
   await button('Insert template file…').click()
   await fileInput().setInputFiles({ name: 'held-document.json', mimeType: 'application/json', buffer: bytes })
   await page.waitForFunction(() => window.heldFileReads.length === 1)
-  // Navigation outside a modal is invoked through the harness button's DOM click;
-  // the production hook and component unmount still handle the document switch.
-  await button('Open source').evaluate((element) => element.click())
+  await externalEvent('Open source')
   await page.waitForFunction((id) => document.querySelector('[aria-label="Current document"]')?.textContent === id, source)
   await page.evaluate(() => window.heldFileReads.shift()())
   assert.equal(await dialog().count(), 0)
@@ -303,7 +311,7 @@ try {
   await stopApi()
   await startApi(apiPath, Number(new URL(apiBase).port))
   session = await (await fetch(`${apiBase}/api/v1/session`)).json()
-  await button('Reload drawing').evaluate((element) => element.click())
+  await externalEvent('Reload drawing')
   await dialog().waitFor({ state: 'detached' })
   await page.evaluate(() => window.heldFileReads.shift()())
   await button('Insert template file…').click()
@@ -352,14 +360,20 @@ try {
     return route.fulfill({ response })
   })
   await button('Insert template').click()
-  await button('Check template insertion outcome').waitFor()
+  await dialog().getByRole('button', { name: 'Check template insertion outcome', exact: true }).waitFor()
   assert.equal(await button('Insert template').isDisabled(), true)
   const committed = await snapshot(destination)
   assert.equal(committed.document.revision, 2)
   assert.equal(committed.session.undo_depth, before.session.undo_depth + 1)
   await button('Close').click()
-  await button('Check template insertion outcome').click()
-  await page.waitForFunction(() => !document.querySelector('section[aria-label="User graph templates"]')?.textContent.includes('Check template insertion outcome'))
+  // Confirm dismissal of the portal before using the persistent panel recovery.
+  // The test proves recovery survives closing, rather than clicking a closing dialog.
+  await dialog().waitFor({ state: 'detached' })
+  const persistentRecovery = templatePanel.getByRole('button', { name: 'Check template insertion outcome', exact: true })
+  await persistentRecovery.waitFor()
+  assert.equal(await persistentRecovery.count(), 1)
+  await persistentRecovery.click()
+  await persistentRecovery.waitFor({ state: 'detached' })
   assert.deepEqual(lostBodies, [lostBodies[0], lostBodies[0], lostBodies[0]], 'confirmation must keep request ID, payload and offsets')
   const after = await shown()
   assert.deepEqual(stable(after), stable(committed))
@@ -432,7 +446,9 @@ try {
   assert.deepEqual(attached.document.selection, { objects: [], atoms: ['a5', 'a6', 'a7'], bonds: ['b3', 'b4'] })
   assert.deepEqual(attached.document.bonds.at(-1), { id: 'b5', begin: 'a1', end: 'a5', order: 'single', query: null, mark: null })
   await button('Close').click()
-  await button('Check template insertion outcome').click()
+  const persistentAttachRecovery = templatePanel.getByRole('button', { name: 'Check template insertion outcome', exact: true })
+  assert.equal(await persistentAttachRecovery.count(), 1, 'the attachment has one recovery control after dialog dismissal')
+  await persistentAttachRecovery.click()
   await page.waitForFunction(() => !document.querySelector('section[aria-label="User graph templates"]')?.textContent.includes('Check template insertion outcome'))
   assert.deepEqual(attachBodies, [attachBodies[0], attachBodies[0], attachBodies[0]])
   assert.equal(attachBodies[0].parameters.source_anchor, 'a1')
@@ -452,10 +468,18 @@ try {
   await open('destination', destination)
   assert.deepEqual(content(await shown()), content(attached), 'attached template persists across reload and reopen')
   assert.deepEqual(errors, [])
+  assert.deepEqual(inputWarnings, [], 'closing and switching template forms must not reuse a controlled text input as an uncontrolled file input')
   passed = true
   console.log('User graph template download, file selection, real backend insertion, refusals and recovery passed.')
 } catch (error) {
   console.error(`User template check failed at ${stage}. Data retained at ${work}.\n${apiLog}`)
+  try {
+    if (page && !page.isClosed()) {
+      console.error('Template UI at failure:', JSON.stringify(await page.locator('[role="dialog"], [role="alert"], [aria-label="Current document"]').allTextContents()))
+    }
+  } catch (diagnosticError) {
+    console.error('Could not capture template UI diagnostics:', diagnosticError)
+  }
   throw error
 } finally {
   await browser?.close()

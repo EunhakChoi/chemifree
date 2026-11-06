@@ -9,6 +9,14 @@ AddBond destination notes/group·atomic history/replay를 재사용한다. inspe
 Domain/Application/HTTP=CLI/client/real-backend browser 회귀는 작성만 했으며 실행하지
 않았다. 적격 evidence나 상위 상태/집계를 승격하지 않고 [P34e 기록](verification/p34e-template-attachment.md)을 따른다.
 
+P34d의 `OPS-01.user-template-files`는 별도 browser 검사로 실제 파일 다운로드→재선택→
+backend 삽입을 확인했다(`5c9e148` 부모 격리 targeted 통과). 이 전용 script는
+`npm run check`에서 호출되지 않아 현재 traceability 정책의 적격 evidence가 아니다.
+따라서 구현 경로와 P34 후속은 유지하되 evidence는 비우고 해당 부분을 `unverified`로
+기록한다. 별도 browser 통과를 공통 검사 근거로 치환하거나 기존 native 검사에 새 UI의
+검증 범위를 덧씌우지 않는다. `a19062d` 통합 full은 이 evidence 자격과 집계 불일치로
+실패했으며, 수정 후 full/CI 재검증은 pending이다. [P34d 기록](verification/p34d-user-template.md)을 따른다.
+
 P34c 후보는 기존 원자에서 방향을 지정한 5/6 탄소 고리 연결을 더한다. shared attach_ring은
 기존 insert_bond의 stereo clearing·group prune·notes, transaction 원자성/history와 웹의
 immutable recovery를 재사용한다. Domain/Application(일반 bond-edit oracle)/HTTP=CLI/client/
@@ -72,7 +80,7 @@ P33k의 `test:browser:clipboard-integration`은 production panel/hook/client→�
 
 Instance 복제·enhanced-stereo-group graph 복사·global shortcut·custom MIME·external Cut·Windows/OLE는 bounded P33 밖이다. 이 완료는 형식 전체/모든 내부 객체의 clipboard 지원을 뜻하지 않는다. 기존 conformance 보고서 집계는 재실행 없이 유지한다. CODEC-06.rest·OPS-01.rest·OPS-02.rest의 open follow-up에서는 완료된 P33을 제거한다. 고급 형식/통합 파일·text UX는 기존 codec 후속과 P48, 전문 객체의 포함/선택은 P72, 정리·키보드 UI는 P47/P85, 전문 scene/reaction 변경 집합은 해당 기존 후속에 남긴다. 선언된 native 복제/shortcut 제한에 새 구현 약속을 임의로 부여하지 않는다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 107개(implemented 60, partial 12, unverified 2, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 108개(implemented 60, partial 12, unverified 3, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

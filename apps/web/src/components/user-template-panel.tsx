@@ -260,18 +260,18 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
             ? 'Only selected atoms, bond endpoints and internal bonds are saved. Scene objects, references and enhanced stereo groups are not template content. The source drawing is unchanged.'
             : mode === 'attach' ? 'Choose one connected native template and an explicit eligible source atom. Choose a destination atom and direction, then preview the translation-only single-bond connection. Preview changes nothing; source-anchor stereo loss is refused.'
             : 'Choose a Chemifree graph template file (up to 64 KiB). Reading does not edit the drawing. The local service validates its graph, style and version only when you press Insert template.'}</DialogDescription>
-          {recovery}
+          {mode !== null && recovery}
           {mode === 'save' ? <>
             {currentOffer && <p role="status">{currentOffer.copied.atoms.length} atoms, {currentOffer.copied.bonds.length} bonds from {currentOffer.instance}, revision {currentOffer.snapshot.document.revision}.</p>}
             {offer && !currentOffer && <p>The drawing changed. Close this dialog and prepare the template again.</p>}
-            <FieldGroup><Field>
+            <FieldGroup key="template-save"><Field>
               <FieldLabel htmlFor={`${id}-name`}>Template filename</FieldLabel>
               <Input id={`${id}-name`} value={name} disabled={busy} onChange={(event) => setName(event.target.value)} />
             </Field></FieldGroup>
             <DialogFooter className="mx-0 mb-0"><Button disabled={busy || !currentOffer || !name.trim()} onClick={() => download()}>Download template</Button></DialogFooter>
           </> : mode === 'attach' ? <>
             {!singleDestination && <p>Attachment requires exactly one destination placement.</p>}
-            <FieldGroup>
+            <FieldGroup key="template-attach">
               <Field><FieldLabel htmlFor={`${id}-attach-file`}>Template file for attachment</FieldLabel>
                 <Input id={`${id}-attach-file`} type="file" accept=".json,application/json" disabled={busy || editor.clipboardPending} onChange={(event) => {
                   const selected = event.target.files?.[0]
@@ -313,10 +313,10 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
               {currentAttachment.preview.notes?.map((note, index) => <p key={index}>{note.reason}</p>)}
               <Button disabled={busy || editor.clipboardPending} onClick={() => void attach()}>Attach template</Button>
             </div>}
-          </> : <>
+          </> : mode === 'insert' ? <>
             {!singleDestination && <p>Template insertion requires exactly one destination placement.</p>}
             <p>Offsets in points are added to the saved coordinates. Content may overlap; no viewport positioning or attachment is inferred.</p>
-            <FieldGroup>
+            <FieldGroup key="template-insert">
               <Field>
                 <FieldLabel htmlFor={`${id}-file`}>Template file</FieldLabel>
                 <Input id={`${id}-file`} type="file" accept=".json,application/json" disabled={busy || editor.clipboardPending} onChange={(event) => {
@@ -338,7 +338,7 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
               </Field>
             </FieldGroup>
             <DialogFooter className="mx-0 mb-0"><Button disabled={busy || pending === 'read' || editor.clipboardPending || !file || !singleDestination || !validX || !validY} onClick={() => void insert()}>Insert template</Button></DialogFooter>
-          </>}
+          </> : null}
           {pending && <p role="status">{pending === 'prepare' ? 'Preparing template…' : pending === 'read' ? 'Reading template file…' : 'Working…'}</p>}
           {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
         </div>
