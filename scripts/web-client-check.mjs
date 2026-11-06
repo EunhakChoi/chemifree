@@ -5252,7 +5252,7 @@ test('scene geometry collapses selected descendants and follows containment with
   const geometry = sceneGeometry(drawing, new Set(['s3', 's1', 's2']))
   assert.deepEqual(geometry, {
     objects: ['s3'], bounds: { left: 0, top: 0, right: 30, bottom: 20 },
-    hasGraphTargets: false, hasEmptyUnits: false, hasMissingTargets: false,
+    hasGraphTargets: false, hasEmptyUnits: false, hasMissingTargets: false, hasCaptions: false,
   })
   assert.deepEqual(drawing, before, 'inspection must not change the snapshot')
 })
@@ -5301,7 +5301,7 @@ test('scene controls refuse mixed graph targets, empty geometry and targets remo
   assert.equal(sceneGeometryCommands(drawing, new Set(['s3', 's999']), transform), null, 'do not silently apply a captured press to only the targets that survived')
   assert.equal(sceneGeometryCommands(drawing, new Set(), transform), null)
   assert.deepEqual(sceneGeometry(drawing, new Set(['s6'])), {
-    objects: ['s6'], bounds: null, hasGraphTargets: false, hasEmptyUnits: true, hasMissingTargets: false,
+    objects: ['s6'], bounds: null, hasGraphTargets: false, hasEmptyUnits: true, hasMissingTargets: false, hasCaptions: false,
   })
   assert.equal(sceneGeometryCommands(drawing, new Set(['s6']), transform), null)
   assert.equal(sceneGeometryCommands(drawing, new Set(['s3', 's6']), { kind: 'arrange', mode: 'align_left' }), null)

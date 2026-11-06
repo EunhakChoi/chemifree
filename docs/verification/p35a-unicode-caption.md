@@ -190,3 +190,20 @@ one of those inputs changes; current measured bounds retain their own map refere
 This fixes the allocation/dependency issue without weakening lint or suppressing the rule.
 No extra implementation-mirroring test was added. This agent inspected the diff only;
 lint/tests/build/browser/push of the corrected snapshot remain unexecuted here.
+
+## Fifth parent-run targeted result and empty-group movement regression
+
+For `38cd85e`, the parent verifier's `p35a-targeted5.log` reports lint/type checks passed
+and client tests 596/599. Two existing exact geometry-result fixtures omitted the added
+`hasCaptions: false` field; updated those expected objects while retaining all previous
+bounds/scope/empty-state assertions. The third failure was a product regression: allowing a
+move whenever the scope contained any scene object made an empty group generate a move.
+
+Changed the additional movement criterion to an actual caption leaf in the resolved object
+union. Positions and two-point graphics retain their previous criteria, empty groups still
+lapse, and caption-only objects/groups retain their movable anchor. Added regressions with
+valid scene snapshots for an empty group referencing an outside caption (no movement and no
+reference traversal) and a group containing only a caption (one move command). Existing
+empty-group and caption-only movement assertions remain intact. Corrected tests have not
+been executed by this agent; only diff inspection was performed, with execution prohibitions
+unchanged.
