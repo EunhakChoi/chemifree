@@ -154,7 +154,7 @@ fn caption_deletion_obeys_references_and_undo_restores_the_same_id() {
         objects: vec![object(2)],
         mode: DeleteMode::Subtree,
     };
-    let refused = doc.apply(&[delete.clone()]).unwrap_err();
+    let refused = doc.apply(std::slice::from_ref(&delete)).unwrap_err();
     assert_eq!(refused.error, EditError::ReferenceInUse(reference));
     assert_eq!(doc, before);
     doc.apply(&[Command::RemoveReference { reference }, delete])

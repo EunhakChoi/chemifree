@@ -346,3 +346,13 @@ fixtures and preservation checks remain in the suite. The corrected P1 snapshot 
 any tests/build/browser/push in this agent; only formatting and source/diff review were done.
 The parent reports the preceding cbb0d05 targeted run passed; these new budget checks still
 require isolated execution.
+
+## Parent full check: unnecessary cloned one-element test slice
+
+The parent's `p35a-final-full.log` for `67bd893` stopped at clippy with
+`cloned_ref_to_slice_refs` in `crates/domain/tests/caption.rs:157`: the refusal check cloned
+the delete command solely to construct a borrowed one-element slice. Replaced it with
+`std::slice::from_ref(&delete)`. The same command remains available for the subsequent
+successful transaction and every behavioral assertion is unchanged. No lint suppression
+was added. This agent did not rerun clippy/tests/build/browser or push; the parent owns
+execution verification.
