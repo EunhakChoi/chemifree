@@ -118,3 +118,19 @@ TypeScript patterns/testing과 shadcn 스킬을 적용하고 공식 Base UI comp
   “닫은 뒤에도 남는 recovery”와 실제 사용자 영역을 검사한다.
 - 수정 담당자는 `git diff --check`만 실행했다. 테스트·빌드·브라우저·push와 부모의
   재검증은 pending이다.
+
+## Targeted 통과와 #179 main 통합
+
+- 부모가 `5c9e148170ecdb1694b54c9a414650b306e92db8`의 격리 targeted 검사에서
+  lint/typecheck/test:client/build와 `test:browser:user-template`를 통과시켰다.
+  로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34d-browser4.log`이며 마지막 전용 browser는
+  `User graph template download, file selection, real backend insertion, refusals and recovery passed.`
+  와 exit 0을 기록했다. 이전 세 실패 기록은 수정 근거로 유지한다.
+- 그 뒤 `origin/main`의 #179 smoke 종료 경합 fix `02def38`를 합쳤다. 충돌은 HANDOFF의
+  최상단 새 항목 두 개뿐이며 P34d와 smoke 종료 경합 인계를 모두 보존했다. main의
+  request-log observer/tests와 `test:checks` 연결, P34d의 `test:browser:user-template`
+  script·CI step·제품 source·검증 문서를 유지했다.
+- 이 통합 담당자는 테스트·빌드·브라우저·push를 실행하지 않았다. 위 targeted 성공은
+  `5c9e148` 근거이며 #179를 합친 통합본의 `npm run check`·standard browser와 PR/main
+  CI 성공으로 확대하지 않는다. 통합 full/CI 및 Codex PR 리뷰는 pending이다. P34 전체는
+  계속 in_progress다.
