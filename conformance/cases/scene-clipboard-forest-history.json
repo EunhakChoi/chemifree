@@ -161,6 +161,15 @@
                 "molecule": "m1"
               },
               {
+                "kind": "group",
+                "id": "s4",
+                "parent": null,
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
                 "kind": "graphic",
                 "id": "s2",
                 "parent": "s4",
@@ -190,15 +199,6 @@
                     "x": 30,
                     "y": 0
                   }
-                ]
-              },
-              {
-                "kind": "group",
-                "id": "s4",
-                "parent": null,
-                "children": [
-                  "s2",
-                  "s3"
                 ]
               },
               {
@@ -346,6 +346,15 @@
                     "molecule": "m1"
                   },
                   {
+                    "kind": "group",
+                    "id": "s4",
+                    "parent": null,
+                    "children": [
+                      "s2",
+                      "s3"
+                    ]
+                  },
+                  {
                     "kind": "graphic",
                     "id": "s2",
                     "parent": "s4",
@@ -375,15 +384,6 @@
                         "x": 30,
                         "y": 0
                       }
-                    ]
-                  },
-                  {
-                    "kind": "group",
-                    "id": "s4",
-                    "parent": null,
-                    "children": [
-                      "s2",
-                      "s3"
                     ]
                   },
                   {
@@ -501,6 +501,15 @@
                 "molecule": "m1"
               },
               {
+                "kind": "group",
+                "id": "s4",
+                "parent": null,
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
                 "kind": "graphic",
                 "id": "s2",
                 "parent": "s4",
@@ -530,15 +539,6 @@
                     "x": 30,
                     "y": 0
                   }
-                ]
-              },
-              {
-                "kind": "group",
-                "id": "s4",
-                "parent": null,
-                "children": [
-                  "s2",
-                  "s3"
                 ]
               },
               {
@@ -971,6 +971,15 @@
                     "molecule": "m1"
                   },
                   {
+                    "kind": "group",
+                    "id": "s6",
+                    "parent": null,
+                    "children": [
+                      "s3",
+                      "s4"
+                    ]
+                  },
+                  {
                     "kind": "graphic",
                     "id": "s3",
                     "parent": "s6",
@@ -1016,15 +1025,6 @@
                         "x": 150,
                         "y": 220
                       }
-                    ]
-                  },
-                  {
-                    "kind": "group",
-                    "id": "s6",
-                    "parent": null,
-                    "children": [
-                      "s3",
-                      "s4"
                     ]
                   }
                 ],
@@ -1341,6 +1341,15 @@
                 "molecule": "m1"
               },
               {
+                "kind": "group",
+                "id": "s6",
+                "parent": null,
+                "children": [
+                  "s3",
+                  "s4"
+                ]
+              },
+              {
                 "kind": "graphic",
                 "id": "s3",
                 "parent": "s6",
@@ -1386,15 +1395,6 @@
                     "x": 150,
                     "y": 220
                   }
-                ]
-              },
-              {
-                "kind": "group",
-                "id": "s6",
-                "parent": null,
-                "children": [
-                  "s3",
-                  "s4"
                 ]
               }
             ],
@@ -1499,6 +1499,15 @@
                 "molecule": "m1"
               },
               {
+                "kind": "group",
+                "id": "s6",
+                "parent": null,
+                "children": [
+                  "s3",
+                  "s4"
+                ]
+              },
+              {
                 "kind": "graphic",
                 "id": "s3",
                 "parent": "s6",
@@ -1544,15 +1553,6 @@
                     "x": 150,
                     "y": 220
                   }
-                ]
-              },
-              {
-                "kind": "group",
-                "id": "s6",
-                "parent": null,
-                "children": [
-                  "s3",
-                  "s4"
                 ]
               },
               {
@@ -1753,6 +1753,15 @@
                     "molecule": "m1"
                   },
                   {
+                    "kind": "group",
+                    "id": "s6",
+                    "parent": null,
+                    "children": [
+                      "s3",
+                      "s4"
+                    ]
+                  },
+                  {
                     "kind": "graphic",
                     "id": "s3",
                     "parent": "s6",
@@ -1798,15 +1807,6 @@
                         "x": 150,
                         "y": 220
                       }
-                    ]
-                  },
-                  {
-                    "kind": "group",
-                    "id": "s6",
-                    "parent": null,
-                    "children": [
-                      "s3",
-                      "s4"
                     ]
                   }
                 ],
@@ -1982,6 +1982,15 @@
                 "molecule": "m1"
               },
               {
+                "kind": "group",
+                "id": "s6",
+                "parent": null,
+                "children": [
+                  "s3",
+                  "s4"
+                ]
+              },
+              {
                 "kind": "graphic",
                 "id": "s3",
                 "parent": "s6",
@@ -2027,15 +2036,6 @@
                     "x": 150,
                     "y": 220
                   }
-                ]
-              },
-              {
-                "kind": "group",
-                "id": "s6",
-                "parent": null,
-                "children": [
-                  "s3",
-                  "s4"
                 ]
               },
               {
@@ -2139,6 +2139,15 @@
                 "molecule": "m1"
               },
               {
+                "kind": "group",
+                "id": "s4",
+                "parent": null,
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
                 "kind": "graphic",
                 "id": "s2",
                 "parent": "s4",
@@ -2168,15 +2177,6 @@
                     "x": 30,
                     "y": 0
                   }
-                ]
-              },
-              {
-                "kind": "group",
-                "id": "s4",
-                "parent": null,
-                "children": [
-                  "s2",
-                  "s3"
                 ]
               },
               {
@@ -2386,6 +2386,15 @@
                 "molecule": "m1"
               },
               {
+                "kind": "group",
+                "id": "s6",
+                "parent": null,
+                "children": [
+                  "s3",
+                  "s4"
+                ]
+              },
+              {
                 "kind": "graphic",
                 "id": "s3",
                 "parent": "s6",
@@ -2431,15 +2440,6 @@
                     "x": 150,
                     "y": 220
                   }
-                ]
-              },
-              {
-                "kind": "group",
-                "id": "s6",
-                "parent": null,
-                "children": [
-                  "s3",
-                  "s4"
                 ]
               },
               {
@@ -2636,6 +2636,15 @@
                 "molecule": "m1"
               },
               {
+                "kind": "group",
+                "id": "s6",
+                "parent": null,
+                "children": [
+                  "s3",
+                  "s4"
+                ]
+              },
+              {
                 "kind": "graphic",
                 "id": "s3",
                 "parent": "s6",
@@ -2681,15 +2690,6 @@
                     "x": 150,
                     "y": 220
                   }
-                ]
-              },
-              {
-                "kind": "group",
-                "id": "s6",
-                "parent": null,
-                "children": [
-                  "s3",
-                  "s4"
                 ]
               },
               {
@@ -2794,6 +2794,15 @@
                 "molecule": "m1"
               },
               {
+                "kind": "group",
+                "id": "s4",
+                "parent": null,
+                "children": [
+                  "s2",
+                  "s3"
+                ]
+              },
+              {
                 "kind": "graphic",
                 "id": "s2",
                 "parent": "s4",
@@ -2823,15 +2832,6 @@
                     "x": 30,
                     "y": 0
                   }
-                ]
-              },
-              {
-                "kind": "group",
-                "id": "s4",
-                "parent": null,
-                "children": [
-                  "s2",
-                  "s3"
                 ]
               },
               {
