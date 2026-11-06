@@ -1797,6 +1797,22 @@ cross-run combining/emoji shaping are not portable visual-roundtrip guarantees. 
 splitting such sequences across runs. Native persistence preserves the exact scalar/run
 sequence independently of visual accuracy in a given environment.
 
+Caption-bearing documents (a caption in current content, undo or redo) additionally use a
+conservative persistence reservation: current content at most 48 MiB and both history stacks
+at most 8 MiB combined, below the native 64 MiB file limit even with document/draft envelopes.
+The reservation accounts for all entity kinds, IDs, floats, roots, references, both selections
+and complete before/after states. Caption/title strings reserve twice their UTF-8 bytes for
+JSON quote/backslash escaping; every run also reserves metadata. It is an upper bound, not
+an exact file/memory size. The existing 100-entry/100000-change limits also apply.
+Older undo entries are dropped first; restore then drops farthest redo entries when needed.
+A latest transaction whose own history cannot fit is refused atomically as `invalid_command`
+with `reason: "caption_persistence_limit"` and no command index; no accepted newest edit is
+silently made non-undoable. Thus 500 commands is an independent ceiling, not permission for
+500 maximal caption changes; even a small group-move request can exceed the byte reservation.
+Use smaller edit scopes. Text is never truncated. Undo/Redo move the same budgeted entries
+between stacks. Loading looser v8 history applies the same trimming in memory without writing;
+caption-free v1–7 migrations and their existing history limits remain unchanged.
+
 Native documents, history and drafts are v8. Earlier versions remain readable without
 rewriting; the first overwrite/recovery keeps original bytes under the existing migration
 rules. Captions currently have no chemical-format mapping. MOL/SDF, SMILES and bounded

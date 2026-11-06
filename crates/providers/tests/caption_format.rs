@@ -5,9 +5,12 @@ use std::fs;
 use chemifree_application::{
     Application, CommandDto, DocumentRepository, Draft, RecoveryState, StorageError,
 };
-use chemifree_domain::document::{Command, Document, DocumentId, Point};
+use chemifree_domain::document::{
+    CAPTION_CONTENT_WEIGHT_LIMIT, CAPTION_HISTORY_WEIGHT_LIMIT, Command, Document, DocumentId,
+    ObjectId, Point,
+};
 use chemifree_domain::scene::{Caption, CaptionRun, CaptionScript, SceneObject};
-use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
+use chemifree_providers::{FileDocumentRepository, LocalCapabilities, MAX_DOCUMENT_BYTES};
 use serde_json::{Value, json};
 
 fn document() -> Document {
@@ -206,4 +209,88 @@ fn v7_rejects_history_only_captions_and_v8_rejects_invalid_caption_states() {
     assert!(
         matches!(repo.load(doc.id()), Err(StorageError::Corrupt(message)) if message.contains("auto"))
     );
+}
+
+#[test]
+fn repeated_maximal_caption_updates_save_reload_and_keep_the_latest_undo() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc =
+        Document::new(DocumentId::parse("caption-budget-store").unwrap(), "Budget").unwrap();
+    let value = |character: char| Caption {
+        anchor: Point::new(0.0, 0.0).unwrap(),
+        runs: vec![
+            CaptionRun {
+                text: character.to_string().repeat(512),
+                script: CaptionScript::Superscript
+            };
+            32
+        ],
+    };
+    let create: Vec<_> = (0..100)
+        .map(|_| Command::AddCaption {
+            caption: value('"'),
+            parent: None,
+            index: None,
+        })
+        .collect();
+    doc.apply(&create).unwrap();
+    repo.save(&doc, None).unwrap();
+    let path = root.path().join("documents/caption-budget-store.json");
+    let mut stored_revision = doc.revision();
+    // Without the new whole-history reservation, these escaped before/after strings alone
+    // would exceed 64 MiB. Saving/reopening each edit must not strand accepted work.
+    for round in 0..12 {
+        let character = if round % 2 == 0 { '\\' } else { '"' };
+        let edits: Vec<_> = (2..102)
+            .map(|serial| Command::UpdateCaption {
+                object: ObjectId::from_serial(serial).unwrap(),
+                caption: value(character),
+            })
+            .collect();
+        doc.apply(&edits).unwrap();
+        assert_eq!(
+            doc.undo_depth(),
+            1,
+            "only the newest large edit fits; round {round}"
+        );
+        assert!(
+            doc.persistence_weight() <= CAPTION_CONTENT_WEIGHT_LIMIT + CAPTION_HISTORY_WEIGHT_LIMIT
+        );
+        repo.save(&doc, Some(stored_revision)).unwrap();
+        stored_revision = doc.revision();
+        let size = fs::metadata(&path).unwrap().len();
+        assert!(
+            size <= doc.persistence_weight() as u64 && size < MAX_DOCUMENT_BYTES,
+            "round {round}: {size} bytes"
+        );
+        let loaded = repo.load(doc.id()).unwrap().unwrap();
+        assert_eq!(
+            loaded, doc,
+            "round {round}: native history must not be trimmed again on reopen"
+        );
+        doc = loaded;
+    }
+    doc.undo().unwrap();
+    assert_eq!(doc.scene_objects()[1].2, &SceneObject::Caption(value('\\')));
+    repo.save(&doc, Some(stored_revision)).unwrap();
+    stored_revision = doc.revision();
+    doc = repo.load(doc.id()).unwrap().unwrap();
+    assert_eq!((doc.undo_depth(), doc.redo_depth()), (0, 1));
+    doc.redo().unwrap();
+    assert_eq!(doc.scene_objects()[1].2, &SceneObject::Caption(value('"')));
+    repo.save(&doc, Some(stored_revision)).unwrap();
+    assert_eq!(repo.load(doc.id()).unwrap(), Some(doc.clone()));
+    let draft = Draft {
+        document: doc.clone(),
+        base_revision: doc.revision(),
+        saved_at_ms: u64::MAX,
+    };
+    repo.write_draft(&draft).unwrap();
+    let draft_size = fs::metadata(root.path().join("drafts/caption-budget-store.json"))
+        .unwrap()
+        .len();
+    assert!(draft_size <= doc.persistence_weight() as u64 && draft_size < MAX_DOCUMENT_BYTES);
+    repo.release_draft(doc.id());
+    assert_eq!(repo.claim_draft(doc.id()).unwrap(), Some(Ok(draft)));
 }

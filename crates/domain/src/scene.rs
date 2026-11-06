@@ -202,6 +202,8 @@ pub enum DeleteMode {
 pub enum SceneError {
     /// Caption content violates the bounded text profile.
     CaptionInvalid,
+    /// An edit would exceed the caption-safe persistence/history reservation.
+    CaptionPersistenceLimit,
     /// This operation cannot preserve a caption.
     CaptionUnsupported,
     /// A command names a scene object that does not exist.
@@ -244,8 +246,9 @@ pub enum SceneError {
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::CaptionInvalid,
+        Self::CaptionPersistenceLimit,
         Self::CaptionUnsupported,
         Self::ObjectUnknown,
         Self::ObjectKindMismatch,
@@ -271,6 +274,7 @@ impl SceneError {
     pub const fn code(self) -> &'static str {
         match self {
             Self::CaptionInvalid => "caption_invalid",
+            Self::CaptionPersistenceLimit => "caption_persistence_limit",
             Self::CaptionUnsupported => "caption_unsupported",
             Self::ObjectUnknown => "object_unknown",
             Self::ObjectKindMismatch => "object_kind_mismatch",

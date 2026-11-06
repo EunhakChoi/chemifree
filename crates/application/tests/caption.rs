@@ -325,3 +325,65 @@ fn every_chemical_export_requires_explicit_consent_for_caption_loss() {
         assert_eq!(snapshot(&app, &id), before);
     }
 }
+
+#[test]
+fn a_small_wire_request_cannot_create_an_oversized_caption_history_entry() {
+    use chemifree_application::DocumentRepository;
+    use chemifree_domain::document::{Command, Document, DocumentId, ObjectId, Point};
+    use chemifree_domain::scene::{Caption, CaptionRun, CaptionScript};
+
+    let root = tempfile::tempdir().unwrap();
+    let repository = FileDocumentRepository::new(root.path());
+    let mut document =
+        Document::new(DocumentId::parse("caption-wire-budget").unwrap(), "Budget").unwrap();
+    let captions: Vec<_> = (0..117)
+        .map(|_| Command::AddCaption {
+            caption: Caption {
+                anchor: Point::new(0.0, 0.0).unwrap(),
+                runs: vec![
+                    CaptionRun {
+                        text: "\"".repeat(512),
+                        script: CaptionScript::Superscript,
+                    };
+                    32
+                ],
+            },
+            parent: None,
+            index: None,
+        })
+        .collect();
+    document.apply(&captions).unwrap();
+    document
+        .apply(&[Command::Group {
+            objects: (2..119)
+                .map(|serial| ObjectId::from_serial(serial).unwrap())
+                .collect(),
+        }])
+        .unwrap();
+    repository.save(&document, None).unwrap();
+    let app = Application::new(LocalCapabilities, repository);
+    let before = snapshot(&app, "caption-wire-budget");
+    // One short group move duplicates the stored complete states of all its caption leaves.
+    let refused = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":"caption-wire-budget",
+        "expected_revision":before["document"]["revision"], "commands":[
+            {"op":"rename","title":"must roll back"},
+            {"op":"move_objects","objects":["s119"],"delta":{"x":1,"y":0}}
+        ]}),
+    );
+    assert_eq!(refused["outcome"], "error", "{refused}");
+    assert_eq!(refused["diagnostics"][0]["code"], "invalid_command");
+    assert_eq!(
+        refused["diagnostics"][0]["details"]["reason"],
+        "caption_persistence_limit"
+    );
+    assert_eq!(
+        refused["diagnostics"][0]["details"].get("command_index"),
+        None,
+        "whole-transaction budget"
+    );
+    assert_eq!(refused["result"], Value::Null);
+    assert_eq!(snapshot(&app, "caption-wire-budget"), before);
+}

@@ -280,3 +280,69 @@ and verifies post-fit measurements cannot overwrite the chosen viewport. These a
 measurement-boundary inputs, not mocked hook/layout code. Failure diagnostics now include
 the measured viewBox. No tests/build/browser/push were executed by this agent; the corrected
 snapshot requires the parent's isolated rerun.
+
+## Codex PR #184 P1: caption payload escaped the entity-count history budget
+
+The parent relayed [Codex P1](https://github.com/EunhakChoi/chemifree/pull/184#discussion_r4491092284).
+A caption state can contain 16 KiB of text, but counted as one history entity. Repeated bulk
+updates could therefore be accepted and later exceed the provider's 64 MiB document/draft
+write/read cap. This was a product persistence defect. No further review was requested.
+
+### Policy and upper bound
+
+Caption-bearing content or history now activates a conservative reservation: current state
+48 MiB plus combined undo/redo 8 MiB, at most 56 MiB. The existing count limits remain. The
+budget counts every kind of history payload, not only caption strings; otherwise a maximal
+legacy graph history plus large captions could still overflow. Oldest undo entries trim
+first, then farthest redo on restore. A single latest transaction exceeding 8 MiB refuses
+whole with `caption_persistence_limit`, preserving IDs/content/selection/history and keeping
+accepted latest edits undoable. A small group move can duplicate many complete caption
+states, so adapter request-byte limits and the 500-command cap do not replace this guard.
+
+`document/persistence.rs` owns serializer-independent conservative reservations. The native
+v8 writer is checked against them in provider tests. Caption/title control characters are
+already forbidden; UTF-8 passes through native serde JSON, and quote/backslash escaping costs
+at most twice the UTF-8 bytes. Each caption reserves 256 bytes plus 96 per run plus twice
+text bytes, so a maximal 32-run/16384-byte caption reserves 36096 bytes. Run script names,
+keys, delimiters and state/ID wrappers fit that metadata reservation. IDs need at most 11
+ASCII bytes; list entries reserve 16, floats reserve room for 32-byte representations, and
+entity/change reservations include key/identifier overhead. Both selection snapshots and
+both sides of every entity change are included. The 4096-byte current-state base covers
+native file/draft format wrappers, list keys, document ID, counters, revision, base revision
+and a maximal u64 timestamp; actual saved and draft encodings must both fit the same weight.
+
+A deliberately loose simultaneous current-state maximum is 48370560 bytes, below 48 MiB:
+4096 envelope +1728 title +256 settings +2000×512 atoms +4000×256 bonds +40000×192 positions
++1000×36096 scene objects +4096×128 references +6000×256 stereo records +352000 stereo-group
+reservation +112160 full selection +16032 roots. All 1000 objects cannot actually be captions
+when placements exist, so this bound overstates valid content. Group children/graphics fit
+below the maximum object reservation; stereo groups partition at most 2000 centers. The
+separate 8 MiB history reservation is independent of the current Undo/Redo boundary, so
+moving entries across the boundary cannot violate the native cap. A current-state check
+also refuses any future shape that exceeds its reservation.
+
+### Written regression and compatibility coverage
+
+- Domain: 116 maximal 32-run caption updates fit a latest history entry; 117 refuse whole;
+  500 maximal creations cannot bypass the byte budget. Older history makes room while the
+  accepted latest edit stays undoable. Undo/Redo and restore keep the same budgeted history.
+- Domain: restoring looser undo/redo histories keeps nearest steps in the documented order;
+  equal UTF-8 byte counts receive equal conservative text reservations despite different
+  code-point counts, and the existing per-caption byte refusal still applies first.
+- Application: one short move of a group with 117 maximal captions reports the new typed
+  reason without a command index and rolls back an earlier rename plus the entire move.
+- Provider: twelve rounds of 100 maximal quote/backslash captions save and reopen identically,
+  then Undo/save/reopen/Redo/save and draft write/claim preserve the nearest boundary. Without
+  trimming, these escaped history strings alone would exceed 64 MiB.
+- Provider: maximum graph/placements plus 980 maximal escaped captions, stored centers/groups,
+  references, title and selections, with nearly full caption history, encode/read back below
+  the reservation and native cap in both document and maximal-metadata draft forms. Existing
+  widest-state provider checks also assert actual encoded bytes do not exceed the reservation.
+
+No storage schema/version change is needed: looser v8 histories trim in memory as existing
+history-limit handling already permits. Reading does not rewrite files. Caption-free v1–7
+migration paths and their previous count-based retention remain unchanged; their existing
+fixtures and preservation checks remain in the suite. The corrected P1 snapshot has not run
+any tests/build/browser/push in this agent; only formatting and source/diff review were done.
+The parent reports the preceding cbb0d05 targeted run passed; these new budget checks still
+require isolated execution.
