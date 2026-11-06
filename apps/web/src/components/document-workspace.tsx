@@ -85,6 +85,7 @@ import { CdxmlImport } from '@/components/cdxml-import'
 import { CtfilePanel } from '@/components/ctfile-panel'
 import { InterchangeExportPanel } from '@/components/interchange-export-panel'
 import { NativeClipboardPanel } from '@/components/native-clipboard-panel'
+import { SceneClipboardPanel } from '@/components/scene-clipboard-panel'
 import { SmilesPanel } from '@/components/smiles-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
@@ -838,6 +839,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <IdentityPanel document={document} editor={editor} />
           <SubstructurePanel document={document} editor={editor} />
           <SceneControls document={document} editor={editor} activePlacement={activePlacement} />
+          <SceneClipboardPanel key={`scene-clipboard-${document.id}`} document={document} editor={editor} />
           {document.scene && <Placements instances={document.scene.instances} editor={editor} />}
         </div>
       </div>

@@ -78,6 +78,8 @@ jobs:
         run: npm run test:browser:clipboard
       - name: MOL text clipboard bridge
         run: npm run test:browser:mol-clipboard
+      - name: Scene graphics clipboard dialogs
+        run: npm run test:browser:scene-clipboard
       # Runs even if the guard check failed, so each check reports on its own.
       - name: Browser smoke
         id: smoke
