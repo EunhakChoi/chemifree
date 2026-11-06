@@ -54,7 +54,7 @@ fn created(app: &App, title: &str) -> String {
 
 fn defaults() -> Value {
     json!({
-        "bond_length_pt": 30.0, "line_width_pt": 1.2, "label_font": "sans-serif",
+        "bond_length_pt": 30.0, "line_width_pt": 1.2, "label_font": "sans-serif", "label_weight": "normal",
         "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"
     })
 }
@@ -93,7 +93,7 @@ fn update_settings_is_an_undoable_edit_and_refused_values_carry_their_reason() {
     assert_eq!(
         serde_json::to_value(&edited.document.settings).unwrap(),
         json!({
-            "bond_length_pt": 30.0, "line_width_pt": 2.5, "label_font": "serif",
+            "bond_length_pt": 30.0, "line_width_pt": 2.5, "label_font": "serif", "label_weight": "normal",
             "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"
         })
     );
@@ -738,4 +738,68 @@ fn exhausted_preference_revision_is_refused_without_writing() {
         .unwrap_err();
     assert_eq!(error.code, ErrorCode::ResourceLimit);
     assert_eq!(fs::read_to_string(path).unwrap(), original);
+}
+
+#[test]
+fn bold_preferences_copy_once_and_style_edit_replay_and_persistence_preserve_weight() {
+    use chemifree_application::LabelWeightDto;
+
+    let (app, data) = application();
+    let earlier = created(&app, "Earlier normal document");
+    app.set_preferences(
+        None,
+        0,
+        change(json!({"ui":{"theme":"system"},"new_documents":{"label_weight":"bold"}})),
+    )
+    .unwrap();
+    let id = created(&app, "Bold from preferences");
+    assert_eq!(settings(&app, &earlier)["label_weight"], "normal");
+    assert_eq!(settings(&app, &id)["label_weight"], "bold");
+    let reset = app
+        .reset_settings(&id, Some("weight-reset"), 0, SettingsSource::Defaults)
+        .unwrap();
+    assert_eq!(reset.document.settings.label_weight, LabelWeightDto::Normal);
+    assert_eq!(reset.session.undo_depth, 1);
+    assert_eq!(
+        app.reset_settings(&id, Some("weight-reset"), 0, SettingsSource::Defaults)
+            .unwrap(),
+        reset
+    );
+    app.undo(&id, None, 1).unwrap();
+    assert_eq!(settings(&app, &id)["label_weight"], "bold");
+    app.redo(&id, None, 2).unwrap();
+    assert_eq!(settings(&app, &id)["label_weight"], "normal");
+    app.apply_transaction(
+        &id,
+        Some("weight-bold"),
+        3,
+        commands(json!([{"op":"update_settings","label_weight":"bold"}])),
+    )
+    .unwrap();
+    app.save(&id, None, 4).unwrap();
+    drop(app);
+    let reopened = process(data.path());
+    let saved = reopened.document(&id).unwrap();
+    assert_eq!(saved.document.settings.label_weight, LabelWeightDto::Bold);
+    reopened.undo(&id, None, 4).unwrap();
+    assert_eq!(settings(&reopened, &id)["label_weight"], "normal");
+    reopened.redo(&id, None, 5).unwrap();
+    assert_eq!(settings(&reopened, &id)["label_weight"], "bold");
+    assert_eq!(
+        reopened
+            .preferences()
+            .unwrap()
+            .new_document_settings
+            .label_weight,
+        LabelWeightDto::Bold
+    );
+    for value in [json!("heavy"), json!(700), json!([]), json!({})] {
+        assert!(
+            serde_json::from_value::<Vec<CommandDto>>(
+                json!([{"op":"update_settings","label_weight":value}])
+            )
+            .is_err(),
+            "weight must be normal or bold"
+        );
+    }
 }

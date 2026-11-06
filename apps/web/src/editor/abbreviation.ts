@@ -1,6 +1,6 @@
 /** Presentation of an existing Et graph; this projection never becomes document state. */
 import type { AbbreviationView, DocumentView } from '@/lib/document-contract'
-import { textWidth, type AtomLabel, type LabelStyle } from '@/editor/label'
+import { compactLabel, type AtomLabel, type LabelStyle } from '@/editor/label'
 
 export function abbreviationsIn(document: DocumentView, instance: string | null): AbbreviationView[] {
   return (document.abbreviations ?? []).filter((item) => item.instance === instance)
@@ -24,11 +24,5 @@ export function abbreviationTargets(document: DocumentView, instance: string | n
 }
 
 export function ethylLabel(style: LabelStyle): AtomLabel {
-  const width = textWidth('Et', style.size, style.font)
-  const box = { x: -width / 2 - 1, y: -style.size * 0.65, width: width + 2, height: style.size * 1.3 }
-  return {
-    chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0,
-      runs: [{ text: 'Et', size: style.size, shift: 0, part: 'symbol', weight: 500 }], box }],
-    marks: [], dots: [], box, font: style.font,
-  }
+  return compactLabel('Et', style)
 }

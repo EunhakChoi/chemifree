@@ -69,6 +69,7 @@ fn collapse() -> Command {
 }
 fn v8(mut value: Value) -> Value {
     strip_caption_styles(&mut value);
+    strip_label_weights(&mut value);
     value["format_version"] = json!(8);
     value["document"]
         .as_object_mut()
@@ -99,7 +100,7 @@ fn v9_document_and_draft_round_trip_display_undo_redo_and_unicode_caption() {
     let value: Value =
         serde_json::from_slice(&fs::read(root.path().join("documents/ethyl-native.json")).unwrap())
             .unwrap();
-    assert_eq!(value["format_version"], 17);
+    assert_eq!(value["format_version"], 18);
     assert_eq!(
         value["document"]["abbreviations"],
         json!([{"instance":"s1","anchor":"a2","terminal":"a3"}])
@@ -234,7 +235,7 @@ fn v8_drafts_migrate_with_caption_and_keep_original_bytes_before_recovery() {
     app.autosave("ethyl-native", Some("rewrite-v9-ethyl"))
         .unwrap();
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 17);
+    assert_eq!(rewritten["format_version"], 18);
     assert_eq!(rewritten["document"]["revision"], edited.document.revision);
     assert_eq!(
         fs::read(repo.migrated_draft_path(doc.id(), 8)).unwrap(),
@@ -353,6 +354,23 @@ fn strip_caption_styles(value: &mut Value) {
         Value::Array(values) => {
             for child in values {
                 strip_caption_styles(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn strip_label_weights(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(object) => {
+            object.remove("label_weight");
+            for child in object.values_mut() {
+                strip_label_weights(child);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                strip_label_weights(child);
             }
         }
         _ => {}

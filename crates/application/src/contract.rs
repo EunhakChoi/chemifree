@@ -16,7 +16,9 @@ use chemifree_domain::scene::{
     ReferenceTarget, SceneError, SceneObject, SceneReference, Selection, SelectionRequest,
     SelectionTransform, TransactionSelection,
 };
-use chemifree_domain::settings::{CarbonLabels, DisplayUnit, LabelFont, Settings, SettingsEdit};
+use chemifree_domain::settings::{
+    CarbonLabels, DisplayUnit, LabelFont, LabelWeight, Settings, SettingsEdit,
+};
 use chemifree_domain::states::{
     AtomKind, AttachmentPoints, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
     StateError,
@@ -168,6 +170,15 @@ pub enum LabelFontDto {
     Monospace,
 }
 
+/// The chemical label weight; independent captions retain their own run weight.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LabelWeightDto {
+    #[default]
+    Normal,
+    Bold,
+}
+
 /// Which carbons are labelled: `default` leaves a bonded carbon that records nothing bare.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -193,6 +204,9 @@ pub struct SettingsDto {
     pub bond_length_pt: f64,
     pub line_width_pt: f64,
     pub label_font: LabelFontDto,
+    /// Pre-weight clipboard/template payloads inherit normal; explicit null remains invalid.
+    #[serde(default)]
+    pub label_weight: LabelWeightDto,
     pub label_size_pt: f64,
     pub carbon_labels: CarbonLabelsDto,
     pub display_unit: DisplayUnitDto,
@@ -209,6 +223,8 @@ pub struct SettingsEditDto {
     pub line_width_pt: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_font: Option<LabelFontDto>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_weight: Option<LabelWeightDto>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label_size_pt: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -625,6 +641,8 @@ pub enum CommandDto {
         line_width_pt: Option<f64>,
         #[serde(default)]
         label_font: Option<LabelFontDto>,
+        #[serde(default)]
+        label_weight: Option<LabelWeightDto>,
         #[serde(default)]
         label_size_pt: Option<f64>,
         #[serde(default)]
@@ -1286,6 +1304,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             bond_length_pt,
             line_width_pt,
             label_font,
+            label_weight,
             label_size_pt,
             carbon_labels,
             display_unit,
@@ -1293,6 +1312,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             bond_length_pt: *bond_length_pt,
             line_width_pt: *line_width_pt,
             label_font: *label_font,
+            label_weight: *label_weight,
             label_size_pt: *label_size_pt,
             carbon_labels: *carbon_labels,
             display_unit: *display_unit,
@@ -1472,6 +1492,10 @@ pub(crate) fn to_settings_edit(edit: &SettingsEditDto) -> SettingsEdit {
             LabelFontDto::Serif => LabelFont::Serif,
             LabelFontDto::Monospace => LabelFont::Monospace,
         }),
+        label_weight: edit.label_weight.map(|weight| match weight {
+            LabelWeightDto::Normal => LabelWeight::Normal,
+            LabelWeightDto::Bold => LabelWeight::Bold,
+        }),
         label_size_pt: edit.label_size_pt,
         carbon_labels: edit.carbon_labels.map(|labels| match labels {
             CarbonLabelsDto::Default => CarbonLabels::Default,
@@ -1491,6 +1515,7 @@ pub(crate) fn settings_edit_view(edit: &SettingsEdit) -> SettingsEditDto {
         bond_length_pt: edit.bond_length_pt,
         line_width_pt: edit.line_width_pt,
         label_font: edit.label_font.map(font_view),
+        label_weight: edit.label_weight.map(weight_view),
         label_size_pt: edit.label_size_pt,
         carbon_labels: edit.carbon_labels.map(carbon_labels_view),
         display_unit: edit.display_unit.map(unit_view),
@@ -1502,9 +1527,17 @@ pub(crate) fn settings_view(settings: &Settings) -> SettingsDto {
         bond_length_pt: settings.bond_length_pt,
         line_width_pt: settings.line_width_pt,
         label_font: font_view(settings.label_font),
+        label_weight: weight_view(settings.label_weight),
         label_size_pt: settings.label_size_pt,
         carbon_labels: carbon_labels_view(settings.carbon_labels),
         display_unit: unit_view(settings.display_unit),
+    }
+}
+
+fn weight_view(weight: LabelWeight) -> LabelWeightDto {
+    match weight {
+        LabelWeight::Normal => LabelWeightDto::Normal,
+        LabelWeight::Bold => LabelWeightDto::Bold,
     }
 }
 

@@ -920,12 +920,17 @@ fn document_text(response: &DocumentResponse) -> String {
 /// Every setting on one line; lengths in pt whatever the display unit.
 fn settings_text(settings: &SettingsDto) -> String {
     format!(
-        "bond length {} pt · line width {} pt · labels {} {} pt · carbon labels {} · display \
+        "bond length {} pt · line width {} pt · labels {} {} pt{} · carbon labels {} · display \
          unit {}",
         settings.bond_length_pt,
         settings.line_width_pt,
         name(&settings.label_font),
         settings.label_size_pt,
+        if settings.label_weight == chemifree_application::LabelWeightDto::Bold {
+            " bold"
+        } else {
+            ""
+        },
         name(&settings.carbon_labels),
         name(&settings.display_unit)
     )

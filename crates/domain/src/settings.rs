@@ -29,6 +29,14 @@ pub enum LabelFont {
     Monospace,
 }
 
+/// The weight of chemical labels, independent of caption run weights.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LabelWeight {
+    #[default]
+    Normal,
+    Bold,
+}
+
 /// Which carbons are drawn with a label.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CarbonLabels {
@@ -58,6 +66,7 @@ pub struct Settings {
     /// The stroke width of bonds and graphics, in pt.
     pub line_width_pt: f64,
     pub label_font: LabelFont,
+    pub label_weight: LabelWeight,
     /// The font size of atom labels, in pt.
     pub label_size_pt: f64,
     pub carbon_labels: CarbonLabels,
@@ -70,6 +79,7 @@ impl Default for Settings {
             bond_length_pt: 30.0,
             line_width_pt: 1.2,
             label_font: LabelFont::SansSerif,
+            label_weight: LabelWeight::Normal,
             label_size_pt: 12.0,
             carbon_labels: CarbonLabels::Default,
             display_unit: DisplayUnit::Pt,
@@ -101,6 +111,7 @@ impl Settings {
             bond_length_pt: edit.bond_length_pt.unwrap_or(self.bond_length_pt),
             line_width_pt: edit.line_width_pt.unwrap_or(self.line_width_pt),
             label_font: edit.label_font.unwrap_or(self.label_font),
+            label_weight: edit.label_weight.unwrap_or(self.label_weight),
             label_size_pt: edit.label_size_pt.unwrap_or(self.label_size_pt),
             carbon_labels: edit.carbon_labels.unwrap_or(self.carbon_labels),
             display_unit: edit.display_unit.unwrap_or(self.display_unit),
@@ -115,6 +126,7 @@ impl Settings {
             bond_length_pt: Some(self.bond_length_pt),
             line_width_pt: Some(self.line_width_pt),
             label_font: Some(self.label_font),
+            label_weight: Some(self.label_weight),
             label_size_pt: Some(self.label_size_pt),
             carbon_labels: Some(self.carbon_labels),
             display_unit: Some(self.display_unit),
@@ -128,6 +140,7 @@ pub struct SettingsEdit {
     pub bond_length_pt: Option<f64>,
     pub line_width_pt: Option<f64>,
     pub label_font: Option<LabelFont>,
+    pub label_weight: Option<LabelWeight>,
     pub label_size_pt: Option<f64>,
     pub carbon_labels: Option<CarbonLabels>,
     pub display_unit: Option<DisplayUnit>,

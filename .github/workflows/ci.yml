@@ -92,6 +92,8 @@ jobs:
         run: npm run test:browser:clipboard-integration
       - name: Et display, hidden hit, whole-pair movement and native roundtrip
         run: npm run test:browser:abbreviation
+      - name: Chemical label weight, measured 700 ink and shared geometry
+        run: npm run test:browser:label-weight
       - name: Unicode caption form, canvas and native roundtrip
         run: npm run test:browser:caption
       - name: Independent ring insertion and uncertain outcome recovery
