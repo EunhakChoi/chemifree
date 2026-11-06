@@ -188,5 +188,23 @@ Do not bypass checks or treat a canceled, skipped, or running job as successful.
 After merging, verify CI for that actual main merge commit. A failed main run is
 unfinished work: investigate and restore the baseline before dependent merges.
 Report the delivered scope, PR/commit/CI links, actual verification, remaining
-limitations, and next dependencies. Preserve existing worktrees and user data;
-clean up only temporary resources created for your own task.
+limitations, and next dependencies. Complete the cleanup below as part of handoff.
+
+## Clean up completed work
+
+- When testing is finished, retain required results and failure evidence outside
+  disposable environments, then remove all completed disposable test environments
+  and their task-owned processes, build outputs, temporary data, and worktrees.
+  Confirm no test, build, browser, server, or other task still uses them before
+  stopping processes or deleting files. A pending rerun or investigation is ongoing
+  work, not a completed environment.
+- After a PR is merged, verify its merged state and exact topic branch/head,
+  including squash or rebase merges, and confirm no later unmerged commits or
+  dependent work remain. Remove its completed disposable worktrees, local topic
+  branch, and remote topic branch if still present. Preserve `main` and other
+  long-lived branches. Do not force deletion to bypass an unresolved merge check.
+- Preserve user data, existing edits and untracked files, dirty or active
+  worktrees, and ongoing work. Directory names, age, or a branch name alone do not
+  establish ownership or completion. Do not sweep unrelated paths or branches.
+  If ownership, use, or completion is uncertain, leave the resource in place and
+  record its path/branch and the reason cleanup is deferred in the handoff.
