@@ -185,7 +185,8 @@ export function sameContent(a: DocumentView, b: DocumentView) {
     JSON.stringify(a.bonds) === JSON.stringify(b.bonds) &&
     JSON.stringify(stereoOf(a)) === JSON.stringify(stereoOf(b)) &&
     JSON.stringify(a.scene) === JSON.stringify(b.scene) &&
-    JSON.stringify(a.settings) === JSON.stringify(b.settings)
+    JSON.stringify(a.settings) === JSON.stringify(b.settings) &&
+    JSON.stringify(a.abbreviations ?? []) === JSON.stringify(b.abbreviations ?? [])
   )
 }
 

@@ -443,6 +443,7 @@ fn every_scene_reason_code_is_distinct_and_stable() {
         [
             "caption_invalid",
             "caption_unsupported",
+            "abbreviation_invalid",
             "object_unknown",
             "object_kind_mismatch",
             "group_mixed_parents",

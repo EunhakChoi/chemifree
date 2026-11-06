@@ -1,8 +1,8 @@
-//! Chemifree document file format, version 8 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 9 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
-//! Version 8 adds independent Unicode captions to version 7. It stores the chemical graph
+//! Version 9 adds per-placement Et display metadata to version 8 captions. It stores the chemical graph
 //! (`molecule`), the page's ordered scene tree, directed
 //! references, positions, stated stereo configurations (`stereo`), enhanced-stereo groups
 //! (`stereo_groups`), selection, and document settings. History records their changes together.
@@ -19,7 +19,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 8. Other versions
+//! so they read with none. Reading never writes; the next write is version 9. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -46,9 +46,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 8;
+const FORMAT_VERSION: u32 = 9;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 8;
+const DRAFT_FORMAT_VERSION: u32 = 9;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -63,7 +63,7 @@ const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Version 7 adds enhanced-stereo groups to the version 6 scene and history.
+/// Current v9 scene/history: v7 groups, v8 captions, and v9 Et display maps.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -87,6 +87,8 @@ struct SceneDraftFile {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneDocument {
+    #[serde(default)]
+    abbreviations: Vec<StoredAbbreviation>,
     id: String,
     revision: u64,
     title: String,
@@ -257,6 +259,8 @@ struct SceneHistory {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneChangeSet {
+    #[serde(default)]
+    abbreviations: Vec<StoredAbbreviationChange>,
     title: Option<StoredChange<String>>,
     #[serde(deserialize_with = "required_option")]
     settings: Option<StoredChange<StoredSettings>>,
@@ -269,6 +273,26 @@ struct SceneChangeSet {
     stereo: Vec<Keyed<StoredStereoState>>,
     stereo_groups: Vec<Keyed<StoredGroup>>,
     selection: StoredChange<StoredSelection>,
+}
+
+/// The only supported abbreviation is Et; IDs continue to name real graph atoms.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredAbbreviation {
+    instance: String,
+    anchor: String,
+    terminal: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredAbbreviationChange {
+    instance: String,
+    anchor: String,
+    #[serde(deserialize_with = "required_option")]
+    before: Option<String>,
+    #[serde(deserialize_with = "required_option")]
+    after: Option<String>,
 }
 
 /// Version 6 is the scene format with stereo, before stereo groups. Its exact shape is kept
@@ -354,6 +378,7 @@ mod v6 {
 impl From<v6::Document> for SceneDocument {
     fn from(value: v6::Document) -> Self {
         Self {
+            abbreviations: Vec::new(),
             id: value.id,
             revision: value.revision,
             title: value.title,
@@ -387,6 +412,7 @@ impl From<v6::History> for SceneHistory {
 impl From<v6::ChangeSet> for SceneChangeSet {
     fn from(value: v6::ChangeSet) -> Self {
         Self {
+            abbreviations: Vec::new(),
             title: value.title,
             settings: value.settings,
             atoms: value.atoms,
@@ -613,6 +639,7 @@ impl From<v4::ChangeSet> for v5::ChangeSet {
 impl From<v5::Document> for SceneDocument {
     fn from(value: v5::Document) -> Self {
         Self {
+            abbreviations: Vec::new(),
             id: value.id,
             revision: value.revision,
             title: value.title,
@@ -658,6 +685,7 @@ impl From<v5::History> for SceneHistory {
 impl From<v5::ChangeSet> for SceneChangeSet {
     fn from(value: v5::ChangeSet) -> Self {
         Self {
+            abbreviations: Vec::new(),
             title: value.title,
             settings: value.settings,
             atoms: value.atoms,
@@ -1124,6 +1152,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Eight,
     Seven,
     Six,
     Five,
@@ -1143,6 +1172,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        8 => Ok(Version::Eight),
         7 => Ok(Version::Seven),
         VERSION_6 => Ok(Version::Six),
         VERSION_5 => Ok(Version::Five),
@@ -1152,7 +1182,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, and \
              {current}"
         )),
     }
@@ -1197,6 +1227,15 @@ type Current = (SceneDocument, SceneHistory);
 fn stored(document: &Document) -> Current {
     let parts = document.to_parts();
     let stored = SceneDocument {
+        abbreviations: parts
+            .abbreviations
+            .iter()
+            .map(|(key, terminal)| StoredAbbreviation {
+                instance: key.instance.to_string(),
+                anchor: key.atom.to_string(),
+                terminal: terminal.to_string(),
+            })
+            .collect(),
         id: parts.id.to_string(),
         revision: parts.revision,
         title: parts.title,
@@ -1307,17 +1346,19 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Four) => Some(VERSION_4),
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
+        Ok(Version::Eight) => Some(8),
         Ok(Version::Seven) => Some(7),
         Ok(Version::Current) | Err(_) => None,
     }
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1 to 7 file
+/// Parses and fully validates a stored document, including its history; a version 1 to 8 file
 /// is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let format = version(bytes, FORMAT, FORMAT_VERSION, "document")?;
+    check_abbreviation_fields(bytes, format)?;
     let parts = match format {
-        Version::Current | Version::Seven => {
+        Version::Current | Version::Eight | Version::Seven => {
             let file: SceneFile = parse(bytes, "document")?;
             scene_parts(file.document, file.history)?
         }
@@ -1352,11 +1393,12 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1 to 7 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1 to 8 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let format = version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")?;
+    check_abbreviation_fields(bytes, format)?;
     let (parts, base_revision, saved_at_ms) = match format {
-        Version::Current | Version::Seven => {
+        Version::Current | Version::Eight | Version::Seven => {
             let file: SceneDraftFile = parse(bytes, "draft")?;
             let parts = scene_parts(file.document, file.history)?;
             (parts, file.base_revision, file.saved_at_ms)
@@ -1402,9 +1444,36 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     })
 }
 
+/// The shared DTO defaults only support migration. v9 requires the fields on every
+/// current/history state; earlier headers cannot smuggle even empty v9 fields.
+fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String> {
+    let raw: serde_json::Value = parse(bytes, "document or draft")?;
+    let current = format == Version::Current;
+    let document = raw.get("document").ok_or("missing document")?;
+    let history = raw.get("history").ok_or("missing history")?;
+    let mut states = vec![document];
+    for stack in ["undo", "redo"] {
+        let entries = history
+            .get(stack)
+            .and_then(serde_json::Value::as_array)
+            .ok_or("missing history stack")?;
+        states.extend(entries);
+    }
+    if states
+        .iter()
+        .any(|state| state.get("abbreviations").is_some() != current)
+    {
+        return Err(
+            "Abbreviation fields are required in v9 and forbidden in v1–8, including history."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
 /// Caption variants are forbidden in all earlier versions, including history-only states.
 fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(), String> {
-    if format == Version::Current {
+    if matches!(format, Version::Current | Version::Eight) {
         return Ok(());
     }
     let caption = |object: &SceneObject| matches!(object, SceneObject::Caption(_));
@@ -1446,6 +1515,19 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
         return Err(format!("a document holds exactly one page, {PAGE_ID:?}"));
     }
     Ok(DocumentParts {
+        abbreviations: stored
+            .abbreviations
+            .into_iter()
+            .map(|entry| {
+                Ok((
+                    PositionKey {
+                        instance: instance_id(&entry.instance)?,
+                        atom: atom_id(&entry.anchor)?,
+                    },
+                    atom_id(&entry.terminal)?,
+                ))
+            })
+            .collect::<Result<_, String>>()?,
         id: document_id(&stored.id)?,
         revision: stored.revision,
         title: stored.title,
@@ -1656,6 +1738,22 @@ fn read_scene_change_set(stored: SceneChangeSet) -> Result<ChangeSet, String> {
         instances: Vec::new(),
         positions: stored.positions,
     })?;
+    set.abbreviations = stored
+        .abbreviations
+        .into_iter()
+        .map(|entry| {
+            Ok((
+                PositionKey {
+                    instance: instance_id(&entry.instance)?,
+                    atom: atom_id(&entry.anchor)?,
+                },
+                Change {
+                    before: entry.before.map(|id| atom_id(&id)).transpose()?,
+                    after: entry.after.map(|id| atom_id(&id)).transpose()?,
+                },
+            ))
+        })
+        .collect::<Result<_, String>>()?;
     set.settings = stored.settings.map(|change| Change {
         before: to_settings(&change.before),
         after: to_settings(&change.after),
@@ -1815,6 +1913,7 @@ fn parts<A: AtomRecord, B: BondRecord>(
         .collect::<Result<_, _>>()?;
     migrate_history_roots(&roots, &mut undo, &mut redo);
     Ok(DocumentParts {
+        abbreviations: Vec::new(),
         id: document_id(&stored.id)?,
         revision: stored.revision,
         title: stored.title,
@@ -1870,6 +1969,7 @@ fn migrate(stored: v1::Document, history: v1::History) -> Result<DocumentParts, 
             .collect()
     };
     Ok(DocumentParts {
+        abbreviations: Vec::new(),
         id: document_id(&stored.id)?,
         revision: stored.revision,
         title: stored.title,
@@ -1915,6 +2015,7 @@ fn migrate_change_set(set: v1::ChangeSet, instance: ObjectId) -> Result<ChangeSe
         }
     }
     Ok(ChangeSet {
+        abbreviations: Vec::new(),
         title: set.title.map(|change| Change {
             before: change.before,
             after: change.after,
@@ -2394,6 +2495,16 @@ fn stored_point(point: &Point) -> StoredPoint {
 
 fn stored_scene_change_set(set: &ChangeSet) -> SceneChangeSet {
     SceneChangeSet {
+        abbreviations: set
+            .abbreviations
+            .iter()
+            .map(|(key, change)| StoredAbbreviationChange {
+                instance: key.instance.to_string(),
+                anchor: key.atom.to_string(),
+                before: change.before.map(|atom| atom.to_string()),
+                after: change.after.map(|atom| atom.to_string()),
+            })
+            .collect(),
         title: set.title.as_ref().map(|change| StoredChange {
             before: change.before.clone(),
             after: change.after.clone(),
@@ -2485,6 +2596,7 @@ fn to_change_set<A: AtomRecord, B: BondRecord>(
     };
     let to_point = |stored: StoredPoint| point(stored.x, stored.y);
     Ok(ChangeSet {
+        abbreviations: Vec::new(),
         title: stored.title.map(|change| Change {
             before: change.before,
             after: change.after,

@@ -49,7 +49,8 @@ fn old_document_bytes_and_history_survive_read_and_first_v8_save() {
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/caption-native.json");
     let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(stored["format_version"], 8);
+    assert_eq!(stored["format_version"], 9);
+    strip_abbreviations(&mut stored);
     stored["format_version"] = json!(7);
     let original = serde_json::to_vec_pretty(&stored).unwrap();
     fs::write(&path, &original).unwrap();
@@ -89,6 +90,7 @@ fn old_draft_bytes_are_preserved_before_recovery_writes_v8() {
     repo.release_draft(doc.id());
     let path = root.path().join("drafts/caption-native.json");
     let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    strip_abbreviations(&mut stored);
     stored["format_version"] = json!(7);
     let original = serde_json::to_vec(&stored).unwrap();
     fs::write(&path, &original).unwrap();
@@ -112,7 +114,7 @@ fn old_draft_bytes_are_preserved_before_recovery_writes_v8() {
     );
     app.autosave("caption-native", Some("draft-v8")).unwrap();
     let rewritten: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 8);
+    assert_eq!(rewritten["format_version"], 9);
 }
 
 #[test]
@@ -126,6 +128,7 @@ fn v7_rejects_history_only_captions_and_v8_rejects_invalid_caption_states() {
     let path = root.path().join("documents/caption-native.json");
     let original: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     let mut old = original.clone();
+    strip_abbreviations(&mut old);
     old["format_version"] = json!(7);
     fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
     assert!(
@@ -137,4 +140,17 @@ fn v7_rejects_history_only_captions_and_v8_rejects_invalid_caption_states() {
     assert!(
         matches!(repo.load(doc.id()), Err(StorageError::Corrupt(message)) if message.contains("auto"))
     );
+}
+
+// Build the exact pre-abbreviation schema instead of putting v9 fields behind an old header.
+fn strip_abbreviations(value: &mut Value) {
+    value["document"]
+        .as_object_mut()
+        .unwrap()
+        .remove("abbreviations");
+    for stack in ["undo", "redo"] {
+        for entry in value["history"][stack].as_array_mut().unwrap() {
+            entry.as_object_mut().unwrap().remove("abbreviations");
+        }
+    }
 }

@@ -169,7 +169,7 @@ fn groups_and_their_history_round_trip_in_version_7_with_deterministic_bytes() {
 #[test]
 fn the_stored_shape_keeps_numbers_as_stated_in_identifier_order() {
     let file = saved_file();
-    assert_eq!(file["format_version"], 8);
+    assert_eq!(file["format_version"], 9);
     assert_eq!(file["document"]["next_group"], 5);
     assert_eq!(
         file["document"]["stereo_groups"],
@@ -222,7 +222,7 @@ fn a_version_6_file_reads_with_no_groups_and_its_first_save_keeps_the_original_b
             .unwrap(),
         format!("{ID}.v6.json")
     );
-    assert_eq!(read_json(&path)["format_version"], 8);
+    assert_eq!(read_json(&path)["format_version"], 9);
     assert_eq!(repository.load(&id()).unwrap(), Some(document));
     assert!(root.path().join("migrated").is_dir());
 }
@@ -244,7 +244,7 @@ fn a_version_6_draft_is_recovered_and_its_bytes_are_kept() {
     let revision = recovered.document.revision;
     app.redo(ID, None, revision).unwrap();
     app.autosave(ID, None).unwrap();
-    assert_eq!(read_json(&draft_path)["format_version"], 8);
+    assert_eq!(read_json(&draft_path)["format_version"], 9);
     assert_eq!(fs::read(archive).unwrap(), original, "never overwritten");
 }
 
@@ -261,7 +261,7 @@ fn a_draft_in_version_7_carries_groups_and_recovers_them() {
     };
     repository.write_draft(&draft).unwrap();
     let file = read_json(&root.path().join("drafts").join(format!("{ID}.json")));
-    assert_eq!(file["format_version"], 8);
+    assert_eq!(file["format_version"], 9);
     assert_eq!(
         file["document"]["stereo_groups"].as_array().unwrap().len(),
         4
