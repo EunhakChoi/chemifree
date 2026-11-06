@@ -39,3 +39,9 @@ For navigation in the Base UI setup, use a plain anchor styled with buttonVarian
 Use lockfiles, documented commands, meaningful boundary checks, Rust formatting/clippy, frontend type checks/build/lint, and a browser smoke check. Keep generated outputs, local credentials, private data, caches, and investigation files out of Git.
 
 Do not publish scientific behavior as complete. Document implementation status and next steps explicitly.
+
+## Completed-work cleanup
+
+After testing is finished, remove disposable test environments and their task-owned processes, worktrees, build outputs, and temporary data once required evidence is retained. Never remove an environment while a test, build, browser, server, or another task still uses it.
+
+After a PR is merged, remove its completed local and remote topic branches and disposable worktrees after verifying the merge and that no later unmerged work remains. Preserve main and other long-lived branches, user data, dirty or active worktrees (including untracked files), and ongoing work. If ownership or completion is uncertain, leave the resource in place and record the deferred cleanup. See .github/CONTRIBUTING.md for the procedure.
