@@ -84,6 +84,8 @@ jobs:
         run: npm run test:browser:smiles-clipboard
       - name: CDXML explicit text clipboard copy
         run: npm run test:browser:cdxml-clipboard
+      - name: CDXML explicit text clipboard import
+        run: npm run test:browser:cdxml-import
       # Runs even if the guard check failed, so each check reports on its own.
       - name: Browser smoke
         id: smoke

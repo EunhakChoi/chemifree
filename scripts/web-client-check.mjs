@@ -68,6 +68,54 @@ test('an unconfirmed CDXML creation is checked with the same request ID', async 
   assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
 })
 
+test('CDXML text read, preview and new-drawing creation preserve the reviewed exact source and choice', async () => {
+  const source = '\ufeff<CDXML>\r\n<page id="7"><fragment id="12"/></page>\r\n</CDXML>  '
+  const choice = { page_id: 7, fragment_id: 12, page_path: 'page7', fragment_path: 'page7/fragment12' }
+  const item = (id, path, target) => ({ source_id: id, source_path: path, target_id: target })
+  const mapping = { document: item(null, 'document', 'created'), page: item(7, 'page7', 'p1'),
+    fragment: item(12, choice.fragment_path, 'm1'), atoms: [], bonds: [] }
+  const result = document('created')
+  const scripted = service({ '/api/v1/operations': [
+    () => json(200, { outcome: 'ok', diagnostics: [], loss_report: [], result: { choices: [choice] } }),
+    () => json(200, { outcome: 'ok', diagnostics: [], loss_report: [], result: {
+      document: { atoms: [], bonds: [] }, mapping, preview_digest: 'a'.repeat(64),
+    } }),
+    () => json(200, { outcome: 'ok', diagnostics: [], loss_report: [], result }),
+  ] })
+  const client = new DocumentClient()
+  assert.deepEqual(await client.readInterchange(source, 'cdxml'), [choice])
+  const input = { format: 'cdxml', source, title: 'Reviewed molecule', page_id: 7, fragment_id: 12 }
+  const preview = await client.previewInterchange(input)
+  assert.deepEqual(preview.mapping, mapping)
+  assert.equal((await client.createInterchange(input, preview.digest)).document.id, 'created')
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), [
+    { mode: 'read', format: 'cdxml', source, compact_bytes: true },
+    { mode: 'preview', ...input },
+    { mode: 'create', ...input, preview_digest: 'a'.repeat(64), accept_loss: true },
+  ])
+  assert.equal(scripted.writes.some((write) => Object.hasOwn(write.parameters, 'document_id')), false, 'creation is not append to the displayed drawing')
+})
+
+test('unconfirmed CDXML creation is never resent to a restarted process; another creation requires a fresh intent', async () => {
+  const created = document('created')
+  const scripted = service({
+    '/api/v1/operations': [lost, () => json(200, { outcome: 'ok', diagnostics: [], loss_report: [], result: created })],
+  })
+  const client = new DocumentClient()
+  const input = { format: 'cdxml', source: '<CDXML/>', title: 'Reviewed', page_id: 7, fragment_id: 12 }
+  await assert.rejects(client.createInterchange(input, 'a'.repeat(64)), { code: 'unreachable' })
+  scripted.restart()
+  await noticeRestart(client)
+  await assert.rejects(client.createInterchange(input, 'a'.repeat(64)), { code: 'create_unconfirmed' })
+  assert.equal(scripted.writes.filter((write) => write.path === '/api/v1/operations').length, 1, 'checking the old creation never posts into the new process')
+  // Only a later explicit user decision after inspecting Saved documents may start again.
+  assert.equal((await client.createInterchange(input, 'a'.repeat(64))).document.id, 'created')
+  const creations = scripted.writes.filter((write) => write.path === '/api/v1/operations')
+  assert.equal(creations.length, 2)
+  assert.notEqual(creations[0].requestId, creations[1].requestId)
+  assert.deepEqual(creations.map((write) => write.token), ['token-1', 'token-2'])
+})
+
 test('reading a CDX or CDXML source asks for compact bytes', async () => {
   const choice = { page_id: 1, fragment_id: 2, page_path: 'page 1', fragment_path: 'page 1/fragment 2' }
   const reply = { outcome: 'ok', diagnostics: [], loss_report: [], result: { choices: [choice] } }

@@ -678,15 +678,38 @@ export function useDocumentEditor() {
     currentServiceGeneration: useCallback(() => serviceGenerationRef.current, []),
     readInterchange: useCallback((source: string, format: InterchangeFormat) => client.readInterchange(source, format), []),
     previewInterchange: useCallback((input: InterchangeInput) => client.previewInterchange(input), []),
-    createInterchange: useCallback((input: InterchangeInput, digest: string) => run(async () => {
-      try {
-        await show(() => client.createInterchange(input, digest))
-        refreshList()
-      } catch (failure) {
-        if (failure instanceof ApiError && failure.code === 'create_unconfirmed') refreshList()
-        throw failure
-      }
-    }), [run, show, refreshList]),
+    createInterchange: useCallback((input: InterchangeInput, digest: string, context?: { generation: number; checking: boolean }) => {
+      const frozen = { ...input }
+      const generation = context?.generation
+      const checking = context?.checking ?? false
+      return clipboardTask(async () => {
+        let confirmed = false
+        try {
+          await show(async () => {
+            if (generation !== undefined && !checking && generation !== serviceGenerationRef.current) {
+              throw new ApiError('preview_changed', 'The service changed. Read and preview the source again before creating a drawing.', 400)
+            }
+            const created = await client.createInterchange(frozen, digest)
+            if (generation !== undefined && generation !== serviceGenerationRef.current) {
+              throw new ApiError('create_unconfirmed', 'The service changed before this creation was confirmed. Check Saved documents before creating another drawing.', 401)
+            }
+            confirmed = true
+            return created
+          })
+          refreshList()
+        } catch (failure) {
+          if (confirmed && failure instanceof ApiError && failure.code === 'draft_not_written') {
+            // Creation is already confirmed. Report the old drawing's draft issue
+            // without inviting a second creation with a fresh request ID.
+            report(failure)
+            refreshList()
+            return
+          }
+          if (failure instanceof ApiError && failure.code === 'create_unconfirmed') refreshList()
+          throw failure
+        }
+      })
+    }, [clipboardTask, show, refreshList, report]),
     isCurrentConversion: useCallback((snapshot: DocumentView, generation: number) =>
       serviceGenerationRef.current === generation && currentRef.current !== null &&
       sameConversionSnapshot(currentRef.current.document, snapshot), []),
