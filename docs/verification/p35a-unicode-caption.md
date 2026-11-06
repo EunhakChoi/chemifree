@@ -207,3 +207,23 @@ reference traversal) and a group containing only a caption (one move command). E
 empty-group and caption-only movement assertions remain intact. Corrected tests have not
 been executed by this agent; only diff inspection was performed, with execution prohibitions
 unchanged.
+
+## Sixth parent-run targeted result and CLI caption rendering
+
+For `c713289`, the parent verifier's `p35a-targeted6.log` reports lint/type/client passed,
+then the CLI workspace build failed with E0004: the human-readable scene match did not
+include `SceneObjectView::Caption`. This was a missed entry-adapter consumer, not a fixture
+or environment error.
+
+Added an explicit CLI scene branch showing caption ID, parent, point anchor and every
+ordered script/text run. Text uses ASCII scalar/quote/backslash escaping to avoid emitting
+user-supplied directional/format characters to the terminal; JSON retains original text.
+The script match is also exhaustive. Added tests through the existing real-application
+document-text fixture for grouped captions with all scripts, exact escaped Unicode/bidi
+and quoting output, and unchanged Unicode in the document's JSON view.
+
+Statically searched CLI/API/conformance source for `SceneObjectView`, domain `SceneObject`
+and `ObjectKind` matches; the CLI scene printer was the only scene-kind match in those
+entry adapters. The previously audited domain/application/provider matches remain explicit
+or use their intentional unsupported guards. This agent has not executed tests, build,
+browser or push for the fix; only formatting and source/diff inspection were performed.

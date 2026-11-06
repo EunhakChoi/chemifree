@@ -1735,6 +1735,10 @@ A caption is a new independent scene object, not an atom, abbreviation, chemical
 CIP overlay or graph replacement. Its snapshot is
 `{ kind: "caption", id, parent, anchor: { x, y }, runs: [{ text, script }] }`.
 It shares `sN` IDs, ordered containment, references and selection with other scene objects.
+CLI text output lists the caption ID, parent, anchor and each ordered `script("text")` run.
+Run text uses Rust ASCII escapes (including Unicode scalar escapes), so quotes, backslashes
+and directional/format characters cannot disguise terminal output. JSON output retains the
+original Unicode strings and script fields without that presentation escaping.
 The transaction catalog adds `add_caption` and `update_caption` (39 commands and 11
 capabilities, 50 sub-operation rows; no new top-level operation).
 
