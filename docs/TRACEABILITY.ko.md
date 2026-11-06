@@ -49,7 +49,9 @@ P33e는 backend-only `document.clipboard_scene_copy/paste`의 graphic/group fore
 
 clean isolated suite30은 `scene-clipboard-forest-history`(accept)와 `scene-clipboard-refusals-atomic`(reject)를 포함해 109/109 passed(accept79·reject30, failed0·not_run0)다. 두 사례의 `scene.objects` 기대 배열을 숫자 ID 순서가 아닌 실제 DFS painting order로 바로잡은 뒤 실행했고 [export한 보고서](verification/conformance-report.json)를 OPS-01.scene-clipboard-backend의 passing case evidence에 연결한다. Codex P2의 signed-zero replay 지적은 offset의 정확한 f64 비트를 request identity로 묶도록 수정했으며, 양 부호·각 축 변경 거절과 원래 응답의 좌표 비트 보존 회귀 및 scoped clippy가 통과했다. 전체 check·browser·CI나 P33 완료를 뜻하지 않는다. scene 웹 clipboard·scene Cut·chemical-instance clone 등은 미구현이며 P33은 계속 `in_progress`다. 카탈로그는 연산35개·기본 실행25개, transaction sub-operation46개(명령35/capability11)다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 106개(implemented 59, partial 12, unverified 2, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+P33f는 별도 native graphics dialog로 P33e forest backend를 웹에 연결한다. 전체 선택·문서/process를 잡아 큐에서 재검증하고 mixed graph/placement 선택을 걸러내지 않는다. 명시 browser read/write와 수동 대안, frozen text/pt offset/mixed selection-before, 여러 placement 목적지·새 roots·Undo/Redo를 제공한다. client는 forest/mapping/geometry/reference와 기존 chemistry/placement 불변을 확인한다. 미확정 시 shared request/body/process gate·후속 변경 잠금·clipboard 재접근 없는 outcome check·restart reload를 따른다. parent-run 격리 targeted lint/typecheck·client444개·web build·test:browser:scene-clipboard가 통과해 OPS-01.scene-clipboard-web를 check:test:client 근거로 implemented로 기록했다. browser command를 CI에 추가했지만 CI 실행·전체 check·일반 browser 성공이나 P33 완료는 주장하지 않는다. Scene Cut·molecule clone·external graphics/custom MIME/global shortcut은 후속이며 P33은 in_progress다.
+
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 107개(implemented 60, partial 12, unverified 2, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

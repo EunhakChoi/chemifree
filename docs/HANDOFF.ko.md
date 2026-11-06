@@ -89,7 +89,7 @@
 - 읽기 전용 prepare 뒤 별도 Copy to clipboard 클릭에서 browser write를 직접 시작한다. Select native graphics text와 read-only textarea는 수동 대안이다. Paste 열기는 clipboard를 읽지 않고 Read clipboard/수동 입력 뒤 별도 제출만 local service에 보낸다. UTF-8 64KiB를 자르지 않고 제한하며 offset은 각 축 destination bond length 한 개 pt로 시작한다.
 - paste의 text·offset·document·mixed selection-before·service generation은 제출 때 고정하고 queue 실행 때 최신 revision을 쓴다. 여러 destination placement를 받으며 page 끝 새 roots를 선택한다. Undo/Redo는 기존 mixed 선택/새 roots를 복구한다. client는 전체 forest/내부 refs·fresh mapping·translated geometry·root/child order와 graph/stereo/instance/기존 scene 불변을 확인한다. wire objects 배열의 나열 순서와 paint order는 구별한다.
 - scene_paste는 기존 graph Cut/Paste·MOL import와 미확정 mutation gate를 공유한다. lost/malformed reply는 동일 request/body/process만 확인하고 후속 document queue action을 잠근다. Check graphics paste outcome은 clipboard를 다시 건드리지 않는다. restart/old-process held success/terminal replay conflict는 명시 reload로 reconcile하며 새 process에 재전송하지 않는다.
-- dialog 종료/문서 전환은 임시 text와 지연 UI callback을 폐기하되 미확정 시도 추적은 유지한다. background read·payload logging/storage·custom MIME·global shortcut·scene Cut·molecule clone·외부 scene format은 추가하지 않았다. client/browser 회귀를 작성했으나 이 작업에서는 tests/build/browser/lint를 실행하지 않았고 P33e와 기존 slice 실행 근거를 새 웹 통과로 세지 않는다. P33은 in_progress다.
+- dialog 종료/문서 전환은 임시 text와 지연 UI callback을 폐기하되 미확정 시도 추적은 유지한다. background read·payload logging/storage·custom MIME·global shortcut·scene Cut·molecule clone·외부 scene format은 추가하지 않았다. parent-run 격리 targeted lint/typecheck·전체 client444개·web build 및 npm run test:browser:scene-clipboard가 통과했다. 새 graphics browser command를 CI browser job에 연결했지만 그 CI 실행·전체 npm run check·일반 browser 성공·P33 완료는 주장하지 않는다. 기존 slice 실행 근거를 새 웹 근거로 세지 않으며 P33은 in_progress다.
 
 ## 프로젝트와 현재 기준
 
@@ -258,7 +258,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 106개(implemented 59, partial 12, unverified 2, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 107개(implemented 60, partial 12, unverified 2, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
