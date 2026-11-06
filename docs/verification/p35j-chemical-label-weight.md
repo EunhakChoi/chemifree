@@ -38,7 +38,11 @@ Written regression coverage:
   style selector and backend: 3 generic families × 4/72pt, H/count, isotope/charge,
   long list query, Et, actual SVG ink/bounds, trim, fit, edge picking and highlight,
   independent caption weight, graph invariance, undo/redo and native reopen.
-  The browser CI job includes it.
+  A cold-page regression holds actual bundled-font HTTP replies while 700 labels
+  render, switches to a distant bold document, pans/zooms before font release,
+  and checks changed natural advances/bounds, current-document identity, preserved
+  user viewport and post-load fit/ink provenance. It uses production font loading,
+  canvas and document-open paths. The browser CI job includes it.
 
 Applied skills: Rust patterns/testing, TypeScript patterns/testing and shadcn
 existing settings controls. No original application DLL is an execution engine.

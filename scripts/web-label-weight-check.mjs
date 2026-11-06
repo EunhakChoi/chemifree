@@ -50,6 +50,17 @@ try {
     { op: 'add_caption', anchor: { x: -300, y: 600 }, alignment: 'left', runs: [{ text: 'Independent caption', script: 'baseline', weight: 'normal' }] },
   ] })
   await write(`/documents/${id}/transactions`, { request_id: 'weight-compact', expected_revision: 1, commands: [{ op: 'collapse_ethyl', instance: 's1', anchor: 'a2', terminal: 'a3' }] })
+  const coldId = (await write('/documents', { request_id: 'weight-cold-create', title: 'Delayed bold source' })).document.id
+  const alternateId = (await write('/documents', { request_id: 'weight-cold-alternate', title: 'Delayed bold destination' })).document.id
+  for (const [documentId, alternate] of [[coldId, false], [alternateId, true]]) {
+    await write(`/documents/${documentId}/transactions`, { request_id: `weight-cold-seed-${alternate}`, expected_revision: 0, commands: [
+      { op: 'update_settings', label_weight: 'bold', label_font: 'sans-serif', label_size_pt: 72 },
+      alternate
+        ? { op: 'add_atom', query: { kind: 'list', negated: true, elements: ['C', 'Cl', 'Br', 'I'] }, position: { x: 4000, y: -2000 } }
+        : { op: 'add_atom', element: 'N', position: { x: -2500, y: 1200 }, isotope: 15, charge: 2, hydrogens: { mode: 'specified', count: 3 } },
+    ] })
+    await write(`/documents/${documentId}/save`, { request_id: `weight-cold-save-${alternate}`, expected_revision: 1 })
+  }
   const fixture = `
 import React, { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -61,8 +72,9 @@ import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
 import '/src/index.css'
 function Harness() {
   const editor = useDocumentEditor()
-  useEffect(() => { void editor.open(${JSON.stringify(id)}) }, [])
+  useEffect(() => { void editor.open(new URLSearchParams(location.search).has('cold') ? ${JSON.stringify(coldId)} : ${JSON.stringify(id)}) }, [])
   return <main>
+    <button disabled={editor.busy} onClick={() => void editor.open(${JSON.stringify(alternateId)})}>Open alternate bold drawing</button>
     {['sans-serif', 'serif', 'monospace'].flatMap((font) => [4,72].map((size) => <button key={font+size} disabled={editor.busy} onClick={() => void editor.apply([{op:'update_settings',label_weight:'bold',label_font:font,label_size_pt:size}])}>Bold {font} {size}</button>))}
     <button disabled={editor.busy} onClick={() => void editor.undo()}>Undo weight</button>
     <button disabled={editor.busy} onClick={() => void editor.redo()}>Redo weight</button>
@@ -173,6 +185,65 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
   await page.waitForFunction(() => document.querySelector('svg[data-structure-canvas]')?.dataset.captionBoundsReady === 'true')
   assert.equal((await snapshot()).document.settings.label_weight,'bold')
   assert.deepEqual((await snapshot()).document.atoms,seeded.document.atoms)
+  stage = 'delayed 700 font completion follows the switched document and preserves its viewport'
+  const cold = await browser.newPage()
+  cold.on('pageerror', (error) => errors.push(error.message))
+  let releaseFonts
+  const heldFonts = new Promise((resolveFonts) => { releaseFonts = resolveFonts })
+  let heldRequests = 0
+  await cold.route(/\.woff2(?:\?.*)?$/, async (route) => {
+    if (route.request().resourceType() !== 'font') return route.continue()
+    heldRequests += 1
+    await heldFonts
+    await route.continue()
+  })
+  try {
+    await cold.goto('http://127.0.0.1:5173/label-weight-check?cold', { waitUntil: 'domcontentloaded' })
+    await cold.waitForFunction((id) => {
+      const current = JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent)
+      return current?.document.id === id && document.fonts.status === 'loading' &&
+        !document.fonts.check('700 72px "Geist Variable"') &&
+        document.querySelector('[data-atom-label] [font-weight="700"]') !== null &&
+        document.querySelector('[data-structure-canvas]')?.dataset.captionBoundsReady === 'false'
+    }, coldId)
+    assert.ok(heldRequests > 0, 'a real bundled variable-font response used by 700 labels is held')
+    await cold.getByRole('button', { name: 'Open alternate bold drawing', exact: true }).click()
+    await cold.waitForFunction((id) => JSON.parse(document.querySelector('[aria-label="Weight snapshot"]').textContent)?.document.id === id &&
+      document.querySelector('[data-structure-canvas]')?.dataset.captionBoundsReady === 'false' &&
+      document.querySelector('[data-atom-label]')?.textContent.includes('['), alternateId)
+    const canvas = cold.locator('svg[data-structure-canvas]')
+    await canvas.focus()
+    await canvas.press('ArrowRight')
+    await canvas.press('+')
+    const chosenViewport = await canvas.getAttribute('viewBox')
+    const fallback = await cold.locator('[data-atom-label]').evaluate((label) => ({ box: label.dataset.box,
+      advance: label.querySelector('[data-chunk="text"]').getComputedTextLength() }))
+    releaseFonts()
+    await cold.waitForFunction(() => document.fonts.status === 'loaded' && document.fonts.check('700 72px "Geist Variable"') &&
+      document.querySelector('[data-structure-canvas]')?.dataset.captionBoundsReady === 'true')
+    assert.equal(await canvas.getAttribute('viewBox'), chosenViewport, 'late source/font measurements cannot replace the switched document user viewport')
+    const loaded = await cold.locator('[data-atom-label]').evaluate((label) => {
+      const text = label.querySelector('[data-chunk="text"]'), span = text.querySelector('tspan')
+      return { box: label.dataset.box, advance: text.getComputedTextLength(), weight: getComputedStyle(span).fontWeight, family: getComputedStyle(span).fontFamily }
+    })
+    assert.equal(loaded.weight, '700')
+    assert.match(loaded.family, /Geist/)
+    assert.notEqual(loaded.advance, fallback.advance, 'the network release must change the actual query font metrics')
+    assert.notEqual(loaded.box, fallback.box, '700 bounds must be remeasured after the font arrives')
+    assert.equal(JSON.parse(await cold.getByLabel('Weight snapshot', { exact: true }).textContent()).document.id, alternateId)
+    await cold.getByRole('button', { name: 'Fit drawing', exact: true }).click()
+    await cold.waitForFunction(() => {
+      const svg = document.querySelector('svg[data-structure-canvas]')
+      const label = svg?.querySelector('[data-atom-label]')
+      if (!label || svg.dataset.captionBoundsReady !== 'true' || svg.dataset.captionMeasuredViewBox !== svg.getAttribute('viewBox')) return false
+      const [x,y,width,height] = label.dataset.box.split(' ').map(Number), ink = label.getBBox(), view = svg.viewBox.baseVal
+      return ink.width > 0 && x <= ink.x + 0.05 && y <= ink.y + 0.05 && x+width >= ink.x+ink.width-0.05 && y+height >= ink.y+ink.height-0.05 &&
+        view.x <= x && view.y <= y && view.x+view.width >= x+width && view.y+view.height >= y+height
+    })
+  } finally {
+    releaseFonts()
+    await cold.close()
+  }
   assert.equal(await page.getByLabel('Weight error',{exact:true}).textContent(),'')
   assert.deepEqual(errors,[])
   passed=true
