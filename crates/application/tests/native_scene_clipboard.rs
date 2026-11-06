@@ -275,6 +275,83 @@ fn paste_maps_nonmonotonic_root_ids_without_touching_graph_placements_stereo_or_
 }
 
 #[test]
+fn scene_paste_replay_binds_both_offset_sign_bits_and_preserves_immutable_coordinates() {
+    for initial_zero in [-0.0_f64, 0.0_f64] {
+        let (app, _directory) = application();
+        let source_id = create(&app, "Signed zero source");
+        edit(
+            &app,
+            &source_id,
+            json!([graphic("line", (-0.0, -0.0), (1.0, 1.0))]),
+        );
+        let copy = call(
+            &app,
+            "document.clipboard_scene_copy",
+            json!({"document_id":source_id,"selection":{"objects":["s2"]}}),
+        );
+        assert_eq!(copy["outcome"], "ok", "{copy}");
+        let id = create(&app, "Signed zero destination");
+        let mut parameters = paste_parameters(&id, 0, copy["result"]["payload"].as_str().unwrap());
+        parameters["offset"] = json!({"x":initial_zero,"y":initial_zero});
+        let pasted = request(
+            &app,
+            "signed-zero-paste",
+            "document.clipboard_scene_paste",
+            parameters.clone(),
+        );
+        assert_eq!(pasted["outcome"], "ok", "{pasted}");
+        assert_eq!(pasted["result"]["snapshot"]["document"]["revision"], 1);
+        let assert_coordinate_bits = |snapshot: &Value| {
+            for axis in ["x", "y"] {
+                assert_eq!(
+                    object(snapshot, "s2")["points"][0][axis]
+                        .as_f64()
+                        .unwrap()
+                        .to_bits(),
+                    initial_zero.to_bits(),
+                    "{axis} must preserve the initial offset sign {initial_zero:?}"
+                );
+            }
+        };
+        assert_coordinate_bits(&pasted["result"]["snapshot"]);
+        edit(&app, &id, json!([{"op":"rename","title":"Later edit"}]));
+        let later = snapshot(&app, &id);
+        let replay = request(
+            &app,
+            "signed-zero-paste",
+            "document.clipboard_scene_paste",
+            parameters.clone(),
+        );
+        assert_eq!(
+            replay, pasted,
+            "an exact replay returns its original revision"
+        );
+        assert_coordinate_bits(&replay["result"]["snapshot"]);
+
+        // Each axis independently belongs to the request identity, even though f64 equality
+        // considers these offsets equal. Neither changed request may replay or mutate.
+        for axis in ["x", "y"] {
+            let mut changed = parameters.clone();
+            changed["offset"][axis] = json!(-initial_zero);
+            let refused = request(
+                &app,
+                "signed-zero-paste",
+                "document.clipboard_scene_paste",
+                changed,
+            );
+            assert_eq!(refused["outcome"], "error", "{axis}: {refused}");
+            assert_eq!(
+                refused["diagnostics"][0]["code"], "request_id_reused",
+                "{axis}: {refused}"
+            );
+            let current = snapshot(&app, &id);
+            assert_eq!(current, later);
+            assert_coordinate_bits(&current);
+        }
+    }
+}
+
+#[test]
 fn one_selection_aware_history_step_replays_immutably_and_persists_forest_and_id_counter() {
     let (app, directory) = application();
     let source_id = source(&app);

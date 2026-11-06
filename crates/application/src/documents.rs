@@ -73,7 +73,8 @@ enum Mutation {
     ClipboardScenePaste {
         expected_revision: u64,
         payload: String,
-        offset: crate::contract::PointDto,
+        // Signed zero changes translated graphic coordinates and binds the replay request.
+        offset_bits: [u64; 2],
         selection_before: Option<crate::contract::SelectionDto>,
     },
     AromaticityConversion {
@@ -1203,7 +1204,7 @@ impl<R: DocumentRepository> Documents<R> {
         let mutation = Mutation::ClipboardScenePaste {
             expected_revision: request.expected_revision,
             payload: request.payload.into(),
-            offset: request.offset,
+            offset_bits: [request.offset.x.to_bits(), request.offset.y.to_bits()],
             selection_before: request.selection_before,
         };
         self.mutate(
