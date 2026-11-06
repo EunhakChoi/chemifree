@@ -85,6 +85,7 @@ import { CdxmlImport, InterchangeCreationNotice } from '@/components/cdxml-impor
 import { CtfilePanel } from '@/components/ctfile-panel'
 import { InterchangeExportPanel } from '@/components/interchange-export-panel'
 import { NativeClipboardPanel } from '@/components/native-clipboard-panel'
+import { UserTemplatePanel } from '@/components/user-template-panel'
 import { SceneClipboardPanel } from '@/components/scene-clipboard-panel'
 import { SmilesPanel } from '@/components/smiles-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
@@ -884,6 +885,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           />
           <ValenceInspector document={document} editor={editor} />
           <NativeClipboardPanel key={`clipboard-${document.id}`} document={document} editor={editor} activePlacement={activePlacement} />
+          <UserTemplatePanel key={`templates-${document.id}-${editor.serviceGeneration}`} document={document} editor={editor} activePlacement={activePlacement} />
           <CtfilePanel key={`ctfile-${document.id}`} document={document} editor={editor} />
           <InterchangeExportPanel key={`interchange-export-${document.id}`} document={document} editor={editor} />
           <SmilesPanel key={`smiles-${document.id}`} document={document} editor={editor} />

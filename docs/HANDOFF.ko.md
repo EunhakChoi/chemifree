@@ -2,6 +2,16 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P34d 사용자 그래프 템플릿 파일 후보
+
+- P34c `36893cc` 기반 `feat/p34d-user-template` 후보이며 #177 main과 #179 smoke 종료 경합 fix(`02def38`)를 통합했다. P34는 in_progress다.
+- 실제 웹 User graph templates에서 전체 연결 성분 선택을 기존 native copy로 준비하고 명시 Download template으로 이름 있는 파일을 저장한다. 본문은 `chemifree.clipboard` v1 그대로이며 crossing bond·scene 혼합·enhanced stereo·자체완결되지 않은 입체는 거절한다. 파일 이름은 메타데이터 스키마가 아니다.
+- 명시 File 선택은 64KiB·엄격 UTF-8로 읽기만 하며 기존 decoder 검증은 Insert template 때 수행한다. 재선택·닫기·문서/process 변경의 지연 읽기를 버리고 다운로드 offer는 원본 snapshot 변경 시 숨긴다. 단일 destination placement·정확한 style·명시 pt translation과 fresh IDs/선택/한 Undo 단계·저장/복구는 기존 native paste다. 큐에서 process를 재확인하며 lost reply는 동일 body/request/process만 확인한다.
+- 새 DATA/provider activation·legacy geometry·템플릿 라이브러리·자동 attachment/교체/회전/layout·약어는 없다. 사용자 파일 I/O는 browser adapter이고 기존 source states/attachment_points를 소비하지 않는다.
+- 실제 다운로드→파일 재선택→real backend 삽입·거절·Undo/Redo·save/reopen·지연 읽기·실제 service restart·lost reply 회귀를 `npm run test:browser:user-template`와 CI에 작성했다. 부모 지시로 테스트·빌드·브라우저·mutation·push는 실행하지 않았다. [P34d 기록](verification/p34d-user-template.md)에 범위·검증 대기·리뷰를 기록한다.
+- 부모의 `5c9e148` 격리 targeted lint/type/client/build·전용 template browser는 통과했다(`/tmp/chemifree-p29d-verify-j4KjPa/p34d-browser4.log`). #179를 합친 현재 통합본의 full/CI는 별도 pending이다.
+- 통합 `a19062d` full은 traceability에서 전용 browser evidence의 공통 check 비호출과 집계 불일치로 실패했다. 검사를 약화하지 않고 새 `OPS-01.user-template-files` 부분을 적격 공통 evidence가 없는 `unverified`로 고치고 양쪽 집계를108개로 맞췄다. targeted 통과는 유지하며 수정본 full/CI 재검증은 pending이다.
+
 ## Browser smoke 종료 시 요청 기록 경합 보강 후보
 
 - main `af6c724` 기반 `fix/browser-smoke-teardown`은 완료된 smoke 뒤 async requestfinished logger가 browser.close와 경합하는 문제를 수정한다. response event에서 status를 동기 보관하고 완료/실패를 동기 기록하며 cleanup 전에 이 observer의 listener만 제거한다. 기존 browser 오류 감지·검사 단정은 유지한다.
@@ -335,7 +345,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 107개(implemented 60, partial 12, unverified 2, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 108개(implemented 60, partial 12, unverified 3, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

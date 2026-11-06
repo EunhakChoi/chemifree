@@ -14,7 +14,16 @@ P34c adds explicit **Attach to atom** mode: drag from an existing atom toward a 
 ring connected by one single bond. HTTP/CLI use `attach_ring` with an explicit atom and nonzero
 direction. Ordinary bond-addition stereo clearing and group notes apply; Undo restores the statements.
 Recorded atom states are preserved; valence remains an inspection rather than a new edit gate.
-Fusion, spiro, replacement, aromatic patterns, other sizes, user templates, abbreviations and
+P34d adds **User graph templates**: save complete selected graph components to a named
+native fragment JSON file, then choose that file and explicitly insert it independently.
+The file preserves the chosen source placement's coordinates and recorded states; insertion
+adds the specified point offsets, requires matching style and one destination placement,
+and uses fresh IDs with one Undo/Redo step. File selection alone changes nothing.
+Crossing-bond selections, scene content and enhanced stereo groups cannot be saved as templates.
+This is file reuse, without a library, automatic attachment, rotation or layout.
+See [the P34d record](docs/verification/p34d-user-template.md); checks are written and unrun.
+
+Fusion, spiro, replacement, aromatic patterns, other sizes, abbreviation contraction/expansion and
 molecular conformations remain unimplemented. P34 is in progress; the new checks are written
 but have not run in this implementation session. See the
 [ring contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a),
