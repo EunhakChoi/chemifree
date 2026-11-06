@@ -328,24 +328,32 @@ export function useDocumentEditor() {
       run(async () => {
         const document = currentRef.current
         if (!document) return
-        if (shownGenerationRef.current !== serviceGenerationRef.current) {
-          throw new ApiError('service_restarted', 'Reload the drawing before editing in the replacement service.', 0)
-        }
-        const request = call(document)
-        if (!request) return
-        let next: DocumentResponse
-        try {
-          next = await request
-        } catch (failure) {
-          // A restarted service lost its working copies. If it reopened exactly what this page
-          // shows, the edit still means the same thing; otherwise the page must reload.
-          if (!(failure instanceof ApiError && failure.code === 'service_restarted')) throw failure
+        const retryInCurrentProcess = async () => {
           const fresh = await client.get(document.document.id)
-          if (!client.isCurrentSnapshot(fresh)) throw failure
+          if (!client.isCurrentSnapshot(fresh)) {
+            throw new ApiError('service_restarted', 'The service changed while checking the drawing. Reload to reconcile its current state.', 0)
+          }
           const retry = sameContent(fresh.document, document.document) ? call(fresh, document) : null
-          if (!retry) throw failure
+          if (!retry) {
+            throw new ApiError('service_restarted', 'The drawing changed in the replacement service. Reload before editing again.', 0)
+          }
           setCurrent(fresh)
-          next = await retry
+          return retry
+        }
+        let next: DocumentResponse
+        // Another inspection may already have noticed the restart and learned its token.
+        // The same-content check is still required even when the next write would not get 401.
+        if (shownGenerationRef.current !== serviceGenerationRef.current) {
+          next = await retryInCurrentProcess()
+        } else {
+          const request = call(document)
+          if (!request) return
+          try {
+            next = await request
+          } catch (failure) {
+            if (!(failure instanceof ApiError && failure.code === 'service_restarted')) throw failure
+            next = await retryInCurrentProcess()
+          }
         }
         if (currentRef.current?.document.id === next.document.id) {
           setCurrent(next)

@@ -3098,6 +3098,7 @@ step = 'after short_wide_bond_is_selectable'
 
 // Compare two captured graph snapshots, and do not show an error for a different target.
 {
+  step = 'graph identity snapshots, restart recovery and editing'
   const source = await apiWrite('/api/v1/documents', { request_id: 'identity-source-create', title: 'Identity source' })
   const target = await apiWrite('/api/v1/documents', { request_id: 'identity-target-create', title: 'Identity iron' })
   const id = source.body.document.id

@@ -112,6 +112,38 @@ attempt origin을 검사한다. transport origin guard를 제거하면 이 단�
 snapshot 검사는 이번 수정의 근거가 아니며 current-head full/CI는 pending이다.
 이전 독립 리뷰 1회 뒤 추가 리뷰는 부모 지시에 따라 요청하지 않았다.
 
+## 635c6f9 전체 browser 실패와 same-content edit 복구
+
+실행 담당자의 `635c6f9` 전용 targeted는 통과했으나 전체 격리 검사는 실패했다.
+`/tmp/chemifree-p29d-verify-j4KjPa/autosave-provenance-full.log`는
+`npm run check`의 client 509/509·conformance 109/109·traceability·검사 자체 시험
+42/42 성공 뒤 standard browser의 Graph identity 단계에서 종료했다.
+최종 `sandbox-run: exit=1`, peak anon 1281 MiB·page cache 283 MiB·cap 6144 MiB·swap 0이다.
+이 실행을 전체 검증 성공으로 세지 않는다.
+
+실패한 안내 대기는 identity를 새 세대에서 재검사한 뒤 charge 편집으로 이전 결과가
+stale해지는 경계다. Inspection이 먼저 restart를 알리고 새 token을 배웠으므로 뒤의
+edit은 401 catch에 들어가지 않는다. `635c6f9`에 추가한 mutate 진입 거절이 기존
+same-content 복구도 막아 charge 편집이 없었고, 새 identity 결과는 여전히 current여서
+안내가 나타나지 않았다. Snapshot provenance의 old-response 거절은 이 실패의 원인이
+아니며 그대로 유지한다.
+
+새 명시 edit은 shown generation이 unresolved이면 read-only get으로 replacement의
+현재 snapshot과 완전 content 일치를 확인한다. 일치하는 경우에만 기존 restartedFrom
+재구성 규칙으로 edit을 한 번 보내며, 다른 내용·재구성 불가·재조회 중 restart는 원본을
+남기고 거절한다. 일반 edit이 직접 401을 만난 경우와 같은 helper를 사용한다.
+자동 autosave·늦은 old success는 이 명시 edit의 재확인 권한을 얻지 않는다.
+
+실제 hook 회귀에 inspection이 먼저 다음 restart를 알린 뒤 read-only 검증 1회와
+charge 편집 1회·새 snapshot·오류 해소·autosave 재개를 추가했다. 8종 old-response
+회귀의 후속 명시 edit도 read-only replacement 확인 뒤 다른 content에는 mutation을
+보내지 않고 copy/Close도 거절하는지 검사한다. 기존 full smoke의 Graph identity
+단정은 유지하고 누락된 step 이름만 바로잡았다.
+
+이번 수정은 테스트·빌드·브라우저·mutation을 실행하지 않았다. 현재 HEAD의 targeted,
+full 검사와 CI는 pending이며 이전 targeted/full의 성공 부분을 이번 수정의 근거로
+확대하지 않는다. 독립 리뷰는 기존 1회 기록을 유지하고 추가 요청하지 않았다.
+
 ## 리뷰
 
 - Codex 작성자 정적 검토: restart notification·token 재학습·snapshot 채택·autosave

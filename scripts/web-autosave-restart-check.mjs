@@ -268,6 +268,12 @@ try {
     edited.session.draft_revision = 3
     const saved = structuredClone(edited)
     saved.session.draft_revision = 4
+    const charged = structuredClone(saved)
+    charged.document.atoms[0].charge = 1
+    charged.document.revision = 5
+    charged.session.undo_depth = 3
+    const draftedCharge = structuredClone(charged)
+    draftedCharge.session.draft_revision = 5
     const mismatched = structuredClone(source)
     mismatched.document.title = 'Different draft view'
     mismatched.session.draft_revision = 3
@@ -281,6 +287,10 @@ try {
       const path = new URL(route.request().url()).pathname
       if (path === '/api/v1/session') return json(route, { header: 'x-chemifree-token', token })
       if (path === '/api/v1/documents' || path === '/api/v1/trash') return json(route, { api_version: 'v1', documents: [] })
+      if (path === '/api/v1/operations') {
+        token = 'process-3'
+        return json(route, { api_version: 'v1', code: 'unauthorized', message: 'Old process token' }, 401)
+      }
       if (path.endsWith('/transactions')) {
         edits += 1
         if (edits === 1) {
@@ -289,16 +299,19 @@ try {
           token = 'process-2'
           return json(route, { api_version: 'v1', code: 'unauthorized', message: 'Old process token' }, 401)
         }
-        assert.equal(route.request().headers()['x-chemifree-token'], 'process-2')
-        return json(route, edited)
+        assert.equal(route.request().headers()['x-chemifree-token'], edits === 2 ? 'process-2' : 'process-3')
+        if (edits === 3) {
+          assert.deepEqual(route.request().postDataJSON().commands, [{ op: 'update_atom', atom: 'a1', charge: 1 }])
+        }
+        return json(route, edits === 2 ? edited : charged)
       }
       if (path.endsWith('/autosave')) {
         drafts += 1
-        return json(route, drafts === 1 ? mismatched : saved)
+        return json(route, drafts === 1 ? mismatched : drafts === 2 ? saved : draftedCharge)
       }
       assert.equal(path, '/api/v1/documents/drawing')
       reads += 1
-      return json(route, source)
+      return json(route, edits >= 2 ? saved : source)
     })
     await page.goto(`http://127.0.0.1:${address.port}/autosave-check`)
     await page.getByLabel('Drawing', { exact: true }).filter({ hasText: 'Unsaved original' }).waitFor()
@@ -321,6 +334,26 @@ try {
     await page.getByLabel('Autosave', { exact: true }).filter({ hasText: 'saved' }).waitFor()
     assert.equal(drafts, 2, 'drafting resumes after same-content recovery without another Reload')
     assert.deepEqual(await page.evaluate(() => window.autosaveHarness.current.document), edited.document)
+    // Read-only inspection can notice the next restart before any queued edit. Learning
+    // its token must neither authorize a blind write nor prevent a same-content rebuild.
+    await page.evaluate(async () => {
+      try {
+        await window.autosaveHarness.inspectIdentity('drawing', 'chemical', null)
+        throw new Error('Inspection must notice the next process')
+      } catch (error) {
+        if (error.code !== 'service_restarted') throw error
+      }
+    })
+    await page.evaluate(() => window.autosaveHarness.apply((drawing) => [
+      { op: 'update_atom', atom: 'a1', charge: drawing.atoms[0].charge + 1 },
+    ]))
+    assert.equal(reads, 3, 'an explicit edit first verifies the replacement drawing even after inspection learned its token')
+    assert.equal(edits, 3, 'a matching drawing allows one rebuilt edit in the current process')
+    assert.deepEqual(await page.evaluate(() => window.autosaveHarness.current.document), charged.document)
+    assert.equal(await page.getByLabel('Editor error', { exact: true }).textContent(), 'none')
+    await page.getByRole('button', { name: 'Retry autosave', exact: true }).click()
+    await page.getByLabel('Autosave', { exact: true }).filter({ hasText: 'saved' }).waitFor()
+    assert.equal(drafts, 3, 'verified same-content editing resumes autosave in the new process')
     assert.deepEqual(errors, [])
   } finally {
     await context.close()
@@ -349,6 +382,7 @@ try {
       let reads = 0
       let drafts = 0
       let writes = 0
+      let delivered = false
       await context.route('**/api/v1/**', async (route) => {
         const request = route.request()
         const path = new URL(request.url()).pathname
@@ -365,10 +399,19 @@ try {
           drafts += 1
           return json(route, oldReply)
         }
-        if (path === '/api/v1/documents/drawing' && reads++ === 0) return json(route, source)
+        if (path === '/api/v1/documents/drawing') {
+          reads += 1
+          if (reads === 1) return json(route, source)
+          if (delivered) {
+            const replacement = structuredClone(source)
+            replacement.document.title = 'Different replacement drawing'
+            return json(route, replacement)
+          }
+        }
         writes += 1
         arrived.resolve()
         await release.promise
+        delivered = true
         if (kind === 'close') return json(route, { api_version: 'v1', discarded_changes: false })
         if (kind === 'import') return json(route, { outcome: 'ok', diagnostics: [], loss_report: [], result: oldReply })
         if (kind === 'copy') return json(route, { ...oldReply, source: { id: 'drawing', closed: false, discarded_changes: false } })
@@ -410,6 +453,7 @@ try {
       await page.clock.runFor(5000)
       assert.equal(drafts, 0, `${kind}: old responses do not authorize drafting in the replacement process`)
       assert.equal(writes, 1, `${kind}: rejecting a stale reply sends no automatic mutation or reread`)
+      const readsBeforeExplicitEdit = reads
       await page.evaluate(async () => {
         const editor = window.autosaveHarness
         await editor.apply([{ op: 'rename', title: 'Must not reach the new process' }])
@@ -417,6 +461,7 @@ try {
         await editor.close(false)
       })
       assert.equal(writes, 1, `${kind}: an unresolved old snapshot cannot authorize later edit/copy/Close requests`)
+      assert.equal(reads, readsBeforeExplicitEdit + 1, `${kind}: the explicit edit checks replacement content read-only and refuses a different drawing`)
       assert.deepEqual(errors, [])
     } finally {
       await context.close()
