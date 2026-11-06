@@ -91,6 +91,14 @@
 - scene_paste는 기존 graph Cut/Paste·MOL import와 미확정 mutation gate를 공유한다. lost/malformed reply는 동일 request/body/process만 확인하고 후속 document queue action을 잠근다. Check graphics paste outcome은 clipboard를 다시 건드리지 않는다. restart/old-process held success/terminal replay conflict는 명시 reload로 reconcile하며 새 process에 재전송하지 않는다.
 - dialog 종료/문서 전환은 임시 text와 지연 UI callback을 폐기하되 미확정 시도 추적은 유지한다. background read·payload logging/storage·custom MIME·global shortcut·scene Cut·molecule clone·외부 scene format은 추가하지 않았다. parent-run 격리 targeted lint/typecheck·전체 client444개·web build 및 npm run test:browser:scene-clipboard가 통과했다. 새 graphics browser command를 CI browser job에 연결했지만 그 CI 실행·전체 npm run check·일반 browser 성공·P33 완료는 주장하지 않는다. 기존 slice 실행 근거를 새 웹 근거로 세지 않으며 P33은 in_progress다.
 
+## P33g 명시 SMILES text clipboard bridge 후보 인계
+
+- 기존 SMILES panel에 Read clipboard·Select written SMILES·Copy to clipboard를 더한다. 읽기/쓰기는 각각 명시 클릭에서 browser API를 직접 호출하며 panel 열기는 접근하지 않는다. 수동 입력/복사는 유지하고 Read는 source field만 채우며 Preview 때만 service에 보낸다. 16KiB UTF-8, 원문 보존과 기존 CX/ignored-source 규칙을 따르고 trim/split/형식 추측은 없다.
+- 내보내기는 선택 fragment가 아닌 전체 chemical graph이며 recorded 기본·canonical 선택·기존 stereo loss consent와 model 표시를 유지한다. 준비된 결과만 직접 쓰며 style/source snapshot/service 변경은 해당 결과/동의를 무효화한다. 지원 grammar·과학 모델은 넓히지 않는다.
+- typed/clipboard SMILES import 모두 기존 document에 append하며 새 문서를 만들지 않는다. 단일 배치·기존 atom/graphic 아래 deterministic grid·generated_layout 보고·fresh IDs·live selection·기존 history를 유지하고 native offset/새 대상 자동 선택/cleanup을 더하지 않는다. generated layout만으로 새 동의를 요구하지 않고 chemistry/ignored source 손실은 기존 명시 동의 단계를 거친다.
+- source/digest/document/revision/acceptance/process를 immutable attempt로 잡고 미확정이면 후속 편집을 잠근다. source 편집으로 old preview가 없어져도 Check SMILES import outcome은 원래 request ID/body만 확인하고 clipboard를 다시 읽거나 쓰지 않는다. restart/held old reply/terminal conflict는 명시 reload/reconcile이다. Native/MOL/graphics panel에 중복 recovery를 표시하지 않는다.
+- 새 client/browser 회귀와 기존 full browser SMILES 흐름을 이 경계에 맞춰 작성했다. 이 작업에서는 tests/build/browser/lint를 실행하지 않았으며 기존 P33a–f 근거를 새 웹 변경 통과로 세지 않는다. P33은 in_progress다. shortcuts·external Cut·format guessing·새 layout/chemistry 동작은 없다.
+
 ## 프로젝트와 현재 기준
 
 - 이름: Chemifree. 사용자가 직접 확정했으며 이름을 다시 제안하지 않는다.

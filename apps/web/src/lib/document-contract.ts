@@ -169,6 +169,13 @@ export interface NativeClipboardMolImportAttempt {
   send(): Promise<DocumentResponse>
 }
 
+/** A SMILES import bound to its inspected source, destination and consent decision. */
+export interface SmilesClipboardImportAttempt {
+  send(): Promise<DocumentResponse>
+}
+
+export const MAX_CLIPBOARD_SMILES_BYTES = 16 * 1024
+
 /** Clipboard MOL intake matches the existing 200 KiB web file-import limit. */
 export const MAX_CLIPBOARD_MOL_BYTES = 200 * 1024
 
@@ -2019,12 +2026,12 @@ export class DocumentClient {
 
   /** Freeze one clipboard mutation body, process generation and request ID for every outcome check. */
   private clipboardAttempt<T>(
-    kind: 'paste' | 'cut' | 'mol_import' | 'scene_paste',
+    kind: 'paste' | 'cut' | 'mol_import' | 'scene_paste' | 'smiles_import',
     path: string,
     body: Record<string, unknown>,
     parse: (value: unknown, request: string) => T,
   ): { send(): Promise<T> } {
-    const action = kind === 'mol_import' ? 'MOL import' : kind === 'scene_paste' ? 'graphics paste' : kind
+    const action = kind === 'mol_import' ? 'MOL import' : kind === 'smiles_import' ? 'SMILES import' : kind === 'scene_paste' ? 'graphics paste' : kind
     const request = requestId()
     const preparedSession = this.token
     let sentTo: string | undefined
@@ -2367,6 +2374,44 @@ export class DocumentClient {
       ignoredText: result.ignored_text, losses: reply.losses,
       valenceModel: result.valence_model, aromaticityModel: result.aromaticity_model,
     }
+  }
+
+  /** Freeze an inspected clipboard import; retain this attempt for every outcome check. */
+  createClipboardSmilesImport(input: SmilesImport): SmilesClipboardImportAttempt {
+    if (typeof input.documentId !== 'string' || input.documentId.length === 0 || !isCount(input.revision) ||
+        typeof input.source !== 'string' || typeof input.digest !== 'string' || !/^[a-f0-9]{64}$/.test(input.digest) ||
+        typeof input.acceptLoss !== 'boolean') {
+      throw new ApiError('invalid_request', 'Clipboard SMILES import requires the inspected source, revision and consent digest.', 400)
+    }
+    if (new TextEncoder().encode(input.source).byteLength > MAX_CLIPBOARD_SMILES_BYTES) {
+      throw new ApiError('invalid_request', 'Clipboard SMILES text exceeds 16 KiB.', 400)
+    }
+    const documentId = input.documentId
+    const revision = input.revision
+    const parameters = {
+      document_id: documentId, expected_revision: revision, format: 'smiles',
+      source: input.source, preview_digest: input.digest, accept_loss: input.acceptLoss,
+    }
+    return this.clipboardAttempt('smiles_import', '/api/v1/operations', {
+      contract: 1, profile: 'preserve-semantics', operation: 'document.import', parameters,
+    }, (value, request) => {
+      if (!isRecord(value) || value.contract !== 1 || value.envelope !== 'operation_result' || value.request_id !== request ||
+          value.operation !== 'document.import' || value.profile !== 'preserve-semantics' ||
+          !Array.isArray(value.diagnostics) || !Array.isArray(value.loss_report)) throw clipboardIncompatible()
+      if (value.outcome === 'error' || value.outcome === 'unsupported') {
+        const diagnostic: unknown = value.diagnostics[0]
+        if (value.result !== null || value.loss_report.length !== 0 || !isRecord(diagnostic) ||
+            typeof diagnostic.code !== 'string' || typeof diagnostic.message !== 'string' || !isRecord(diagnostic.details)) throw clipboardIncompatible()
+      } else if ((value.outcome !== 'ok' && value.outcome !== 'partial') || value.diagnostics.length !== 0 ||
+          (value.outcome === 'ok') !== (value.loss_report.length === 0) || !value.loss_report.every(isDrawingExportLoss)) {
+        throw clipboardIncompatible()
+      }
+      const { result, model } = smilesReply(value)
+      const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result })
+      if (model !== 'chemifree-smiles-1' || snapshot.document.id !== documentId || !isCount(value.document_revision) ||
+          snapshot.document.revision !== value.document_revision || snapshot.document.revision !== revision + 1) throw clipboardIncompatible()
+      return snapshot
+    })
   }
 
   /** Commits a previewed string. A refusal that asks for consent is a `ConsentRequired`. */

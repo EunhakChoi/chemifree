@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LossList } from '@/components/loss-list'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
@@ -9,7 +10,7 @@ import {
   ConsentRequired,
   conversionSnapshotMatcher,
   describeSpan,
-  outcomeOpen,
+  MAX_CLIPBOARD_SMILES_BYTES,
   type CtLoss,
   sameConversionSnapshot,
   type DocumentView,
@@ -62,14 +63,16 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   const [styleVersion, setStyleVersion] = useState(0)
   const [prepared, setPrepared] = useState<Prepared | null>(null)
   const [importOffer, setImportOffer] = useState<(Offer & { preview: string }) | null>(null)
-  // A commit whose reply was lost: it may have happened, and only the same request can say.
-  const [unconfirmed, setUnconfirmed] = useState<(Offer & { preview: string; acceptLoss: boolean }) | null>(null)
   const [written, setWritten] = useState<Written | null>(null)
   const [exportOffer, setExportOffer] = useState<(Offer & { styleVersion: number }) | null>(null)
   const [pending, setPending] = useState(0)
   const [composing, setComposing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [transport, setTransport] = useState<{ generation: number; action: 'read' | 'write' | 'check' } | null>(null)
+  const writtenText = useRef<HTMLTextAreaElement>(null)
+  const sourceEpoch = useRef(0)
+  const clipboardRequest = useRef(0)
   const alive = useRef(true)
   const previewRequest = useRef(0)
   const exportRequest = useRef(0)
@@ -83,6 +86,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       alive.current = false
       previewRequest.current += 1
       exportRequest.current += 1
+      clipboardRequest.current += 1
     }
   }, [])
 
@@ -96,19 +100,19 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   const livePreview = prepared && prepared.sourceVersion === sourceVersion && current(prepared) ? prepared : null
   const liveImportOffer = livePreview && importOffer && importOffer.preview === livePreview.data.digest && current(importOffer)
     ? importOffer : null
-  const liveUnconfirmed = livePreview && unconfirmed && unconfirmed.preview === livePreview.data.digest &&
-    current(unconfirmed) ? unconfirmed : null
   const liveWritten = written && written.styleVersion === styleVersion && current(written) ? written : null
   const liveExportOffer = exportOffer && exportOffer.styleVersion === styleVersion && current(exportOffer) ? exportOffer : null
   const stale = (prepared && !livePreview) || (written && !liveWritten)
-  const busy = pending > 0 || editor.busy
+  const transportBusy = transport !== null && transport.generation === generation
+  const sourceFits = new TextEncoder().encode(source).byteLength <= MAX_CLIPBOARD_SMILES_BYTES
+  const busy = pending > 0 || transportBusy || editor.busy
 
   function changeSource(next: string) {
+    sourceEpoch.current += 1
     setSource(next)
     setSourceVersion((version) => version + 1)
     setPrepared(null)
     setImportOffer(null)
-    setUnconfirmed(null)
     setError(null)
     if (previewing.current > 0) {
       previewRequest.current += 1
@@ -133,21 +137,15 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   }
 
   async function previewImport() {
-    // While a commit's outcome is open, its retry is the way to learn what happened. If that
-    // commit did go through, a new preview names a stale revision and is refused, so the retry
-    // and the preview it belongs to stay until a new preview has succeeded.
-    const keepRetry = liveUnconfirmed !== null
+    if (busy || composing || source === '' || !sourceFits) return
     const sequence = ++previewRequest.current
     const asked = { source, sourceVersion, generation, drawing: document }
     previewing.current += 1
     setPending((count) => count + 1)
     setError(null)
     setNotice(null)
-    if (!keepRetry) {
-      setPrepared(null)
-      setImportOffer(null)
-      setUnconfirmed(null)
-    }
+    setPrepared(null)
+    setImportOffer(null)
     try {
       const data = await editor.previewSmiles(document.id, document.revision, asked.source)
       // The service must have previewed the very drawing the request named.
@@ -157,7 +155,6 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       if (alive.current && previewRequest.current === sequence) {
         setPrepared({ ...asked, data, drawing: data.snapshot })
         setImportOffer(null)
-        setUnconfirmed(null)
       }
     } catch (failure) {
       if (alive.current && previewRequest.current === sequence) setError(message(failure, 'Preview failed.'))
@@ -170,7 +167,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   async function commitImport(acceptLoss: boolean) {
     const ready = livePreview
     // A second click before the first reply would find the drawing changed by the first.
-    if (!ready || committing.current) return
+    if (!ready || committing.current || busy) return
     committing.current = true
     setPending((count) => count + 1)
     setError(null)
@@ -184,7 +181,6 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       if (result.committed) {
         setPrepared(null)
         setImportOffer(null)
-        setUnconfirmed(null)
         setNotice('Imported. The drawing now holds the new atoms; undo reverts the import.')
       } else if (result.failure instanceof ConsentRequired) {
         // A new refusal to proceed without consent replaces any earlier offer for this preview.
@@ -192,19 +188,10 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
           preview: ready.data.digest, drawing: ready.drawing, generation: ready.generation, digest: ready.data.digest,
           features: result.failure.features, losses: result.failure.losses,
         })
-      } else if (result.failure && outcomeOpen(result.failure)) {
-        // The import may have happened. The preview stays so that the same request can be
-        // sent again; the service answers it with what it committed, or commits it once.
-        setUnconfirmed({
-          preview: ready.data.digest, acceptLoss, drawing: ready.drawing, generation: ready.generation,
-          digest: ready.data.digest, features: [], losses: [],
-        })
-        setError(result.failure.message)
       } else {
-        // Any other refusal leaves nothing to commit: the preview and its offer are void.
+        // Discard only the local preview. The hook retains any unanswered immutable attempt.
         setPrepared(null)
         setImportOffer(null)
-        setUnconfirmed(null)
         setError(result.failure?.message ?? 'The import failed.')
       }
     } catch (failure) {
@@ -212,7 +199,6 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       if (alive.current) {
         setPrepared(null)
         setImportOffer(null)
-        setUnconfirmed(null)
         setError(message(failure, 'The import failed.'))
       }
     } finally {
@@ -257,6 +243,85 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     }
   }
 
+  function clipboardCurrent(sequence: number, askedGeneration: number): boolean {
+    return alive.current && clipboardRequest.current === sequence && editor.currentServiceGeneration() === askedGeneration
+  }
+
+  async function readClipboard() {
+    if (busy) return
+    const sequence = ++clipboardRequest.current
+    const askedGeneration = generation
+    const askedEpoch = sourceEpoch.current
+    const drawing = document
+    setTransport({ generation: askedGeneration, action: 'read' })
+    setError(null)
+    setNotice(null)
+    try {
+      if (typeof navigator.clipboard?.readText !== 'function') {
+        throw new Error('Browser clipboard reading is unavailable.')
+      }
+      // This optional read starts directly in the click. The source is passed unchanged.
+      const value = await navigator.clipboard.readText()
+      if (!clipboardCurrent(sequence, askedGeneration)) return
+      if (sourceEpoch.current !== askedEpoch || !editor.isCurrentConversion(drawing, askedGeneration)) {
+        setNotice('The text, drawing or service changed while reading clipboard. The clipboard result was not used.')
+        return
+      }
+      changeSource(value)
+    } catch {
+      if (clipboardCurrent(sequence, askedGeneration)) setError('Clipboard reading was unavailable, denied or failed. Paste SMILES text manually.')
+    } finally {
+      if (alive.current && clipboardRequest.current === sequence) setTransport(null)
+    }
+  }
+
+  async function copyWritten() {
+    const ready = liveWritten
+    if (!ready || busy) return
+    if (!editor.isCurrentConversion(ready.drawing, ready.generation)) {
+      setError('The drawing or service changed. Write SMILES again before copying.')
+      return
+    }
+    const sequence = ++clipboardRequest.current
+    setTransport({ generation: ready.generation, action: 'write' })
+    setError(null)
+    setNotice(null)
+    try {
+      if (typeof navigator.clipboard?.writeText !== 'function') {
+        throw new Error('Browser clipboard writing is unavailable.')
+      }
+      // Written content is already prepared. No backend request or await precedes this call.
+      await navigator.clipboard.writeText(ready.data.content)
+      if (clipboardCurrent(sequence, ready.generation)) setNotice('Written SMILES copied to clipboard.')
+    } catch {
+      if (clipboardCurrent(sequence, ready.generation)) setError('Clipboard writing was unavailable, denied or failed. Select and copy the written SMILES manually.')
+    } finally {
+      if (alive.current && clipboardRequest.current === sequence) setTransport(null)
+    }
+  }
+
+  async function checkImportOutcome() {
+    if (pending > 0 || transportBusy) return
+    const sequence = ++clipboardRequest.current
+    const askedGeneration = generation
+    setTransport({ generation: askedGeneration, action: 'check' })
+    setError(null)
+    setNotice(null)
+    try {
+      if (editor.clipboardNeedsReload) await editor.reconcileClipboardPaste()
+      else await editor.checkClipboardPaste()
+      if (clipboardCurrent(sequence, askedGeneration)) {
+        setPrepared(null)
+        setImportOffer(null)
+        setNotice('SMILES import outcome reconciled with the document.')
+      }
+    } catch (failure: unknown) {
+      if (clipboardCurrent(sequence, askedGeneration)) setError(message(failure, 'The SMILES import outcome could not be checked.'))
+    } finally {
+      if (alive.current && clipboardRequest.current === sequence) setTransport(null)
+    }
+  }
+
   return <aside aria-label="SMILES" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3 text-xs">
     <h3 className="text-sm font-medium">SMILES</h3>
     <p className="leading-relaxed text-muted-foreground">
@@ -269,14 +334,27 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
         onChange={(event) => changeSource(event.currentTarget.value)}
         onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)} />
       <FieldDescription>
-        Line breaks are kept: text after the first whitespace is not read, and is reported as a loss.
+        Line breaks and trailing text are kept unchanged. The reader handles its supported CXSMILES stereo block after the structure; other text after the first whitespace is not read and is reported as a loss.
       </FieldDescription>
     </Field>
-    <Button size="sm" variant="outline" disabled={source === '' || busy || composing} onClick={() => void previewImport()}>
+    <Button size="sm" variant="outline" disabled={busy || composing} onClick={() => void readClipboard()}>Read clipboard</Button>
+    <p className="text-muted-foreground">Reading the clipboard keeps text here. Preview SMILES import sends it to the local service; importing sends the same inspected source after confirmation. The UTF-8 limit is 16 KiB.</p>
+    {!sourceFits && <Alert variant="destructive"><AlertDescription>This SMILES text exceeds 16 KiB of UTF-8. Shorten it before previewing.</AlertDescription></Alert>}
+    <Button size="sm" variant="outline" disabled={source === '' || !sourceFits || busy || composing} onClick={() => void previewImport()}>
       Preview SMILES import
     </Button>
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
+    {editor.clipboardPending && editor.clipboardAction === 'smiles_import' && <Alert>
+      <AlertDescription className="flex flex-col gap-2">
+        <p>{editor.clipboardNeedsReload
+          ? 'The original SMILES import can no longer be confirmed by replay. It may already be present. Reload the document to reconcile its outcome.'
+          : 'The SMILES import outcome is not confirmed. Check the original attempt before importing again. Editing this source text does not change that attempt.'}</p>
+        <Button size="sm" variant="outline" disabled={pending > 0 || transportBusy} onClick={() => void checkImportOutcome()}>
+          {editor.clipboardNeedsReload ? 'Reload document to reconcile' : 'Check SMILES import outcome'}
+        </Button>
+      </AlertDescription>
+    </Alert>}
     {stale && <p>The text, the drawing or the service changed since the last result. Run it again.</p>}
     {livePreview && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto">
       <p data-testid="smiles-preview-summary">
@@ -287,16 +365,10 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       <p className="text-muted-foreground">
         Valence model {livePreview.data.valenceModel}; aromaticity model {livePreview.data.aromaticityModel}.
       </p>
-      {liveUnconfirmed && <div role="group" aria-label="Import not confirmed" className="flex flex-col gap-2">
-        <p>The service did not answer, so the import may or may not have happened. Sending the same request again returns what it committed, or commits it once.</p>
-        <Button size="sm" disabled={busy} onClick={() => void commitImport(liveUnconfirmed.acceptLoss)}>
-          Retry the same import
-        </Button>
-      </div>}
-      {!liveImportOffer && !liveUnconfirmed && <Button size="sm" disabled={busy} onClick={() => void commitImport(false)}>
+      {!liveImportOffer && <Button size="sm" disabled={busy} onClick={() => void commitImport(false)}>
         Import SMILES
       </Button>}
-      {liveImportOffer && !liveUnconfirmed && <div role="group" aria-label="Losses to accept" className="flex flex-col gap-2">
+      {liveImportOffer && <div role="group" aria-label="Losses to accept" className="flex flex-col gap-2">
         <p>These losses change the chemistry or drop text and must be accepted: {liveImportOffer.features.join(', ')}.</p>
         <LossList losses={liveImportOffer.losses} />
         <Button size="sm" disabled={busy} onClick={() => void commitImport(true)}>Accept these losses and import SMILES</Button>
@@ -321,7 +393,12 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     </div>}
     {liveWritten && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto">
       <p>{liveWritten.data.style === 'canonical' ? 'Canonical' : 'Recorded'} SMILES ({liveWritten.data.model}):</p>
-      <Textarea aria-label="Written SMILES" readOnly rows={2} className="font-mono text-xs" value={liveWritten.data.content} />
+      <p>The entire chemical graph is written, regardless of selected atoms, bonds or scene objects. This is not a selected-fragment copy.</p>
+      <Textarea ref={writtenText} aria-label="Written SMILES" readOnly rows={2} className="field-sizing-fixed max-h-48 resize-y font-mono text-xs" value={liveWritten.data.content} />
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => { writtenText.current?.focus(); writtenText.current?.select() }}>Select written SMILES</Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => void copyWritten()}>Copy to clipboard</Button>
+      </div>
       <LossList losses={liveWritten.data.losses} />
     </div>}
   </aside>

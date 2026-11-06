@@ -7,7 +7,7 @@ import { register } from 'node:module'
 import { test } from 'node:test'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { ConsentRequired, DocumentClient, outcomeOpen, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, conversionSnapshotMatcher, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
+const { ConsentRequired, DocumentClient, MAX_CLIPBOARD_SMILES_BYTES, outcomeOpen, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, conversionSnapshotMatcher, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
   '../apps/web/src/editor/placement.ts'
@@ -6063,4 +6063,144 @@ test('scene paste reconciles terminal revision conflict after unknown outcome wi
   await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_reconcile' })
   assert.equal(scripted.writes.length, 3)
   assert.equal(scripted.writes[0].requestId, scripted.writes[2].requestId)
+})
+
+function clipboardSmilesInput() {
+  return { documentId: 'doc-1', revision: 2, source: 'CO', digest: 'c'.repeat(64), acceptLoss: false }
+}
+
+function clipboardSmilesReply(scripted, losses = []) {
+  const snapshot = document('doc-1', 3)
+  snapshot.document.atoms = [{ id: 'a1', element: 'C', charge: 0, isotope: null, radical: 'none', hydrogens: { mode: 'inferred' } }]
+  return { ...clipboardMolReply(scripted, snapshot, losses), model_id: 'chemifree-smiles-1' }
+}
+
+test('clipboard SMILES import freezes its preview and consent flag across lost replies and caches success', async () => {
+  const input = clipboardSmilesInput()
+  input.offset = { x: 900, y: 900 }
+  input.selection_after = { objects: [], atoms: ['a99'], bonds: [] }
+  input.format = 'mol'
+  const scripted = service({ '/api/v1/operations': [lost, lost, () => json(200, clipboardSmilesReply(scripted))] })
+  const attempt = new DocumentClient().createClipboardSmilesImport(input)
+  await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_unconfirmed' })
+  Object.assign(input, { documentId: 'another', revision: 99, source: 'N', digest: 'd'.repeat(64), acceptLoss: true })
+  const checking = attempt.send()
+  assert.equal(attempt.send(), checking, 'concurrent outcome checks share one request')
+  const confirmed = await checking
+  assert.equal(confirmed.document.revision, 3)
+  assert.equal(await attempt.send(), confirmed)
+  assert.equal(scripted.writes.length, 3)
+  assert.deepEqual(scripted.writes.map((write) => write.requestId), Array(3).fill(scripted.writes[0].requestId))
+  assert.deepEqual(scripted.writes.map((write) => write.parameters), Array(3).fill({
+    document_id: 'doc-1', expected_revision: 2, format: 'smiles', source: 'CO',
+    preview_digest: 'c'.repeat(64), accept_loss: false,
+  }), 'only the fixed SMILES import parameters are transported')
+})
+
+test('clipboard SMILES import preserves loss consent refusal and requires a new explicit accepted attempt', async () => {
+  const losses = [{ feature: 'stereo', source_path: 'source', disposition: 'dropped', semantic_impact: 'stereo', reason: 'Not retained.' }]
+  const scripted = service({ '/api/v1/operations': [
+    () => json(200, { ...nativeClipboardReply(scripted, 'document.import', null, 2), outcome: 'error',
+      diagnostics: [{ code: 'loss_consent_required', message: 'Accept inspected losses.', details: {
+        losses, features: ['stereo'], loss_digest: 'c'.repeat(64),
+      } }],
+    }),
+    () => json(200, clipboardSmilesReply(scripted, losses)),
+  ] })
+  const client = new DocumentClient()
+  const attempt = client.createClipboardSmilesImport(clipboardSmilesInput())
+  const failure = await attempt.send().catch((failure) => failure)
+  assert.equal(failure instanceof ConsentRequired, true)
+  assert.deepEqual(failure.losses, losses)
+  await assert.rejects(attempt.send(), { code: 'loss_consent_required' })
+  assert.equal(scripted.writes.length, 1)
+  const accepted = client.createClipboardSmilesImport({ ...clipboardSmilesInput(), acceptLoss: true })
+  assert.equal((await accepted.send()).document.revision, 3)
+  assert.equal(scripted.writes[1].parameters.accept_loss, true)
+  assert.notEqual(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+for (const [name, change] of [
+  ['request ID', (reply) => { reply.request_id = 'different' }],
+  ['contract', (reply) => { reply.contract = 2 }],
+  ['envelope', (reply) => { reply.envelope = 'another' }],
+  ['operation', (reply) => { reply.operation = 'document.export' }],
+  ['profile', (reply) => { reply.profile = 'another' }],
+  ['model', (reply) => { reply.model_id = 'another-model' }],
+  ['envelope revision', (reply) => { reply.document_revision = 99 }],
+  ['destination', (reply) => { reply.result.document.id = 'another' }],
+  ['unchanged revision', (reply) => { reply.document_revision = 2; reply.result.document.revision = 2 }],
+  ['revision jump', (reply) => { reply.document_revision = 4; reply.result.document.revision = 4 }],
+  ['loss outcome', (reply) => { reply.outcome = 'partial' }],
+  ['loss vocabulary', (reply) => { reply.outcome = 'partial'; reply.loss_report = [{ feature: 'stereo' }] }],
+]) {
+  test(`clipboard SMILES import keeps malformed ${name} uncertain without a fresh attempt`, async () => {
+    const scripted = service({ '/api/v1/operations': [
+      () => { const reply = clipboardSmilesReply(scripted); change(reply); return json(200, reply) },
+      () => json(200, clipboardSmilesReply(scripted)),
+    ] })
+    const attempt = new DocumentClient().createClipboardSmilesImport(clipboardSmilesInput())
+    await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_unconfirmed' })
+    assert.equal((await attempt.send()).document.revision, 3)
+    assert.equal(scripted.writes.length, 2)
+    assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+  })
+}
+
+test('clipboard SMILES import never posts after a restart discovered before its first send', async () => {
+  const scripted = service({ 'GET /api/v1/documents/doc-1': [() => json(200, document('doc-1', 2))] })
+  const client = new DocumentClient()
+  await client.get('doc-1')
+  const attempt = client.createClipboardSmilesImport(clipboardSmilesInput())
+  scripted.restart()
+  await noticeRestart(client)
+  await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_restarted' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_restarted' })
+  assert.equal(scripted.writes.filter((write) => write.path.endsWith('/operations')).length, 0)
+})
+
+test('clipboard SMILES import never reissues an unknown outcome to a restarted process', async () => {
+  const scripted = service({ '/api/v1/operations': [lost, lost] })
+  const client = new DocumentClient()
+  const attempt = client.createClipboardSmilesImport(clipboardSmilesInput())
+  await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_unconfirmed' })
+  scripted.restart()
+  await noticeRestart(client)
+  await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_restarted' })
+  assert.deepEqual(scripted.writes.filter((write) => write.path.endsWith('/operations')).map((write) => write.token), ['token-1', 'token-1'])
+})
+
+test('clipboard SMILES import polls an in-progress request using the same immutable attempt', async () => {
+  const scripted = service({ '/api/v1/operations': [
+    () => error(409, 'request_in_progress'), () => json(200, clipboardSmilesReply(scripted)),
+  ] })
+  const attempt = new DocumentClient().createClipboardSmilesImport(clipboardSmilesInput())
+  assert.equal((await attempt.send()).document.revision, 3)
+  assert.equal(scripted.writes.length, 2)
+  assert.equal(scripted.writes[0].requestId, scripted.writes[1].requestId)
+})
+
+test('clipboard SMILES import requires reconciliation after an unknown attempt gets a terminal revision conflict', async () => {
+  const scripted = service({ '/api/v1/operations': [lost, lost, () => error(409, 'revision_conflict')] })
+  const attempt = new DocumentClient().createClipboardSmilesImport(clipboardSmilesInput())
+  await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_unconfirmed' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_reconcile' })
+  await assert.rejects(attempt.send(), { code: 'clipboard_smiles_import_reconcile' })
+  assert.equal(scripted.writes.length, 3)
+  assert.deepEqual(scripted.writes.map((write) => write.requestId), Array(3).fill(scripted.writes[0].requestId))
+})
+
+test('clipboard SMILES import enforces preview fields and the exact multibyte UTF-8 intake boundary before posting', () => {
+  let writes = 0
+  globalThis.fetch = async () => { writes += 1; throw new Error('No request expected.') }
+  const client = new DocumentClient()
+  const input = clipboardSmilesInput()
+  assert.equal(MAX_CLIPBOARD_SMILES_BYTES, 16384)
+  assert.throws(() => client.createClipboardSmilesImport({ ...input, revision: -1 }), { code: 'invalid_request' })
+  assert.throws(() => client.createClipboardSmilesImport({ ...input, digest: 'invalid' }), { code: 'invalid_request' })
+  assert.throws(() => client.createClipboardSmilesImport({ ...input, acceptLoss: 'true' }), { code: 'invalid_request' })
+  const boundary = '한'.repeat(5461) + 'C'
+  client.createClipboardSmilesImport({ ...input, source: boundary })
+  assert.throws(() => client.createClipboardSmilesImport({ ...input, source: boundary + 'C' }), { code: 'invalid_request' })
+  assert.equal(writes, 0)
 })
