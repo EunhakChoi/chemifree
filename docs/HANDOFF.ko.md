@@ -19,8 +19,15 @@
 
 - 기존 CDXML/CDX export panel에서 CDXML 도면 export의 loss-consent가 끝난 결과에만 Copy CDXML to clipboard·Select CDXML text·read-only text를 제공한다. transient 선택과 무관한 전체 도면 첫 배치 projection이며 손실 보고·입체/그룹 거절·digest 재동의는 기존 그대로다.
 - 직접 클릭에서 준비된 문자열을 plain text로 쓰며 backend await 뒤 자동 write를 하지 않는다. 권한 거절/API 부재는 수동 선택·keyboard 복사를 남긴다. known snapshot/settings/format/process 변화는 이전 text와 버튼을 숨기고 지연된 완료가 새 panel을 채우지 않는다. 클릭에서 네트워크 재검증은 없으므로 미감지 restart를 알아내지는 못하며 시작한 OS write는 문서 전환 뒤 완료될 수 있다. Download의 기존 재-export 검증은 그대로다.
-- CDXML clipboard 읽기/import·Cut·CDX base64 text·custom MIME·shortcut은 추가하지 않는다. 기존 CDXML file import는 page/molecule을 골라 새 도면을 만드는 mode:create이며 MOL/SMILES append가 아니다. 복사는 문서·selection·history를 수정하지 않는다. P33은 in_progress다.
+- P33h 자체는 읽기/import를 더하지 않으며 아래 P33i가 CDXML text 새 도면 생성을 연결한다. Cut·CDX base64 text·custom MIME·shortcut은 추가하지 않는다. 기존 CDXML file import는 page/molecule을 골라 새 도면을 만드는 mode:create이며 MOL/SMILES append가 아니다. 복사는 문서·selection·history를 수정하지 않는다. P33은 in_progress다.
 - `scripts/web-cdxml-clipboard-check.mjs`에 실제 panel/hook/client와 HTTP·clipboard 경계만 대체한 명시 activation·동의 digest 갱신·권한/부재 fallback·keyboard 전체 선택·390px 폭·stale snapshot/process/지연 완료 검사를 작성했다. 기존 real-backend smoke에는 CDXML 수동 text/CDX 버튼 부재 회귀를 더했다. `npm run test:browser:cdxml-clipboard`를 CI에 연결했으나 이번 작업에서는 테스트·빌드·브라우저를 실행하지 않았고 성공 근거로 주장하지 않는다.
+
+## P33i 명시 CDXML-text 새 도면 생성 후보 인계
+
+- 74f608b 기준 독립 worktree에서 기존 CdxmlImport 폼에 Read CDXML clipboard·수동 text·Read CDXML pages and molecules를 추가했다. 읽기는 field만 채우고 별도 클릭에서만 정확한 source를 mode:read로 보낸다. UTF-8 120KiB·명시 cdxml이며 CDX/base64/HTML 형식 추측은 없다. 지연 읽기는 새 source/manual 편집·process 변경을 덮지 않는다.
+- 기존 page/fragment 선택→title→projection preview/mapping/losses→명시 동의→mode:create를 재사용한다. 현재 도면 append가 아니며 graph/selection/history는 바꾸지 않고 기존 file import의 새 도면 생성·이전 도면 autosave 동작을 따른다.
+- 미확정 생성은 editor-level state/ref에 input/digest/request/process를 유지하고 source/file/choice/title/새 생성 제어를 잠근다. Saved 도면 Open으로 picker가 unmount돼도 recovery notice와 lock은 남으며 복귀 시에도 같은 시도를 확인한다. 목록 refresh/Open은 명시적 reconcile 확인을 대신하지 않는다. text가 file source를 무효화하거나 생성이 끝나면 native file input도 비워 같은 파일 재선택을 허용한다. Check CDXML creation outcome은 같은 createOnce 결과만 확인한다. restart/held old-process success는 새 도면을 채택하지 않고 Saved documents를 명시 확인한 뒤 시도를 비울 수 있다. 성공한 생성 뒤 이전 도면 draft 실패를 새 생성 재시도 이유로 삼지 않는다.
+- 전용 browser script는 실제 form/hook/client와 scripted HTTP/clipboard로 권한/manual fallback·stale read·UTF-8 경계·source/선택/동의·중복 생성 방지·restart 미재전송을 검사하도록 작성했고 client 회귀를 더했다. npm run test:browser:cdxml-import를 CI에 연결했으나 테스트/빌드/브라우저는 실행하지 않았다. 기존 slice 통과를 이 후보 검증으로 세지 않는다. P33은 in_progress이며 append·Cut·custom MIME·새 backend/chemistry는 추가하지 않는다.
 
 ## P32 제한된 선택·기하 납품 완료
 
