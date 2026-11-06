@@ -16,6 +16,38 @@ let browser
 let log = ''
 let stage = 'build'
 let passed = false
+let page
+const errors = []
+
+// Print the actual SVG and font state to stderr: isolated verifier temp files may be removed.
+async function captionDiagnostics(target) {
+  if (!target || target.isClosed()) return
+  try {
+    const diagnostic = await target.evaluate(() => {
+      const box = (rect) => ({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+      return {
+        fontsStatus: document.fonts.status,
+        fonts: [...document.fonts].map((font) => ({ family: font.family, status: font.status })),
+        snapshot: document.querySelector('[aria-label="Caption snapshot"]')?.textContent,
+        editorError: document.querySelector('[aria-label="Caption error"]')?.textContent,
+        canvases: [...document.querySelectorAll('[data-structure-canvas]')].map((canvas) => ({
+          viewBox: canvas.getAttribute('viewBox'), scale: canvas.dataset.viewportScale,
+          ready: canvas.dataset.captionBoundsReady, pixels: box(canvas.getBoundingClientRect()),
+        })),
+        captions: [...document.querySelectorAll('[data-caption-text]')].map((text) => ({
+          id: text.getAttribute('data-caption-text'), text: text.textContent,
+          ink: box(text.getBBox()), hit: text.parentElement.querySelector('rect') ? box(text.parentElement.querySelector('rect').getBBox()) : null,
+          pixels: box(text.getBoundingClientRect()), font: getComputedStyle(text).fontFamily,
+          spans: [...text.querySelectorAll('tspan')].map((span) => ({ script: span.dataset.captionScript, y: span.getAttribute('y'), size: span.getAttribute('font-size'), ink: box(span.getBBox()) })),
+        })),
+      }
+    })
+    console.error('Caption UI diagnostics:', JSON.stringify({ stage, errors, ...diagnostic }))
+  } catch (diagnosticError) {
+    console.error('Caption UI diagnostics unavailable:', diagnosticError)
+  }
+}
+
 try {
   execFileSync('cargo', ['build', '--locked', '--package', 'chemifree-api'], { stdio: 'inherit' })
   const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--no-deps', '--format-version', '1', '--locked'], { encoding: 'utf8' }))
@@ -88,14 +120,15 @@ createRoot(document.getElementById('root')).render(<Harness />)
   })
   await server.listen()
   browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
-  const page = await browser.newPage()
-  const errors = []
+  page = await browser.newPage()
   page.on('pageerror', (error) => errors.push(error.message))
   const button = (name) => page.getByRole('button', { name, exact: true })
   const snapshot = async () => JSON.parse(await page.getByLabel('Caption snapshot', { exact: true }).textContent())
   const caption = async () => (await snapshot()).document.scene.objects.find((object) => object.kind === 'caption')
   stage = 'create explicit Unicode runs through the production form'
   await page.goto('http://127.0.0.1:5173/caption-check')
+  await button('Fit drawing').click()
+  const beforeCreateViewBox = await page.locator('[data-structure-canvas]').getAttribute('viewBox')
   await button('Add caption…').click()
   const text = '한글 e\u0301 👩‍🔬 H'
   await page.getByLabel('Run 1 text', { exact: true }).fill(text)
@@ -110,6 +143,11 @@ createRoot(document.getElementById('root')).render(<Harness />)
   const expected = [{ text, script: 'baseline' }, { text: '2', script: 'subscript' }, { text: '+', script: 'superscript' }]
   assert.deepEqual((await caption()).runs, expected)
   stage = 'measure actual glyph and script bounds with the loaded fonts'
+  await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+  assert.equal(await page.locator('[data-structure-canvas]').getAttribute('viewBox'), beforeCreateViewBox, 'creating a caption preserves the chosen viewport')
+  // The new baseline is at y=0, so its ascenders can be above the existing frame.
+  // Editing does not auto-fit: use the same explicit control offered by the product.
+  await button('Fit drawing').click()
   await page.waitForFunction(() => {
     const group = document.querySelector('[data-caption]')
     const text = group?.querySelector('text')
@@ -203,6 +241,9 @@ createRoot(document.getElementById('root')).render(<Harness />)
         await fullyVisible(cold)
         assert.equal(JSON.parse(await cold.getByLabel('Caption snapshot', { exact: true }).textContent()).document.id, alternateId)
       }
+    } catch (error) {
+      await captionDiagnostics(cold)
+      throw error
     } finally {
       releaseFonts()
       await cold.close()
@@ -216,6 +257,9 @@ createRoot(document.getElementById('root')).render(<Harness />)
   assert.deepEqual(errors, [])
   passed = true
   console.log('Caption production form/canvas/native roundtrip passed.')
+} catch (error) {
+  await captionDiagnostics(page)
+  throw error
 } finally {
   await browser?.close()
   await server?.close()

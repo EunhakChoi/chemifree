@@ -227,3 +227,27 @@ and `ObjectKind` matches; the CLI scene printer was the only scene-kind match in
 entry adapters. The previously audited domain/application/provider matches remain explicit
 or use their intentional unsupported guards. This agent has not executed tests, build,
 browser or push for the fix; only formatting and source/diff inspection were performed.
+
+## Seventh parent-run targeted result and initial caption measurement fixture
+
+For `5ffbba6`, the parent verifier's `p35a-targeted7.log` reports lint/type/client/web and
+workspace build passed. The real caption browser then timed out in its initial combined
+ink/hit/view-box assertion. Temp artifacts were removed by the isolation wrapper, so the
+failed predicate's individual values were unavailable.
+
+The fixture created the caption with its baseline at (0,0) in an already-fitted empty
+canvas, then required the whole caption to be inside that unchanged viewport. Ascenders and
+superscript extend above y=0, while the existing empty frame starts at y=0. The documented
+edit rule preserves an existing/chosen viewport; only opening a new document auto-fits once.
+The fixture therefore assumed an edit-triggered auto-fit the product deliberately does not
+provide. It now first pins a user-chosen empty viewport, waits for actual caption/font bounds,
+asserts creation preserved that viewport, presses the real Fit drawing control, and retains
+all exact ink/hit/view-box and script-offset checks. Remote-caption reopening and font-race
+checks still require automatic first fit without pressing Fit.
+
+Added failure diagnostics printed to stderr before browser teardown, including font status,
+editor snapshot/error, actual SVG viewBox/readiness/pixel bounds, caption ink/hit/pixel boxes
+and each script run's position/size/ink. Cold-font pages also dump their state before closing.
+This makes future failures reviewable even if the sandbox removes temp files. No product
+behavior, timeouts or assertions were weakened. This agent has not run the browser or other
+execution checks for the corrected fixture; only static source/diff inspection was performed.
