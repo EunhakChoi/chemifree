@@ -81,7 +81,7 @@
 - `document.clipboard_scene_copy/paste`를 별도 backend 연산으로 추가한다. object-only outermost 선택을 source paint order의 forest로 복사하고 group child order·graphic 두 점·내부 object reference를 보존한다. self/cyclic directed reference는 허용하고 containment cycle·공유 child는 거절한다. 외부 owner의 incoming ref는 source에만 남고 copied owner의 outgoing/graph ref는 전체 거절한다.
 - molecule instance(하위 포함)·명시 atom/bond·empty/unknown 선택·child 두 개 미만 group은 거절하며 flatten/dummy object/chemistry clone은 없다. 엄격한 version2 kind graphics data-only payload는 roots/children만 containment를 담고 모든 필드가 필수다. 64KiB·정확한 settings·finite offset·실제 object+reference 500-command와 기존 object/depth/reference/ID/좌표 한도를 검사한다.
 - paste는 source root 순서를 page 끝에 붙이고 fresh object IDs로 모든 내부 reference를 remap한다. selection-after는 새 roots이며 mixed selection-before·Undo/Redo를 보존한다. graph/stereo/instance/위치는 바꾸지 않아 여러 placement destination도 받는다. 전체 candidate와 mapping을 commit 전 확인하며 replay mapping은 현재 번호가 아닌 원래 응답의 roots/children에서 복구한다. 루트 painting order와 숫자 ID 순서는 다를 수 있다.
-- 카탈로그는 연산35개·기본 실행25개이며 transaction sub-operation46개(명령35/capability11)는 그대로다. 새 domain/application/codec 회귀는 작성했지만 이 작업에서 tests/build/browser/clippy는 실행하지 않았다. 기존 P33a/b/c/d 실행 근거를 새 backend 통과로 세지 않는다. P33f가 아래 웹 scene clipboard를 추가하며 scene Cut·molecule instance clone·외부 scene format은 미구현이고 P33은 in_progress다.
+- 카탈로그는 연산35개·기본 실행25개이며 transaction sub-operation46개(명령35/capability11)는 그대로다. 격리 targeted domain10·integration6·operations11·codec13 및 scoped clippy가 통과했고, 후속 signed-zero replay 비트 바인딩 수정의 회귀·scoped clippy도 통과했다. 두 conformance 사례의 scene.objects 기대 배열을 DFS paint order로 바로잡은 뒤 clean isolated suite30은109/109 passed(accept79/reject30, failed0/not_run0)이며 [export 보고서](verification/conformance-report.json)에 scene forest/history·atomic refusal 두 사례를 포함한다. 전체 check/browser/CI나 P33 완료를 주장하지 않는다. P33f가 아래의 웹 scene clipboard 후보를 더하며 scene Cut·molecule instance clone·외부 scene format은 미구현이고 P33은 in_progress다.
 
 ## P33f 명시 graphic forest clipboard 웹 후보 인계
 
@@ -258,7 +258,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 106개(implemented 59, partial 12, unverified 2, not_implemented 33) · conformance 사례 107개(passed 107: accept 78·reject 29, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 106개(implemented 59, partial 12, unverified 2, not_implemented 33) · conformance 사례 109개(passed 109: accept 79·reject 30, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 29,
+  "suite_version": 30,
   "results": [
     {
       "id": "transaction-all-or-nothing",
@@ -1454,21 +1454,53 @@
       "pending": null,
       "failure": null,
       "case_sha256": "88eb5fbfe32b779bd6bf5645728d38e6cd28c41ea35af51a861bbd3a45a28f07"
+    },
+    {
+      "id": "scene-clipboard-forest-history",
+      "title": "Copy an ordered graphic forest and paste fresh nonmonotonic roots with internal references, chemistry unchanged, atomic history, replay and reopen",
+      "requirements": [
+        "OPS-01",
+        "OPS-02",
+        "MODEL-01",
+        "API-01"
+      ],
+      "axis": "scene",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "d740d9e0477bae66edafbe9c46da297de4649e978b95819579fc4a627eadd8ef"
+    },
+    {
+      "id": "scene-clipboard-refusals-atomic",
+      "title": "Scene clipboard rejects unsupported source selections, external references, wrong profiles, commands, style and overflowing coordinates without changing state or redo",
+      "requirements": [
+        "OPS-01",
+        "OPS-02",
+        "API-01",
+        "MODEL-01"
+      ],
+      "axis": "scene",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "c86e4533b2230cc1ec74832252da78b6842b61677edeaf35a1777f7868701ab7"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 78,
+      "passed": 79,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 29,
+      "passed": 30,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 107,
+      "passed": 109,
       "failed": 0,
       "not_run": 0
     }
