@@ -451,7 +451,7 @@ pub(crate) fn drawing_losses(
             ),
             "abbreviation_display",
             SemanticImpact::Rendering,
-            "Et display is expanded to the complete stored chemical graph; compact appearance is not written.",
+            "Display label text is omitted; the complete underlying ethyl chemical graph is written without compact appearance.",
         );
     }
     for object in &doc.scene.objects {

@@ -92,6 +92,8 @@ jobs:
         run: npm run test:browser:clipboard-integration
       - name: Et display, hidden hit, whole-pair movement and native roundtrip
         run: npm run test:browser:abbreviation
+      - name: Custom display text and measured Unicode ink
+        run: npm run test:browser:display-label
       - name: Chemical label weight, measured 700 ink and shared geometry
         run: npm run test:browser:label-weight
       - name: Chemical label italic SVG geometry and font loading

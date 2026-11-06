@@ -1,5 +1,5 @@
 //! Conservative persistence weights, independent of a serializer. Providers verify that
-//! their stored document and draft representations fit these reservations. Caption-bearing
+//! their stored document and draft representations fit these reservations. Text-bearing
 //! histories use a byte-oriented budget because one object can contain substantial text.
 
 use super::{Change, ChangeSet, Content, Document};
@@ -90,6 +90,11 @@ fn changed_weight<K, T>(changes: &[(K, Change<Option<T>>)], weight: impl Fn(&T) 
 // reservation over admission is <=32*32,000 =1,024,000 bytes (regardless of text).
 // Whole-file bound: 48 MiB +1,024,000 +8 MiB*6/5 =61,421,977.6 bytes <64 MiB,
 // v22 settings add <=64*(1+2*100)=12,864 physical bytes, for <=61,434,842.
+// v23 display-label strings reserve 192 + 2*UTF8 bytes each in content and
+// 64 + both optional sides in history, at least their complete JSON representation.
+// They activate the same byte budgets without changing any old caption weight.
+// The extra empty display_labels list key fits each existing 256-byte history
+// envelope and 4096-byte document/draft envelope, so the physical bound is unchanged.
 // This leaves >5 MiB reserve; the 4 KiB envelope already covers document/draft metadata.
 pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) -> usize {
     sets.into_iter().fold(0_usize, |total, set| {
@@ -98,11 +103,13 @@ pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) 
 }
 
 impl Content {
-    pub(super) fn has_captions(&self) -> bool {
-        self.scene
-            .objects
-            .values()
-            .any(|object| matches!(object, SceneObject::Caption(_)))
+    pub(super) fn has_variable_text(&self) -> bool {
+        !self.display_labels.is_empty()
+            || self
+                .scene
+                .objects
+                .values()
+                .any(|object| matches!(object, SceneObject::Caption(_)))
     }
 
     pub(super) fn persistence_weight(&self, selection: &Selection) -> usize {
@@ -128,6 +135,11 @@ impl Content {
             + self.references.len() * REFERENCE
             + self.stereo.len() * STEREO
             + self.abbreviations.len() * ABBREVIATION
+            + self
+                .display_labels
+                .values()
+                .map(|text| text_weight(text) + 64)
+                .sum::<usize>()
             + ids_weight(self.scene.roots.len())
             + self
                 .scene
@@ -145,13 +157,14 @@ impl Content {
 }
 
 impl ChangeSet {
-    pub(super) fn has_captions(&self) -> bool {
-        self.objects.iter().any(|(_, change)| {
-            [&change.before, &change.after]
-                .into_iter()
-                .flatten()
-                .any(|object| matches!(object, SceneObject::Caption(_)))
-        })
+    pub(super) fn has_variable_text(&self) -> bool {
+        !self.display_labels.is_empty()
+            || self.objects.iter().any(|(_, change)| {
+                [&change.before, &change.after]
+                    .into_iter()
+                    .flatten()
+                    .any(|object| matches!(object, SceneObject::Caption(_)))
+            })
     }
 
     pub(super) fn persistence_weight(&self) -> usize {
@@ -184,6 +197,9 @@ impl ChangeSet {
             .saturating_add(changed_weight(&self.objects, object_weight))
             .saturating_add(self.references.len().saturating_mul(REFERENCE))
             .saturating_add(self.abbreviations.len().saturating_mul(ABBREVIATION))
+            .saturating_add(changed_weight(&self.display_labels, |text| {
+                text_weight(text) + 64
+            }))
     }
 }
 

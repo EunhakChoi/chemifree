@@ -1705,7 +1705,7 @@
         },
         {
           "id": "RENDER-01.rest",
-          "summary": "Remaining general text, vector output, transforms and clipping beyond the editor canvas. Implemented independent single-line captions and chemical label typography use measured SVG bounds and native history; their merged PR/CI evidence and unsupported boundaries are reconciled in docs/verification/p35-completion-audit.md. This does not complete general rendering.",
+          "summary": "Remaining general text, vector output, transforms and clipping beyond the editor canvas. Implemented independent single-line captions and chemical label typography use measured SVG bounds and native history; their merged PR/CI evidence and unsupported boundaries are reconciled in docs/verification/p35-completion-audit.md. This does not complete general rendering. P35o is an additional unverified candidate for one plain cosmetic Unicode display string on an existing retained ethyl graph: text:null resets Et, arbitrary text is never parsed and chemistry/identity/formula remain unchanged. Chemical exports report display loss; native v23 current/history and v1–22 exact-byte migration preserve the old graph. General multistyle atom/abbreviation labels and fragment editing remain unsupported; original P35 scope stays in_progress and P35o execution/reviews are pending (docs/verification/p35o-display-label.md).",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

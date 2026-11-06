@@ -603,6 +603,12 @@ pub enum CommandDto {
         anchor: String,
         terminal: String,
     },
+    UpdateAbbreviationLabel {
+        instance: String,
+        anchor: String,
+        #[serde(deserialize_with = "nullable")]
+        text: Option<String>,
+    },
     ExpandEthyl {
         instance: String,
         anchor: String,
@@ -1250,6 +1256,15 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             instance: instance_id(instance)?,
             anchor: atom_id(anchor)?,
             terminal: atom_id(terminal)?,
+        },
+        CommandDto::UpdateAbbreviationLabel {
+            instance,
+            anchor,
+            text,
+        } => Command::UpdateAbbreviationLabel {
+            instance: instance_id(instance)?,
+            anchor: atom_id(anchor)?,
+            text: text.clone(),
         },
         CommandDto::ExpandEthyl { instance, anchor } => Command::ExpandEthyl {
             instance: instance_id(instance)?,
@@ -1904,6 +1919,7 @@ pub struct DocumentView {
 /// The two real graph atoms represented by a per-placement Et label.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AbbreviationView {
+    pub display_label: String,
     pub instance: String,
     pub anchor: String,
     pub terminal: String,
@@ -2489,6 +2505,7 @@ impl DocumentResponse {
                 abbreviations: document
                     .abbreviations()
                     .map(|(key, terminal)| AbbreviationView {
+                        display_label: document.abbreviation_label(key).to_owned(),
                         instance: key.instance.to_string(),
                         anchor: key.atom.to_string(),
                         terminal: terminal.to_string(),

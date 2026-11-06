@@ -2,10 +2,42 @@
 
 use std::collections::BTreeSet;
 
-use super::{Atom, AtomId, BondOrder, Command, Content, EditError, PositionKey};
+use super::{Atom, AtomId, BondOrder, ChangeSet, Command, Content, EditError, PositionKey};
 use crate::element::Element;
 use crate::scene::Selection;
 use crate::stereo::StereoKey;
+
+/// Display labels are bounded independently of chemistry and never parsed.
+pub const MAX_DISPLAY_LABEL_BYTES: usize = 128;
+
+pub(super) fn validate_display_label(text: &str) -> Result<(), EditError> {
+    if text.len() > MAX_DISPLAY_LABEL_BYTES
+        || !crate::scene::valid_caption_run_text(text)
+        || !text.chars().any(|ch| !ch.is_whitespace())
+    {
+        return Err(EditError::DisplayLabelInvalid);
+    }
+    Ok(())
+}
+
+impl ChangeSet {
+    /// Validate all incoming cosmetic history records before retention can discard them.
+    pub(super) fn validate_display_label_changes(&self) -> Result<(), EditError> {
+        let mut keys = BTreeSet::new();
+        for (key, change) in &self.display_labels {
+            if !keys.insert(*key) || change.before == change.after {
+                return Err(EditError::AbbreviationInvalid);
+            }
+            for text in [&change.before, &change.after].into_iter().flatten() {
+                validate_display_label(text)?;
+                if text == "Et" {
+                    return Err(EditError::AbbreviationInvalid);
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 impl Content {
     pub(super) fn check_ethyl(&self, key: PositionKey, terminal: AtomId) -> Result<(), EditError> {
@@ -69,6 +101,12 @@ impl Content {
     }
 
     pub(super) fn validate_abbreviations(&self) -> Result<(), EditError> {
+        for (key, text) in &self.display_labels {
+            if !self.abbreviations.contains_key(key) || text == "Et" {
+                return Err(EditError::AbbreviationInvalid);
+            }
+            validate_display_label(text)?;
+        }
         let mut members = BTreeSet::new();
         for (key, terminal) in &self.abbreviations {
             self.check_ethyl(*key, *terminal)?;
@@ -180,6 +218,7 @@ impl Content {
             .collect();
         for key in remove {
             self.abbreviations.remove(&key);
+            self.display_labels.remove(&key);
         }
     }
 }

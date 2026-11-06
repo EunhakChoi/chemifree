@@ -33,6 +33,7 @@
     "test:browser:cdxml-clipboard": "node scripts/web-cdxml-clipboard-check.mjs",
     "test:browser:cdxml-import": "node scripts/web-cdxml-import-check.mjs",
     "test:browser:scene-cut": "node scripts/web-scene-cut-check.mjs",
+    "test:browser:display-label": "node scripts/web-display-label-check.mjs",
     "test:browser:abbreviation": "node scripts/web-abbreviation-check.mjs",
     "test:browser:label-weight": "node scripts/web-label-weight-check.mjs",
     "test:browser:label-shadow": "node scripts/web-label-shadow-check.mjs",

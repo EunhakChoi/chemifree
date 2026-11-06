@@ -7,6 +7,14 @@ P35a–n과 Et 표시 #185는 병합되었고 각 PR의 check/browser CI가 통�
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P35o 기존 ethyl 그래프의 plain display label 후보
+
+- 기존 collapsed ethyl의 표시 문자열만 한 줄 nonempty Unicode·최대128 UTF-8 bytes로 편집한다. `update_abbreviation_label`의 필수 `text`는 문자열 또는 명시 `null`이며 null은 기본 `Et`로 reset한다. 공백만인 문자열·control·줄 구분자는 거절한다.
+- UI는 “Text does not define chemistry”를 명시한다. 임의 텍스트를 화학식·원소·nickname·fragment로 해석하지 않으며 실제 C2 graph/ID/state/좌표/stereo·identity·formula는 그대로다. 문서 label typography와 실제 SVG shared trim/fit/hit/selection bounds를 적용한다.
+- native v23 document/draft는 별도 `display_labels` current/history를 엄격히 읽고 v1–22는 기본 Et로 migration한다. old header 뒤 current/history-only 새 필드는 거절하며 첫 overwrite/recovery 전에 기존 exact bytes archive를 유지한다. v24는 untouched 거절한다. 화학 export는 full graph와 기존 `abbreviation_display` rendering loss, native clipboard/Cut/template 제한은 유지한다.
+- 일반 multistyle atom/약어 label·새 fragment 정의/편집·parser·external label roundtrip은 미지원이다. P35는 `in_progress`다. 회귀는 작성 중이며 테스트·빌드·cargo check·브라우저 실행 및 Codex/독립 subagent 리뷰는 아직 대기다. 이 문서 작업은 실행 검증이나 완료 리뷰를 주장하지 않는다. [P35o 기록](verification/p35o-display-label.md).
+- main P35 문서 감사 `4ab1e84`(#200)를 통합했다. P35a–n의 병합·CI 근거와 원 scope 미완료 판단은 유지하며, P35o는 별도 추가 후보로서 실행·리뷰 대기다.
+
 ## 완료된 환경과 브랜치 정리 규칙
 
 - 테스트가 끝나면 필요한 결과·실패 증거를 보존한 뒤 완료된 일회성 테스트 환경과 해당 작업 소유의 프로세스·빌드 산출물·임시 데이터·worktree를 모두 정리한다. 테스트·빌드·브라우저·서버나 다른 작업이 사용 중이면 삭제하지 않는다. 재실행·조사 대기는 진행 중인 작업이다.

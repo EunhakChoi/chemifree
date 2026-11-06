@@ -64,7 +64,7 @@ fn replay_save_reopen_recovery_and_history_keep_the_exact_graph_and_display() {
     assert_eq!(collapsed["outcome"], "ok", "{collapsed}");
     assert_eq!(
         collapsed["result"]["document"]["abbreviations"],
-        json!([{"instance":"s1","anchor":"a2","terminal":"a3"}])
+        json!([{"instance":"s1","anchor":"a2","terminal":"a3","display_label":"Et"}])
     );
     assert_eq!(
         collapsed["result"]["document"]["atoms"],
@@ -144,6 +144,12 @@ fn all_writers_emit_the_full_graph_and_a_rendering_loss_without_mutating_the_doc
     );
     let collapsed = call(&app, "document.transaction", collapse(&id));
     assert_eq!(collapsed["outcome"], "ok", "{collapsed}");
+    let labeled = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":2,"commands":[{"op":"update_abbreviation_label","instance":"s1","anchor":"a2","text":"Ph"}]}),
+    );
+    assert_eq!(labeled["outcome"], "ok", "{labeled}");
     let formula = call(
         &app,
         "chem.properties",
@@ -432,5 +438,138 @@ fn chemical_label_style_preserves_ethyl_graph_inspections_and_all_export_payload
         snapshot(&app, &id),
         now,
         "read-only results and exports leave the style edit intact"
+    );
+}
+
+#[test]
+fn display_text_replays_exactly_and_invalid_updates_are_atomic() {
+    let (app, _root, id) = setup();
+    call(&app, "document.transaction", collapse(&id));
+    let before = snapshot(&app, &id);
+    let params = json!({"document_id":id,"expected_revision":2,"commands":[{"op":"update_abbreviation_label","instance":"s1","anchor":"a2","text":"Me 한 e\u{301} 🧪"}]});
+    let labeled = send(
+        &app,
+        "label-request",
+        "document.transaction",
+        params.clone(),
+    );
+    assert_eq!(labeled["outcome"], "ok", "{labeled}");
+    assert_eq!(
+        labeled["result"]["document"]["abbreviations"][0]["display_label"],
+        "Me 한 e\u{301} 🧪"
+    );
+    assert_eq!(
+        send(
+            &app,
+            "label-request",
+            "document.transaction",
+            params.clone()
+        ),
+        labeled
+    );
+    let mut reused = params;
+    reused["commands"][0]["text"] = json!("Ph");
+    assert_eq!(
+        send(&app, "label-request", "document.transaction", reused)["diagnostics"][0]["code"],
+        "request_id_reused"
+    );
+    for field in ["atoms", "bonds", "scene", "stereo", "settings"] {
+        assert_eq!(
+            labeled["result"]["document"][field],
+            before["document"][field]
+        );
+    }
+    for text in [json!(""), json!("a\nb"), json!("한".repeat(43)), json!(42)] {
+        let snapshot = snapshot(&app, &id);
+        let result = call(
+            &app,
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":3,"commands":[{"op":"rename","title":"must roll back"},{"op":"update_abbreviation_label","instance":"s1","anchor":"a2","text":text}]}),
+        );
+        assert_eq!(result["outcome"], "error", "{result}");
+        assert_eq!(crate::snapshot(&app, &id), snapshot);
+    }
+    let reset = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":3,"commands":[{"op":"update_abbreviation_label","instance":"s1","anchor":"a2","text":null}]}),
+    );
+    assert_eq!(
+        reset["result"]["document"]["abbreviations"][0]["display_label"],
+        "Et"
+    );
+    let undo = call(
+        &app,
+        "history.undo",
+        json!({"document_id":id,"expected_revision":4}),
+    );
+    assert_eq!(
+        undo["result"]["document"]["abbreviations"],
+        labeled["result"]["document"]["abbreviations"]
+    );
+}
+
+#[test]
+fn arbitrary_display_text_keeps_scientific_results_and_recovers_as_metadata() {
+    let (app, root, id) = setup();
+    call(&app, "document.transaction", collapse(&id));
+    let inspections = [
+        ("chem.validate", json!({"document_id":id})),
+        ("chem.aromaticity", json!({"document_id":id})),
+        ("chem.identity", json!({"document_id":id,"mode":"recorded"})),
+        ("chem.identity", json!({"document_id":id,"mode":"chemical"})),
+        (
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"formula"}),
+        ),
+        (
+            "chem.properties",
+            json!({"document_id":id,"scope":"molecule","property":"masses"}),
+        ),
+    ];
+    let results = |app: &App| -> Vec<Value> {
+        inspections.iter().map(|(operation, parameters)| {
+            let mut response = call(app, operation, parameters.clone());
+            if let Some(result) = response["result"].as_object_mut() {
+                result.remove("snapshot"); result.remove("revision");
+            }
+            json!({"outcome":response["outcome"],"model_id":response["model_id"],"result":response["result"],"diagnostics":response["diagnostics"]})
+        }).collect()
+    };
+    let before = results(&app);
+    for (revision, text) in [(2, "Ph"), (3, "Me")] {
+        let edited = call(
+            &app,
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":revision,"commands":[{"op":"update_abbreviation_label","instance":"s1","anchor":"a2","text":text}]}),
+        );
+        assert_eq!(edited["outcome"], "ok", "{edited}");
+        assert_eq!(
+            results(&app),
+            before,
+            "the text {text} never defines chemistry"
+        );
+    }
+    app.save(&id, Some("save-custom-label"), 4).unwrap();
+    let reset = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":4,"commands":[{"op":"update_abbreviation_label","instance":"s1","anchor":"a2","text":null}]}),
+    );
+    assert_eq!(reset["outcome"], "ok", "{reset}");
+    app.autosave(&id, Some("draft-display-reset")).unwrap();
+    drop(app);
+    let app = Application::new(LocalCapabilities, FileDocumentRepository::new(root.path()));
+    app.document(&id).unwrap();
+    let recovered = app.recover(&id, Some("recover-display-reset")).unwrap();
+    assert_eq!(recovered.document.abbreviations[0].display_label, "Et");
+    let restored = call(
+        &app,
+        "history.undo",
+        json!({"document_id":id,"expected_revision":recovered.document.revision}),
+    );
+    assert_eq!(
+        restored["result"]["document"]["abbreviations"][0]["display_label"],
+        "Me"
     );
 }
