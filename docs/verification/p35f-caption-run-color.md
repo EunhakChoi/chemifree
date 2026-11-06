@@ -41,3 +41,12 @@ components are reused. No dependencies were added. Per parent instruction the im
 agent runs formatting and diff inspection only: no tests, builds, cargo check or browsers.
 Parent integration owns isolated resource-bounded execution, current-head CI and both reviews.
 No passing execution outcome is claimed here.
+
+Independent review P2 (v9 migration fixture): fixed. The redo caption accidentally used
+italic while the v9 projection strips style fields and restores normal. The fixture now
+uses normal in both history directions, matching v9 semantics while retaining full-document
+equality, redo/undo and exact document/draft archive assertions. Static inspection of all
+other strip_caption_styles call sites found the v8–13 equality matrix already starts with
+normal defaults; strict field matrices intentionally compare acceptance rather than the
+pre-projection document. Italic remains in current-version size/color and maximal-encoding
+fixtures where it is representable. Only formatting and diff inspection ran for this fix.

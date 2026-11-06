@@ -373,7 +373,8 @@ fn v9_caption_current_history_and_draft_migrate_without_rewriting_and_archive_ex
                 text: "changed".into(),
                 script: CaptionScript::Superscript,
                 weight: Default::default(),
-                style: chemifree_domain::scene::CaptionStyle::Italic,
+                // V9 has no style field, so both history directions must use its normal default.
+                style: Default::default(),
             }],
         },
     }])
