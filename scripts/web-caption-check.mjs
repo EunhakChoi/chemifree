@@ -149,6 +149,21 @@ createRoot(document.getElementById('root')).render(<Harness />)
   })
   const snapshot = async () => JSON.parse(await page.getByLabel('Caption snapshot', { exact: true }).textContent())
   const caption = async () => (await snapshot()).document.scene.objects.find((object) => object.kind === 'caption')
+  // Measurement readiness describes the painted document. An in-flight edit can
+  // leave the previous document ready; first wait for the committed snapshot and
+  // its actual foreground text, then require current-viewport ink measurement.
+  const waitForCaptionEdit = async (previousRevision, runs) => {
+    await page.waitForFunction(({ revision, runs }) => {
+      const output = document.querySelector('[aria-label="Caption snapshot"]')
+      if (!output?.textContent) return false
+      const current = JSON.parse(output.textContent).document
+      const caption = current.scene.objects.find((object) => object.kind === 'caption')
+      const text = document.querySelector('[data-caption-text]')
+      return current.revision === revision + 1 && JSON.stringify(caption?.runs) === JSON.stringify(runs) &&
+        text?.textContent === runs.map((run) => run.text).join('')
+    }, { revision: previousRevision, runs })
+    await waitForCaptionMeasurement()
+  }
   stage = 'create explicit Unicode runs through the production form'
   await page.goto('http://127.0.0.1:5173/caption-check')
   await button('Fit drawing').click()
@@ -416,20 +431,22 @@ createRoot(document.getElementById('root')).render(<Harness />)
     assert.deepEqual((await caption()).runs, original.runs)
   }
   stage = 'independent shadows with measured glyph and underline ink'
-  for (const sample of ['H', '   ffi office   ', '  العربية אבג  ', 'e\u0301 👩‍🔬 🧪', '   ', '\ufeff', '\u0301']) {
+  for (const sample of ['H', 'g j gj', '   ffi office   ', '  العربية אבג  ', 'e\u0301 👩‍🔬 🧪', '   ', '\ufeff', '\u0301']) {
     await button('Select caption').click()
     await button('Edit selected caption…').click()
     await page.getByLabel('Run 1 text', { exact: true }).fill(sample)
+    const prior = await snapshot()
+    const plainRuns = prior.document.scene.objects.find((object) => object.kind === 'caption').runs.map((run, index) => index === 0 ? { ...run, text: sample } : run)
     await button('Apply caption').click()
-    await waitForCaptionMeasurement()
-    const before = await caption(), metrics = await glyphMetrics()
+    await waitForCaptionEdit(prior.document.revision, plainRuns)
+    const before = await caption(), metrics = await glyphMetrics(), plainRevision = (await snapshot()).document.revision
     await button('Edit selected caption…').click()
     for (let run = 1; run <= 3; run++) await page.getByRole("group", { name: "Run " + run + " shadow", exact: true }).getByRole("button", { name: "On", exact: true }).click()
     await page.getByRole('group', { name: 'Run 1 outline', exact: true }).getByRole('button', { name: 'On', exact: true }).click()
     await page.getByRole('group', { name: 'Run 1 underline', exact: true }).getByRole('button', { name: 'On', exact: true }).click()
     await button('Apply caption').click()
-    await page.waitForFunction(() => document.querySelectorAll('[data-caption-text] [data-caption-shadow="true"]').length === 3)
-    await waitForCaptionMeasurement()
+    const shadowRuns = before.runs.map((run, index) => ({ ...run, shadow: true, outline: index === 0, underline: index === 0 }))
+    await waitForCaptionEdit(plainRevision, shadowRuns)
     assert.deepEqual(await glyphMetrics(), metrics, 'shadow preserves shaped advances and anchor')
     assert.deepEqual((await caption()).runs, before.runs.map((run, index) => ({ ...run, shadow: true, outline: index === 0, underline: index === 0 })))
     await button('Fit drawing').click()
@@ -508,8 +525,9 @@ createRoot(document.getElementById('root')).render(<Harness />)
     const dark = await page.locator('[data-caption-shadow-text] tspan').evaluateAll((spans) => spans.map((span) => getComputedStyle(span).stroke === 'none' ? getComputedStyle(span).fill : getComputedStyle(span).stroke))
     assert.deepEqual(dark.slice(0, 2), evidence.colors.slice(0, 2)); assert.notEqual(dark[2], evidence.colors[2])
     await page.evaluate(() => document.documentElement.classList.remove('dark'))
+    const shadowRevision = (await snapshot()).document.revision
     await button('Undo caption').click()
-    await waitForCaptionMeasurement()
+    await waitForCaptionEdit(shadowRevision, before.runs)
     assert.deepEqual((await caption()).runs, before.runs)
   }
   await button('Select caption').click()
