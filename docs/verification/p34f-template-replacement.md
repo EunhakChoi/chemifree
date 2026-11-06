@@ -121,3 +121,28 @@ P34 완료로 기록하지 않는다. PR Codex 리뷰도 부모 단계에서 pen
 - 제품 parser·Domain 거절·no-op 의미는 변경하지 않았다. rustfmt·git diff --check만
   수행하고 테스트·빌드·브라우저·push는 실행하지 않았다. 수정본 Application 검사와 뒤의
   no-op 경로 및 나머지 targeted/full/CI는 부모 재검증 대기다.
+
+## full 검사 catalog 고정 기대값 실패와 전체 대조
+
+- 부모의 `d1e71b1` full은 stereo_group_wire의 catalog 개수 단정에서 실제40/기대38로
+  실패했다(18개 중17개 통과). 로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34f-full.log`다.
+  P34f 두 연산을 추가할 때 다른 catalog 단정을 빠뜨린 것으로 전체 성공이 아니다.
+- stereo_group_wire는 정확히40개로 고치고 replacement plan/apply가 각각 한 번씩
+  supported/executable로 존재함을 단정했다. HTTP=CLI contract catalog에도 정확히40개와
+  같은 두 연산의 유일성/표현/실행 단정을 더했다. 기존 group-command/capability 검사는
+  그대로 유지한다. 개수를 동적으로 맞추거나 범위 비교로 약화하지 않았다.
+- 프로젝트 전체 rg 대조 결과:
+  - OperationId::ALL의40개 고정 배열과 string mapping은 두 연산을 이미 포함한다.
+  - application/tests/operations.rs의 total40과 기본 executable 고정 목록30개는 이미
+    두 연산을 각각 포함하며, catalog 표기와 실제 dispatcher 결과를 비교한다.
+  - scripts/contract-smoke는 새 replacement preview/apply/repeated refusal/history flow를
+    이미 포함한다. 새 catalog 단정도 더했다. transaction parts의48/37/11은 별도 수이며
+    새 operation 두 개는 transaction command가 아니므로 바꾸지 않는다.
+  - standard browser summary는 이미 `30 of 40 operations run`, README/current CONTRACT는
+    40/30이다. HANDOFF 최상단에도 현재 수를 명시했다. codec/query/CIP catalog 검사는
+    개별 기능을 찾아 비교하며 별도 stale 전체 개수/operation 고정 목록은 없다.
+  - 웹 catalog는 받은 목록의 길이/실행 수로 표시하고 고정 숫자를 갖지 않는다.
+    conformance의 catalog/operation 사례에도 오래된 전체 개수 단정이 없다.
+  - P34e 등 과거 검증/당시 scope의38/28 기록은 역사적 근거이므로 현재40으로 덮지 않았다.
+- 이 수정 담당자는 rustfmt·git diff --check와 읽기 전용 source/문서 대조만 수행했다.
+  테스트·빌드·브라우저·push는 실행하지 않았으며 수정본 full/CI는 부모 재검증 대기다.

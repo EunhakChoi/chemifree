@@ -7,6 +7,7 @@
 - P34e `7ce1c66` 기반 별도 `feat/p34f-template-replace` 후보이며 구현 `821e669` 뒤 P34e #180 main squash `1618988`을 통합했다. P34 전체 in_progress다.
 - 기존 native planner의 source→AtomRef binding을 공유해 source anchor를 기존 target ID에 묶고 완전 state를 교체한다. 나머지 N−1 atom/M internal bond만 fresh IDs다. target은 한 single 외부결합만 허용하며 query/다중/고립 boundary는 거절한다. target 좌표와 외부결합 ID/끝점/mark·참조·이웃 stereo/group을 보존한다.
 - `document.template_replace_plan`/`document.template_replace`는 explicit file/instance/source-anchor/target/revision/selection을 받는다. preview는 clone일 뿐이고 apply는 atomic mutation/replay다. 단일 성분·동일 style·단일 배치·source-anchor stored stereo 거절·500-command 한도를 유지한다. source 다른 입체는 기존 canonical remapping이다. identical one-atom 교체는 no-op이며 저장 schema 변경·삭제/새 connector·valence gate/H 보정은 없다.
+- 현재 공개 catalog는40개·기본 실행30개다. 새 replacement는 operation 두 개이며 transaction sub-operation48개(37 commands/11 capabilities)는 그대로다. `d1e71b1` full의 stereo_group_wire 낡은38개 기대값 실패 뒤 전체 catalog 고정값/목록을 대조해 수정했으며 수정본 full/CI는 pending이다.
 - 실제 웹 Replace terminal atom…에서 파일 검증→빈 explicit choices→preview의 target before/after state·retained boundary 확인→apply를 연결했다. input/snapshot/process offer 무효화와 immutable recovery를 재사용한다. 약어·fusion/spiro·다중 boundary·layout은 후속이다.
 - Domain/Application·공통 client·HTTP=CLI 및 실제 file/backend browser 회귀를 작성했다. 부모 지시로 테스트·빌드·브라우저·mutation·push는 실행하지 않았다. [P34f 기록](verification/p34f-template-replacement.md)의 리뷰·검증 대기를 따른다.
 

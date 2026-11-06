@@ -946,6 +946,13 @@ try {
 
     const catalog = await both(() => request('op-caps', 'capabilities.inspect', {}))
     assert.deepEqual(catalog.result, (await call('/api/v1/capabilities')).body.operation_catalog)
+    assert.equal(catalog.result.operations.length, 40, 'HTTP and CLI expose all operations including both replacement operations')
+    for (const id of ['document.template_replace_plan', 'document.template_replace']) {
+      const entries = catalog.result.operations.filter((operation) => operation.id === id)
+      assert.equal(entries.length, 1, `${id} must appear exactly once`)
+      assert.equal(entries[0].representation, 'supported', id)
+      assert.equal(entries[0].execution, 'executable', id)
+    }
     {
       const cdxml = '\ufeff<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2" Element="8"/></fragment><t id="4"><s>α</s></t></page></CDXML>'
       const readCdxml = await both(() => request('rich-read', 'document.import', { mode: 'read', format: 'cdxml', source: cdxml }))
