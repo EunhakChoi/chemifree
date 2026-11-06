@@ -84,3 +84,11 @@ search found the same stale fixture and diagnostic assertion in the HTTP/CLI con
 smoke; both were updated. The provider's separate version-99 refusal fixture remains
 future and needs no change. No tests or builds were run for this fix; parent isolation
 owns the rerun and its result.
+
+The next parent clean run exposed an additional short HTTP diagnostic assertion in the
+same future-version smoke block (`/version 13/`), missed by the previous targeted
+replacement. It now expects `/version 14/`, matching the fixture and the adjacent full
+diagnostic assertion. A static search across script version assertions and provider
+future-version fixtures confirmed that remaining v13 assertions refer to current writes,
+while unsupported fixtures use v14 or v99. A stale current-save explanation was also
+updated from v12 to v13. No tests or builds were run for this correction.
