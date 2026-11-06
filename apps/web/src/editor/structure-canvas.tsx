@@ -1,4 +1,4 @@
-import type { RingSize } from '@/lib/document-contract'
+import type { RingPattern, RingSize } from '@/lib/document-contract'
 import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
 import { SceneCaption } from '@/editor/scene-caption'
@@ -60,7 +60,7 @@ const DRAG_THRESHOLD = 3
  * service without scene instances.
  */
 type Drag =
-  | { kind: 'attach'; start: Position; atom: string; instance: string | null; size: RingSize }
+  | { kind: 'attach'; start: Position; atom: string; instance: string | null; size: RingSize; pattern: RingPattern }
   | { kind: 'move'; start: Position; selected: Set<string>; instance: string | null; scope: SelectionGeometry }
   | { kind: 'bond'; start: Position; fromAtom: string | null; instance: string | null }
   | { kind: 'marquee'; start: Position; additive: boolean; pressed: Set<string>; instance: string | null }
@@ -132,7 +132,8 @@ interface StructureCanvasProps {
   onRing?: (instance: string | null, center: Position) => void
   ringMode?: 'independent' | 'attach'
   ringSize?: RingSize
-  onAttachRing?: (instance: string | null, atom: string, direction: { dx: number; dy: number }, size: RingSize) => void
+  ringPattern?: RingPattern
+  onAttachRing?: (instance: string | null, atom: string, direction: { dx: number; dy: number }, size: RingSize, pattern: RingPattern) => void
   /** Rings for the items whose stored configuration the drawing does not agree with; none while it is unknown. */
   rings?: readonly AgreementRing[]
   /** CIP labels to draw over the atoms and double bonds they are about; an overlay, never part of the document. */
@@ -164,6 +165,7 @@ export function StructureCanvas({
   onRing,
   ringMode = 'independent',
   ringSize = 6,
+  ringPattern = 'single',
   onAttachRing,
   onCommands,
   onMark,
@@ -442,7 +444,7 @@ export function StructureCanvas({
     const { hit, instance } = locate(point)
     if (tool === 'ring' && ringMode === 'attach') {
       const atom = hit?.kind === 'atom' ? drawingOf(instance).atoms.get(hit.id) : undefined
-      if (atom) setDrag({ kind: 'attach', start: atom.position, atom: atom.id, instance, size: ringSize })
+      if (atom) setDrag({ kind: 'attach', start: atom.position, atom: atom.id, instance, size: ringSize, pattern: ringPattern })
     } else if (tool === 'select') {
       if (!hit) {
         setDrag({ kind: 'marquee', start: point, additive: event.shiftKey, pressed: new Set(selection), instance: activePlacement })
@@ -521,7 +523,7 @@ export function StructureCanvas({
     if (active.pan || !gesture || !point) return
     const dragged = distance({ x: event.clientX, y: event.clientY }, active.start) >= DRAG_THRESHOLD
     if (gesture.kind === 'attach') {
-      if (dragged) onAttachRing?.(gesture.instance, gesture.atom, { dx: point.x - gesture.start.x, dy: point.y - gesture.start.y }, gesture.size)
+      if (dragged) onAttachRing?.(gesture.instance, gesture.atom, { dx: point.x - gesture.start.x, dy: point.y - gesture.start.y }, gesture.size, gesture.pattern)
       return
     }
     if (tool === 'ring') {

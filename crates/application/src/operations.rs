@@ -572,7 +572,8 @@ impl Entry {
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
 const TRANSACTION_PARTS: [Entry; 50] = [
-    runs("attach_ring", "Connects a fresh five/six-carbon single-bond ring to an existing atom along an explicit direction in the only placement. Ordinary bond-addition stereo clearing and group notes apply. No fusion or layout."),
+    runs("attach_ring", "Connects a fresh regular carbon ring to an existing atom along an explicit direction in the only placement (size 5 or 6, default 6; pattern single by default, or explicit kekule for size 6). Connector stays single. Ordinary bond-addition stereo clearing and group notes apply. No fusion, aromaticity inference or layout."),
+
     runs(
         "insert_ring",
         "Appends an independent regular carbon ring (size 5 or 6, default 6; pattern single by default, or explicit kekule for size 6) at an explicit center in the only placement, using the current bond length. Kekule states alternating double/single orders. No attachment, fusion, aromaticity or conformation calculation.",

@@ -656,7 +656,7 @@ export type SelectionTransform =
 
 export type Command =
   | { op: 'insert_ring'; instance: string; center: Position; size?: RingSize; pattern?: RingPattern }
-  | { op: 'attach_ring'; instance: string; atom: string; direction: { dx: number; dy: number }; size?: RingSize }
+  | { op: 'attach_ring'; instance: string; atom: string; direction: { dx: number; dy: number }; size?: RingSize; pattern?: RingPattern }
   /** Named by exactly one of `element` and `query`; a query atom carries no charge or isotope. */
   | ({ op: 'add_atom'; bond_to?: { atom: AtomRef } & BondKind } & ({ element: string } | { query: QueryAtom }) &
       NewAtomPlacement &
@@ -2085,9 +2085,9 @@ export class DocumentClient {
     return this.createRingAttempt(destination, instance, selectionBefore, size, { kind: 'independent', center }, pattern)
   }
 
-  /** Freeze the target, direction and size of a ring attached by an ordinary single bond. */
-  createRingAttachment(destination: DocumentView, instance: string, atom: string, direction: { dx: number; dy: number }, selectionBefore: SelectionView, size: RingSize = 6): RingInsertionAttempt {
-    return this.createRingAttempt(destination, instance, selectionBefore, size, { kind: 'attach', atom, direction })
+  /** Freeze the target, direction, size and pattern of a ring attached by a single bond. */
+  createRingAttachment(destination: DocumentView, instance: string, atom: string, direction: { dx: number; dy: number }, selectionBefore: SelectionView, size: RingSize = 6, pattern: RingPattern = 'single'): RingInsertionAttempt {
+    return this.createRingAttempt(destination, instance, selectionBefore, size, { kind: 'attach', atom, direction }, pattern)
   }
 
   private createRingAttempt(destination: DocumentView, instance: string, selectionBefore: SelectionView, size: RingSize, placement: RingPlacement, pattern: RingPattern = 'single'): RingInsertionAttempt {
@@ -2096,8 +2096,8 @@ export class DocumentClient {
       throw new ApiError('ring_destination_invalid', 'Ring insertion requires one existing placement.', 0)
     }
     if (size !== 5 && size !== 6) throw new ApiError('ring_size_invalid', 'Ring size must be 5 or 6.', 0)
-    if ((pattern !== 'single' && pattern !== 'kekule') || (pattern === 'kekule' && (size !== 6 || placement.kind !== 'independent'))) {
-      throw new ApiError('ring_pattern_invalid', 'Kekulé pattern requires an independent six-carbon ring.', 0)
+    if ((pattern !== 'single' && pattern !== 'kekule') || (pattern === 'kekule' && size !== 6)) {
+      throw new ApiError('ring_pattern_invalid', 'Kekulé pattern requires a six-carbon ring.', 0)
     }
     let point: Position
     let unit: { dx: number; dy: number } | null = null
@@ -2123,7 +2123,7 @@ export class DocumentClient {
       const dy = direction.dy / scale
       const norm = Math.hypot(dx, dy)
       unit = { dx: dx / norm, dy: dy / norm }
-      command = { op: 'attach_ring', instance, atom: source.id, direction, ...(size === 6 ? {} : { size }) }
+      command = { op: 'attach_ring', instance, atom: source.id, direction, ...(size === 6 ? {} : { size }), ...(pattern === 'single' ? {} : { pattern }) }
     }
     const selection = clipboardSelection(selectionBefore)
     return this.clipboardAttempt('ring', `${documentPath(before.id)}/transactions`, {

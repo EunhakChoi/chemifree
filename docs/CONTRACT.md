@@ -113,8 +113,8 @@ from vertex 0 to 1, 2 to 3, and 4 to 5 are double; the other three are single. O
 still means 6; explicit `pattern:"single"` keeps the old recipe for either size. Null, unknown
 patterns, and non-string patterns are `invalid_request`; size 5 with `kekule` is
 `invalid_command` with `details.reason:"ring_pattern_invalid"`. The stated orders do not
-assign aromaticity, configurations, bond marks or CIP labels. `attach_ring` accepts no
-pattern field and retains its all-single behavior. It runs through the same
+assign aromaticity, configurations, bond marks or CIP labels. P34h adds the same explicit
+pattern field to `attach_ring` below; its default remains all single. It runs through the same
 Application transaction via HTTP, CLI `documents apply`, or operation contract 1; it is not a
 separate format, provider or external DATA consumer. The command requires an existing explicit
 instance and exactly one molecule placement. The current document `bond_length_pt` is the side
@@ -137,9 +137,9 @@ The existing 500-command budget counts this as one bounded command. Save/reopen 
 Undo/Redo retain its IDs and coordinates without a storage schema change.
 
 The web Ring tool (R) offers a 5/6 size selector (initially 6, not saved in the document)
-and, for independent six-carbon rings, an explicit All single bonds / Kekulé alternating bonds
-selector (initially all single, not saved). Choosing size 5 or Attach to atom resets the
-pattern to all single. The pattern is captured with the click and stays frozen through
+and, for six-carbon rings in either mode, an explicit All single bonds / Kekulé alternating bonds
+selector (initially all single, not saved). Choosing size 5 or entering Attach to atom resets the
+pattern to all single; choosing Kekulé explicitly in Attach is supported since P34h. The pattern is captured with the click and stays frozen through
 queueing and lost-reply recovery; its control is disabled while busy or dragging. The client
 checks each returned bond order, including the chosen alternating phase. The tool
 sends the pointer-down center on a completed click through the inverse
@@ -351,11 +351,11 @@ See [P34f record](verification/p34f-template-replacement.md).
 
 ## Attached carbon ring (P34c)
 
-`attach_ring` is `{ op: "attach_ring", instance, atom, direction: { dx, dy }, size?: 5 | 6 }`.
+`attach_ring` is `{ op: "attach_ring", instance, atom, direction: { dx, dy }, size?: 5 | 6, pattern?: "single" | "kekule" }`.
 An invalid zero/non-finite direction reports `invalid_command` with
 `reason:"ring_direction_invalid"` in the v1 envelope and `details.reason` in the operation
 envelope. Ring recipe refusals preserve their failing `command_index` in both envelopes.
-It connects the existing explicit atom to a fresh regular five/six-carbon single-bond cycle
+It connects the existing explicit atom to a fresh regular five/six-carbon cycle
 by one additional single bond: N new atoms and N+1 new bonds, without sharing or replacing
 any existing atom or bond. Size omission is 6; null, unsupported values and unknown fields
 are malformed (`invalid_request`). `$N` is not an attachment target; a malformed identifier
@@ -363,6 +363,13 @@ is `invalid_command`, as with other explicit-ID commands. The target must exist 
 explicit instance must be the only placement. Direction components are finite and not both
 zero; magnitude is ignored. A zero vector is `invalid_command` with its command index.
 Non-numeric/JSON null components are malformed. Direct Domain non-finite vectors are refused.
+
+P34h adds explicit `pattern:"kekule"` for size6 only (omitted size is still6). Internal cycle
+edges0/2/4 are double and1/3/5 are single in the recipe's original vertex order. The connector
+is always single, independent of the pattern. Pattern omission and explicit single retain
+the original all-single size5/6 graph, geometry and notes. Unknown/non-string/null patterns
+are `invalid_request`; size5+kekule is `invalid_command` with `ring_pattern_invalid` and its
+command index. This states explicit bond orders and assigns no aromaticity or configurations.
 
 For current bond length L, target position A, normalized direction u and the independent
 recipe offsets (x,y) above, with R the first offset's x, each vertex is
@@ -391,7 +398,7 @@ on any failure, including the final connection's identifier or bond limit.
 Web R defaults to Independent; Attach to atom is explicit. In Attach mode only an atom drag
 supplies a target and direction. Atom click and empty-space drag insert nothing. Release is
 a direction hint, never an automatic merge with content under the pointer. Gesture size,
-atom and instance are captured at press; mode/size are disabled during a gesture and while
+pattern, atom and instance are captured at press; mode/size/pattern are disabled during a gesture and while
 busy. The queue captures the vector, selection and document/process, then revalidates the
 target and uses its latest position/current bond length. The unmarked direction preview has
 no snapping. The existing immutable ring attempt holds the complete body across lost replies;
@@ -400,10 +407,18 @@ The client checks the exact cycle/link, retained state, affected stereo/group re
 note feature/path/disposition set before adopting a claimed success. The existing StereoNotes
 shows the authoritative reasons. No clipboard access occurs.
 
-Fusion/spiro/replacement, aromatic patterns, other ring sizes, user-template attachment, abbreviation
+The six-carbon pattern selector is also available in Attach mode. Entering Attach retains
+the previous default reset to single, after which Kekulé can be explicitly chosen. The drag
+retains its pressed size/pattern even if a caller rerenders the canvas with different choices
+before release. The hook queues those captured scalar values; recovery reuses the same body,
+request and process. The client checks exact alternating phase and the single connector as
+well as ordinary stereo/group notes. No new command, storage schema or provider is introduced.
+
+Fusion/spiro/non-terminal replacement, aromatic-bond patterns, other ring sizes, abbreviation
 expansion and layout/collision/conformation remain unsupported. P34 is **in_progress**.
 Tests/build/browser/mutation have not run for this candidate; see the
-[P34c record](verification/p34c-attached-ring.md).
+[P34c record](verification/p34c-attached-ring.md) and
+[P34h record](verification/p34h-attached-kekule-ring.md).
 
 
 ## Effective selection scope and movement (P32a)

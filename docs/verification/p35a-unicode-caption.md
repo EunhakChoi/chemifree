@@ -85,3 +85,11 @@ The verifier must run the targeted caption Rust/client/HTTP=CLI/browser paths, t
 regressions that traverse scene kinds. Record first failures and fixes honestly. Native
 text preservation and platform-specific glyph accuracy are separate judgments; neither
 establishes external-application compatibility or broader scientific completeness.
+
+## Main integration
+
+After implementation commit `9c76c36`, integrated `origin/main` `8edcfeb` (P34h #183).
+Kept the caption catalog size 50 and the newer attach-ring pattern description, retained
+both handoff sections, and synchronized embedded roadmap data from the merged JSON.
+The P34h pattern/gesture/recovery changes and caption scene changes are both preserved.
+No tests/build/browser were run for the integrated tree; its execution verification is pending.

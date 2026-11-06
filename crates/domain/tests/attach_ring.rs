@@ -2,7 +2,7 @@
 
 use chemifree_domain::document::{
     Atom, AtomId, BondOrder, Command, Document, DocumentId, EditError, NewAtomPositions, ObjectId,
-    Point, RingSize, Vector,
+    Point, RingPattern, RingSize, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::settings::SettingsEdit;
@@ -20,11 +20,16 @@ fn drawing() -> Document {
 }
 
 fn attach(size: RingSize, dx: f64, dy: f64) -> Command {
+    attach_recipe(size, RingPattern::Single, dx, dy)
+}
+
+fn attach_recipe(size: RingSize, pattern: RingPattern, dx: f64, dy: f64) -> Command {
     Command::AttachRing {
         instance: ObjectId::from_serial(1).unwrap(),
         atom: AtomId::from_serial(1).unwrap(),
         direction: Vector { dx, dy },
         size,
+        pattern,
     }
 }
 
@@ -202,6 +207,7 @@ fn explicit_target_and_only_placement_are_required() {
             atom: AtomId::from_serial(99).unwrap(),
             direction: Vector { dx: 1.0, dy: 0.0 },
             size: RingSize::Five,
+            pattern: RingPattern::Single,
         }])
         .unwrap_err();
     assert_eq!(
@@ -223,5 +229,127 @@ fn explicit_target_and_only_placement_are_required() {
             .error,
         EditError::PositionsRequired { instances: 2 }
     );
+    assert_eq!(document.to_parts(), before);
+}
+
+#[test]
+fn attached_kekule_has_exact_alternating_cycle_single_connector_and_stable_history() {
+    let mut document = drawing();
+    let before = document.to_parts();
+    let command = attach_recipe(RingSize::Six, RingPattern::Kekule, 1.0, 0.0);
+    document.apply(std::slice::from_ref(&command)).unwrap();
+    let after = document.to_parts();
+    assert_eq!(document.atoms().len(), 7);
+    assert_eq!(
+        document.atoms().next().unwrap(),
+        (before.atoms[0].0, &before.atoms[0].1)
+    );
+    assert!(
+        document
+            .atoms()
+            .skip(1)
+            .all(|(_, atom)| atom == &Atom::from(Element::CARBON))
+    );
+    let edges: Vec<_> = document
+        .bonds()
+        .map(|(id, bond)| {
+            assert_eq!(bond.mark, None);
+            (
+                id.serial(),
+                bond.begin.serial(),
+                bond.end.serial(),
+                bond.order.clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        edges,
+        vec![
+            (1, 2, 3, BondOrder::Double),
+            (2, 3, 4, BondOrder::Single),
+            (3, 4, 5, BondOrder::Double),
+            (4, 5, 6, BondOrder::Single),
+            (5, 6, 7, BondOrder::Double),
+            (6, 7, 2, BondOrder::Single),
+            (7, 1, 2, BondOrder::Single),
+        ]
+    );
+    assert_eq!(
+        document.position(document.first_instance(), AtomId::from_serial(2).unwrap()),
+        Some(Point::new(40.0, 20.0).unwrap())
+    );
+    assert_eq!(
+        document.position(document.first_instance(), AtomId::from_serial(5).unwrap()),
+        Some(Point::new(100.0, 20.0).unwrap())
+    );
+    assert_eq!(document.undo_depth(), 2);
+    document.undo().unwrap();
+    assert_eq!(document.to_parts().atoms, before.atoms);
+    assert_eq!(document.to_parts().bonds, before.bonds);
+    assert_eq!(document.to_parts().positions, before.positions);
+    document.redo().unwrap();
+    assert_eq!(document.to_parts().atoms, after.atoms);
+    assert_eq!(document.to_parts().bonds, after.bonds);
+    assert_eq!(document.to_parts().positions, after.positions);
+    document.undo().unwrap();
+    document.apply(&[command]).unwrap();
+    assert!(
+        document.atoms().skip(1).all(|(id, _)| id.serial() > 7),
+        "Undo does not recycle ring IDs"
+    );
+}
+
+#[test]
+fn kekule_attachment_failures_preserve_the_complete_document_and_redo() {
+    for (size, dx, next_bond, expected) in [
+        (RingSize::Five, 1.0, 1, EditError::RingPatternInvalid),
+        (RingSize::Six, 0.0, 1, EditError::RingDirectionInvalid),
+        (RingSize::Six, f64::NAN, 1, EditError::RingDirectionInvalid),
+        (
+            RingSize::Six,
+            1.0,
+            u32::MAX - 6,
+            EditError::IdentifierSpaceExhausted,
+        ),
+    ] {
+        let mut document = drawing();
+        document
+            .apply(&[Command::Rename {
+                title: "Temporary".into(),
+            }])
+            .unwrap();
+        document.undo().unwrap();
+        let mut parts = document.to_parts();
+        parts.next_bond = next_bond;
+        let mut document = Document::restore(parts).unwrap();
+        let before = document.to_parts();
+        let error = document
+            .apply(&[
+                Command::Rename {
+                    title: "Rollback".into(),
+                },
+                attach_recipe(size, RingPattern::Kekule, dx, 0.0),
+            ])
+            .unwrap_err();
+        assert_eq!(error.index, Some(1));
+        assert_eq!(error.error, expected);
+        assert_eq!(document.to_parts(), before);
+    }
+    let mut document = drawing();
+    document
+        .apply(&[Command::MoveAtoms {
+            atoms: vec![AtomId::from_serial(1).unwrap()],
+            instance: None,
+            delta: Vector {
+                dx: 99_950.0,
+                dy: 0.0,
+            },
+        }])
+        .unwrap();
+    let before = document.to_parts();
+    let error = document
+        .apply(&[attach_recipe(RingSize::Six, RingPattern::Kekule, 1.0, 0.0)])
+        .unwrap_err();
+    assert_eq!(error.error, EditError::CoordinateOutOfRange);
     assert_eq!(document.to_parts(), before);
 }

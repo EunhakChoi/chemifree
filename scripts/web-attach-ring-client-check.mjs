@@ -15,16 +15,16 @@ function service(t, reply) {
   })
   return bodies
 }
-for (const size of [5, 6]) {
-  test(`attached ${size}-ring freezes target/direction/size/selection and accepts exact ordinary stereo clearing`, async (t) => {
+for (const [size, pattern] of [[5, 'single'], [6, 'single'], [6, 'kekule']]) {
+  test(`attached ${size}-ring ${pattern} freezes target/direction/size/pattern/selection and accepts exact ordinary stereo clearing`, async (t) => {
     const bodies = service(t, (_body, count) => {
       if (count <= 2) throw new TypeError('Committed reply lost.')
-      return json(attachAfter(size))
+      return json(attachAfter(size, pattern))
     })
     const direction = { dx: 50, dy: 0 }
     const selection = ringSelection()
     const source = attachSource().document
-    const attempt = new DocumentClient().createRingAttachment(source, 's1', 'a1', direction, selection, size)
+    const attempt = new DocumentClient().createRingAttachment(source, 's1', 'a1', direction, selection, size, pattern)
     direction.dy = 500
     selection.atoms.length = 0
     source.atoms[0].position.x = 900
@@ -34,7 +34,8 @@ for (const size of [5, 6]) {
     assert.equal(result.document.bonds.length, 4 + size)
     assert.deepEqual(result.document.stereo, { atoms: [], bonds: [], groups: [] })
     assert.equal(result.notes.length, 4)
-    assert.deepEqual(bodies[0].commands, [{ op: 'attach_ring', instance: 's1', atom: 'a1', direction: { dx: 50, dy: 0 }, ...(size === 6 ? {} : { size }) }])
+    assert.deepEqual(bodies[0].commands, [{ op: 'attach_ring', instance: 's1', atom: 'a1', direction: { dx: 50, dy: 0 }, ...(size === 6 ? {} : { size }), ...(pattern === 'single' ? {} : { pattern }) }])
+    assert.equal(result.document.bonds.at(-1).order, 'single')
     assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
     assert.equal(await attempt.send(), result)
     assert.equal(bodies.length, 3)
@@ -71,18 +72,24 @@ test('attachment rejects missing target, invalid size and zero/nonfinite directi
   }
   assert.deepEqual(bodies, [])
 })
-for (const [code, status, expected] of [['unauthorized', 401, 'clipboard_ring_restarted'], ['revision_conflict', 409, 'clipboard_ring_reconcile']]) {
-  test(`attachment recovery stops after ${code}`, async (t) => {
+for (const [code, status, expected, size, pattern] of [
+  ['unauthorized', 401, 'clipboard_ring_restarted', 5, 'single'],
+  ['revision_conflict', 409, 'clipboard_ring_reconcile', 5, 'single'],
+  ['unauthorized', 401, 'clipboard_ring_restarted', 6, 'kekule'],
+  ['revision_conflict', 409, 'clipboard_ring_reconcile', 6, 'kekule'],
+]) {
+  test(`attachment ${pattern} recovery stops after ${code}`, async (t) => {
     const bodies = service(t, (_body, count) => {
       if (count <= 2) throw new TypeError('Reply lost.')
       return json({ api_version: 'v1', code, message: 'Inspect the authoritative document.' }, status)
     })
-    const attempt = new DocumentClient().createRingAttachment(attachSource().document, 's1', 'a1', { dx: 1, dy: 0 }, ringSelection(), 5)
+    const attempt = new DocumentClient().createRingAttachment(attachSource().document, 's1', 'a1', { dx: 1, dy: 0 }, ringSelection(), size, pattern)
     await assert.rejects(attempt.send(), { code: 'clipboard_ring_unconfirmed' })
     await assert.rejects(attempt.send(), { code: expected })
     await assert.rejects(attempt.send(), { code: expected })
     assert.equal(bodies.length, 3)
     assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
+    assert.equal(bodies[0].commands[0].pattern, pattern === 'single' ? undefined : pattern)
   })
 }
 
@@ -115,4 +122,34 @@ test('attachment rejects deletion of an unrelated center and group', async (t) =
   service(t, () => json(reply))
   const attempt = new DocumentClient().createRingAttachment(attachSource().document, 's1', 'a2', { dx: 1, dy: 0 }, ringSelection())
   await assert.rejects(attempt.send(), { code: 'clipboard_ring_unconfirmed' })
+})
+
+for (const [name, change] of [
+  ['single first cycle edge', (reply) => { reply.document.bonds[3].order = 'single' }],
+  ['wrong alternating phase', (reply) => {
+    const orders = ['single', 'double', 'single', 'double', 'single', 'double']
+    reply.document.bonds.slice(3, 9).forEach((bond, index) => { bond.order = orders[index] })
+  }],
+  ['double connector', (reply) => { reply.document.bonds.at(-1).order = 'double' }],
+  ['missing stereo notes', (reply) => { reply.notes = [] }],
+  ['retained target configuration', (reply) => { reply.document.stereo = attachSource().document.stereo }],
+]) {
+  test(`Kekulé attachment rejects ${name}`, async (t) => {
+    const reply = attachAfter(6, 'kekule')
+    change(reply)
+    service(t, () => json(reply))
+    const attempt = new DocumentClient().createRingAttachment(attachSource().document, 's1', 'a1', { dx: 1, dy: 0 }, ringSelection(), 6, 'kekule')
+    await assert.rejects(attempt.send(), { code: 'clipboard_ring_unconfirmed' })
+  })
+}
+
+test('Kekulé attachment runtime-invalid patterns and size5 refuse before HTTP', (t) => {
+  const bodies = service(t, () => { throw new Error('Must not send.') })
+  const source = attachSource().document
+  const client = new DocumentClient()
+  for (const pattern of [null, 'aromatic', 'Kekule', '', 6, true, {}, []]) {
+    assert.throws(() => client.createRingAttachment(source, 's1', 'a1', { dx: 1, dy: 0 }, ringSelection(), 6, pattern), { code: 'ring_pattern_invalid' })
+  }
+  assert.throws(() => client.createRingAttachment(source, 's1', 'a1', { dx: 1, dy: 0 }, ringSelection(), 5, 'kekule'), { code: 'ring_pattern_invalid' })
+  assert.deepEqual(bodies, [])
 })

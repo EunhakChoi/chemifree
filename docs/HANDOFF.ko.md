@@ -10,6 +10,14 @@
 - 실제 run 입력·IME gate·script 선택과 SVG natural text·loaded-font getBBox bounds를 연결했다. native text 보존과 폰트·복잡한 shaping의 시각 재현은 별개이며 run 사이 grapheme shaping은 보장하지 않는다. MOL/SDF/SMILES/CDXML/CDX drawing export는 caption 손실 동의가 필요하다.
 - Domain/Application/provider/client·HTTP=CLI와 real-backend production caption UI/browser 회귀를 작성했다. 독립 fresh-context 리뷰3건(catalog 수·White_Space FEFF·script type)을 수정했다. 테스트·빌드·브라우저·mutation·push는 사용자 지시로 실행하지 않았다. `cargo fmt --all`만 수행했다. 상세: [검증 기록](verification/p35a-unicode-caption.md).
 
+## P34h 기존 원자에 Kekulé 6탄소 고리 연결 후보
+
+- #182 main `80e3204` 기반 별도 `feat/p34h-attach-kekule-ring` 후보다. P34 전체는 in_progress이며 약어 표시 모델은 사용자 결정 대기다.
+- `attach_ring`도 optional `pattern:single|kekule`을 받는다. 생략/single·size5/6는 기존 graph/geometry/notes를 유지하고 kekule은 size6만 가능하다. 내부 edge0/2/4 double·1/3/5 single, 외부 connector는 single이다. null/unknown/non-string은 invalid_request, size5+kekule은 ring_pattern_invalid다.
+- 기존 single connector의 target stereo clearing·group prune/notes·atomic rollback·history/replay/save를 재사용한다. 새 과학 추론·H/valence 보정·약어·schema·provider·fusion/spiro는 없다.
+- 실제 Attach size6에 패턴 선택을 보이고 기존 Attach 진입 single reset을 유지한다. canvas gesture press의 pattern/size가 prop rerender나 queue/recovery 중에도 바뀌지 않는다. client는 phase·single connector와 notes를 검사한다.
+- Domain/Application·client·HTTP=CLI·production UI/gesture/frozen recovery browser 회귀와 문서를 작성했다. 부모 지시로 테스트·빌드·브라우저·push는 실행하지 않았다. [P34h 기록](verification/p34h-attached-kekule-ring.md)의 리뷰·미실행 검증을 따른다.
+
 ## P34g 독립 Kekulé 6탄소 고리 후보
 
 - P34f HEAD `3b3b2a7` 기반 `feat/p34g-kekule-ring` 후보다. 구현 `12bda93` 뒤 동일 tree의 #181 main squash `f51e0ed`를 통합했다. P34 전체는 in_progress다.

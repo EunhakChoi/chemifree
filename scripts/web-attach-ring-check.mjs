@@ -6,11 +6,27 @@ import { chromium } from 'playwright-core'
 import { keepRequestInterception } from './lib/request-interception.mjs'
 import { attachAfter, attachSource } from './lib/attach-ring-fixture.mjs'
 const fixture = `
-import React from 'react'
+import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { DocumentWorkspace } from '/src/components/document-workspace.tsx'
+import { StructureCanvas } from '/src/editor/structure-canvas.tsx'
 import '/src/index.css'
-createRoot(document.getElementById('root')).render(<DocumentWorkspace />)
+const source = ${JSON.stringify(attachSource().document)}
+function CaptureHarness() {
+  const [choice, setChoice] = useState({ size: 6, pattern: 'kekule' })
+  const [captured, setCaptured] = useState(null)
+  return <main>
+    <button data-change-ring-choice onClick={() => setChoice({ size: 5, pattern: 'single' })}>Change supplied ring choice</button>
+    <output aria-label="Supplied ring choice">{choice.size + ':' + choice.pattern}</output>
+    <output aria-label="Captured attachment">{JSON.stringify(captured)}</output>
+    <div style={{ width: 760, height: 600 }}><StructureCanvas document={source} tool="ring" ringMode="attach"
+      ringSize={choice.size} ringPattern={choice.pattern} element="C" bondKind="single"
+      selection={new Set()} onSelectionChange={() => {}} activePlacement="s1" onActivePlacementChange={() => {}}
+      onCommands={() => { throw new Error('Attachment must use its dedicated callback') }} onMark={() => {}}
+      onAttachRing={(instance, atom, direction, size, pattern) => setCaptured({ instance, atom, direction, size, pattern })}/></div>
+  </main>
+}
+createRoot(document.getElementById('root')).render(location.search.includes('capture') ? <CaptureHarness /> : <DocumentWorkspace />)
 `
 const server = await createServer({
   root: fileURLToPath(new URL('../apps/web', import.meta.url)),
@@ -40,6 +56,8 @@ try {
   let lost = 2
   let committed
   let historyCalls = 0
+  let expectedSize = 5
+  let expectedPattern = 'single'
   const bodies = []
   const reply = (route, body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
   await page.route('**/api/v1/**', async (route) => {
@@ -80,12 +98,13 @@ try {
     assert.equal(command.op, 'attach_ring')
     assert.equal(command.instance, 's1')
     assert.equal(command.atom, 'a1')
-    assert.equal(command.size, 5)
+    assert.equal(command.size, expectedSize === 6 ? undefined : expectedSize)
+    assert.equal(command.pattern, expectedPattern === 'single' ? undefined : expectedPattern)
     assert.ok(command.direction.dx > 0)
     assert.ok(Math.abs(command.direction.dy) < 1e-8)
     if (!committed) {
       assert.equal(body.expected_revision, 3)
-      state = attachAfter(5)
+      state = attachAfter(expectedSize, expectedPattern)
       state.document.selection = structuredClone(body.selection_before)
       committed = structuredClone(state)
     }
@@ -96,54 +115,97 @@ try {
     readText() { throw new Error('Attachment must not read the OS clipboard.') },
     writeText() { throw new Error('Attachment must not write the OS clipboard.') },
   } }))
-  await page.goto(`http://127.0.0.1:${address.port}/attach-ring-check`)
-  await page.locator('[data-document-id="drawing"]').getByRole('button', { name: 'Open', exact: true }).click()
-  await page.getByLabel('Document title', { exact: true }).waitFor()
-  await page.getByRole('button', { name: 'Insert carbon ring', exact: true }).click()
-  await page.getByRole('button', { name: 'Attach to atom', exact: true }).click()
-  const five = page.getByRole('button', { name: 'Five-member carbon ring', exact: true })
-  const six = page.getByRole('button', { name: 'Six-member carbon ring', exact: true })
-  await five.click()
-  const canvas = page.locator('[data-structure-canvas]')
-  await canvas.scrollIntoViewIfNeeded()
-  await canvas.focus()
-  for (let index = 0; index < 3; index += 1) await canvas.press('-')
-  await canvas.press('ArrowRight')
-  const points = await canvas.evaluate((svg) => {
+  for (const [size, pattern] of [[5, 'single'], [6, 'kekule']]) {
+    state = attachSource()
+    lost = 2
+    committed = undefined
+    historyCalls = 0
+    bodies.length = 0
+    expectedSize = size
+    expectedPattern = pattern
+    await page.goto(`http://127.0.0.1:${address.port}/attach-ring-check`)
+    await page.locator('[data-document-id="drawing"]').getByRole('button', { name: 'Open', exact: true }).click()
+    await page.getByLabel('Document title', { exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Insert carbon ring', exact: true }).click()
+    await page.getByRole('button', { name: 'Attach to atom', exact: true }).click()
+    const five = page.getByRole('button', { name: 'Five-member carbon ring', exact: true })
+    const six = page.getByRole('button', { name: 'Six-member carbon ring', exact: true })
+    if (size === 5) await five.click()
+    else {
+      assert.equal(await page.getByRole('button', { name: 'All single bonds', exact: true }).getAttribute('aria-pressed'), 'true')
+      await page.getByRole('button', { name: 'Kekulé alternating bonds', exact: true }).click()
+    }
+    const canvas = page.locator('[data-structure-canvas]')
+    await canvas.scrollIntoViewIfNeeded()
+    await canvas.focus()
+    for (let index = 0; index < 3; index += 1) await canvas.press('-')
+    await canvas.press('ArrowRight')
+    const points = await canvas.evaluate((svg) => {
+      const at = (x, y) => { const point = new DOMPoint(x, y).matrixTransform(svg.getScreenCTM()); return { x: point.x, y: point.y } }
+      return { atom: at(0, 0), end: at(60, 0), empty: at(100, 80) }
+    })
+    await page.mouse.click(points.atom.x, points.atom.y)
+    assert.deepEqual(bodies, [], 'atom click cannot guess a direction')
+    await page.mouse.move(points.empty.x, points.empty.y)
+    await page.mouse.down()
+    await page.mouse.move(points.empty.x + 20, points.empty.y)
+    await page.mouse.up()
+    assert.deepEqual(bodies, [], 'empty-space drag cannot guess an attachment atom')
+    await page.mouse.move(points.atom.x, points.atom.y)
+    await page.mouse.down()
+    await page.mouse.move(points.end.x, points.end.y)
+    assert.equal(await five.isDisabled(), true, 'gesture size is captured and locked')
+    if (pattern === 'kekule') assert.equal(await page.getByRole('button', { name: 'Kekulé alternating bonds', exact: true }).isDisabled(), true, 'gesture pattern is captured and locked')
+    await page.mouse.up()
+    const check = page.getByRole('button', { name: 'Check ring insertion outcome', exact: true })
+    await check.waitFor()
+    assert.equal(state.document.atoms.length, 4 + size, 'one chosen ring committed despite losing both replies')
+    assert.equal(await six.isDisabled(), true)
+    assert.equal(await page.getByRole('button', { name: 'Independent', exact: true }).isDisabled(), true)
+    assert.equal(await page.getByRole('button', { name: 'Close document', exact: true }).isDisabled(), true)
+    if (pattern === 'kekule') {
+      assert.equal(await page.getByRole('button', { name: 'All single bonds', exact: true }).isDisabled(), true)
+      assert.equal(await page.getByRole('button', { name: 'Kekulé alternating bonds', exact: true }).isDisabled(), true)
+    }
+    await check.click()
+    await check.waitFor({ state: 'hidden' })
+    assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
+    await page.getByText('stereo_configuration changed atoms[a1]; Undo restores the statement.', { exact: true }).waitFor()
+    assert.deepEqual(state.document.stereo, { atoms: [], bonds: [], groups: [] })
+    await page.getByRole('button', { name: 'Undo', exact: true }).click()
+    await page.locator('[data-structure-canvas][aria-label="Independent ring: 4 atoms and 3 bonds"]').waitFor()
+    assert.deepEqual(state.document.stereo, attachSource().document.stereo)
+    await page.getByRole('button', { name: 'Redo', exact: true }).click()
+    await page.locator(`[data-structure-canvas][aria-label="Independent ring: ${4 + size} atoms and ${4 + size} bonds"]`).waitFor()
+    assert.deepEqual(state.document.atoms, attachAfter(size, pattern).document.atoms)
+    assert.deepEqual(state.document.bonds, attachAfter(size, pattern).document.bonds)
+    assert.equal(historyCalls, 2)
+  }
+
+  // A caller rerender while the pointer is down cannot replace the pressed size/pattern.
+  await page.goto(`http://127.0.0.1:${address.port}/attach-ring-check?capture`)
+  await page.getByLabel('Supplied ring choice', { exact: true }).filter({ hasText: '6:kekule' }).waitFor()
+  const captureCanvas = page.locator('[data-structure-canvas]')
+  await captureCanvas.scrollIntoViewIfNeeded()
+  const capturePoints = await captureCanvas.evaluate((svg) => {
     const at = (x, y) => { const point = new DOMPoint(x, y).matrixTransform(svg.getScreenCTM()); return { x: point.x, y: point.y } }
-    return { atom: at(0, 0), end: at(60, 0), empty: at(100, 80) }
+    return { atom: at(0, 0), end: at(60, 0) }
   })
-  await page.mouse.click(points.atom.x, points.atom.y)
-  assert.deepEqual(bodies, [], 'atom click cannot guess a direction')
-  await page.mouse.move(points.empty.x, points.empty.y)
+  await page.mouse.move(capturePoints.atom.x, capturePoints.atom.y)
   await page.mouse.down()
-  await page.mouse.move(points.empty.x + 20, points.empty.y)
+  await page.evaluate(() => document.querySelector('[data-change-ring-choice]').click())
+  await page.getByLabel('Supplied ring choice', { exact: true }).filter({ hasText: '5:single' }).waitFor()
+  await page.mouse.move(capturePoints.end.x, capturePoints.end.y)
   await page.mouse.up()
-  assert.deepEqual(bodies, [], 'empty-space drag cannot guess an attachment atom')
-  await page.mouse.move(points.atom.x, points.atom.y)
-  await page.mouse.down()
-  await page.mouse.move(points.end.x, points.end.y)
-  assert.equal(await five.isDisabled(), true, 'gesture size is captured and locked')
-  await page.mouse.up()
-  const check = page.getByRole('button', { name: 'Check ring insertion outcome', exact: true })
-  await check.waitFor()
-  assert.equal(state.document.atoms.length, 9, 'one five-ring committed despite losing both replies')
-  assert.equal(await six.isDisabled(), true)
-  assert.equal(await page.getByRole('button', { name: 'Independent', exact: true }).isDisabled(), true)
-  assert.equal(await page.getByRole('button', { name: 'Close document', exact: true }).isDisabled(), true)
-  await check.click()
-  await check.waitFor({ state: 'hidden' })
-  assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
-  await page.getByText('stereo_configuration changed atoms[a1]; Undo restores the statement.', { exact: true }).waitFor()
-  assert.deepEqual(state.document.stereo, { atoms: [], bonds: [], groups: [] })
-  await page.getByRole('button', { name: 'Undo', exact: true }).click()
-  await page.waitForFunction(() => document.querySelector('[data-structure-canvas]')?.querySelectorAll('[data-bond="b9"]').length === 0)
-  assert.deepEqual(state.document.stereo, attachSource().document.stereo)
-  await page.getByRole('button', { name: 'Redo', exact: true }).click()
-  await page.waitForFunction(() => document.querySelector('[data-structure-canvas]')?.querySelector('[data-bond="b9"]'))
-  assert.deepEqual(state.document.atoms, attachAfter(5).document.atoms)
-  assert.deepEqual(state.document.bonds, attachAfter(5).document.bonds)
-  assert.equal(historyCalls, 2)
+  const capturedOutput = page.getByLabel('Captured attachment', { exact: true })
+  await capturedOutput.filter({ hasText: 'kekule' }).waitFor()
+  const captured = JSON.parse(await capturedOutput.textContent())
+  assert.equal(captured.instance, 's1')
+  assert.equal(captured.atom, 'a1')
+  assert.equal(captured.size, 6)
+  assert.equal(captured.pattern, 'kekule')
+  assert.ok(captured.direction.dx > 0)
+  assert.ok(Math.abs(captured.direction.dy) < 1e-8)
   assert.deepEqual(errors, [])
   await context.close()
   process.stdout.write('Attached ring production controls, atom drag, stereo notes, history and frozen recovery checks passed.\n')

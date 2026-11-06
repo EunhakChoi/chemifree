@@ -445,6 +445,8 @@ pub enum CommandDto {
         direction: RingDirectionDto,
         #[serde(default, deserialize_with = "ring_size")]
         size: RingSize,
+        #[serde(default, deserialize_with = "ring_pattern")]
+        pattern: RingPattern,
     },
     /// Exactly one of `position` (while the document has one scene instance) and `positions`
     /// (a point for each scene instance, keyed by instance identifier).
@@ -993,6 +995,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             atom,
             direction,
             size,
+            pattern,
         } => Command::AttachRing {
             instance: instance_id(instance)?,
             atom: atom_id(atom)?,
@@ -1001,6 +1004,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
                 dy: direction.dy,
             },
             size: *size,
+            pattern: *pattern,
         },
         CommandDto::AddAtom {
             element: symbol,
