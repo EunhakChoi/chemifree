@@ -82,3 +82,17 @@ script or browser CI step. Added `npm run test:browser:label-style`, which invok
 `test:browser:label-weight` in the browser job. This makes italic SVG/font/geometry
 coverage part of the established browser pipeline. The finding is fixed.
 Only `git diff --check` was run for this wiring change; no test or build was run.
+
+## Follow-up: HTTP/CLI migration smoke version expectations
+
+The parent's clean full run reached HTTP/CLI contract smoke and found the first
+post-migration save expectation still at v18. The three save assertions for v1,
+v2 and v4 now expect current v19. Their legacy fixture input versions and exact
+archived-byte checks are unchanged. The distinct future-version probe now writes
+v20 and expects the supported-version message through v19, preserving its
+untouched-file/refusal checks rather than misclassifying supported v19 as future.
+
+A static audit of version assertions in scripts and Rust provider tests confirmed
+current save expectations use v19 and future refusal probes use v20; existing
+v18 migration inputs and weight-introduction boundaries remain intentional.
+Only `git diff --check` was run; no test or build was run for this follow-up.
