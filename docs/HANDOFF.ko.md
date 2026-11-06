@@ -2,6 +2,12 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P33k 실제 backend 문서 간 native clipboard 인수 검증 후보
+
+- `npm run test:browser:clipboard-integration`은 isolated 임시 data의 실제 API process와 Vite proxy를 통해 production native/graphics panel·editor hook·client·Application·Domain을 연결한다. HTTP 응답은 대체하지 않으며 browser clipboard plain-text transport만 교체한다. 작은 harness의 문서 전환·명시 선택 버튼을 사용하므로 전체 editor navigation/canvas selection 인수 검증은 아니다.
+- graph의 secondary placement·induced 내부 결합·crossing 보고·새 ID·원자 속성/mark/좌표, nested graphic forest의 subtree dedup·root 순서·containment·내부 cycle/self-reference mapping·복수 destination placement와 기존 chemistry 보존을 단정한다. 두 경로 모두 원본 불변·한 단계 Undo/Redo와 이전/새 선택 복구, clipboard를 바꾸지 않는 history를 검사한다. 실제 backend style mismatch 거절의 document/revision/history 원자성도 확인한다.
+- CI browser job에 연결했으나 부모의 공유 격리 검증 지시에 따라 이 변경에서는 test/build/browser와 mutation 검증을 실행하지 않았다. 통과·review·P33 완료 근거로 주장하지 않는다. 원본 DLL·외부 화학 엔진·새 production 동작은 추가하지 않았다. 상세 범위와 실행 명령은 [검증 계획](verification/p33k-native-clipboard-integration.md)을 따른다.
+
 ## P33j graphic forest Cut 후보 인계
 
 - Scene graphics clipboard의 Cut graphics가 기존 v2 graphic/group forest를 준비한다. 전체 press-time 선택과 process를 캡처하여 큐 뒤에서 검사하고 mixed graph/placement를 걸러내지 않는다. 기존 Copy 범위·순서·한도·거절에 outside-owned incoming reference 거절만 더한다. 내부 cycle/self-reference와 여러 source placement는 허용하며 Copy의 incoming 허용 범위는 그대로다.

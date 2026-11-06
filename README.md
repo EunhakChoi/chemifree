@@ -105,6 +105,8 @@ The development proxy targets port 3001. If you choose another API port, update 
 
 ## Check and build
 
+P33k adds `npm run test:browser:clipboard-integration` to browser CI. It starts a real API with temporary data and Vite on port 5173 (which must be free), then drives production clipboard panels, editor hook and HTTP client in a small navigation/selection harness. Only browser clipboard transport is replaced. It checks native graph and nested graphic-forest transfers across documents, source immutability, destination preservation, IDs/properties/references, history selection and Undo/Redo, plus a backend style refusal. It does not verify OS clipboard permissions, full editor navigation/selection, external applications or chemical correctness. This check has been written but not run for this change; see the [P33k verification scope](docs/verification/p33k-native-clipboard-integration.md). P33 remains **in progress**.
+
 ```bash
 npm run lint             # ESLint: JS/TS + React Hooks checks
 npm run typecheck        # TypeScript project references
@@ -120,6 +122,7 @@ npm run conformance:record   # Rewrite the committed run record (review the chan
 npm run build            # Web assets and debug Rust binaries
 npm run test:browser     # Browser smoke (needs Chrome or Playwright's Chromium; CI job `browser`)
 npm run test:browser:routes  # The Playwright race behind #8 and the smoke's guard against it
+npm run test:browser:clipboard-integration  # Native graph/graphic forests across documents, real API
 ```
 
 The fixtures of the substructure search (`crates/application/tests/data/query-fixtures.json`) are also compared, by hand, with an RDKit 2022.03.2 Python (no equivalence is claimed beyond those fixtures), which needs that RDKit and a built CLI: `python -I scripts/verify-query-rdkit.py target/debug/chemifree`. It states an expected outcome for every fixture (the full mapping set RDKit's `GetSubstructMatches(uniquify=False)` finds, or a specific refusal with the number of mappings RDKit finds) and fails on any difference or error; it is not part of `npm run check` and no CI job runs it. Run it whenever a fixture, the matcher's rules or the aromaticity model change, from the RDKit 2022.03.2 environment after `cargo build`.

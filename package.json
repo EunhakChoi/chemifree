@@ -26,6 +26,7 @@
     "test:browser": "node scripts/browser-smoke.mjs",
     "test:browser:routes": "node scripts/browser-route-race.mjs",
     "test:browser:clipboard": "node scripts/web-native-clipboard-check.mjs",
+    "test:browser:clipboard-integration": "node scripts/web-native-clipboard-integration-check.mjs",
     "test:browser:mol-clipboard": "node scripts/web-mol-clipboard-check.mjs",
     "test:browser:scene-clipboard": "node scripts/web-scene-clipboard-check.mjs",
     "test:browser:smiles-clipboard": "node scripts/web-smiles-clipboard-check.mjs",
