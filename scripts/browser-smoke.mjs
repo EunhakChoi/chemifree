@@ -3760,6 +3760,7 @@ step = 'after short_wide_bond_is_selectable'
 
 // Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.
 {
+  step = 'aromaticity inspection and restart reconciliation'
   const created = await apiWrite('/api/v1/documents', { request_id: 'aromatic-create', title: 'Aromaticity' })
   const id = created.body.document.id
   const commands = []

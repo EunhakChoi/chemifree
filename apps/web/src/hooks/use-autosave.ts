@@ -44,6 +44,8 @@ export type AutosaveState =
 export interface AutosaveHost {
   /** The document on screen now, ahead of the rendered `current` while updates are pending. */
   shown: () => DocumentResponse | null
+  /** The shown drawing's process generation, or null until its new process is reconciled. */
+  processGeneration: () => number | null
   /** Shows an autosave reply if it describes the document on screen; says whether it did. */
   adopt: (response: DocumentResponse) => boolean
   /**
@@ -76,10 +78,12 @@ const STALE_VIEW = new Set(['recovery_pending', 'draft_in_use'])
  * process holds.
  */
 export function useAutosave(client: DocumentClient, current: DocumentResponse | null, host: AutosaveHost) {
+  const { processGeneration } = host
   const [state, setState] = useState<AutosaveState>({ kind: 'clean' })
   const hostRef = useRef(host)
   /** The document the bookkeeping below describes. */
   const owner = useRef<string | null>(null)
+  const ownerGeneration = useRef<number | null>(null)
   const firstPending = useRef<number | null>(null)
   const attempts = useRef(0)
   /**
@@ -128,10 +132,14 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
       hostRef.current.onRestart(error)
     }
     /** Reads the document again; says whether the read landed. */
-    const reread = (id: string, view: DocumentResponse) =>
-      hostRef.current.refresh(id).then(
+    const reread = (id: string, view: DocumentResponse) => {
+      const generation = hostRef.current.processGeneration()
+      if (generation === null) return Promise.resolve(false)
+      return hostRef.current.refresh(id).then(
         () => true,
         (thrown: unknown) => {
+          const currentGeneration = hostRef.current.processGeneration()
+          if (currentGeneration !== null && currentGeneration !== generation) return false
           if (owner.current === id && thrown instanceof ApiError && thrown.code === 'service_restarted') {
             stop(thrown, view)
             evaluate.current()
@@ -139,10 +147,18 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
           return false
         },
       )
+    }
 
     save.current = () => {
       const view = hostRef.current.shown()
       if (!view) return Promise.resolve()
+      // A failed edit may already have learned the new token without adopting its drawing.
+      // Drafting that stale view would otherwise write to the replacement process.
+      const generation = hostRef.current.processGeneration()
+      if (generation === null) {
+        evaluate.current()
+        return Promise.resolve()
+      }
       const id = view.document.id
       if (inFlight.current?.id === id) return inFlight.current.done
       clearTimeout(timer.current)
@@ -154,7 +170,7 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
       attempt.done = (async () => {
         try {
           const response = await client.autosave(id)
-          if (owner.current !== id) return
+          if (owner.current !== id || hostRef.current.processGeneration() !== generation) return
           const revision = response.session.draft_revision
           written.current = revision === null ? null : { revision, at: Date.now() }
           settle()
@@ -171,11 +187,14 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
           void reread(id, view)
         } catch (thrown) {
           if (owner.current !== id) return
+          const currentGeneration = hostRef.current.processGeneration()
+          if (currentGeneration !== generation && currentGeneration !== null) return
           const error = thrown instanceof ApiError ? thrown : new ApiError('unexpected', 'Autosave failed.', 0)
           if (error.code === 'service_restarted') {
             stop(error, view)
             return
           }
+          if (currentGeneration === null) return
           // A service that reports drafting failures has recorded this one with its retry.
           const recorded = view.session.draft_failure !== undefined
           fail(error.message, error.reason ?? null, view, recorded)
@@ -193,6 +212,10 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
       const view = hostRef.current.shown()
       if (!view) {
         setState({ kind: 'clean' })
+        return
+      }
+      if (hostRef.current.processGeneration() === null) {
+        setState({ kind: 'stopped', message: 'The local service restarted. Reload the drawing before autosaving again.' })
         return
       }
       const stopped = stoppedOn.current
@@ -286,8 +309,10 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
 
   useEffect(() => {
     const id = current?.document.id ?? null
-    if (owner.current !== id) {
+    const generation = processGeneration()
+    if (owner.current !== id || (generation !== null && ownerGeneration.current !== generation)) {
       owner.current = id
+      ownerGeneration.current = generation
       firstPending.current = null
       attempts.current = 0
       failure.current = null
@@ -297,7 +322,11 @@ export function useAutosave(client: DocumentClient, current: DocumentResponse | 
       following.current = null
     }
     evaluate.current()
-  }, [current])
+  }, [current, processGeneration])
+
+  // The editor's restart listener invalidates the shown generation synchronously first.
+  // Stop its timer even when a failed edit keeps exactly the same snapshot on screen.
+  useEffect(() => client.onRestart(() => evaluate.current()), [client])
 
   useEffect(() => () => clearTimeout(timer.current), [])
 

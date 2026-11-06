@@ -214,6 +214,8 @@ export function useDocumentEditor() {
   const selectionRef = useRef<Set<string>>(new Set())
   const selectionVersion = useRef(0)
   const currentRef = useRef<DocumentResponse | null>(null)
+  // A token learned by a failed edit must not rebind the drawing still on screen.
+  const shownGenerationRef = useRef(0)
   const queue = useRef<Promise<void>>(Promise.resolve())
   const failures = useRef(0)
   const [interchangeCreation, setInterchangeCreationState] = useState<InterchangeCreation | null>(null)
@@ -242,6 +244,7 @@ export function useDocumentEditor() {
       adoptSelection(selectionIds(document?.document.selection))
     }
     currentRef.current = document
+    shownGenerationRef.current = serviceGenerationRef.current
     setCurrentState(document)
     // Showing anything but the copy ends the notice; returning later would show a stale one.
     setCopyNotice((notice) => (notice?.copyId === document?.document.id ? notice : null))
@@ -281,26 +284,31 @@ export function useDocumentEditor() {
   /**
    * Queues a task behind earlier ones. A success clears an error the user had already seen
    * when this task was queued, never one from a request that failed while it waited. A task
-   * given `ownFailure` reports its failure there instead of to the page.
+   * given `ownFailure` reports its failure there instead of to the page. Background reads
+   * preserve the page's error on both success and failure.
    */
-  const run = useCallback((task: () => Promise<void>, ownFailure?: (failure: ApiError) => void, checkClipboard = false) => {
+  const run = useCallback((task: () => Promise<void>, options: {
+    ownFailure?: (failure: ApiError) => void
+    checkClipboard?: boolean
+    preserveError?: boolean
+  } = {}) => {
     setPending((count) => count + 1)
     const failuresSeen = failures.current
     const next = queue.current
       .then(async () => {
-        if (clipboardAttempt.current && !checkClipboard) {
+        if (clipboardAttempt.current && !options.checkClipboard) {
           throw new ApiError(`clipboard_${clipboardAttempt.current.kind}_unconfirmed`, 'Check the pending editor operation before making another change.', 0)
         }
         await task()
       })
       .then(
         () => {
-          if (failures.current === failuresSeen) setError(null)
+          if (!options.preserveError && failures.current === failuresSeen) setError(null)
         },
         (failure: unknown) => {
           // A caller with its own place to show the failure keeps it off the page's error.
-          if (ownFailure) {
-            ownFailure(asApiError(failure))
+          if (options.ownFailure) {
+            options.ownFailure(asApiError(failure))
             return
           }
           failures.current += 1
@@ -342,7 +350,7 @@ export function useDocumentEditor() {
 
   const clipboardTask = useCallback(<T,>(task: () => Promise<T>, checking = false): Promise<T> =>
     new Promise<T>((resolve, reject) => {
-      void run(async () => { resolve(await task()) }, reject, checking)
+      void run(async () => { resolve(await task()) }, { ownFailure: reject, checkClipboard: checking })
     }), [run])
 
   const finishClipboardMutation = useCallback(async () => {
@@ -439,6 +447,8 @@ export function useDocumentEditor() {
   }, [])
   const autosave = useAutosave(client, current, {
     shown: useCallback(() => currentRef.current, []),
+    processGeneration: useCallback(() => shownGenerationRef.current === serviceGenerationRef.current
+      ? shownGenerationRef.current : null, []),
     adopt: useCallback(
       (response: DocumentResponse) => {
         const shown = currentRef.current
@@ -451,18 +461,23 @@ export function useDocumentEditor() {
     // Queued with edits so an older read cannot replace a newer edit's view. Its failure goes
     // to autosave, which retries or stops, rather than to the page's error.
     refresh: useCallback(
-      (documentId: string) =>
-        new Promise<void>((resolve, reject) => {
+      (documentId: string) => {
+        const generation = shownGenerationRef.current
+        return new Promise<void>((resolve, reject) => {
           void run(async () => {
-            try {
-              const fresh = await client.reread(documentId)
-              if (currentRef.current?.document.id === documentId) setCurrent(viewAfterRead(currentRef.current, fresh))
+            const sameProcess = () => generation === serviceGenerationRef.current && shownGenerationRef.current === generation
+            // A preceding edit may already have reconciled a new process. This old read
+            // has no authority to stop or replace that newer snapshot.
+            if (!sameProcess()) {
               resolve()
-            } catch (failure) {
-              reject(failure)
+              return
             }
-          }, reject)
-        }),
+            const fresh = await client.reread(documentId)
+            if (sameProcess() && currentRef.current?.document.id === documentId) setCurrent(viewAfterRead(currentRef.current, fresh))
+            resolve()
+          }, { ownFailure: reject, preserveError: true })
+        })
+      },
       [run, setCurrent],
     ),
     onRestart: report,
@@ -538,7 +553,7 @@ export function useDocumentEditor() {
       const response = await send()
       if (currentRef.current?.document.id === target.documentId) setCurrent(response)
       committed = true
-    }, ownFailure)
+    }, { ownFailure })
     return committed
   }, [run, setCurrent])
 
@@ -796,7 +811,7 @@ export function useDocumentEditor() {
       void run(async () => {
         reached()
         await released
-      }, refused)
+      }, { ownFailure: refused })
       return { ready, release }
     }, [run]),
     busy: pending > 0 || clipboardPending,

@@ -2,6 +2,11 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## Autosave 재시작·명시 재조회 보강 후보
+
+- 별도 `fix/autosave-restart-reconcile` 후보는 main `71321a9`에서 분리했다. background refresh 성공/실패가 editor 오류를 지우지 않으며, 화면 snapshot의 서비스 세대가 달라지면 autosave timer·수동 retry·늦은 draft 응답·대기 중 refresh가 새 process를 무단 채택하지 않는다. 명시 Reload/reconcile과 기존 same-content edit recovery의 snapshot 채택 뒤에만 재개한다.
+- 실제 editor/autosave hook·client를 사용하는 `npm run test:browser:autosave-restart`를 작성해 CI에 연결했다. HTTP·브라우저 시간만 제어하며 실제 backend crash 검증은 아니다. 기존 smoke에는 aromaticity block의 누락된 step 이름만 보강했다. 부모 지시로 테스트·빌드·브라우저를 실행하지 않았고 current full/CI는 pending이다. 원인·리뷰·검증 대기는 [기록](verification/autosave-restart-reconcile.md)을 따른다.
+
 ## P34a 독립 탄소 6원 고리 후보
 
 - shared Domain/Application `insert_ring` transaction command가 현재 bond length의 독립 정육각형 6C·6 single을 fresh ID로 삽입한다. 단일 명시 배치만 받고 외부 DATA·원본 template geometry·DLL을 쓰지 않는다. 기존 선택·입체·장면·settings를 보존하고 기존 저장/Undo/Redo/replay를 재사용하며 늦은 좌표/원자/ID 한도 실패도 transaction 전체를 rollback한다.
