@@ -5,8 +5,8 @@ use std::fmt;
 
 use crate::clipboard::{Fragment, FragmentError, PastePlan};
 use crate::document::{
-    AtomId, AtomRef, BondId, BondOrder, Command, Document, DocumentId, EditError, MAX_COMMANDS,
-    ObjectId, Vector,
+    AtomId, AtomRef, BondId, BondOrder, Command, Document, DocumentId, MAX_COMMANDS, ObjectId,
+    Vector,
 };
 use crate::stereo::StereoKey;
 
@@ -30,6 +30,7 @@ pub enum TemplateError {
     Fragment(FragmentError),
     Disconnected,
     AnchorUnknown,
+    TargetUnknown(AtomId),
     AnchorStereo,
     Instance,
     Direction,
@@ -41,6 +42,7 @@ impl TemplateError {
             Self::Fragment(error) => error.as_str(),
             Self::Disconnected => "template_disconnected",
             Self::AnchorUnknown => "template_anchor_unknown",
+            Self::TargetUnknown(_) => "template_target_invalid",
             Self::AnchorStereo => "template_anchor_stereo_unsupported",
             Self::Instance => "template_instance_invalid",
             Self::Direction => "template_direction_invalid",
@@ -53,6 +55,7 @@ impl fmt::Display for TemplateError {
             Self::Fragment(error) => write!(formatter,"{error}"),
             Self::Disconnected => formatter.write_str("Attachment requires one connected template component"),
             Self::AnchorUnknown => formatter.write_str("Choose an existing explicit local template atom"),
+            Self::TargetUnknown(atom) => write!(formatter,"Destination atom {atom} does not exist"),
             Self::AnchorStereo => formatter.write_str("This source anchor would lose a stored center or incident double-bond configuration"),
             Self::Instance => formatter.write_str("Attachment requires the explicit only destination placement"),
             Self::Direction => formatter.write_str("Attachment direction must be finite and nonzero"),
@@ -138,9 +141,7 @@ pub fn attach(
     }
     let origin = destination
         .position(instance, target)
-        .ok_or(TemplateError::Fragment(FragmentError::Invalid(
-            EditError::UnknownAtom(target),
-        )))?;
+        .ok_or(TemplateError::TargetUnknown(target))?;
     let scale = direction.dx.abs().max(direction.dy.abs());
     if !direction.dx.is_finite() || !direction.dy.is_finite() || scale == 0.0 {
         return Err(TemplateError::Direction);

@@ -93,6 +93,11 @@ fn inspection_plan_atomic_apply_notes_replay_and_persistence_preserve_both_sourc
     );
     assert_eq!(inspect["outcome"], "ok", "{inspect}");
     assert_eq!(
+        inspect["document_revision"],
+        Value::Null,
+        "source-only inspection has no document revision"
+    );
+    assert_eq!(
         inspect["result"]["atoms"]
             .as_array()
             .unwrap()
@@ -308,6 +313,55 @@ fn anchor_stereo_disconnected_style_target_direction_and_stale_requests_do_not_e
                 input.clone(),
             );
             assert_eq!(reply["outcome"], "error", "{reply}");
+            assert_eq!(snapshot(&app, &dest), before);
+        }
+    }
+}
+
+#[test]
+fn plan_and_apply_report_missing_targets_without_masking_invalid_fragment_references() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let (_, dest, payload) = seed(&app);
+    let before = snapshot(&app, &dest);
+    let mut malformed: Value = serde_json::from_str(&payload).unwrap();
+    malformed["bonds"][0]["end"] = json!("a999");
+    for (index, (target, invalid_source, reason)) in [
+        ("a99", false, "template_target_invalid"),
+        ("$0", false, "template_target_invalid"),
+        ("a1", true, "clipboard_fragment_invalid"),
+        ("a99", true, "clipboard_fragment_invalid"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut input = parameters(&dest, &payload);
+        input["atom"] = json!(target);
+        if invalid_source {
+            input["payload"] = json!(malformed.to_string());
+        }
+        for (suffix, operation) in [
+            ("plan", "document.template_plan"),
+            ("apply", "document.template_attach"),
+        ] {
+            let rejected = request(
+                &app,
+                &format!("target-{index}-{suffix}"),
+                operation,
+                input.clone(),
+            );
+            assert_eq!(rejected["outcome"], "error", "{rejected}");
+            assert_eq!(
+                rejected["diagnostics"][0]["code"], "invalid_command",
+                "{rejected}"
+            );
+            assert_eq!(
+                rejected["diagnostics"][0]["details"]["reason"], reason,
+                "{rejected}"
+            );
             assert_eq!(snapshot(&app, &dest), before);
         }
     }

@@ -122,3 +122,21 @@ test('template preview rejects unsupported destination and direction before netw
   await assert.rejects(client.previewTemplateAttachment(before, templateParameters()), { code: 'template_destination_invalid' })
   assert.deepEqual(requests, [])
 })
+
+test('source-only inspection accepts the real null revision envelope', async (t) => {
+  const result = { payload: templatePayload(), atoms: [{ id: 'a10', element: 'Cl', x: 100, y: 100, supported: true }] }
+  const requests = service(t, (body) => json(templateReply(body, result)))
+  assert.deepEqual(await new DocumentClient().inspectTemplate(templatePayload()), result)
+  assert.equal(requests.length, 1)
+  assert.equal(requests[0].operation, 'document.template_inspect')
+})
+for (const revision of [0, undefined, '0']) {
+  test(`source inspection refuses non-null revision ${String(revision)}`, async (t) => {
+    service(t, (body) => json({ ...templateReply(body, { payload: templatePayload(), atoms: [{ id: 'a10', element: 'Cl', x: 100, y: 100, supported: true }] }), document_revision: revision }))
+    await assert.rejects(new DocumentClient().inspectTemplate(templatePayload()), { code: 'incompatible_response' })
+  })
+}
+test('attachment planning still requires a numeric current document revision', async (t) => {
+  service(t, (body) => json({ ...templateReply(body, templateResult(true)), document_revision: null }))
+  await assert.rejects(new DocumentClient().previewTemplateAttachment(attachSource().document, templateParameters()), { code: 'incompatible_response' })
+})

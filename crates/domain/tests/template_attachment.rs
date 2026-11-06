@@ -423,3 +423,38 @@ fn direction_scaling_and_coordinate_limits_do_not_change_the_source_or_reserve_i
     );
     assert_eq!(dest.to_parts(), before);
 }
+
+#[test]
+fn destination_target_errors_do_not_reclassify_dangling_source_references() {
+    let (_, fragment) = source();
+    let dest = destination();
+    let before = dest.to_parts();
+    let missing = template::attach(
+        &fragment,
+        &dest,
+        dest.first_instance(),
+        atom(1),
+        atom(99),
+        Vector { dx: 1.0, dy: 0.0 },
+    )
+    .unwrap_err();
+    assert_eq!(missing, TemplateError::TargetUnknown(atom(99)));
+    assert_eq!(missing.reason(), "template_target_invalid");
+    let mut malformed = fragment;
+    malformed.bonds[0].bond.end = atom(99);
+    let invalid = template::attach(
+        &malformed,
+        &dest,
+        dest.first_instance(),
+        atom(1),
+        atom(1),
+        Vector { dx: 1.0, dy: 0.0 },
+    )
+    .unwrap_err();
+    assert_eq!(
+        invalid,
+        TemplateError::Fragment(FragmentError::Invalid(EditError::UnknownAtom(atom(99))))
+    );
+    assert_eq!(invalid.reason(), "clipboard_fragment_invalid");
+    assert_eq!(dest.to_parts(), before);
+}

@@ -406,7 +406,8 @@ try {
   stage = 'explicit source anchor inspection and read-only connection preview'
   const attachmentBefore = await shown()
   await button('Attach template file…').click()
-  await page.getByLabel('Template file for attachment', { exact: true }).setInputFiles(templatePath)
+  const inspectedFile = await operation('document.template_inspect', () => page.getByLabel('Template file for attachment', { exact: true }).setInputFiles(templatePath))
+  assert.equal(inspectedFile.document_revision, null, 'source-only inspection must not invent a document revision')
   await page.getByRole('status').filter({ hasText: 'Validated my-fragment.chemifree-fragment.json: 3 local atoms.' }).waitFor()
   const sourceAnchor = page.getByLabel('Source anchor', { exact: true })
   await sourceAnchor.click()

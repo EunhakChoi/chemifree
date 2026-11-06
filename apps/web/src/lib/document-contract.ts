@@ -1823,6 +1823,13 @@ function sameClipboardIds(first: readonly string[], second: readonly string[]): 
 }
 
 function clipboardReply(value: unknown, request: string, operation: string): { result: Record<string, unknown>; revision: number; losses: unknown[] } {
+  const { result, revision, losses } = operationDataReply(value, request, operation)
+  if (!isCount(revision)) throw clipboardIncompatible()
+  return { result, revision, losses }
+}
+
+/** Common envelope/error checks; each operation still validates its own revision semantics. */
+function operationDataReply(value: unknown, request: string, operation: string): { result: Record<string, unknown>; revision: unknown; losses: unknown[] } {
   if (!isRecord(value) || value.contract !== 1 || value.envelope !== 'operation_result' || value.request_id !== request ||
       value.operation !== operation || value.profile !== 'preserve-semantics' || !Array.isArray(value.diagnostics) || !Array.isArray(value.loss_report)) {
     throw clipboardIncompatible()
@@ -1836,7 +1843,7 @@ function clipboardReply(value: unknown, request: string, operation: string): { r
       stateReason: typeof problem.details.reason === 'string' ? problem.details.reason : undefined,
     })
   }
-  if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) || !isCount(value.document_revision) ||
+  if ((value.outcome !== 'ok' && value.outcome !== 'partial') || !isRecord(value.result) ||
       value.diagnostics.length !== 0 || (value.outcome === 'ok') !== (value.loss_report.length === 0)) throw clipboardIncompatible()
   return { result: value.result, revision: value.document_revision, losses: value.loss_report }
 }
@@ -2288,10 +2295,10 @@ export class DocumentClient {
   async inspectTemplate(payload: string): Promise<TemplateInspection> {
     if (!clipboardTextFits(payload)) throw new ApiError('template_byte_limit', 'Template files must be at most 64 KiB.', 0)
     const request = requestId()
-    const { result, losses } = clipboardReply(await this.write('/api/v1/operations', {
+    const { result, revision, losses } = operationDataReply(await this.write('/api/v1/operations', {
       contract: 1, request_id: request, profile: 'preserve-semantics', operation: 'document.template_inspect', parameters: { payload },
     }, 'reload'), request, 'document.template_inspect')
-    if (result.payload !== payload || losses.length !== 0 || !Array.isArray(result.atoms) || result.atoms.length === 0) throw clipboardIncompatible()
+    if (revision !== null || result.payload !== payload || losses.length !== 0 || !Array.isArray(result.atoms) || result.atoms.length === 0) throw clipboardIncompatible()
     const atoms: TemplateInspection['atoms'] = []
     for (const atom of result.atoms) {
       if (!isRecord(atom) || !clipboardId(atom.id, 'a') || typeof atom.element !== 'string' ||

@@ -1122,6 +1122,7 @@ try {
         bonds: [{ id: 'b10', begin: 'a10', end: 'a20', order: 'single', query: null, mark: null }], stereo: [] })
       const inspected = await both(() => request('op-template-inspect', 'document.template_inspect', { payload }))
       assert.equal(inspected.outcome, 'ok')
+      assert.equal(inspected.document_revision, null, 'source-only inspection has no document revision')
       assert.deepEqual(inspected.result.atoms.map(({ id, supported }) => [id, supported]), [['a10', true], ['a20', true]])
       const parameters = (id) => ({ document_id: id, expected_revision: 1, payload, instance: 's1', source_anchor: 'a10', atom: 'a1', direction: { dx: 0, dy: 2 } })
       const preview = await both((id) => request('op-template-plan', 'document.template_plan', parameters(id)))
@@ -1129,6 +1130,22 @@ try {
       assert.equal(preview.document_revision, 1, 'read-only plan reports the current source revision')
       const unchanged = await both((id) => request('op-template-before', 'document.snapshot', { document_id: id }))
       assert.deepEqual(unchanged.result.document, initial.result.document)
+      const malformedTemplate = JSON.parse(payload)
+      malformedTemplate.bonds[0].end = 'a999'
+      for (const operation of ['document.template_plan', 'document.template_attach']) {
+        for (const [name, target, bytes, reason] of [
+          ['missing-target', 'a99', payload, 'template_target_invalid'],
+          ['dangling-source', 'a1', JSON.stringify(malformedTemplate), 'clipboard_fragment_invalid'],
+          ['dangling-source-and-target', 'a99', JSON.stringify(malformedTemplate), 'clipboard_fragment_invalid'],
+        ]) {
+          const rejected = await both((id) => request(`op-template-${operation}-${name}`, operation, { ...parameters(id), atom: target, payload: bytes }))
+          assert.equal(rejected.outcome, 'error')
+          assert.equal(rejected.diagnostics[0].code, 'invalid_command')
+          assert.equal(rejected.diagnostics[0].details.reason, reason)
+          const preserved = await both((id) => request(`op-template-${operation}-${name}-snapshot`, 'document.snapshot', { document_id: id }))
+          assert.deepEqual(preserved.result.document, initial.result.document)
+        }
+      }
       const attach = (id) => request('op-template-attach', 'document.template_attach', parameters(id))
       const attached = await both(attach)
       assert.equal(attached.outcome, 'ok')

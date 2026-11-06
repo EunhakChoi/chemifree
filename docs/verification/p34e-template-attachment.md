@@ -121,6 +121,26 @@ unknown을 assertion/any로 우회하거나 잘못된 record를 허용하지 않
 다른 callback 경계도 정적으로 대조했다. 작성자는 typecheck·테스트·빌드·브라우저·push를
 실행하지 않았다. 수정 HEAD의 재검증과 full/CI는 부모 실행 대기다.
 
+## 세 번째 targeted 결과와 source inspection envelope 수정
+
+부모의 `96b44eea07c6dc9d3706e19b8a55e17536cc2be7` 격리 targeted3에서 lint/typecheck,
+client 553/553, build는 통과했지만 real-backend user-template browser는 source 파일
+검증 단계에서 실패했다. 로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34e-targeted3.log`이며
+UI의 incompatible clipboard reply 뒤 `Validated ... 3 local atoms.` 대기가 timeout했다.
+전체 exit1, peak anon1175 MiB/page cache2853 MiB, cap6144 MiB/swap0이다.
+
+정적 대조 결과 backend의 document.template_inspect는 문서 없는 source 검사이므로
+정확히 document_revision:null을 반환하는데, client가 numeric revision 필수 clipboardReply를
+재사용해 성공 응답을 거절했다. 공통 envelope/error 검증을 재사용하는 operationDataReply와
+numeric revision을 계속 강제하는 clipboardReply wrapper로 분리하고 inspect만 명시 null을
+요구하도록 고쳤다. source eligibility/ID/좌표/runtime 검증은 유지한다. 유효 source-only
+inspection positive, non-null/missing revision 거절, plan의 null revision 거절 client 회귀와
+Application/HTTP=CLI/browser의 실제 null envelope 기대값을 추가했다. 기존 음성 inspection
+사례만으로 정상 경로가 검증됐다고 주장하지 않는다.
+
+작성자는 로그 읽기와 정적 수정만 했으며 테스트·빌드·브라우저·push를 실행하지 않았다.
+수정 HEAD의 실제 file/preview/attach/history/recovery 단계와 current full/CI는 재검증 대기다.
+
 ## 실행 대기
 
 부모의 공유 격리 실행 지시에 따라 테스트·빌드·브라우저·lint/typecheck/clippy·mutation·
@@ -144,13 +164,23 @@ request/process 변경→immutable/restart 검사다. mutation은 실행하지 �
 
 ## 리뷰와 처분
 
+- [PR #180 Codex P2](https://github.com/EunhakChoi/chemifree/pull/180#discussion_r4489698805):
+  유효하지만 없는 destination atom ID가 native fragment 오류로 감싸져 문서의
+  template_target_invalid와 달랐다는 지적을 수용했다. target lookup에 전용 typed
+  TargetUnknown(AtomId)을 두어 해당 진단만 분리하고, source의 UnknownAtom 같은 fragment
+  오류는 기존 clipboard_fragment_invalid로 유지했다. Domain과 Application plan/apply,
+  실제 HTTP=CLI에 missing target·malformed target·dangling source(및 동시에 missing target)
+  분류와 완전 snapshot 불변 회귀를 작성했다. 광범위 UnknownAtom 재분류는 하지 않았다.
+  이 수정과 inspection envelope 수정은 실행 중인 이전 snapshot의 결과와 별개이며
+  테스트·빌드·브라우저·push 없이 작성했다. 재검증과 full/CI는 pending이다.
+
 - Codex 작성자 정적 검토: Domain fragment/style/connectedness/anchor/stereo/limits와 clone
   plan·atomic mutation·fingerprint/replay, API/catalog, preview/live provenance와 동일 response
   검증, UI blank choices/input invalidation/closed dialog recovery를 대조했다. 작성 중
   dispatcher의 잘못된 변수명을 known.operation으로 정정하고 finite 좌표·operation summary
   기대값·source/destination status를 보강했다. read-only plan의 envelope revision은 candidate가
   아닌 current source를 보고하도록 정정하고 Application/HTTP=CLI/client 검사를 맞췄다.
-  실행 근거는 없다. PR Codex review는 대기다.
+  작성자 검토 자체는 정적이며 실행 근거와 PR Codex 지적 처분은 위 별도 기록을 따른다.
 - 독립 fresh-context `/root/p34b_decision/p34e_review` 1회: base8113f0f tracked diff와 새
   Domain/Application/UI/client·작성 회귀를 읽기 전용 검토했다. backend는 기존 의미와
   맞고 arbitrary scope expansion 추가 지적은 없었다. P2 하나는 copied-stereo response
