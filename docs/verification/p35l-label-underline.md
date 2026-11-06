@@ -54,3 +54,22 @@ The complete review identity, reviewed head and timing are recorded in the PR.
 
 Verification of this review fix: source/document comparison and `git diff --check`
 only. No tests or builds were run for this documentation-only change.
+
+
+## Browser failure diagnosis: 4pt multi-run measurement keys
+
+The isolated browser log reported zero underline rectangles for a five-run label
+on its first sans-serif/normal/4pt case. Static arithmetic tracing establishes a
+product measurement lookup failure: the isotope/charge absolute shift is
+`-5 * (4/12) = -1.6666666666666665`, while the rendered relative SVG dy values
+reconstruct its last run as `1.3333333333333333 - 3 = -1.6666666666666667`.
+Exact JSON keys therefore differed despite identical intended layout. The whole
+chunk measurement was missed, producing no rectangles; caption-count-only
+completeness nevertheless reported ready.
+
+The fix normalizes only lookup-key coordinates to one billionth of a point;
+actual measured and painted coordinates are retained. Every measured chemical
+chunk must also have actual SVG evidence before bounds are reported ready.
+The existing strict 4pt/72pt browser matrix and rectangle count assertions remain
+unchanged. Diagnosis used the supplied failure log, source inspection and numeric
+arithmetic tracing. No test, build or browser execution was run for this fix.

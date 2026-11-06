@@ -372,8 +372,10 @@ export function StructureCanvas({
 
   const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
   const measuredLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic' || settingsOf(document).label_underline
-  const captionMeasurementComplete = (captionCount === 0 && !measuredLabels) || (captionMeasurement?.document === document &&
-    captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount)
+  const chemicalMeasurementComplete = !measuredLabels || drawings.every((drawing) =>
+    [...drawing.labels.values()].every((label) => label === null || label.chunks.every((chunk) => chunk.measured)))
+  const captionMeasurementComplete = chemicalMeasurementComplete && ((captionCount === 0 && !measuredLabels) || (captionMeasurement?.document === document &&
+    captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount))
   const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box, {
     // Opening fit needs the first complete measurement, even though fitting will
     // change the viewport and require a second measurement there.

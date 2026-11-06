@@ -53,6 +53,8 @@ export interface LabelChunk {
   box: Box
   /** Explicit underline ink, relative to the atom, one rectangle per chemical run. */
   underlines: Box[]
+  /** True only when actual SVG chunk ink and advances were found for this layout. */
+  measured: boolean
 }
 
 /** A dot of a radical mark, relative to the atom; a hollow one is drawn as a ring. */
@@ -223,7 +225,11 @@ export interface LabelMetrics {
 }
 
 function chunkMetricKey(runs: LabelRun[], font: LabelFont, scale = 1): string {
-  return JSON.stringify([font, runs.map((item) => [item.text, item.size * scale, item.shift * scale, item.weight, item.style])])
+  // Layout scales absolute shifts; SVG reconstructs them by summing relative dy values.
+  // Normalize key coordinates to a billionth of a point so floating-point cancellation
+  // cannot discard a valid measurement. Painted and measured coordinates stay unrounded.
+  const coordinate = (value: number) => Math.round(value * 1e9) / 1e9
+  return JSON.stringify([font, runs.map((item) => [item.text, coordinate(item.size * scale), coordinate(item.shift * scale), item.weight, item.style])])
 }
 
 function labelMetricKey(text: string, size: number, font: LabelFont, weight: LabelRun['weight'], style: ChemicalLabelStyle): string {
@@ -435,6 +441,7 @@ function chunk(
     runs,
     box: underlines.length ? union([ink, ...underlines]) : ink,
     underlines,
+    measured: actual !== undefined,
   }
 }
 
@@ -589,7 +596,7 @@ export function compactLabel(text: string, style: Readonly<LabelStyle>): AtomLab
   if (style.weight !== 'bold' && style.style !== 'italic' && !style.underline) {
     const width = textWidth(text, style.size, style.font)
     const box = { x: -width / 2 - 1, y: -style.size * 0.65, width: width + 2, height: style.size * 1.3 }
-    return { chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0, runs: [run(text, style.size, 0, 'symbol', 500)], box, underlines: [] }], marks: [], dots: [], box, font: style.font }
+    return { chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0, runs: [run(text, style.size, 0, 'symbol', 500)], box, underlines: [], measured: false }], marks: [], dots: [], box, font: style.font }
   }
   const item = run(text, style.size, 0, 'symbol', style.weight === 'bold' ? 700 : 500, style.style)
   const content = chunk(style.font, 'text', 'middle', 0, 0, [item], style.metrics, 1, style.underline)
