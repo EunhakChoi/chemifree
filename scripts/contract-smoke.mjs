@@ -1125,6 +1125,11 @@ try {
           commands: [{ op: 'update_caption', object: 's2', anchor: { x: 0, y: 0 }, runs: [{ text: 'H', script: 'baseline', [field]: value }] }] }))
         assert.equal(badStyle.diagnostics[0].code, 'invalid_request')
       }
+      for (const [index, underline] of [null, 0, 1, 'true', 'false', [], {}].entries()) {
+        const badUnderline = await both((id) => request(`op-caption-underline-invalid-${index}`, 'document.transaction', { document_id: id, expected_revision: 1,
+          commands: [{ op: 'rename', title: 'must roll back' }, { op: 'update_caption', object: 's2', anchor: { x: 20, y: 30 }, runs: [{ text: 'H', script: 'baseline', underline }] }] }))
+        assert.equal(badUnderline.diagnostics[0].code, 'invalid_request')
+      }
       for (const [index, color] of ['red', '#abc', '#abcdef', '#12345678', 'var(--foreground)', 'url(javascript:alert(1))', 0, false, [], {}].entries()) {
         const badColor = await both((id) => request(`op-caption-color-invalid-${index}`, 'document.transaction', { document_id: id, expected_revision: 1,
           commands: [{ op: 'rename', title: 'must roll back' }, { op: 'update_caption', object: 's2', anchor: { x: 20, y: 30 }, runs: [{ text: 'H', script: 'baseline', color }] }] }))
