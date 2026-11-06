@@ -2,11 +2,14 @@
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
-## P33k 실제 backend 문서 간 native clipboard 인수 검증 후보
+## P33 bounded 완료 기록
 
-- `npm run test:browser:clipboard-integration`은 isolated 임시 data의 실제 API process와 Vite proxy를 통해 production native/graphics panel·editor hook·client·Application·Domain을 연결한다. HTTP 응답은 대체하지 않으며 browser clipboard plain-text transport만 교체한다. 작은 harness의 문서 전환·명시 선택 버튼을 사용하므로 전체 editor navigation/canvas selection 인수 검증은 아니다.
-- graph의 secondary placement·induced 내부 결합·crossing 보고·새 ID·원자 속성/mark/좌표, nested graphic forest의 subtree dedup·root 순서·containment·내부 cycle/self-reference mapping·복수 destination placement와 기존 chemistry 보존을 단정한다. 두 경로 모두 원본 불변·한 단계 Undo/Redo와 이전/새 선택 복구, clipboard를 바꾸지 않는 history를 검사한다. 실제 backend style mismatch 거절의 document/revision/history 원자성도 확인한다.
-- CI browser job에 연결했으나 부모의 공유 격리 검증 지시에 따라 이 변경에서는 test/build/browser와 mutation 검증을 실행하지 않았다. 통과·review·P33 완료 근거로 주장하지 않는다. 원본 DLL·외부 화학 엔진·새 production 동작은 추가하지 않았다. 상세 범위와 실행 명령은 [검증 계획](verification/p33k-native-clipboard-integration.md)을 따른다.
+- 로드맵 P33의 명시 scope/acceptance에 한해 `done`으로 기록한다. graph v1·graphic forest v2 분리, 정확히 같은 destination style, graph paste 한 placement, graph Cut 한 source placement·crossing/incoming graph reference 거절을 유지한다. graphic forest는 복수 destination placement를 허용하지만 instance·mixed graph·outgoing/graph refs·child 두 개 미만 group을 거절하고 Cut은 외부 incoming도 거절한다.
+- MOL·SMILES는 기존 문서 append, CDXML text import(P33i)는 새 도면 생성이다. Instance 복제·enhanced-stereo-group graph 복사·global shortcut·custom MIME·external Cut·Windows/OLE는 범위 밖이다. OS clipboard 권한 성공·외부 앱 호환·전체 editor canvas/navigation을 clipboard harness로 입증하지 않았다. 상위 OPS/CODEC 요구사항은 partial이다.
+- #172 head `7e7c921fae0ce2e4f3e6f5ff8222ca2859698dca`의 isolated `npm run check`·standard browser·8개 clipboard browser 명령과 [PR CI check/browser](https://github.com/EunhakChoi/chemifree/actions/runs/42148445439)가 통과했다. main merge `1082293`의 [post-merge CI](https://github.com/EunhakChoi/chemifree/actions/runs/42149543576)도 통과했다. 완료 문서 자체의 최종 리뷰 지적 처리와 current-head CI는 별도 확인 대상이다. 근거·제한은 [P33 완료 기록](verification/p33-clipboard-completion.md)을 따른다.
+- P33k는 실제 API·Application·Domain의 graph/forest 문서 간 Copy/Paste, 원본 불변·fresh IDs/속성/내부 refs·한 단계 Undo/Redo·선택·style 거절 원자성을 확인했다. Browser clipboard transport만 대체하며 Cut의 실제 backend 연계나 전체 editor navigation을 검증한 것으로 확대하지 않는다.
+
+아래 P33a–j는 각 slice 작성 당시의 구현·실행 기록이다. 당시 미실행/진행 중 표기는 현재 전체 검증 상태가 아니며 위 완료 기록을 따른다. 이 문서 변경에서는 test/build/browser를 실행하지 않았다.
 
 ## P33j graphic forest Cut 후보 인계
 
@@ -78,7 +81,7 @@
 - payload는 `format: "chemifree.clipboard"`, `version: 1`의 data-only JSON 문자열이다. UTF-8 64 KiB, projected command 500개와 기존 domain 한도를 적용하며 미상 필드·중복 JSON 키·ID·끊긴 참조·부정합 상태를 거절한다. nullable isotope/query/mark도 키는 필수이며 null 값도 생략하지 않고 명시한다. 임의 명령을 실행하는 형식이 아니다.
 - 기록된 원자/결합 상태·mark와 완전한 저장 0D 입체는 보존한다. 이웃이 빠진 저장 입체와 선택 원자가 속한 enhanced stereo group은 전체 거절한다. paste는 단일 destination placement와 source/destination settings의 정확한 일치를 요구하고 명시한 offset을 적용하며 fresh atom/bond ID mapping을 돌려준다. 붙인 대상을 selection_after로 둔 한 원자적 transaction으로 Undo/Redo·revision·request replay 규칙을 따른다.
 - P33a 도입 시 카탈로그는 연산33개(기본 실행23개)였으며 현재 수는 P33e 절을 따른다. `p33a-final-targeted.log`에 기록된 제한 실행은 domain `native_fragment` 10/10, application `native_clipboard` 10/10, `operations` 11/11과 scoped clippy 통과다. 격리 sandbox exit 0, peak real(anon) 1,244 MiB, cap 6,144 MiB·swap 0으로 끝났다. 이 결과는 전체 check·브라우저·CI나 새 conformance 실행 근거가 아니다.
-- P33은 `in_progress`다. P33a 도입 당시 backend-only였으며 P33b가 아래의 제한된 명시 browser clipboard/native-text 제어를 더한다. P33c가 단일 배치의 닫힌 graph fragment Cut을 더하며 scene hierarchy 복사·외부 clipboard 형식은 미구현이다. 전체 clipboard 완료를 뜻하지 않는다. 상세 wire·거절·범위는 CONTRACT.md의 Native graph-fragment copy and paste 절을 따른다.
+- P33은 `in_progress`다. P33a 도입 당시 backend-only였으며 P33b가 아래의 제한된 명시 browser clipboard/native-text 제어를 더한다. P33c가 단일 배치의 닫힌 graph fragment Cut을 더하며 graphic forest는 P33e/P33f/P33j, 지원 chemical-text bridge는 P33d/P33g/P33h/P33i에서 제공한다. 전체 clipboard 완료를 뜻하지 않는다. 상세 wire·거절·범위는 CONTRACT.md의 Native graph-fragment copy and paste 절을 따른다.
 
 - clean isolated suite29 실제 실행은 107/107 passed(accept 78·reject 29, failed 0·not_run 0)이며 `native-clipboard-copy-paste-history`와 `native-clipboard-refusals-atomic` 두 사례도 통과했다. [실행 기록](verification/conformance-report.json)을 갱신했고 OPS-01.native-clipboard의 case 근거에 연결한다. 이 결과는 전체 check·브라우저·CI 완료나 P33 전체 완료를 뜻하지 않는다.
 
@@ -108,7 +111,7 @@
 - `document.clipboard_scene_copy/paste`를 별도 backend 연산으로 추가한다. object-only outermost 선택을 source paint order의 forest로 복사하고 group child order·graphic 두 점·내부 object reference를 보존한다. self/cyclic directed reference는 허용하고 containment cycle·공유 child는 거절한다. 외부 owner의 incoming ref는 source에만 남고 copied owner의 outgoing/graph ref는 전체 거절한다.
 - molecule instance(하위 포함)·명시 atom/bond·empty/unknown 선택·child 두 개 미만 group은 거절하며 flatten/dummy object/chemistry clone은 없다. 엄격한 version2 kind graphics data-only payload는 roots/children만 containment를 담고 모든 필드가 필수다. 64KiB·정확한 settings·finite offset·실제 object+reference 500-command와 기존 object/depth/reference/ID/좌표 한도를 검사한다.
 - paste는 source root 순서를 page 끝에 붙이고 fresh object IDs로 모든 내부 reference를 remap한다. selection-after는 새 roots이며 mixed selection-before·Undo/Redo를 보존한다. graph/stereo/instance/위치는 바꾸지 않아 여러 placement destination도 받는다. 전체 candidate와 mapping을 commit 전 확인하며 replay mapping은 현재 번호가 아닌 원래 응답의 roots/children에서 복구한다. 루트 painting order와 숫자 ID 순서는 다를 수 있다.
-- 카탈로그는 연산35개·기본 실행25개이며 transaction sub-operation46개(명령35/capability11)는 그대로다. 격리 targeted domain10·integration6·operations11·codec13 및 scoped clippy가 통과했고, 후속 signed-zero replay 비트 바인딩 수정의 회귀·scoped clippy도 통과했다. 두 conformance 사례의 scene.objects 기대 배열을 DFS paint order로 바로잡은 뒤 clean isolated suite30은109/109 passed(accept79/reject30, failed0/not_run0)이며 [export 보고서](verification/conformance-report.json)에 scene forest/history·atomic refusal 두 사례를 포함한다. 전체 check/browser/CI나 P33 완료를 주장하지 않는다. P33f가 아래의 웹 scene clipboard 후보를 더하며 scene Cut·molecule instance clone·외부 scene format은 미구현이고 P33은 in_progress다.
+- 카탈로그는 연산35개·기본 실행25개이며 transaction sub-operation46개(명령35/capability11)는 그대로다. 격리 targeted domain10·integration6·operations11·codec13 및 scoped clippy가 통과했고, 후속 signed-zero replay 비트 바인딩 수정의 회귀·scoped clippy도 통과했다. 두 conformance 사례의 scene.objects 기대 배열을 DFS paint order로 바로잡은 뒤 clean isolated suite30은109/109 passed(accept79/reject30, failed0/not_run0)이며 [export 보고서](verification/conformance-report.json)에 scene forest/history·atomic refusal 두 사례를 포함한다. 전체 check/browser/CI나 P33 완료를 주장하지 않는다. P33f가 아래의 웹 scene clipboard 후보를 더하며 scene Cut은 P33j에서 제공하며 molecule instance clone·외부 scene format은 미구현이고 P33은 in_progress다.
 
 ## P33f 명시 graphic forest clipboard 웹 후보 인계
 
@@ -116,7 +119,7 @@
 - 읽기 전용 prepare 뒤 별도 Copy to clipboard 클릭에서 browser write를 직접 시작한다. Select native graphics text와 read-only textarea는 수동 대안이다. Paste 열기는 clipboard를 읽지 않고 Read clipboard/수동 입력 뒤 별도 제출만 local service에 보낸다. UTF-8 64KiB를 자르지 않고 제한하며 offset은 각 축 destination bond length 한 개 pt로 시작한다.
 - paste의 text·offset·document·mixed selection-before·service generation은 제출 때 고정하고 queue 실행 때 최신 revision을 쓴다. 여러 destination placement를 받으며 page 끝 새 roots를 선택한다. Undo/Redo는 기존 mixed 선택/새 roots를 복구한다. client는 전체 forest/내부 refs·fresh mapping·translated geometry·root/child order와 graph/stereo/instance/기존 scene 불변을 확인한다. wire objects 배열의 나열 순서와 paint order는 구별한다.
 - scene_paste는 기존 graph Cut/Paste·MOL import와 미확정 mutation gate를 공유한다. lost/malformed reply는 동일 request/body/process만 확인하고 후속 document queue action을 잠근다. Check graphics paste outcome은 clipboard를 다시 건드리지 않는다. restart/old-process held success/terminal replay conflict는 명시 reload로 reconcile하며 새 process에 재전송하지 않는다.
-- dialog 종료/문서 전환은 임시 text와 지연 UI callback을 폐기하되 미확정 시도 추적은 유지한다. background read·payload logging/storage·custom MIME·global shortcut·scene Cut·molecule clone·외부 scene format은 추가하지 않았다. parent-run 격리 targeted lint/typecheck·전체 client444개·web build 및 npm run test:browser:scene-clipboard가 통과했다. 새 graphics browser command를 CI browser job에 연결했지만 그 CI 실행·전체 npm run check·일반 browser 성공·P33 완료는 주장하지 않는다. 기존 slice 실행 근거를 새 웹 근거로 세지 않으며 P33은 in_progress다.
+- dialog 종료/문서 전환은 임시 text와 지연 UI callback을 폐기하되 미확정 시도 추적은 유지한다. background read·payload logging/storage·custom MIME·global shortcut·molecule clone·외부 scene format은 추가하지 않았다. 이 Copy/Paste slice 뒤 P33j가 scene Cut을 제공한다. parent-run 격리 targeted lint/typecheck·전체 client444개·web build 및 npm run test:browser:scene-clipboard가 통과했다. 새 graphics browser command를 CI browser job에 연결했지만 그 CI 실행·전체 npm run check·일반 browser 성공·P33 완료는 주장하지 않는다. 기존 slice 실행 근거를 새 웹 근거로 세지 않으며 P33은 in_progress다.
 
 ## P33g 명시 SMILES text clipboard bridge 후보 인계
 
