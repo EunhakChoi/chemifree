@@ -115,3 +115,20 @@ Added an application regression comparing add/update caption coordinate errors w
 existing graphic-command error, including complete diagnostics, index and atomic snapshot
 preservation; a content-invalid case separately pins `caption_invalid`. This follow-up has
 not run tests/build/browser or push. Only formatting and diff inspection were performed.
+
+## Second parent-run targeted result and fixture corrections
+
+The parent verifier's `p35a-targeted2.log` for `c28da14` reports Domain 5/5 and application
+2/4. Replay/save/reopen/crash-draft and coordinate error parity passed. The other two tests
+failed because the new test used the wrong existing contracts: MOL/SDF export requires
+`records: [{document_id}]`, SMILES additionally requires `style`, and clipboard domain
+refusals use `invalid_command` plus `details.reason`, not a new top-level code.
+
+Compared the actual CT/SMILES/interchange parameter DTOs, existing export fixtures and
+consent code. Corrected and expanded the table to MOL/SDF V2000 and V3000, recorded/canonical
+SMILES, CDXML drawing and CDX drawing (eight cases). Each case now pins no content before
+consent, the exact caption loss/source path, rejected wrong digest, accepted content and
+same loss after valid digest, plus unchanged document/session. Corrected clipboard checks
+pin the existing envelope, reason, current revision and null result. No product mapping was
+changed: source inspection confirms all these paths already use the caption-aware loss
+collectors and common consent flow. Corrected fixtures have not been run by this agent.
