@@ -257,6 +257,14 @@ function SettingsFields({
         onChange={(value) => void onSet({ label_underline: value === 'on' })}
       />
       <ChoiceSetting
+        id={`${idPrefix}-label-outline`}
+        label="Outline labels"
+        value={settings.label_outline ? 'on' : 'off'}
+        options={['off', 'on']}
+        names={{ off: 'Off', on: 'On' }}
+        onChange={(value) => void onSet({ label_outline: value === 'on' })}
+      />
+      <ChoiceSetting
         id={`${idPrefix}-label-style`}
         label="Label style"
         value={settings.label_style}

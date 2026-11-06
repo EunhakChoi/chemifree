@@ -1588,6 +1588,7 @@ Every document has its own **settings**, its style. They are saved with it, chan
 | `label_weight` | `normal \| bold` | `normal` |
 | `label_style` | `normal \| italic` | `normal` |
 | `label_underline` | boolean | `false` |
+| `label_outline` | boolean | `false` |
 | `label_size_pt` | finite, 4–72 | 12 |
 | `carbon_labels` | `default` (a bonded carbon that records nothing is a bare vertex; every other carbon is labelled) `\| all` | `default` |
 | `display_unit` | `pt \| mm \| cm \| in` | `pt` |
@@ -1604,7 +1605,7 @@ Lengths are always stored in pt (1 in = 72 pt = 25.4 mm); `display_unit` only sa
 ```json
 { "api_version": "v1", "revision": 2, "ui": { "theme": "dark" },
   "new_documents": { "label_font": "serif" },
-  "new_document_settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" },
+  "new_document_settings": { "bond_length_pt": 30, "line_width_pt": 1.2, "label_font": "serif", "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false, "label_size_pt": 12, "carbon_labels": "default", "display_unit": "pt" },
   "computation": {
     "nmr": { "status": "not_implemented", "owner": "preferences", "followup": "P66", "note": "..." },
     "numeric_precision": { "status": "not_implemented", "owner": "preferences", "followup": "P60", "note": "..." },
@@ -1767,14 +1768,15 @@ Allowed web origins default to `http://127.0.0.1:5173`, `http://localhost:5173`,
 
 ## Document file format
 
-`<data-dir>/documents/<id>.json` is owner-only on Unix. Version 20 is compact JSON with a final newline. It contains `format: "chemifree.document"`, `format_version: 20`, `document`, and `history`. The document contains its `id`, `revision`, `title`, molecule and one page, ordered `roots`, typed `objects`, directed `references`, instance/atom `positions`, `stereo`, `stereo_groups`, `selection`, `settings`, and `next_atom`, `next_bond`, `next_object`, and `next_group` counters. Instances name `m1`; groups contain ordered child IDs; graphics contain their shape and two points. Atom and bond states are as in the API, except that a bond state may also hold a stereo `mark` (below). `stereo_groups` is a required list of enhanced-stereo groups `{ "id": "e<n>", "state": { "kind": "absolute" | "and" | "or", "number": <integer> | null, "members": [atom IDs] } }` in ID order (written ascending, read in any order like every list in the file; a member listed twice is refused); `number` is always present and is stored as stated (the full 32-bit integer range, `0` and negatives included, `null` for none), `next_group` is at least one above every group ID in the document or its history, and each history entry holds a required `stereo_groups` list of `{ "id", "before", "after" }` with the whole group or `null`. A document that does not satisfy the stored-group rules is unreadable: every member is an atom with a stored tetrahedral configuration (not `unknown`), a group has at least one member and no member twice, an atom is in at most one group, an `absolute` group has no number and there is at most one, and per kind (`and`, `or`) no two groups have the same number, where no number counts as `0`. The groups are edited and shown as described under [Stereo groups](#stereo-groups).
+`<data-dir>/documents/<id>.json` is owner-only on Unix. Version 21 is compact JSON with a final newline. It contains `format: "chemifree.document"`, `format_version: 21`, `document`, and `history`. The document contains its `id`, `revision`, `title`, molecule and one page, ordered `roots`, typed `objects`, directed `references`, instance/atom `positions`, `stereo`, `stereo_groups`, `selection`, `settings`, and `next_atom`, `next_bond`, `next_object`, and `next_group` counters. Instances name `m1`; groups contain ordered child IDs; graphics contain their shape and two points. Atom and bond states are as in the API, except that a bond state may also hold a stereo `mark` (below). `stereo_groups` is a required list of enhanced-stereo groups `{ "id": "e<n>", "state": { "kind": "absolute" | "and" | "or", "number": <integer> | null, "members": [atom IDs] } }` in ID order (written ascending, read in any order like every list in the file; a member listed twice is refused); `number` is always present and is stored as stated (the full 32-bit integer range, `0` and negatives included, `null` for none), `next_group` is at least one above every group ID in the document or its history, and each history entry holds a required `stereo_groups` list of `{ "id", "before", "after" }` with the whole group or `null`. A document that does not satisfy the stored-group rules is unreadable: every member is an atom with a stored tetrahedral configuration (not `unknown`), a group has at least one member and no member twice, an atom is in at most one group, an `absolute` group has no number and there is at most one, and per kind (`and`, `or`) no two groups have the same number, where no number counts as `0`. The groups are edited and shown as described under [Stereo groups](#stereo-groups).
 
-Every v20 `settings` object, in the current document and both before/after history
-states, requires boolean `label_underline`. Versions 1–19 omit that field and
+Every v21 `settings` object, in the current document and both before/after history
+states, requires boolean `label_outline` and `label_underline`. Versions 1–20
+omit outline and migrate it to false. Versions 1–19 omit underline and
 migrate it to false; a field hidden behind an earlier header is refused. The
 existing `label_weight` requirement starts at v18 and `label_style` at v19;
-earlier versions migrate each to normal. Reading accepts versions 1–20 and
-refuses future versions, including v21, without rewriting their bytes.
+earlier versions migrate each to normal. Reading accepts versions 1–21 and
+refuses future versions, including v22, without rewriting their bytes.
 
 The v9 document also requires `abbreviations: [{ instance, anchor, terminal }]`, including
 an empty list when no Et display exists. Every history entry requires `abbreviations` changes
@@ -1791,11 +1793,11 @@ Each history change set records the title, atoms, bonds, page roots, scene objec
 
 Loading rejects unknown fields or versions, files over 64 MiB, invalid atom and bond states, a mark on a bond order that cannot carry it, stereo records whose atoms, bonds, neighbors, or order do not fit the graph they are stored with, repeated or dangling entities and references, malformed trees, incorrect positions, counters that could reuse IDs, and history that cannot replay in both directions. It also rejects a stored selection that matches neither the newest undo entry after an edit or redo nor the nearest redo entry before an undo. Both boundaries can be valid after undo, undo, redo. History cannot change a scene object kind or graphic shape or reuse a deleted entity ID. History beyond the limits is trimmed oldest undo first and then farthest redo; when every undo entry is trimmed, selection follows the nearest redo boundary. A rejected file is listed as unreadable and left untouched. Finite floats round-trip bit-exactly. This is a working format, not MOL, SDF, CDXML, or SMILES.
 
-Versions 1–19 documents and drafts are read and migrated in memory, including history. Version 7 has no captions. Captions in a v1–7 current or history state are refused, rather than reinterpreted as a newer file. Version 1 combined atoms and their single positions; migration separates graph and `s1` positions. Version 2 had only element atoms and single/double/triple bonds; migration fills recorded-state defaults. Version 3 already holds those recorded states and separate instances. Versions 2 and 3 reconstruct page roots at each historical boundary in instance ID order; all three start with empty selection and references. Version 4 already holds the scene tree, references and selection; migration preserves those and adds the built-in style. Version 5 already holds the settings; migration adds no marks and no stereo records, and a version 5 file that contains either is refused. Version 6 already holds those; migration adds an empty group list and `next_group` 1, and a version 6 file that contains `stereo_groups` or `next_group`, in the document or in a history entry, is refused (as is a version 7 file that omits them). History that exceeds the current change limit is trimmed as above. Reading never writes.
+Versions 1–20 documents and drafts are read and migrated in memory, including history. Version 7 has no captions. Captions in a v1–7 current or history state are refused, rather than reinterpreted as a newer file. Version 1 combined atoms and their single positions; migration separates graph and `s1` positions. Version 2 had only element atoms and single/double/triple bonds; migration fills recorded-state defaults. Version 3 already holds those recorded states and separate instances. Versions 2 and 3 reconstruct page roots at each historical boundary in instance ID order; all three start with empty selection and references. Version 4 already holds the scene tree, references and selection; migration preserves those and adds the built-in style. Version 5 already holds the settings; migration adds no marks and no stereo records, and a version 5 file that contains either is refused. Version 6 already holds those; migration adds an empty group list and `next_group` 1, and a version 6 file that contains `stereo_groups` or `next_group`, in the document or in a history entry, is refused (as is a version 7 file that omits them). History that exceeds the current change limit is trimmed as above. Reading never writes.
 
-Before the first save over a version 1–19 document, under the save lock, the provider writes and flushes the exact old bytes to `migrated/<id>.v<version>.json` before replacing the document. A failed copy fails the save and preserves the old file. A different old file with the same ID gets the next free numbered name; identical bytes are not copied again. These backups are not listed or treated as documents. Unknown versions are refused and left untouched.
+Before the first save over a version 1–20 document, under the save lock, the provider writes and flushes the exact old bytes to `migrated/<id>.v<version>.json` before replacing the document. A failed copy fails the save and preserves the old file. A different old file with the same ID gets the next free numbered name; identical bytes are not copied again. These backups are not listed or treated as documents. Unknown versions are refused and left untouched.
 
-A recovery draft uses `format: "chemifree.draft"`, version 20, `base_revision`, `saved_at_ms`, and the same `document` and `history` shapes. Old drafts migrate in memory and inspection writes nothing. Recovery can retain an already complete draft in its earlier version; an autosave with no new undrafted edit does not rewrite it. The next actual draft write uses the current version. Before recovery or recovery as a copy can rewrite or remove an old draft, the provider keeps the exact bytes it claimed under `migrated/<id>.draft.v<version>.json`; different bytes get numbered copies and identical bytes are not duplicated. If preservation fails, recovery fails and the draft stays abandoned. Explicit discard removes the draft without creating a copy. An old draft left as `drafts/<id>.committing` by an interrupted successful save is preserved before cleanup. Other files include `trash/<id>.json` and `trash/<id>.deleted`, migrated copies, `locks/<id>.lock`, `drafts/<id>.owner`, `drafts/<id>.committing`, and abandoned temporary files. Draft ownership and save locking remain distinct.
+A recovery draft uses `format: "chemifree.draft"`, version 21, `base_revision`, `saved_at_ms`, and the same `document` and `history` shapes. Old drafts migrate in memory and inspection writes nothing. Recovery can retain an already complete draft in its earlier version; an autosave with no new undrafted edit does not rewrite it. The next actual draft write uses the current version. Before recovery or recovery as a copy can rewrite or remove an old draft, the provider keeps the exact bytes it claimed under `migrated/<id>.draft.v<version>.json`; different bytes get numbered copies and identical bytes are not duplicated. If preservation fails, recovery fails and the draft stays abandoned. Explicit discard removes the draft without creating a copy. An old draft left as `drafts/<id>.committing` by an interrupted successful save is preserved before cleanup. Other files include `trash/<id>.json` and `trash/<id>.deleted`, migrated copies, `locks/<id>.lock`, `drafts/<id>.owner`, `drafts/<id>.committing`, and abandoned temporary files. Draft ownership and save locking remain distinct.
 
 Version 11 additionally requires caption `alignment` in every current and historical scene
 state, including redo-only captions; valid values are `left`, `center`, `right`. Versions 8–10
@@ -2198,3 +2200,33 @@ existing `drawing_settings` loss rather than pretending to preserve this styling
 
 P35 remains `in_progress`. New checks are authored but have not been run in the
 P35l implementation session; there is no browser or scientific validation claim.
+
+
+## Chemical label outline (P35m, in progress)
+
+`label_outline` is a document boolean, default false. Preferences copy it to new
+documents; HTTP, CLI and queued edits, reset, replay, undo/redo, save, recovery and
+save as copy share the setting. It hollows only element/query, stated H/count,
+isotope, charge and graph-preserving Et glyphs: fill none, current-color stroke
+at the effective run size / 16 with round joins. Explicit underline rectangles
+remain filled. Radical and attachment marks and independent caption runs keep
+their own appearance. Chemical graphs, recorded states and stereo are unchanged.
+
+Outline always requires actual mounted SVG chunk metrics, including normal
+400/500 runs. Each nonzero glyph-ink box gains its stroke radius (effective size
+/ 32); whitespace and zero-ink characters gain no false stroke box. The exact
+source metric key survives SVG without reconstructing floating-point shifts.
+Document/font/current-viewport provenance and all chemical chunk readiness gate
+fit and bounds; bond trimming, hit testing and selection share the measured box.
+
+Native document and draft v21 require a boolean in every current and historical
+settings state. Versions 1–20 omit it, migrate to false and retain exact source
+bytes before their first replacement; v22 is refused untouched. Clipboard and
+template payloads may omit it for false; explicit invalid values are refused and
+style matching includes outline. Existing nondefault-settings interchange losses
+cover this style. Existing history admission and 64 MiB read limits are retained.
+
+Checks are registered as `npm run test:browser:label-outline` in CI and client,
+application, clipboard and strict-native boundary coverage. They have not been
+executed in this implementation session, at the user's request. P35 remains
+`in_progress`; shadow and other chemical label typography remain future work.

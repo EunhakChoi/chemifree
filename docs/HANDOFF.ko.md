@@ -546,3 +546,16 @@ radical/attachment/caption과 graph/stereo/좌표는 독립이다. v1–19는 fa
 외부 내보내기 drawing_settings 손실을 유지한다. P35는 in_progress다.
 사용자 지시에 따라 tests/build/cargo check/browser는 실행하지 않았고
 fmt/diff만 수행한다. 검증 목록: docs/verification/p35l-label-underline.md.
+
+## P35m: chemical label outline (in_progress)
+
+`label_outline: bool` 기본 false를 문서·설정·preferences·HTTP·CLI·undo/replay·
+저장/복구에 연결했다. 화학 symbol/query/H/count/isotope/charge/Et만 hollow stroke
+(size/16, round join)로 그리며 underline rect는 filled, caption/radical/attachment는
+독립이다. mounted SVG 측정과 정확한 source metric key, document/font/viewport
+provenance를 유지하고 glyph ink에 size/32만 더해 공통 geometry에 쓴다.
+native v21은 모든 current/history settings에서 boolean을 요구하며 v1–20은
+생략→false, 원본 바이트 archive, v22 거절이다. clipboard/template 생략은 false다.
+추가한 strict-format/application/client/browser checks는 CI에 등록했지만 사용자
+지시로 build/test/cargo check/browser는 실행하지 않았다. fmt/diff만 실행한다.
+P35는 계속 in_progress이며 다음 세션에서 정식 검증과 독립 리뷰가 필요하다.

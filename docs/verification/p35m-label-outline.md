@@ -1,0 +1,120 @@
+# P35m chemical label outline
+
+Status: implementation and checks authored; execution deferred by task instruction.
+P35 remains in_progress. No scientific compatibility claim.
+
+- Default-false document boolean flows through full edits, preferences, reset,
+  HTTP/CLI/replay, undo/redo, save/copy and recovery.
+- Only chemical symbol/query/H/count/isotope/charge/Et text gains hollow glyph
+  strokes: effective size/16, round joins. Underline rectangles remain filled;
+  captions and radical/attachment marks retain independent styles.
+- Actual mounted SVG metrics are required even for normal 400/500 text. Nonzero
+  glyph ink gains effective size/32 stroke radius. Source metric keys include
+  outline and retain exact absolute shifts without dy reconstruction. Existing
+  document/font/current viewport provenance and all-chunk readiness gates remain.
+- Native v21 requires boolean outline in every current/before/after settings
+  state. v1–20 omit it and migrate false with exact document/draft archival.
+  Future v22 is refused untouched. Clipboard/template omission defaults false;
+  explicit invalid values refuse and exact style matching includes outline.
+- Existing history admission reservations and 64 MiB read boundary remain;
+  maximum metadata caption-history migration now covers v16–20.
+
+Authored checks: strict native outline format/migration/archive/recovery tests,
+application preferences/reset/replay/persistence and clipboard/template tests,
+HTTP/CLI contract smoke, client settings/old graphics payload tests, and
+`npm run test:browser:label-outline` registered in CI. The browser matrix covers
+3 font families × 4/72pt × normal/bold × normal/italic × underline off/on;
+computed hollow strokes and actual stroke ink, shared fit/trim/hit/selection,
+graph/Et invariance, captions and marks, Unicode/space/RTL/ligature probes,
+production UI/native history, delayed real fonts and document-switch viewBox
+provenance. Full settings fixtures and current/future native versions updated.
+
+Executed: `cargo fmt --all` and `git diff --check` only. Builds, tests, cargo
+check, clippy/typecheck and browsers were not run. No mutation proof is claimed.
+PR reviews and dispositions remain with the parent delivery workflow.
+
+## CI underline failure diagnostic follow-up
+
+The supplied GitHub log reports the existing underline matrix failing at italic,
+bold, monospace, 4 pt: zero rectangles for a one-run chemical label. The same
+matrix passed the parent's isolated local run. The log does not identify the
+label, source key, live settings, sampled readiness or SVG character positions;
+it cannot establish a product cause or justify changing the geometry policy.
+
+Static inspection identifies two distinguishable possibilities: the harness
+previously synchronized only font/size rather than the complete requested style
+and idle revision; and a found chunk metric counts as measured even when SVG
+character positions gave no positive advance when sampled. The latter legitimately
+produces no underline for empty/zero-advance input, so the missing label and
+position evidence matters. Neither possibility is claimed as the reproduced cause.
+
+Both underline and outline matrices now wait for the new revision, full requested
+settings, idle editor and measured/current viewport agreement. Their single
+geometry sample captures and asserts those preconditions atomically, including
+font status. Strict rectangle counts, geometry tolerances and all other behavior
+assertions remain. There is no wait for the expected rectangle count and no
+assertion retry. Count failures now include the failing label, complete settings,
+revision, font/readiness/viewBox provenance, exact source metric key, computed
+fonts, per-character positions and fresh browser measurements. Fresh measurements
+are diagnostic only; assertions still inspect the production rectangles/bounds.
+The diagnostic module is loaded before the matrix, with no async gap inside a
+sample. No production behavior was changed without evidence.
+
+Validation of this follow-up: source review and `git diff --check` only. Tests,
+builds and browser execution remain delegated to the parent by task instruction.
+
+## Selection comparison after interaction
+
+The parent's subsequent isolated run passed the strict underline-count checks
+and failed the selection comparison at italic/bold/monospace/4 pt. That assertion
+compared a rectangle sampled after scrolling and pointer selection with a label
+box sampled before those interactions. Its failure log omitted both rectangles.
+Source establishes that the current atom underlay uses
+`labelBox(drawing.labels, atom.id, p)` and the painted label receives that same
+`drawing.labels` entry in the same render. The stored data-box rounds each value
+to 0.01 pt; this is within the existing 0.05 pt comparison tolerance. A persistent
+mismatch between those same mounted consumers is therefore still a regression;
+stability of an earlier measurement across intervening interaction is a separate
+claim the original assertion did not distinguish.
+
+Atom underlays now expose their atom identity, and both matrices select a4's
+underlay by that identity. After the existing pointer/selection check and the
+same bounds-readiness gate, one synchronous sample captures its currently mounted
+label and underlay together. The equality assertion retains its 0.05 pt tolerance;
+readiness, font, viewport provenance, unchanged revision/settings and the actual
+selection are also asserted. Failure evidence includes both full SVG elements,
+both rectangles, the original pre-interaction label, pointer events and viewBox
+and settings provenance. A changed pre/post measurement is logged explicitly so
+the parent can establish a stale earlier sample without inferring it from a pass.
+No geometry algorithm or scientific behavior was changed. Source inspection and
+`git diff --check` only; execution remains with the parent.
+
+## Event-driven atomic readiness sampling
+
+The next supplied isolated log passed underline and failed outline at normal,
+bold, monospace, 72 pt: revision 27 and requested settings were correct, fonts
+were loaded, but the sample reported ready=false and no measured-viewBox
+attribute after a separate readiness gate had passed. In StructureCanvas that
+attribute is omitted when the stored measurement's document object is not the
+currently mounted document. Read/autosave adoption supplies a concrete source
+path for this same-revision invalidation: describesShown verifies equal revision
+and content, while adoptedView installs reply.document as a new object. The log
+does not identify which adoption fired, so autosave itself is not claimed as a
+traced event. The product correctly withdraws readiness while measuring a new
+document object; a previous successful gate is not a guarantee for a later
+Playwright task.
+
+A shared browser-side sampler now observes DOM and font events and waits for the
+expected document ID, exact revision, requested settings, idle state, loaded
+fonts and measured/current viewport agreement. It checks that provenance and
+executes the synchronous geometry read in the same JavaScript turn, resolving
+with that one snapshot. Selection uses the same mechanism. Assertions run once
+on the captured data; glyph/underline counts, stroke geometry, tolerances and
+selection equality remain unchanged. No read or assertion is retried. A changed
+document, advanced revision, read exception or 30-second readiness deadline fails
+with provenance diagnostics. Listeners, observer and timer are removed on every
+settlement. This closes the demonstrated gate-to-read inter-task race without
+changing document/font provenance or suppressing valid product transitions.
+
+Validation: source review and `git diff --check` only. No build/test/browser
+execution was performed in this follow-up.

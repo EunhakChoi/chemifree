@@ -726,7 +726,7 @@ async fn document_settings_are_edited_reset_and_imported_over_http() {
         .post(
             &format!("/api/v1/documents/{id}/transactions"),
             json!({"request_id": "t2", "expected_revision": 0, "commands": [
-                {"op": "update_settings", "bond_length_pt": 45, "display_unit": "mm", "label_style": "italic", "label_underline": true}
+                {"op": "update_settings", "bond_length_pt": 45, "display_unit": "mm", "label_style": "italic", "label_underline": true, "label_outline": true}
             ]}),
         )
         .await;
@@ -735,6 +735,7 @@ async fn document_settings_are_edited_reset_and_imported_over_http() {
     assert_eq!(body["document"]["settings"]["display_unit"], "mm");
     assert_eq!(body["document"]["settings"]["label_style"], "italic");
     assert_eq!(body["document"]["settings"]["label_underline"], true);
+    assert_eq!(body["document"]["settings"]["label_outline"], true);
 
     let (status, body) = api
         .post(
@@ -746,7 +747,7 @@ async fn document_settings_are_edited_reset_and_imported_over_http() {
     assert_eq!(
         body["document"]["settings"],
         json!({"bond_length_pt": 30.0, "line_width_pt": 1.2, "label_font": "sans-serif",
-            "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"})
+            "label_weight": "normal", "label_style": "normal", "label_underline": false, "label_outline": false, "label_size_pt": 12.0, "carbon_labels": "default", "display_unit": "pt"})
     );
     assert_eq!(body["session"]["undo_depth"], 2);
 

@@ -192,6 +192,8 @@ struct StoredNewDocuments {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     label_underline: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    label_outline: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     label_size_pt: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     carbon_labels: Option<StoredCarbonLabels>,
@@ -219,6 +221,7 @@ fn encode(preferences: &Preferences) -> Vec<u8> {
             label_weight: edit.label_weight.map(StoredLabelWeight::from),
             label_style: edit.label_style.map(StoredLabelStyle::from),
             label_underline: edit.label_underline,
+            label_outline: edit.label_outline,
             label_size_pt: edit.label_size_pt,
             carbon_labels: edit.carbon_labels.map(StoredCarbonLabels::from),
             display_unit: edit.display_unit.map(StoredUnit::from),
@@ -256,6 +259,7 @@ fn decode(bytes: &[u8]) -> Result<Preferences, String> {
         label_weight: new_documents.label_weight.map(Into::into),
         label_style: new_documents.label_style.map(Into::into),
         label_underline: new_documents.label_underline,
+        label_outline: new_documents.label_outline,
         label_size_pt: new_documents.label_size_pt,
         carbon_labels: new_documents.carbon_labels.map(Into::into),
         display_unit: new_documents.display_unit.map(Into::into),
