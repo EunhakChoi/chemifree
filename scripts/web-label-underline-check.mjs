@@ -238,8 +238,10 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
       node.append(span);label.append(node);group.append(label);svg.append(group);document.body.append(svg)
       const positions = Array.from({length:span.getNumberOfChars()},(_,i)=>[span.getStartPositionOfChar(i),span.getEndPositionOfChar(i)]).flat()
       const expected={x:Math.min(...positions.map((p)=>p.x)),y:positions[0].y+6,width:Math.max(...positions.map((p)=>p.x))-Math.min(...positions.map((p)=>p.x)),height:4.5}
+      const settings={...DEFAULT_SETTINGS,label_font:'serif',label_size_pt:72,label_style:'italic',label_underline:true}
+      node.setAttribute('data-label-metric-key',compactLabel(text,labelStyleOf(settings)).chunks[0].metricKey)
       const metrics=measureChemicalLabels(svg)
-      const layout=compactLabel(text,labelStyleOf({...DEFAULT_SETTINGS,label_font:'serif',label_size_pt:72,label_style:'italic',label_underline:true},metrics))
+      const layout=compactLabel(text,labelStyleOf(settings,metrics))
       results.push({text,expected,actual:layout.chunks[0].underlines[0]})
       svg.remove()
     }

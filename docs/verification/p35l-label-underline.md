@@ -67,9 +67,13 @@ Exact JSON keys therefore differed despite identical intended layout. The whole
 chunk measurement was missed, producing no rectangles; caption-count-only
 completeness nevertheless reported ready.
 
-The fix normalizes only lookup-key coordinates to one billionth of a point;
-actual measured and painted coordinates are retained. Every measured chemical
-chunk must also have actual SVG evidence before bounds are reported ready.
+The fix passes each exact source chunk identity through `data-label-metric-key`
+to its SVG measurement. It includes font, anchor and each run's text, size,
+absolute shift, weight and style. Measurement no longer reconstructs identity by
+summing SVG dy values; there is no rounding or merging of distinct source shifts.
+Actual measured and painted coordinates are retained. Every measured chemical
+chunk must also have actual SVG evidence before bounds are reported ready;
+existing document identity, loaded-font and viewBox provenance checks still apply.
 The existing strict 4pt/72pt browser matrix and rectangle count assertions remain
 unchanged. Diagnosis used the supplied failure log, source inspection and numeric
 arithmetic tracing. No test, build or browser execution was run for this fix.

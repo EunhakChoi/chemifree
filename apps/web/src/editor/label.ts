@@ -55,6 +55,8 @@ export interface LabelChunk {
   underlines: Box[]
   /** True only when actual SVG chunk ink and advances were found for this layout. */
   measured: boolean
+  /** Exact source identity passed through SVG, without reconstructing relative dy shifts. */
+  metricKey: string
 }
 
 /** A dot of a radical mark, relative to the atom; a hollow one is drawn as a ring. */
@@ -224,12 +226,8 @@ export interface LabelMetrics {
   chunks: ReadonlyMap<string, ChunkMetric>
 }
 
-function chunkMetricKey(runs: LabelRun[], font: LabelFont, scale = 1): string {
-  // Layout scales absolute shifts; SVG reconstructs them by summing relative dy values.
-  // Normalize key coordinates to a billionth of a point so floating-point cancellation
-  // cannot discard a valid measurement. Painted and measured coordinates stay unrounded.
-  const coordinate = (value: number) => Math.round(value * 1e9) / 1e9
-  return JSON.stringify([font, runs.map((item) => [item.text, coordinate(item.size * scale), coordinate(item.shift * scale), item.weight, item.style])])
+function chunkMetricKey(runs: LabelRun[], font: LabelFont, anchor: LabelChunk['anchor'], scale = 1): string {
+  return JSON.stringify([font, anchor, runs.map((item) => [item.text, item.size * scale, item.shift * scale, item.weight, item.style])])
 }
 
 function labelMetricKey(text: string, size: number, font: LabelFont, weight: LabelRun['weight'], style: ChemicalLabelStyle): string {
@@ -244,8 +242,9 @@ export function measureChemicalLabels(svg: SVGSVGElement): LabelMetrics {
     const font = group.getAttribute('data-labels')
     if (font !== 'sans-serif' && font !== 'serif' && font !== 'monospace') continue
     for (const text of group.querySelectorAll<SVGTextElement>('[data-atom-label] text')) {
+      const key = text.getAttribute('data-label-metric-key')
+      if (key === null) continue
       const spans = Array.from(text.querySelectorAll<SVGTSpanElement>('tspan'))
-      const runs: LabelRun[] = []
       const underlines: Box[] = []
       const x = Number(text.getAttribute('x'))
       const y = Number(text.getAttribute('y'))
@@ -255,7 +254,6 @@ export function measureChemicalLabels(svg: SVGSVGElement): LabelMetrics {
         const weight = Number(span.getAttribute('font-weight'))
         if (weight !== 400 && weight !== 500 && weight !== 700) continue
         shift += Number(span.getAttribute('dy') ?? 0)
-        runs.push(run(span.textContent ?? '', size, shift, 'symbol', weight, span.getAttribute('font-style') === 'italic' ? 'italic' : 'normal'))
         let start = Infinity
         let end = -Infinity
         let baseline = y + shift
@@ -273,7 +271,7 @@ export function measureChemicalLabels(svg: SVGSVGElement): LabelMetrics {
           : { x: 0, y: 0, width: 0, height: 0 })
       }
       const ink = text.getBBox()
-      chunks.set(chunkMetricKey(runs, font), { box: { x: ink.x - x - 0.5, y: ink.y - y - 0.5, width: ink.width + 1, height: ink.height + 1 }, underlines })
+      chunks.set(key, { box: { x: ink.x - x - 0.5, y: ink.y - y - 0.5, width: ink.width + 1, height: ink.height + 1 }, underlines })
     }
     for (const span of group.querySelectorAll<SVGTSpanElement>('[data-atom-label] tspan')) {
       const style = span.getAttribute('font-style') === 'italic' ? 'italic' : 'normal'
@@ -423,8 +421,9 @@ function chunk(
   const start = anchor === 'start' ? x : anchor === 'end' ? x - advance : x - advance / 2
   const top = Math.min(...runs.map((item, index) => item.shift + measured[index].top))
   const bottom = Math.max(...runs.map((item, index) => item.shift + measured[index].bottom))
+  const metricKey = chunkMetricKey(runs, font, anchor, scale)
   const actual = underline || runs.some((item) => item.weight === 700 || item.style === 'italic')
-    ? metrics?.chunks.get(chunkMetricKey(runs, font, scale)) : undefined
+    ? metrics?.chunks.get(metricKey) : undefined
   const measuredBox = actual ? {
     x: x + actual.box.x / scale, y: y + actual.box.y / scale,
     width: actual.box.width / scale, height: actual.box.height / scale,
@@ -442,6 +441,7 @@ function chunk(
     box: underlines.length ? union([ink, ...underlines]) : ink,
     underlines,
     measured: actual !== undefined,
+    metricKey,
   }
 }
 
@@ -596,7 +596,7 @@ export function compactLabel(text: string, style: Readonly<LabelStyle>): AtomLab
   if (style.weight !== 'bold' && style.style !== 'italic' && !style.underline) {
     const width = textWidth(text, style.size, style.font)
     const box = { x: -width / 2 - 1, y: -style.size * 0.65, width: width + 2, height: style.size * 1.3 }
-    return { chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0, runs: [run(text, style.size, 0, 'symbol', 500)], box, underlines: [], measured: false }], marks: [], dots: [], box, font: style.font }
+    return { chunks: [{ role: 'text', anchor: 'middle', x: 0, y: 0, runs: [run(text, style.size, 0, 'symbol', 500)], box, underlines: [], measured: false, metricKey: chunkMetricKey([run(text, style.size, 0, 'symbol', 500)], style.font, 'middle') }], marks: [], dots: [], box, font: style.font }
   }
   const item = run(text, style.size, 0, 'symbol', style.weight === 'bold' ? 700 : 500, style.style)
   const content = chunk(style.font, 'text', 'middle', 0, 0, [item], style.metrics, 1, style.underline)

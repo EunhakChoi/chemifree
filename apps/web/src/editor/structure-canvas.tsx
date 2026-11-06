@@ -1075,6 +1075,7 @@ function ChunkText({ chunk, at, ...rest }: { chunk: LabelChunk; at: Position; cl
         dominantBaseline="central"
         aria-hidden="true"
         data-box={boxAttribute(placed(chunk.box, at))}
+        data-label-metric-key={chunk.metricKey}
         {...rest}
       >
         {chunk.runs.map((run, index) => {
