@@ -366,3 +366,62 @@ fn plan_and_apply_report_missing_targets_without_masking_invalid_fragment_refere
         }
     }
 }
+
+#[test]
+fn plan_and_apply_classify_each_identifier_and_require_all_identifier_fields() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    let (source, dest, payload) = seed(&app);
+    let source_before = snapshot(&app, &source);
+    let before = snapshot(&app, &dest);
+    for (field, reason, absent, wrong_kind) in [
+        ("instance", "template_instance_invalid", "s99", "a1"),
+        ("source_anchor", "template_anchor_unknown", "a99", "s2"),
+        ("atom", "template_target_invalid", "a99", "s2"),
+    ] {
+        // Malformed strings and well-formed but absent IDs belong to the same field-specific
+        // semantic category. Missing/non-string fields must still fail the closed DTO parser.
+        let cases = [
+            (Some(json!("")), "invalid_command", Some(reason)),
+            (Some(json!("$0")), "invalid_command", Some(reason)),
+            (Some(json!(wrong_kind)), "invalid_command", Some(reason)),
+            (Some(json!(absent)), "invalid_command", Some(reason)),
+            (None, "invalid_request", None),
+            (Some(Value::Null), "invalid_request", None),
+            (Some(json!(1)), "invalid_request", None),
+        ];
+        for (index, (value, code, reason)) in cases.into_iter().enumerate() {
+            let mut input = parameters(&dest, &payload);
+            match value {
+                Some(value) => input[field] = value,
+                None => {
+                    input.as_object_mut().unwrap().remove(field);
+                }
+            }
+            for (suffix, operation) in [
+                ("plan", "document.template_plan"),
+                ("apply", "document.template_attach"),
+            ] {
+                let rejected = request(
+                    &app,
+                    &format!("identifier-{field}-{index}-{suffix}"),
+                    operation,
+                    input.clone(),
+                );
+                assert_eq!(rejected["outcome"], "error", "{rejected}");
+                assert_eq!(rejected["result"], Value::Null, "{rejected}");
+                assert_eq!(rejected["diagnostics"][0]["code"], code, "{rejected}");
+                assert_eq!(
+                    rejected["diagnostics"][0]["details"]["reason"],
+                    reason.map_or(Value::Null, |reason| json!(reason)),
+                    "{rejected}"
+                );
+                assert_eq!(snapshot(&app, &dest), before);
+                assert_eq!(snapshot(&app, &source), source_before);
+            }
+        }
+    }
+}

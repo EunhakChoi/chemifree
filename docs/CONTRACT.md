@@ -254,7 +254,10 @@ Semantic refusals use `invalid_command` with existing native `details.reason` co
 `template_disconnected`, `template_anchor_unknown`, `template_anchor_stereo_unsupported`,
 `template_instance_invalid`, `template_direction_invalid`, `template_target_invalid`.
 A syntactically valid but absent destination atom also uses `template_target_invalid`;
-dangling references inside the native file retain `clipboard_fragment_invalid` and are not
+malformed instance/source-anchor/destination ID strings use `template_instance_invalid`,
+`template_anchor_unknown`, and `template_target_invalid` respectively. Missing or null ID
+fields remain `invalid_request` rather than semantic ID failures.
+Dangling references inside the native file retain `clipboard_fragment_invalid` and are not
 reclassified as destination failures. Source-only inspection returns `document_revision:null`;
 plan/apply keep their numeric source/committed revision semantics.
 A stale destination revision is `revision_conflict`. Unknown source fields/versions, malformed

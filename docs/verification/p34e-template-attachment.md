@@ -141,6 +141,18 @@ Application/HTTP=CLI/browser의 실제 null envelope 기대값을 추가했다. 
 작성자는 로그 읽기와 정적 수정만 했으며 테스트·빌드·브라우저·push를 실행하지 않았다.
 수정 HEAD의 실제 file/preview/attach/history/recovery 단계와 current full/CI는 재검증 대기다.
 
+## 첫 full 실행의 catalog 기대 목록 수정
+
+부모의 `7d2a39bac4f6f38b5c5b6076bee6b143942a2078` 격리 full 로그
+`/tmp/chemifree-p29d-verify-j4KjPa/p34e-full.log:4413`에서 Application
+`the_catalog_says_exactly_which_operations_run`의 exact 실행 가능 목록 비교가 실패했다.
+실제 catalog에는 clipboard_paste 다음 template_inspect/plan/attach가 순서대로 있으나
+기대 배열에 세 항목이 누락됐다. `OperationId::ALL` 및 각 catalog row/dispatcher와 대조해
+그 순서 그대로 세 항목을 추가했다. 전체 38개, 각 연산 dispatch/거절 진단, document 수,
+transaction sub-operation exact 48/37/11 검사는 유지했다. browser의 DATA 등록 상태 요약
+28/38 기대값도 이미 반영돼 있다. 이 실패를 full 통과로 세지 않으며 수정 HEAD의 full/CI는
+재검증 대기다. 작성자는 테스트·빌드·브라우저·push를 실행하지 않았다.
+
 ## 실행 대기
 
 부모의 공유 격리 실행 지시에 따라 테스트·빌드·브라우저·lint/typecheck/clippy·mutation·
@@ -163,6 +175,16 @@ request/process 변경→immutable/restart 검사다. mutation은 실행하지 �
 검사 통과로 세지 않는다.
 
 ## 리뷰와 처분
+
+- [PR #180 Codex P2 ID 진단](https://github.com/EunhakChoi/chemifree/pull/180#discussion_r4489774739):
+  instance/source_anchor의 잘못된 ID 문자열까지 template_target_invalid로 묶인 지적을
+  수용했다. parser의 필드별 의미를 Domain과 일치시켜 instance는
+  template_instance_invalid, source_anchor는 template_anchor_unknown, atom은
+  template_target_invalid로 반환한다. 필수 string DTO는 유지하며 누락/null/숫자는
+  invalid_request로 거절한다. 세 필드 각각 빈 문자열·$N·다른 ID 종류·유효하지만 없는
+  ID와 필드 누락/null/숫자를 plan/apply 양쪽에서 정확한 code/reason, null result,
+  source/destination 전체 snapshot 불변으로 검사하는 회귀를 작성했다. 계약도 명확히
+  했다. 기존 fragment 전용 분류 회귀는 유지한다. 정적 수정이며 실행 근거는 아직 없다.
 
 - [PR #180 Codex P2](https://github.com/EunhakChoi/chemifree/pull/180#discussion_r4489698805):
   유효하지만 없는 destination atom ID가 native fragment 오류로 감싸져 문서의

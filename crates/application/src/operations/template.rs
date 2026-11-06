@@ -62,14 +62,25 @@ pub(crate) fn refusal(error: template::TemplateError) -> ApplicationError {
 pub(crate) fn targets(
     parameters: &AttachParameters,
 ) -> Result<(ObjectId, AtomId, AtomId), ApplicationError> {
-    let invalid = |message: &str| crate::clipboard::refusal("template_target_invalid", message);
     Ok((
-        ObjectId::parse(&parameters.instance)
-            .ok_or_else(|| invalid("An explicit instance ID is required"))?,
-        AtomId::parse(&parameters.source_anchor)
-            .ok_or_else(|| invalid("An explicit source anchor ID is required"))?,
-        AtomId::parse(&parameters.atom)
-            .ok_or_else(|| invalid("An explicit destination atom ID is required"))?,
+        ObjectId::parse(&parameters.instance).ok_or_else(|| {
+            crate::clipboard::refusal(
+                "template_instance_invalid",
+                "An explicit instance ID is required",
+            )
+        })?,
+        AtomId::parse(&parameters.source_anchor).ok_or_else(|| {
+            crate::clipboard::refusal(
+                "template_anchor_unknown",
+                "An explicit source anchor ID is required",
+            )
+        })?,
+        AtomId::parse(&parameters.atom).ok_or_else(|| {
+            crate::clipboard::refusal(
+                "template_target_invalid",
+                "An explicit destination atom ID is required",
+            )
+        })?,
     ))
 }
 
