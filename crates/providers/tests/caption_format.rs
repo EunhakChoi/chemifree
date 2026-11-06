@@ -390,6 +390,21 @@ fn v9_caption_current_history_and_draft_migrate_without_rewriting_and_archive_ex
     let claimed = repo.claim_draft(doc.id()).unwrap().unwrap().unwrap();
     assert_eq!(claimed.document, loaded);
     assert_eq!(fs::read(&draft_path).unwrap(), old_draft);
+    // Claiming is read-only. Recovery preparation preserves the exact claimed bytes
+    // before recovery may expose the document for editing or overwrite its draft.
+    assert!(!repo.migrated_draft_path(doc.id(), 9).exists());
+    repo.prepare_draft_for_recovery(
+        doc.id(),
+        chemifree_application::DraftRecoveryTarget::Original {
+            base_revision: claimed.base_revision,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(repo.migrated_draft_path(doc.id(), 9)).unwrap(),
+        old_draft
+    );
+    assert_eq!(fs::read(&draft_path).unwrap(), old_draft);
     let mut changed = claimed;
     changed.document.redo().unwrap();
     repo.write_draft(&changed).unwrap();

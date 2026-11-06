@@ -53,3 +53,13 @@ The parent's first full check reached Clippy and failed on `collapsible_if` in t
 caption style-field scan. Fixed with the Rust 1.95 let-chain form, preserving both predicates
 and the validation body. The implementation worker inspected other added conditional code,
 ran formatting and `git diff --check`; the parent owns the next build/test run.
+
+The parent's next full run passed Clippy and reached the v9 draft migration regression,
+which failed because the fixture called `write_draft` directly after `claim_draft` and
+expected a recovery archive. That expectation skipped the repository lifecycle contract:
+`claim_draft` reads and captures bytes, while `prepare_draft_for_recovery` preserves those
+bytes and verifies the saved base before recovered edits may overwrite the draft. The test
+now calls preparation with the actual original base revision, asserts no archive on claim,
+asserts the exact archive and unchanged draft immediately after preparation, then retains
+the first rewrite/reclaim assertions. Production behavior was not changed. The worker ran
+formatting and `git diff --check`; rerunning tests remains assigned to the parent.
