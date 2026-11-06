@@ -75,3 +75,12 @@ cap, the 117-caption application group move still exceeds the cap, and equal UTF
 lengths still receive equal text reservations. These are static calculations, not executed
 test results. No tests or builds were run while addressing this finding; parent isolated
 validation remains responsible for execution evidence.
+
+Parent isolated validation found a stale future-version fixture in provider migration:
+it still labeled a v4-shaped file as v13, which is now supported, so schema validation
+correctly rejected its missing abbreviation fields before the expected future-version
+diagnostic. The fixture now uses v14 and expects supported versions 1–13. A repository
+search found the same stale fixture and diagnostic assertion in the HTTP/CLI contract
+smoke; both were updated. The provider's separate version-99 refusal fixture remains
+future and needs no change. No tests or builds were run for this fix; parent isolation
+owns the rerun and its result.

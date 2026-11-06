@@ -201,7 +201,7 @@ fn the_first_save_over_a_version_1_file_keeps_its_exact_bytes() {
     let saved = String::from_utf8(fs::read(&path).unwrap()).unwrap();
     assert!(
         saved.contains("\"format_version\":13"),
-        "the document is stored as version 12"
+        "the document is stored as version 13"
     );
     assert_eq!(repository.load(&id()).unwrap(), Some(document.clone()));
     assert_eq!(
@@ -311,7 +311,7 @@ fn a_version_1_file_is_not_replaced_when_its_copy_cannot_be_kept() {
 fn a_newer_format_version_is_refused_and_left_untouched() {
     let newer = String::from_utf8(fixture("v4-document.json"))
         .unwrap()
-        .replace("\"format_version\": 4", "\"format_version\": 13")
+        .replace("\"format_version\": 4", "\"format_version\": 14")
         .into_bytes();
     let (root, repository, path) = stored(&newer);
     let refused = |result: Result<_, StorageError>| match result {
@@ -320,8 +320,8 @@ fn a_newer_format_version_is_refused_and_left_untouched() {
     };
     let message = refused(repository.load(&id()).map(|_| ()));
     assert!(
-        message.contains("version 13")
-            && message.contains("versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, and 12"),
+        message.contains("version 14")
+            && message.contains("versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, and 13"),
         "the reason names the version: {message}"
     );
     refused(repository.stored_revision(&id()).map(|_| ()));
