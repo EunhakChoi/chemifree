@@ -129,6 +129,7 @@ try {
     await page.getByRole('dialog').getByText('1 roots, 3 objects, revision 3.', { exact: true }).waitFor()
   }
   const dialog = page.getByRole('dialog')
+  const scenePanel = page.getByRole('region', { name: 'Scene graphics clipboard', exact: true })
   const cut = dialog.getByRole('button', { name: 'Cut to clipboard', exact: true })
   await reset()
   await prepare()
@@ -210,9 +211,12 @@ try {
   assert.equal(state.document.title, 'Graphic Cut')
   assert.equal(await page.getByRole('button', { name: 'Check paste outcome', exact: true }).count(), 0, 'graph panel must not duplicate graphics recovery')
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  // The portal remains mounted during its exit animation. Recover from the panel
+  // only after dismissal, rather than matching its temporarily retained button too.
+  await dialog.waitFor({ state: 'detached' })
   assert.equal(await page.evaluate(() => window.graphicsCutHarness.editor.clipboardPending), true)
   const writes = (await page.evaluate(() => window.graphicsCutClipboard.writes)).length
-  await page.getByRole('button', { name: 'Check graphics Cut outcome', exact: true }).click()
+  await scenePanel.getByRole('button', { name: 'Check graphics Cut outcome', exact: true }).click()
   await page.waitForFunction(() => !window.graphicsCutHarness.editor.clipboardPending)
   assert.deepEqual(bodies.slice(-3), [uncertain, uncertain, uncertain])
   assert.equal((await page.evaluate(() => window.graphicsCutClipboard.writes)).length, writes, 'recovery never writes again')
