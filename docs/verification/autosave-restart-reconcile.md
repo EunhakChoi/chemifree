@@ -78,6 +78,40 @@ flush의 새 guard나 show의 전송 전 거절을 제거하면 이 단정이 �
 이번 수정과 추가 회귀는 테스트·빌드·브라우저·mutation을 실행하지 않았다.
 부모가 실행 중인 이전 `1931415` snapshot의 full 검사는 이 추가 수정의 근거가 아니다.
 
+## 추가 PR #176 Codex P1: old response의 잘못된 세대 귀속
+
+[Codex P1](https://github.com/EunhakChoi/chemifree/pull/176#discussion_r4488910095)은
+일반 edit의 old-process 성공 응답을 기다리는 동안 autosave/다른 write가 restart를
+먼저 알게 되면 중앙 `setCurrent`가 그 old response에 최신 세대를 부여하는 경계를
+지적했다. 그 결과 page-only 이전 edit이 autosave 재개와 background reread를 통해
+replacement 내용으로 대체될 수 있었다. 정적으로 경로를 확인했고 지적을 반영했다.
+
+Client는 각 실제 write attempt와 get/reread에서 session await 이전의 process 세대를
+캡처한다. HTTP 응답의 document/result/snapshot 경계에 origin을 기록하고 recorded-state
+normalization 뒤에도 WeakMap으로 보존한다. origin은 client와 실제 request attempt에
+묶이며 JSON·저장 파일에는 새 필드가 없다. 중앙 setCurrent는 같은 client의 현재 세대
+응답만 채택한다. 이전 응답이나 출처가 없는 snapshot은 `service_restarted`로 거절해
+현재 도면을 보존한다. 내부 create/copy/recover의 안전한 재시도는 실제 새 attempt의
+세대를 받으므로 원래 호출 시각에 묶여 잘못 거절되지 않는다.
+
+모든 setCurrent 호출을 대조했다: mutate의 최초/동일-content retry, clipboard/ring,
+autosave adopt/refresh, show(Open/Create/import creation), copy, format import,
+clipboard reconcile, recover, discardDraft 뒤 get와 Reload가 중앙 guard를 공유한다.
+이미 guarded였던 clipboard/auto-save의 외부 세대 검사도 유지했다. null을 채택하는
+Close에는 응답 snapshot이 없으므로 request 시작 세대와 완료 세대를 비교한다.
+미해결 old snapshot에서 추가 edit/copy/Close를 새 process로 보내는 것도 거절한다.
+
+실제 hook browser 회귀는 일반 edit·Open·Create·copy·recover·Reload·MOL import·Close
+각각의 응답을 hold하고 별도 inspection write가 restart를 알린 뒤 old success를
+전달한다. 원본 전체 snapshot 보존·restart 오류·새 draft와 자동 mutation/read 부재를
+검사하도록 작성했다. Client 회귀는 delayed response가 normalization/get 뒤에도
+old origin을 유지하고 다른 client에서 채택되지 않는 경계와 safe-copy retry의 새
+attempt origin을 검사한다. transport origin guard를 제거하면 이 단정이 실패해야 한다.
+
+이번 수정·회귀·mutation은 실행하지 않았다. 부모가 실행 중인 이전 `196f4b9` full
+snapshot 검사는 이번 수정의 근거가 아니며 current-head full/CI는 pending이다.
+이전 독립 리뷰 1회 뒤 추가 리뷰는 부모 지시에 따라 요청하지 않았다.
+
 ## 리뷰
 
 - Codex 작성자 정적 검토: restart notification·token 재학습·snapshot 채택·autosave
@@ -91,5 +125,6 @@ flush의 새 guard나 show의 전송 전 거절을 제거하면 이 단정이 �
   held edit 뒤의 queued-refresh·same-content recovery·drafting 재개 회귀를 추가했다.
   이 지적은 정적 수정으로 처리했으며 추가 테스트/빌드/브라우저는 실행하지 않았다.
 - PR #176 Codex review의 P1은 위 false-success 수정과 추가 회귀로 처리했다.
+- 추가 Codex P1 old-response 귀속 지적은 위 transport origin·중앙 guard·회귀로 처리했다.
 - TypeScript patterns/testing skills를 적용했다. 실행 gate와 mutation proof는 부모의
   명시 지시로 미실행이며 pending이다. 현재 수정 HEAD의 full 검증과 CI는 pending이다.

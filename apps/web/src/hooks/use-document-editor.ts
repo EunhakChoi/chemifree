@@ -208,14 +208,14 @@ export function useDocumentEditor() {
   const [error, setError] = useState<ApiError | null>(null)
   const [copyNotice, setCopyNotice] = useState<CopyNotice | null>(null)
   const [stereoStatus, setStereoStatus] = useState<StereoStatus | null>(null)
-  const [serviceGeneration, setServiceGeneration] = useState(0)
-  const serviceGenerationRef = useRef(0)
+  const [serviceGeneration, setServiceGeneration] = useState(client.serviceGeneration)
+  const serviceGenerationRef = useRef(client.serviceGeneration)
   const [selection, setSelectionState] = useState<Set<string>>(new Set())
   const selectionRef = useRef<Set<string>>(new Set())
   const selectionVersion = useRef(0)
   const currentRef = useRef<DocumentResponse | null>(null)
   // A token learned by a failed edit must not rebind the drawing still on screen.
-  const shownGenerationRef = useRef(0)
+  const shownGenerationRef = useRef(client.serviceGeneration)
   const queue = useRef<Promise<void>>(Promise.resolve())
   const failures = useRef(0)
   const [interchangeCreation, setInterchangeCreationState] = useState<InterchangeCreation | null>(null)
@@ -240,6 +240,9 @@ export function useDocumentEditor() {
   }, [adoptSelection])
 
   const setCurrent = useCallback((document: DocumentResponse | null) => {
+    if (document !== null && !client.isCurrentSnapshot(document)) {
+      throw new ApiError('service_restarted', 'The reply belongs to an earlier service process. The drawing remains on screen; reload to reconcile its current state.', 0)
+    }
     if (currentRef.current?.document.id !== document?.document.id) {
       adoptSelection(selectionIds(document?.document.selection))
     }
@@ -253,7 +256,7 @@ export function useDocumentEditor() {
   // A restarted service no longer holds the session the notice describes.
   useEffect(() => client.onRestart(() => {
     setCopyNotice(null)
-    serviceGenerationRef.current += 1
+    serviceGenerationRef.current = client.serviceGeneration
     setServiceGeneration(serviceGenerationRef.current)
   }), [])
 
@@ -325,6 +328,9 @@ export function useDocumentEditor() {
       run(async () => {
         const document = currentRef.current
         if (!document) return
+        if (shownGenerationRef.current !== serviceGenerationRef.current) {
+          throw new ApiError('service_restarted', 'Reload the drawing before editing in the replacement service.', 0)
+        }
         const request = call(document)
         if (!request) return
         let next: DocumentResponse
@@ -335,6 +341,7 @@ export function useDocumentEditor() {
           // shows, the edit still means the same thing; otherwise the page must reload.
           if (!(failure instanceof ApiError && failure.code === 'service_restarted')) throw failure
           const fresh = await client.get(document.document.id)
+          if (!client.isCurrentSnapshot(fresh)) throw failure
           const retry = sameContent(fresh.document, document.document) ? call(fresh, document) : null
           if (!retry) throw failure
           setCurrent(fresh)
@@ -516,6 +523,9 @@ export function useDocumentEditor() {
       if (!shown) return Promise.resolve()
       return run(async () => {
         try {
+          if (shownGenerationRef.current !== serviceGenerationRef.current) {
+            throw new ApiError('service_restarted', 'Reload the drawing before copying it in the replacement service.', 0)
+          }
           const copied = await make(shown)
           let source: CopiedFrom = { kind: 'recovered' }
           if (!recovered) {
@@ -1182,7 +1192,14 @@ export function useDocumentEditor() {
           // `run` also refuses unresolved mutations after earlier queued work settles.
           // A navigation queued first must not redirect Close to another document.
           if (!shown || currentRef.current?.document.id !== shown.id) return
+          if (shownGenerationRef.current !== serviceGenerationRef.current) {
+            throw new ApiError('service_restarted', 'Reload the drawing before closing its session in the replacement service.', 0)
+          }
+          const generation = serviceGenerationRef.current
           await client.close(shown.id, discardUnsaved, shown.revision)
+          if (generation !== serviceGenerationRef.current) {
+            throw new ApiError('service_restarted', 'The service changed before Close was confirmed. The drawing remains on screen; reload to reconcile its current state.', 0)
+          }
           setCurrent(null)
           refreshList()
         })

@@ -325,6 +325,111 @@ try {
   } finally {
     await context.close()
   }
+
+  async function oldResponseAfterRestart(kind) {
+    const context = await browser.newContext()
+    try {
+      await keepRequestInterception(context)
+      const page = await context.newPage()
+      const errors = []
+      page.on('pageerror', (error) => errors.push(error.message))
+      await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') })
+      await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'))
+      const source = ringSource()
+      source.document.title = 'Original before delayed response'
+      const oldReply = structuredClone(source)
+      oldReply.document.title = 'Old process response'
+      if (kind === 'open' || kind === 'create' || kind === 'copy') oldReply.document.id = 'other'
+      oldReply.document.revision += 1
+      oldReply.session.unsaved_changes = true
+      oldReply.session.undo_depth += 1
+      const arrived = deferred()
+      const release = deferred()
+      let token = 'process-1'
+      let reads = 0
+      let drafts = 0
+      let writes = 0
+      await context.route('**/api/v1/**', async (route) => {
+        const request = route.request()
+        const path = new URL(request.url()).pathname
+        if (path === '/api/v1/session') return json(route, { header: 'x-chemifree-token', token })
+        if (path === '/api/v1/trash' || (path === '/api/v1/documents' && request.method() === 'GET')) {
+          return json(route, { api_version: 'v1', documents: [] })
+        }
+        const body = request.method() === 'POST' ? request.postDataJSON() : null
+        if (path === '/api/v1/operations' && body.operation === 'chem.identity') {
+          token = 'process-2'
+          return json(route, { api_version: 'v1', code: 'unauthorized', message: 'Old process token' }, 401)
+        }
+        if (path.endsWith('/autosave')) {
+          drafts += 1
+          return json(route, oldReply)
+        }
+        if (path === '/api/v1/documents/drawing' && reads++ === 0) return json(route, source)
+        writes += 1
+        arrived.resolve()
+        await release.promise
+        if (kind === 'close') return json(route, { api_version: 'v1', discarded_changes: false })
+        if (kind === 'import') return json(route, { outcome: 'ok', diagnostics: [], loss_report: [], result: oldReply })
+        if (kind === 'copy') return json(route, { ...oldReply, source: { id: 'drawing', closed: false, discarded_changes: false } })
+        return json(route, oldReply)
+      })
+      await page.goto(`http://127.0.0.1:${address.port}/autosave-check`)
+      await page.getByLabel('Drawing', { exact: true }).filter({ hasText: source.document.title }).waitFor()
+      await page.getByLabel('Autosave', { exact: true }).filter({ hasText: 'clean' }).waitFor()
+      await page.evaluate((action) => {
+        const editor = window.autosaveHarness
+        switch (action) {
+          case 'edit': window.delayedAction = editor.apply([{ op: 'rename', title: 'Edit' }]); break
+          case 'open': window.delayedAction = editor.open('other'); break
+          case 'create': window.delayedAction = editor.create('New drawing'); break
+          case 'copy': window.delayedAction = editor.saveAs('Copied drawing'); break
+          case 'recover': window.delayedAction = editor.recover(); break
+          case 'reload': window.delayedAction = editor.reload(); break
+          case 'close': window.delayedAction = editor.close(false); break
+          case 'import': window.delayedAction = editor.importCt({ documentId: 'drawing', revision: 3,
+            format: 'mol', source: 'Scripted MOL', record: 0, digest: 'a'.repeat(64) }, editor.current.document, editor.serviceGeneration); break
+          default: throw new Error('Unknown delayed action')
+        }
+      }, kind)
+      await arrived.promise
+      await page.evaluate(async () => {
+        try {
+          await window.autosaveHarness.inspectIdentity('drawing', 'chemical', null)
+          throw new Error('Inspection must notice the replacement process')
+        } catch (error) {
+          if (error.code !== 'service_restarted') throw error
+        }
+      })
+      release.resolve()
+      await page.evaluate(() => window.delayedAction)
+      await page.getByLabel('Editor error', { exact: true }).filter({ hasText: 'service_restarted' }).waitFor()
+      assert.deepEqual(await page.evaluate(() => window.autosaveHarness.current.document), source.document,
+        `${kind}: an old response cannot replace or rebind the displayed snapshot`)
+      await page.getByRole('button', { name: 'Retry autosave', exact: true }).click()
+      await page.clock.runFor(5000)
+      assert.equal(drafts, 0, `${kind}: old responses do not authorize drafting in the replacement process`)
+      assert.equal(writes, 1, `${kind}: rejecting a stale reply sends no automatic mutation or reread`)
+      await page.evaluate(async () => {
+        const editor = window.autosaveHarness
+        await editor.apply([{ op: 'rename', title: 'Must not reach the new process' }])
+        await editor.saveAs('Must not copy in the new process')
+        await editor.close(false)
+      })
+      assert.equal(writes, 1, `${kind}: an unresolved old snapshot cannot authorize later edit/copy/Close requests`)
+      assert.deepEqual(errors, [])
+    } finally {
+      await context.close()
+    }
+  }
+  await oldResponseAfterRestart('edit')
+  await oldResponseAfterRestart('open')
+  await oldResponseAfterRestart('create')
+  await oldResponseAfterRestart('copy')
+  await oldResponseAfterRestart('recover')
+  await oldResponseAfterRestart('reload')
+  await oldResponseAfterRestart('import')
+  await oldResponseAfterRestart('close')
   console.log('Autosave process ownership, late replies, explicit reload and background error preservation passed.')
 } finally {
   await browser?.close()

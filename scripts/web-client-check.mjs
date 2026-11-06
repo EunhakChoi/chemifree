@@ -281,8 +281,32 @@ test('a first attempt refused by an already restarted service is sent again', as
   scripted.restart()
   const copied = await client.saveAs('doc-1', 3, 'Branch')
   assert.equal(copied.document.id, 'doc-2')
+  assert.equal(client.isCurrentSnapshot(copied), true, 'the safe retry is bound to its new HTTP attempt, not its original call')
   const copies = scripted.writes.filter((write) => write.path.endsWith('/save-as'))
   assert.deepEqual(copies.map((write) => write.token), ['token-1', 'token-2'], 'refused, then sent to the new service')
+})
+
+test('a delayed document response keeps its transport generation through normalization and a later get', async () => {
+  let arrived
+  const started = new Promise((resolve) => { arrived = resolve })
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  const scripted = service({
+    '/transactions': [async () => { arrived(); await held; return json(200, document('doc-9', 1)) }],
+    'GET /doc-9': [() => json(200, document('doc-9'))],
+  })
+  const client = new DocumentClient()
+  const pending = client.transact('doc-9', 0, [])
+  await started
+  scripted.restart()
+  await noticeRestart(client)
+  release()
+  const old = await pending
+  assert.equal(client.isCurrentSnapshot(old), false, 'a late success is not relabeled as belonging to the replacement process')
+  const fresh = await client.get('doc-9')
+  assert.equal(client.isCurrentSnapshot(fresh), true)
+  assert.equal(client.isCurrentSnapshot(old), false, 'learning a new token does not rebind a preceding response')
+  assert.equal(new DocumentClient().isCurrentSnapshot(fresh), false, 'provenance belongs to the client that sent the attempt')
 })
 
 test('a save whose reply was lost is asked about again with the same request ID', async () => {
