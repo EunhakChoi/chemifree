@@ -1080,7 +1080,9 @@ try {
         commands: [{ op: 'collapse_ethyl', instance: null, anchor: 'a2', terminal: 'a3' }] }))
       assert.equal(malformed.diagnostics[0].code, 'invalid_request')
       const copy = await both((id) => request('op-et-copy', 'document.clipboard_copy', { document_id: id, instance: 's1', selection: { atoms: ['a2', 'a3'], bonds: ['b2'] } }))
-      assert.equal(copy.diagnostics[0].code, 'clipboard_abbreviation_display_unsupported')
+      assert.equal(copy.outcome, 'error')
+      assert.equal(copy.diagnostics[0].code, 'invalid_command')
+      assert.equal(copy.diagnostics[0].details.reason, 'clipboard_abbreviation_display_unsupported')
       const formula = await both((id) => request('op-et-formula', 'chem.properties', { document_id: id, scope: 'molecule', property: 'formula' }))
       assert.equal(formula.result.components[0].formula, 'C2H6O')
       const moved = await both((id) => request('op-et-move', 'document.transaction', { document_id: id, expected_revision: 2,

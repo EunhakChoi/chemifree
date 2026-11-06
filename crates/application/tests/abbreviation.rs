@@ -121,13 +121,15 @@ fn all_writers_emit_the_full_graph_and_a_rendering_loss_without_mutating_the_doc
     let mol = call(
         &app,
         "document.export",
-        json!({"document_id":id,"format":"mol"}),
+        json!({"records":[{"document_id":id}],"format":"mol"}),
     );
     let smiles = call(
         &app,
         "document.export",
-        json!({"document_id":id,"format":"smiles"}),
+        json!({"document_id":id,"format":"smiles","style":"recorded"}),
     );
+    assert_eq!(mol["outcome"], "partial", "{mol}");
+    assert_eq!(smiles["outcome"], "partial", "{smiles}");
     assert!(
         mol["result"]["content"]
             .as_str()
@@ -140,20 +142,33 @@ fn all_writers_emit_the_full_graph_and_a_rendering_loss_without_mutating_the_doc
             .is_some_and(|text| text.contains('O') && text.matches('C').count() == 2),
         "{smiles}"
     );
-    call(&app, "document.transaction", collapse(&id));
+    let collapsed = call(&app, "document.transaction", collapse(&id));
+    assert_eq!(collapsed["outcome"], "ok", "{collapsed}");
     let formula = call(
         &app,
         "chem.properties",
         json!({"document_id":id,"scope":"molecule","property":"formula"}),
     );
+    assert_eq!(formula["outcome"], "ok", "{formula}");
     assert_eq!(formula["result"]["components"][0]["formula"], "C2H6O");
     let before = snapshot(&app, &id);
-    for format in ["mol", "sdf", "smiles", "cdxml", "cdx"] {
-        let exported = call(
-            &app,
-            "document.export",
-            json!({"document_id":id,"format":format}),
-        );
+    for (format, parameters) in [
+        (
+            "mol",
+            json!({"format":"mol","records":[{"document_id":id}]}),
+        ),
+        (
+            "sdf",
+            json!({"format":"sdf","records":[{"document_id":id}]}),
+        ),
+        (
+            "smiles",
+            json!({"format":"smiles","document_id":id,"style":"recorded"}),
+        ),
+        ("cdxml", json!({"format":"cdxml","document_id":id})),
+        ("cdx", json!({"format":"cdx","document_id":id})),
+    ] {
+        let exported = call(&app, "document.export", parameters);
         assert_eq!(exported["outcome"], "partial", "{format}: {exported}");
         let losses: Vec<&Value> = exported["loss_report"]
             .as_array()
@@ -195,15 +210,21 @@ fn native_copy_and_bad_commands_have_typed_refusals_and_no_side_effects() {
         json!({"document_id":id,"expected_revision":1,"commands":[{"op":"collapse_ethyl","instance":null,"anchor":"a2","terminal":"a3"}]}),
     );
     assert_eq!(malformed["diagnostics"][0]["code"], "invalid_request");
-    call(&app, "document.transaction", collapse(&id));
+    let collapsed = call(&app, "document.transaction", collapse(&id));
+    assert_eq!(collapsed["outcome"], "ok", "{collapsed}");
     let before = snapshot(&app, &id);
     let copied = call(
         &app,
         "document.clipboard_copy",
         json!({"document_id":id,"instance":"s1","selection":{"atoms":["a2","a3"],"bonds":["b2"]}}),
     );
+    assert_eq!(copied["outcome"], "error", "{copied}");
     assert_eq!(
-        copied["diagnostics"][0]["code"], "clipboard_abbreviation_display_unsupported",
+        copied["diagnostics"][0]["code"], "invalid_command",
+        "{copied}"
+    );
+    assert_eq!(
+        copied["diagnostics"][0]["details"]["reason"], "clipboard_abbreviation_display_unsupported",
         "{copied}"
     );
     assert_eq!(snapshot(&app, &id), before);

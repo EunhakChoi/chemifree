@@ -144,3 +144,18 @@ Statically compared the abbreviation domain/provider tests' document calls with 
 methods (including `persistence_weight` in the persistence module), and application/provider
 calls with their existing inherent or repository trait declarations. No additional unavailable
 call was found. Formatting and whitespace checks only; compilation and tests remain deferred.
+
+### Operation request and refusal correction
+
+The parent's next check compiled successfully and ran the three application abbreviation
+regressions: replay/save/recovery passed; the writer and clipboard refusal cases failed
+(`/tmp/chemifree-work/p34i-full-retry2.log`). Both failures were new test contract mistakes:
+MOL/SDF export requires `records: [{ document_id }]`, recorded SMILES requires `style`, and
+clipboard refusal uses code `invalid_command` plus the specific `details.reason`.
+
+Corrected all five writer request shapes against their existing strict DTOs, asserted baseline
+export/collapse/formula outcomes before checking payloads, and kept full-graph bytes and
+exact rendering-loss checks. Clipboard regression now asserts the error outcome, generic
+code, specific reason, and unchanged snapshot. Corrected the same reason-path mistake in the
+HTTP/CLI smoke case as well. No production error mapping or parser behavior was broadened.
+Formatting and whitespace checks ran; tests and builds are reserved for the parent.
