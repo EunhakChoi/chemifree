@@ -139,17 +139,22 @@ createRoot(document.getElementById('root')).render(<TooltipProvider><Harness /><
         const rect = (r) => ({x:r.x,y:r.y,width:r.width,height:r.height})
         const labels = [...svg.querySelectorAll('[data-atom-label]')].map((label) => ({ id: label.dataset.atomLabel, box: box(label.dataset.box),
           ink: rect(label.getBBox()), runs: [...label.querySelectorAll('[data-chunk="text"] tspan')].map((span) => ({weight:span.getAttribute('font-weight'),text:span.textContent,size:Number(span.getAttribute('font-size')),advance:span.getComputedTextLength()})),
-          chunks: [...label.querySelectorAll('[data-chunk="text"]')].map((chunk) => ({box:box(chunk.dataset.box),ink:rect(chunk.getBBox())})) }))
+          chunks: [...label.querySelectorAll('[data-chunk="text"]')].map((chunk) => ({box:box(chunk.dataset.box),ink:rect(chunk.getBBox())})),
+          marks: [...label.querySelectorAll('text[data-mark]')].map((mark) => ({part:mark.dataset.mark,box:box(mark.dataset.box),ink:rect(mark.getBBox()),weights:[...mark.querySelectorAll('tspan')].map((span)=>span.getAttribute('font-weight'))})) }))
         return {labels, viewBox:rect(svg.viewBox.baseVal), strokes:[...svg.querySelectorAll('[data-bond="b1"], [data-bond="b3"]')].map((line) => ({x1:Number(line.getAttribute('x1')),y1:Number(line.getAttribute('y1')),x2:Number(line.getAttribute('x2')),y2:Number(line.getAttribute('y2'))})),captionWeights:[...svg.querySelectorAll('[data-caption-text] tspan')].map((span) => span.getAttribute('font-weight'))}
       })
       const inside = (inner, outer, message) => {
         assert.ok(inner.x >= outer.x - 0.05 && inner.y >= outer.y - 0.05 && inner.x+inner.width <= outer.x+outer.width+0.05 && inner.y+inner.height <= outer.y+outer.height+0.05, `${message}: ${JSON.stringify({inner,outer})}`)
       }
       for (const label of geometry.labels) {
-        inside(label.ink, label.box, `${stage} ${label.id} ink`)
+        inside(label.ink, label.box, `${stage} ${label.id} ink; marks=${JSON.stringify(label.marks)}`)
         inside(label.box, geometry.viewBox, `${stage} ${label.id} fit`)
         assert.ok(label.runs.every((run) => run.weight === '700'), JSON.stringify(label))
         for (const chunk of label.chunks) inside(chunk.ink, chunk.box, `${stage} ${label.id} natural chunk`)
+        for (const mark of label.marks) {
+          inside(mark.ink, mark.box, `${stage} ${label.id} ${mark.part} mark`)
+          assert.ok(mark.weights.every((weight)=>weight==='400'),'radical and attachment marks retain their original weight')
+        }
       }
       assert.ok(geometry.labels.some((label) => label.runs.some((run) => run.text === 'Et')))
       assert.ok(geometry.labels.some((label) => label.runs.some((run) => run.text.includes('['))))

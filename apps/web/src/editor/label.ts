@@ -79,7 +79,7 @@ export interface LabelStyle {
   size: number
   carbons: CarbonLabels
   weight: LabelWeight
-  /** Browser measurements of the actual 700 text runs, in document units. */
+  /** Browser measurements of all text in bold labels, including normal-weight marks. */
   metrics?: LabelMetrics
 }
 
@@ -209,17 +209,20 @@ interface LabelMetric {
 }
 export type LabelMetrics = ReadonlyMap<string, LabelMetric>
 
-function labelMetricKey(text: string, size: number, font: LabelFont): string {
-  return JSON.stringify([text, size, font])
+function labelMetricKey(text: string, size: number, font: LabelFont, weight: LabelRun['weight']): string {
+  return JSON.stringify([text, size, font, weight])
 }
 
-/** Natural 700 advances and glyph overhang measured from the SVG that is actually painted. */
+/** Actual SVG ink for bold labels, including their unchanged 400 radical/attachment marks. */
 export function measureBoldLabels(svg: SVGSVGElement): LabelMetrics {
   const metrics = new Map<string, LabelMetric>()
   for (const group of svg.querySelectorAll<SVGGElement>('[data-labels]')) {
     const font = group.getAttribute('data-labels')
     if (font !== 'sans-serif' && font !== 'serif' && font !== 'monospace') continue
-    for (const span of group.querySelectorAll<SVGTSpanElement>('tspan[font-weight="700"]')) {
+    for (const span of group.querySelectorAll<SVGTSpanElement>('[data-atom-label] tspan')) {
+      if (!span.closest('[data-atom-label]')?.querySelector('tspan[font-weight="700"]')) continue
+      const weight = Number(span.getAttribute('font-weight'))
+      if (weight !== 400 && weight !== 500 && weight !== 700) continue
       const text = span.textContent ?? ''
       if (!text) continue
       const size = Number(span.getAttribute('font-size'))
@@ -234,7 +237,7 @@ export function measureBoldLabels(svg: SVGSVGElement): LabelMetrics {
         middle += Number(sibling.getAttribute('dy') ?? 0)
         if (sibling === span) break
       }
-      metrics.set(labelMetricKey(text, size, font), {
+      metrics.set(labelMetricKey(text, size, font, weight), {
         advance, overhang,
         top: ink.y - middle - size * 0.05 - 0.5,
         bottom: ink.y + ink.height - middle + size * 0.05 + 0.5,
@@ -245,9 +248,9 @@ export function measureBoldLabels(svg: SVGSVGElement): LabelMetrics {
 }
 
 function runMetric(item: LabelRun, font: LabelFont, metrics?: LabelMetrics, scale = 1): LabelMetric {
+  const measured = metrics?.get(labelMetricKey(item.text, item.size * scale, font, item.weight))
+  if (measured) return { advance: measured.advance / scale, overhang: measured.overhang / scale, top: measured.top / scale, bottom: measured.bottom / scale }
   if (item.weight === 700) {
-    const measured = metrics?.get(labelMetricKey(item.text, item.size * scale, font))
-    if (measured) return { advance: measured.advance / scale, overhang: measured.overhang / scale, top: measured.top / scale, bottom: measured.bottom / scale }
     // Provisional bounds until the mounted SVG is measured; never used as 700 font evidence.
     return { advance: textWidth(item.text, item.size, font) * 1.5, overhang: item.size * 0.2, top: -item.size, bottom: item.size }
   }

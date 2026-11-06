@@ -9,7 +9,10 @@ retain their existing policy. No graph or scientific model changes.
 
 The existing 400/500 metric tables are not 700 evidence. After mounting and after
 font/viewBox changes, the canvas measures actual SVG 700 text advances, horizontal
-glyph overhang and vertical ink, then rebuilds its shared label layout. Drawing,
+glyph overhang and vertical ink, then rebuilds its shared label layout. This also
+measures unchanged 400 radical/attachment text within bold labels: their actual
+small-font ink must fit, while their weight, size and placement policy stay unchanged.
+Normal document labels retain the previous static metrics. Drawing,
 bond trimming, fitting, picking and selection highlighting consume that layout.
 Normal typography and normal Et geometry retain the prior path.
 

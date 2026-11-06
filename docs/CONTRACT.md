@@ -2091,8 +2091,10 @@ aromaticity, identity or property calculation changes. Scientific result snapsho
 still name the exact document/revision, including its settings.
 
 The canvas measures actual mounted SVG 700 runs at the effective size and family,
-including natural advance, horizontal glyph overhang and vertical ink. Those
-measurements rebuild the single chemical-label layout used by bond trimming,
+including natural advance, horizontal glyph overhang and vertical ink. Unchanged
+400 radical/attachment text inside bold labels is measured too, so small-font ink
+reserves its actual bounds without changing mark weight, size or placement policy.
+Those measurements rebuild the single chemical-label layout used by bond trimming,
 fit, picking and selection highlighting; no glyph is stretched. Measurements are
 replaced when the document, loaded font or actual SVG viewBox changes. Provisional
 bounds before measurement are not evidence for 700 font metrics. Normal continues
