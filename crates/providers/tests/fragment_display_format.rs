@@ -270,7 +270,7 @@ fn maximum_member_lists_and_text_history_fit_native_file_and_draft_reservations(
     repo.save(&doc, None).unwrap();
     let bytes = fs::read(root.path().join("documents/maximum-fragment.json")).unwrap();
     assert!(bytes.len() <= doc.persistence_weight());
-    assert!(bytes.len() as u64<MAX_DOCUMENT_BYTES);
+    assert!((bytes.len() as u64) < MAX_DOCUMENT_BYTES);
     assert_eq!(repo.load(doc.id()).unwrap(), Some(doc.clone()));
     let draft = Draft {
         document: doc.clone(),
@@ -281,7 +281,7 @@ fn maximum_member_lists_and_text_history_fit_native_file_and_draft_reservations(
     repo.release_draft(doc.id());
     let bytes = fs::read(root.path().join("drafts/maximum-fragment.json")).unwrap();
     assert!(bytes.len() <= doc.persistence_weight());
-    assert!(bytes.len() as u64<MAX_DOCUMENT_BYTES);
+    assert!((bytes.len() as u64) < MAX_DOCUMENT_BYTES);
     assert_eq!(repo.claim_draft(doc.id()), Ok(Some(Ok(draft))));
     repo.release_draft(doc.id());
 }

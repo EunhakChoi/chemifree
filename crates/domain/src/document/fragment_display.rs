@@ -157,9 +157,7 @@ impl Content {
                 if self.check_fragment_display(*key, display).is_err() {
                     return Some(*key);
                 }
-                let Some(old) = before.fragment_displays.get(key) else {
-                    return None;
-                };
+                let old = before.fragment_displays.get(key)?;
                 if old.members != display.members {
                     return None;
                 }
