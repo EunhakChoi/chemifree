@@ -102,3 +102,19 @@ TypeScript patterns/testing과 shadcn 스킬을 적용하고 공식 Base UI comp
   실패 시 dialog/alert/current-document text도 실행 로그에 남겨 다음 실패를 상태와
   함께 확인하게 했다. 이 수정은 읽기 전용 검토와 `git diff --check`만 수행했으며,
   테스트·빌드·브라우저·push는 부모 재검증 대기다.
+
+## 부모 격리 재검증의 세 번째 실패와 portal 종료 동기화
+
+- `409c0f6`의 부모 재검증은 실제 파일 삽입의 lost-reply 단계까지 진행했지만 Close 직후
+  전역 Check locator가 두 버튼(닫히는 dialog와 본문 panel)에 동시에 일치해 실패했다.
+  로그는 `/tmp/chemifree-p29d-verify-j4KjPa/p34d-browser3.log`이며 lint/type/client535개와
+  build는 통과했다. 새 browser 성공은 아니다.
+- mode null일 때 닫히는 portal 내부 recovery도 렌더하지 않게 하여 persistent panel과
+  종료 중 dialog가 같은 recovery action을 중복 노출하지 않도록 했다. 미확정 attempt는
+  기존대로 유지하고, 닫힌 뒤 본문 recovery만 남긴다.
+- fixture는 dialog 내부 Check를 명시 확인한 뒤 Close하고, portal의 실제 detached 상태를
+  기다린 다음 **User graph templates** region의 Check 한 개를 눌러 확인한다. 성공 뒤 그
+  persistent Check의 제거까지 기다린다. `first()`/임의 sleep 없이 이 테스트의 의도인
+  “닫은 뒤에도 남는 recovery”와 실제 사용자 영역을 검사한다.
+- 수정 담당자는 `git diff --check`만 실행했다. 테스트·빌드·브라우저·push와 부모의
+  재검증은 pending이다.

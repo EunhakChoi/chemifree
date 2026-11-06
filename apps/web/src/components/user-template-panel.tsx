@@ -198,7 +198,7 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
           <DialogDescription>{mode === 'save'
             ? 'Only selected atoms, bond endpoints and internal bonds are saved. Scene objects, references and enhanced stereo groups are not template content. The source drawing is unchanged.'
             : 'Choose a Chemifree graph template file (up to 64 KiB). Reading does not edit the drawing. The local service validates its graph, style and version only when you press Insert template.'}</DialogDescription>
-          {recovery}
+          {mode !== null && recovery}
           {mode === 'save' ? <>
             {currentOffer && <p role="status">{currentOffer.copied.atoms.length} atoms, {currentOffer.copied.bonds.length} bonds from {currentOffer.instance}, revision {currentOffer.snapshot.document.revision}.</p>}
             {offer && !currentOffer && <p>The drawing changed. Close this dialog and prepare the template again.</p>}

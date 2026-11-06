@@ -191,6 +191,7 @@ try {
   // ability to press background toolbar buttons through the modal.
   const externalEvent = (name) => page.getByRole('button', { name, exact: true, includeHidden: true }).evaluate((element) => element.click())
   const dialog = () => page.getByRole('dialog')
+  const templatePanel = page.getByRole('region', { name: 'User graph templates', exact: true })
   const fileInput = () => page.getByLabel('Template file', { exact: true })
   const shown = async () => JSON.parse(await page.getByLabel('Current snapshot').innerText())
   async function open(name, id) {
@@ -359,14 +360,20 @@ try {
     return route.fulfill({ response })
   })
   await button('Insert template').click()
-  await button('Check template insertion outcome').waitFor()
+  await dialog().getByRole('button', { name: 'Check template insertion outcome', exact: true }).waitFor()
   assert.equal(await button('Insert template').isDisabled(), true)
   const committed = await snapshot(destination)
   assert.equal(committed.document.revision, 2)
   assert.equal(committed.session.undo_depth, before.session.undo_depth + 1)
   await button('Close').click()
-  await button('Check template insertion outcome').click()
-  await page.waitForFunction(() => !document.querySelector('section[aria-label="User graph templates"]')?.textContent.includes('Check template insertion outcome'))
+  // Confirm dismissal of the portal before using the persistent panel recovery.
+  // The test proves recovery survives closing, rather than clicking a closing dialog.
+  await dialog().waitFor({ state: 'detached' })
+  const persistentRecovery = templatePanel.getByRole('button', { name: 'Check template insertion outcome', exact: true })
+  await persistentRecovery.waitFor()
+  assert.equal(await persistentRecovery.count(), 1)
+  await persistentRecovery.click()
+  await persistentRecovery.waitFor({ state: 'detached' })
   assert.deepEqual(lostBodies, [lostBodies[0], lostBodies[0], lostBodies[0]], 'confirmation must keep request ID, payload and offsets')
   const after = await shown()
   assert.deepEqual(stable(after), stable(committed))
