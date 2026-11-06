@@ -276,6 +276,16 @@ fn version_6_cannot_hold_groups_and_version_7_cannot_omit_them() {
 
     let mut v6_with_groups = file.clone();
     v6_with_groups["format_version"] = json!(6);
+    // Isolate forbidden group fields from later Et metadata, which v6 also forbids.
+    v6_with_groups["document"]
+        .as_object_mut()
+        .unwrap()
+        .remove("abbreviations");
+    for stack in ["undo", "redo"] {
+        for set in v6_with_groups["history"][stack].as_array_mut().unwrap() {
+            set.as_object_mut().unwrap().remove("abbreviations");
+        }
+    }
     assert_unreadable(&v6_with_groups, "version 6 with groups");
     let mut v6_with_counter = fixture_json("v6-stereo-document.json");
     v6_with_counter["document"]["next_group"] = json!(1);

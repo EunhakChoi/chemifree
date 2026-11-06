@@ -175,3 +175,21 @@ unchanged through these selection-only interactions. Existing covered-boundary d
 remains in place. The browser regression was authored but not executed in this correction;
 its failure-sensitivity and the product fix remain subject to the parent's execution checks.
 No additional review was requested, following the repository's finding-disposition workflow.
+
+### Generated native fixture correction
+
+The parent's full check then reached provider unit tests: 45 passed and
+`file_store::tests::unreadable_files_are_reported_not_loaded` failed because its future-version
+variant still replaced the literal `"format_version":8` in a current v9 file
+(`/tmp/chemifree-work/p34i-full-final.log`). Build the variant by parsing the generated JSON
+and assigning version 99, preserving the existing changed-file and corruption assertions.
+This no longer depends on the current version number or serializer whitespace.
+
+Audited all `format_version` references across Rust and web/contract scripts. Other literal
+native-version replacements start from independently fixed v4 fixtures, while preference
+store v2 replacements belong to the separate preferences schema. Also corrected the existing
+v5 stereo migration builder to remove v9 abbreviation fields from current and both history
+stacks; otherwise valid v5 migrations would be rejected for the wrong schema. Removed those
+same fields from the forged-v6-with-groups case so its rejection continues to exercise group
+fields, not unrelated v9 metadata. Other current-to-old builders already omit v9 fields.
+Only formatting and whitespace inspection ran here; tests and builds remain with the parent.

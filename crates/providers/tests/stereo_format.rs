@@ -389,17 +389,18 @@ fn a_version_5_draft_is_recovered_and_its_bytes_are_kept() {
 }
 
 /// The version 5 file a stereo-free document would have been: the current version without
-/// `stereo`, groups, marks, or the version number.
+/// `stereo`, groups, marks, Et display fields, or the version number.
 fn as_version_5(bytes: &[u8]) -> Vec<u8> {
     let mut file: Value = serde_json::from_slice(bytes).unwrap();
     file["format_version"] = json!(5);
-    for field in ["stereo", "stereo_groups", "next_group"] {
+    for field in ["stereo", "stereo_groups", "next_group", "abbreviations"] {
         file["document"].as_object_mut().unwrap().remove(field);
     }
     for side in ["undo", "redo"] {
         for set in file["history"][side].as_array_mut().unwrap() {
             set.as_object_mut().unwrap().remove("stereo");
             set.as_object_mut().unwrap().remove("stereo_groups");
+            set.as_object_mut().unwrap().remove("abbreviations");
         }
     }
     serde_json::to_vec(&file).unwrap()
