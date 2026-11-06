@@ -35,7 +35,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
   close: () => void
 }) {
   const id = useId()
-  const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null, color: null }])
+  const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null, color: null, underline: false }])
   const [sizes, setSizes] = useState<string[]>(original?.runs.map((run) => run.size_pt == null ? '' : String(run.size_pt)) ?? [''])
   const parsedSizes = sizes.map((size) => parseCaptionSize(size))
   const validSizes = parsedSizes.map((size) => size !== undefined)
@@ -70,7 +70,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
       <DialogContent className="max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{original ? `Edit caption ${original.id}` : 'Add caption'}</DialogTitle>
-          <DialogDescription>Each input stores one complete Unicode run. Text is kept verbatim. Script, weight, style, size, color and font family change appearance only. Alignment includes leading and trailing spaces. Paragraph direction is fixed left-to-right; RTL shaping is browser-native within each run, with runs kept in stored order. Run boundaries may split shaping; avoid splitting combining or emoji sequences.</DialogDescription>
+          <DialogDescription>Each input stores one complete Unicode run. Text is kept verbatim. Script, weight, style, underline, size, color and font family change appearance only. Alignment includes leading and trailing spaces. Paragraph direction is fixed left-to-right; RTL shaping is browser-native within each run, with runs kept in stored order. Run boundaries may split shaping; avoid splitting combining or emoji sequences.</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field><FieldLabel id={`${id}-alignment`}>Caption alignment</FieldLabel>
@@ -124,6 +124,14 @@ function CaptionDialog({ documentId, original, editor, close }: {
                   <ToggleGroupItem value="normal">Normal</ToggleGroupItem><ToggleGroupItem value="bold">Bold</ToggleGroupItem>
                 </ToggleGroup>
               </Field>
+              <Field><FieldLabel id={`${id}-underline-${index}`}>Run {index + 1} underline</FieldLabel>
+                <ToggleGroup variant="outline" size="sm" aria-labelledby={`${id}-underline-${index}`} value={[run.underline ? 'on' : 'off']} onValueChange={(values) => {
+                  const value = values[0]
+                  if (value === 'on' || value === 'off') setRuns((current) => current.map((item, at) => at === index ? { ...item, underline: value === 'on' } : item))
+                }}>
+                  <ToggleGroupItem value="off">Off</ToggleGroupItem><ToggleGroupItem value="on">On</ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
               <Field><FieldLabel id={`${id}-style-${index}`}>Run {index + 1} style</FieldLabel>
                 <ToggleGroup variant="outline" size="sm" aria-labelledby={`${id}-style-${index}`} value={[run.style]} onValueChange={(values) => {
                   const value = values[0]
@@ -136,7 +144,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
             </FieldGroup>
           ))}
         </FieldGroup>
-        <Button variant="outline" disabled={runs.length >= 32 || composing} onClick={() => { setRuns((current) => [...current, { text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null, color: null }]); setSizes((current) => [...current, '']) }}>Add run</Button>
+        <Button variant="outline" disabled={runs.length >= 32 || composing} onClick={() => { setRuns((current) => [...current, { text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null, color: null, underline: false }]); setSizes((current) => [...current, '']) }}>Add run</Button>
         <p className="text-xs text-muted-foreground">1–32 nonempty runs, at most 16384 UTF-8 bytes in total. No line breaks or control characters. Move/group/delete from Scene. Arrangement, rotation, reflection and graphic clipboard do not yet support captions.</p>
         <DialogFooter><Button disabled={!valid || composing || editor.busy} onClick={submit}>{original ? 'Apply caption' : 'Create caption'}</Button></DialogFooter>
       </DialogContent>

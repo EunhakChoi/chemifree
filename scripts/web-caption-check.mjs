@@ -112,6 +112,7 @@ function Harness() {
     <button disabled={editor.busy} onClick={() => void editor.save()}>Save caption drawing</button>
     <button disabled={editor.busy} onClick={() => void editor.reload()}>Reload caption drawing</button>
     <button disabled={editor.busy} onClick={() => editor.setSelection(new Set(['s2']))}>Select caption</button>
+    <button disabled={editor.busy} onClick={() => editor.setSelection(new Set())}>Clear caption selection</button>
     <output aria-label="Caption snapshot">{JSON.stringify(editor.current)}</output>
     <output aria-label="Caption error">{editor.error?.message}</output>
     {editor.current && <>
@@ -183,7 +184,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.getByLabel('Run 2 color', { exact: true }).fill('#000000')
   await button('Create caption').click()
   await page.locator('[data-caption-text="s2"]').waitFor()
-  const expected = [{ text, script: 'baseline', weight: 'bold', style: 'normal', font: 'serif', color: '#2A7BCD', size_pt: 24 }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace', color: '#000000', size_pt: 18 }, { text: '+   ', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif', color: null, size_pt: null }]
+  const expected = [{ underline: false, text, script: 'baseline', weight: 'bold', style: 'normal', font: 'serif', color: '#2A7BCD', size_pt: 24 }, { underline: false, text: '2', script: 'subscript', weight: 'normal', style: 'italic', font: 'monospace', color: '#000000', size_pt: 18 }, { underline: false, text: '+   ', script: 'superscript', weight: 'bold', style: 'italic', font: 'sans-serif', color: null, size_pt: null }]
   assert.deepEqual((await caption()).runs, expected)
   assert.deepEqual(await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => [node.getAttribute('font-weight'), node.getAttribute('font-style')])), [['bold', 'normal'], ['normal', 'italic'], ['bold', 'italic']])
   const familyStyles = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).fontFamily))
@@ -259,6 +260,69 @@ createRoot(document.getElementById('root')).render(<Harness />)
     const svg = group.ownerSVGElement.viewBox.baseVal
     return ink.width > 30 && box.x <= ink.x && box.y <= ink.y && box.x + box.width >= ink.x + ink.width && box.y + box.height >= ink.y + ink.height && svg.x <= box.x && svg.y <= box.y && svg.x + svg.width >= box.x + box.width && svg.y + svg.height >= box.y + box.height
   })
+  stage = 'explicit underline ink, Unicode advances and fixed anchors'
+  const glyphMetrics = () => page.locator('[data-caption-text]').evaluate((node) => ({
+    advance: node.getComputedTextLength(), x: node.getAttribute('x'), anchor: node.dataset.captionAnchorX,
+    spans: [...node.querySelectorAll('tspan')].map((span) => Array.from({ length: span.getNumberOfChars() }, (_, index) => [span.getStartPositionOfChar(index).x, span.getEndPositionOfChar(index).x])),
+  }))
+  // FEFF is a permitted zero-advance run. Others exercise native cluster shaping,
+  // ligatures, RTL, supplementary characters and preserved edge spaces.
+  for (const sample of [text, '   ffi office   ', '  العربية אבג  ', 'e\u0301 👩‍🔬 🧪', '\ufeff']) {
+    await button('Select caption').click()
+    await button('Edit selected caption…').click()
+    await page.getByLabel('Run 1 text', { exact: true }).fill(sample)
+    await button('Apply caption').click()
+    await page.waitForFunction((sample) => document.querySelector('[data-caption-text] tspan')?.textContent === sample, sample)
+    await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+    const plain = await glyphMetrics()
+    const plainSnapshot = await caption()
+    await button('Edit selected caption…').click()
+    for (let run = 1; run <= 3; run++) await page.getByRole('group', { name: `Run ${run} underline`, exact: true }).getByRole('button', { name: 'On', exact: true }).click()
+    await button('Apply caption').click()
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-caption-underline]')].length === 3 && [...document.querySelectorAll('[data-caption-underline]')].every((line) => line.hasAttribute('height')))
+    await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+    assert.deepEqual(await glyphMetrics(), plain, `underline leaves all character advances and anchor fixed: ${sample}`)
+    assert.deepEqual((await caption()).runs, plainSnapshot.runs.map((run) => ({ ...run, underline: true })))
+    await button('Fit drawing').click()
+    await page.waitForFunction(() => {
+      const text = document.querySelector('[data-caption-text]')
+      const hit = text?.parentElement.querySelector('rect')?.getBBox()
+      if (!text || !hit) return false
+      const view = text.ownerSVGElement.viewBox.baseVal
+      return [...text.parentElement.querySelectorAll('[data-caption-underline]')].every((line) => {
+        if (Number(line.getAttribute('width')) === 0) return true
+        const b = line.getBBox()
+        return hit.x <= b.x && hit.y <= b.y && hit.x + hit.width >= b.x + b.width && hit.y + hit.height >= b.y + b.height && view.x <= b.x && view.y <= b.y && view.x + view.width >= b.x + b.width && view.y + view.height >= b.y + b.height
+      })
+    })
+    const geometry = await page.locator('[data-caption-text]').evaluate((node) => [...node.parentElement.querySelectorAll('[data-caption-underline]')].map((line) => {
+      const span = node.children.item(Number(line.dataset.captionUnderline))
+      const edges = Array.from({ length: span.getNumberOfChars() }, (_, index) => [span.getStartPositionOfChar(index).x, span.getEndPositionOfChar(index).x]).flat()
+      const actual = line.getBBox()
+      const b = Number(line.getAttribute('width')) === 0 ? { x: Number(line.getAttribute('x')), y: Number(line.getAttribute('y')), width: 0, height: Number(line.getAttribute('height')) } : actual
+      return { x: b.x, width: b.width, start: edges.length ? Math.min(...edges) : b.x, end: edges.length ? Math.max(...edges) : b.x, y: b.y, baseline: Number(span.getAttribute('y')), size: Number(span.getAttribute('font-size')), height: b.height, fill: getComputedStyle(line).fill, textFill: getComputedStyle(span).fill }
+    }))
+    for (const line of geometry) {
+      assert.ok(Math.abs(line.x - line.start) < 0.001)
+      assert.ok(Math.abs(line.width - (line.end - line.start)) < 0.001)
+      assert.ok(Math.abs(line.y - (line.baseline + line.size / 12)) < 0.001)
+      assert.ok(Math.abs(line.height - line.size / 16) < 0.001)
+      assert.equal(line.fill, line.textFill)
+    }
+    // Click the actual painted underline; it must select the caption through its hit box.
+    await button('Clear caption selection').click()
+    assert.equal(await button('Edit selected caption…').isDisabled(), true)
+    const line = page.locator('[data-caption-underline="1"]')
+    await line.click({ force: true })
+    assert.equal(await button('Edit selected caption…').isEnabled(), true)
+    await button('Undo caption').click()
+    await page.waitForFunction(() => document.querySelectorAll('[data-caption-underline]').length === 0)
+  }
+  await button('Edit selected caption…').click()
+  await page.getByLabel('Run 1 text', { exact: true }).fill(text)
+  await button('Apply caption').click()
+  await page.locator('[data-structure-canvas][data-caption-bounds-ready="true"]').waitFor()
+  await button('Fit drawing').click()
   const scriptY = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute('y'))))
   assert.deepEqual(scriptY, [0, 6, -5])
   stage = 'whole-caption alignment shifts all script chunks and includes edge spaces'
@@ -316,6 +380,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await button('Edit selected caption…').click()
   const editedText = '  NFC é and NFD e\u0301 '.repeat(8)
   await page.getByLabel('Run 1 text', { exact: true }).fill(editedText)
+  await page.getByRole('group', { name: 'Run 1 underline', exact: true }).getByRole('button', { name: 'On', exact: true }).click()
   await page.getByRole('group', { name: 'Caption alignment', exact: true }).getByRole('button', { name: 'Right', exact: true }).click()
   await page.getByLabel('Caption horizontal position (pt)', { exact: true }).fill('1200')
   await page.getByLabel('Caption vertical position (pt)', { exact: true }).fill('450')
@@ -331,7 +396,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await button('Save caption drawing').click()
   await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Caption snapshot"]').textContent)?.session.unsaved_changes === false)
   const native = JSON.parse(readFileSync(join(work, 'documents', `${id}.json`), 'utf8'))
-  assert.equal(native.format_version, 14)
+  assert.equal(native.format_version, 15)
   assert.equal(native.document.objects.find((object) => object.id === 's2').state.alignment, 'right')
   assert.deepEqual(native.document.objects.find((object) => object.id === 's2').state.runs, edited.runs)
   await page.reload()

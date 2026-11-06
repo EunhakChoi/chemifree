@@ -828,8 +828,9 @@ fn document_text(response: &DocumentResponse) -> String {
                             .size_pt
                             .map_or_else(|| "inherit".to_owned(), |size| format!("{size}pt"));
                         let color = run.color.as_deref().unwrap_or("inherit");
+                        let underline = if run.underline { "underline" } else { "none" };
                         format!(
-                            "{script}/{weight}/{style}/{font}/{size}/{color}(\"{}\")",
+                            "{script}/{weight}/{style}/{font}/{size}/{color}/{underline}(\"{}\")",
                             run.text.escape_default()
                         )
                     })
@@ -1143,7 +1144,7 @@ mod tests {
     fn caption_output_keeps_parent_anchor_run_order_and_explicit_script() {
         let text = shown(json!([
             {"op":"add_caption","anchor":{"x":5,"y":7},"alignment":"center","runs":[
-                {"text":"H","script":"baseline","font":"serif","size_pt":24.5,"color":"#2A7BCD"},{"text":"2","script":"subscript","weight":"bold","style":"italic","font":"monospace","color":"#000000"},{"text":"+","script":"superscript","style":"italic","font":"sans-serif"}
+                {"text":"H","script":"baseline","font":"serif","size_pt":24.5,"color":"#2A7BCD","underline":true},{"text":"2","script":"subscript","weight":"bold","style":"italic","font":"monospace","color":"#000000"},{"text":"+","script":"superscript","style":"italic","font":"sans-serif"}
             ]},
             {"op":"add_graphic","shape":"line","points":[{"x":0,"y":0},{"x":10,"y":0}]},
             {"op":"group","objects":["s2","s3"]}
@@ -1155,7 +1156,7 @@ mod tests {
         assert_eq!(
             caption,
             [
-                r#"  s2  caption in s4 at (5, 7) [center]: baseline/normal/normal/serif/24.5pt/#2A7BCD("H") subscript/bold/italic/monospace/inherit/#000000("2") superscript/normal/italic/sans-serif/inherit/inherit("+")"#
+                r#"  s2  caption in s4 at (5, 7) [center]: baseline/normal/normal/serif/24.5pt/#2A7BCD/underline("H") subscript/bold/italic/monospace/inherit/#000000/none("2") superscript/normal/italic/sans-serif/inherit/inherit/none("+")"#
             ]
         );
     }
@@ -1174,7 +1175,7 @@ mod tests {
         assert_eq!(
             caption,
             [
-                r#"  s2  caption in page at (0, 0) [left]: baseline/normal/normal/inherit/inherit/inherit("\u{d55c}\u{ae00} e\u{301} \u{202e}\"\\ & <>")"#
+                r#"  s2  caption in page at (0, 0) [left]: baseline/normal/normal/inherit/inherit/inherit/none("\u{d55c}\u{ae00} e\u{301} \u{202e}\"\\ & <>")"#
             ]
         );
         assert!(

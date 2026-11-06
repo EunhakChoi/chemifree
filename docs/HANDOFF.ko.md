@@ -499,3 +499,14 @@ native v14는 current/history의 nullable color가 필수이며 v8–13은 상�
 P35는 in_progress다. 회귀는 작성했으며 구현 agent는 포맷/diff만 실행했다.
 테스트/빌드/cargo check/browser 및 리뷰 결과는 부모의 격리 검증 후 기록한다.
 세부: [P35f 기록](verification/p35f-caption-run-color.md).
+
+## P35g: 독립 caption run underline
+
+`underline` boolean을 전체 run 값으로 추가했다. 생략=false, snapshot은 명시적 bool,
+null/다른 타입은 invalid_request다. UI Off/On·CLI 표시·undo/replay·save/recovery를 공유한다.
+Native v15 current/history는 strict bool이며 v8–14는 false로 이동하고 exact-byte archive를 유지한다.
+밑줄은 font decoration 대신 실제 SVG 문자 start/end의 min/max로 정한 filled rect다.
+기준선+rendered size/12, 두께 size/16이며 glyph와 union해 fit/selection/hit에 포함한다.
+zero advance는 폭0, text advance/anchor는 바꾸지 않는다. metadata 최대154로 기존160 예약 유지.
+P35는 in_progress다. 구현 agent는 build/test/cargo check/browser를 실행하지 않았다.
+격리 검증과 리뷰 결과는 [P35g 기록](verification/p35g-caption-run-underline.md)에 후속 기록한다.

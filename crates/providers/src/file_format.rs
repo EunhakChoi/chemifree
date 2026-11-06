@@ -1,7 +1,8 @@
-//! Chemifree document file format, version 14 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 15 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
+//! Version 15 adds independent boolean run underlines; versions 8–14 default to false.
 //! Version 14 adds nullable canonical opaque sRGB run colors; versions 8–13 inherit foreground.
 //! Version 13 adds a nullable per-run size override; versions 8–12 inherit the document size.
 //! Version 12 adds a nullable per-run font override; versions 8–11 inherit the document font.
@@ -24,7 +25,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 14. Other versions
+//! so they read with none. Reading never writes; the next write is version 15. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -51,9 +52,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 14;
+const FORMAT_VERSION: u32 = 15;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 14;
+const DRAFT_FORMAT_VERSION: u32 = 15;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -68,7 +69,7 @@ const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Current v14 scene/history: groups, styled/aligned captions, and Et display maps.
+/// Current v15 scene/history: groups, styled/aligned captions, and Et display maps.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -159,6 +160,8 @@ enum SceneState {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StoredCaptionRun {
+    #[serde(default)]
+    underline: bool,
     #[serde(default)]
     color: Option<String>,
     #[serde(default)]
@@ -1191,6 +1194,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Fourteen,
     Thirteen,
     Twelve,
     Eleven,
@@ -1216,6 +1220,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        14 => Ok(Version::Fourteen),
         13 => Ok(Version::Thirteen),
         12 => Ok(Version::Twelve),
         11 => Ok(Version::Eleven),
@@ -1231,7 +1236,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, and \
              {current}"
         )),
     }
@@ -1395,6 +1400,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Four) => Some(VERSION_4),
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
+        Ok(Version::Fourteen) => Some(14),
         Ok(Version::Thirteen) => Some(13),
         Ok(Version::Twelve) => Some(12),
         Ok(Version::Eleven) => Some(11),
@@ -1414,6 +1420,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     check_caption_fields(bytes, format)?;
     let parts = match format {
         Version::Current
+        | Version::Fourteen
         | Version::Thirteen
         | Version::Twelve
         | Version::Eleven
@@ -1462,6 +1469,7 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     check_caption_fields(bytes, format)?;
     let (parts, base_revision, saved_at_ms) = match format {
         Version::Current
+        | Version::Fourteen
         | Version::Thirteen
         | Version::Twelve
         | Version::Eleven
@@ -1521,6 +1529,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     let current = matches!(
         format,
         Version::Current
+            | Version::Fourteen
             | Version::Thirteen
             | Version::Twelve
             | Version::Eleven
@@ -1558,6 +1567,7 @@ fn check_caption_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         font: bool,
         size: bool,
         color: bool,
+        underline: bool,
     ) -> Result<(), String> {
         match value {
             serde_json::Value::Object(object) => {
@@ -1565,35 +1575,40 @@ fn check_caption_fields(bytes: &[u8], format: Version) -> Result<(), String> {
                     let field = object.get("alignment");
                     if field.is_some() != alignment || field.is_some_and(serde_json::Value::is_null)
                     {
-                        return Err("Caption alignment is required in v11–14 and forbidden in v1–10, including history.".into());
+                        return Err("Caption alignment is required in v11–15 and forbidden in v1–10, including history.".into());
                     }
                     if let Some(runs) = object.get("runs").and_then(serde_json::Value::as_array) {
                         for run in runs {
+                            if run.get("underline").is_some() != underline
+                                || (underline && !run["underline"].is_boolean())
+                            {
+                                return Err("Caption underline is required as a boolean in v15 and forbidden in v1–14, including history.".into());
+                            }
                             if run.get("color").is_some() != color {
-                                return Err("Caption color is required in v14 and forbidden in v1–13, including history.".into());
+                                return Err("Caption color is required in v14–15 and forbidden in v1–13, including history.".into());
                             }
                             if run.get("size_pt").is_some() != size {
-                                return Err("Caption size_pt is required in v13–14 and forbidden in v1–12, including history.".into());
+                                return Err("Caption size_pt is required in v13–15 and forbidden in v1–12, including history.".into());
                             }
                             if run.get("font").is_some() != font {
-                                return Err("Caption font is required in v12–14 and forbidden in v1–11, including history.".into());
+                                return Err("Caption font is required in v12–15 and forbidden in v1–11, including history.".into());
                             }
                             for field in ["weight", "style"] {
                                 let present = run.get(field).is_some();
                                 if present != styles || (present && run[field].is_null()) {
-                                    return Err("Caption weight/style are required in v10–14 and forbidden in v1–9, including history.".into());
+                                    return Err("Caption weight/style are required in v10–15 and forbidden in v1–9, including history.".into());
                                 }
                             }
                         }
                     }
                 }
                 for child in object.values() {
-                    check(child, styles, alignment, font, size, color)?;
+                    check(child, styles, alignment, font, size, color, underline)?;
                 }
             }
             serde_json::Value::Array(values) => {
                 for child in values {
-                    check(child, styles, alignment, font, size, color)?;
+                    check(child, styles, alignment, font, size, color, underline)?;
                 }
             }
             _ => {}
@@ -1604,17 +1619,30 @@ fn check_caption_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         &parse(bytes, "document or draft")?,
         matches!(
             format,
-            Version::Current | Version::Thirteen | Version::Twelve | Version::Eleven | Version::Ten
+            Version::Current
+                | Version::Fourteen
+                | Version::Thirteen
+                | Version::Twelve
+                | Version::Eleven
+                | Version::Ten
         ),
         matches!(
             format,
-            Version::Current | Version::Thirteen | Version::Twelve | Version::Eleven
+            Version::Current
+                | Version::Fourteen
+                | Version::Thirteen
+                | Version::Twelve
+                | Version::Eleven
         ),
         matches!(
             format,
-            Version::Current | Version::Thirteen | Version::Twelve
+            Version::Current | Version::Fourteen | Version::Thirteen | Version::Twelve
         ),
-        matches!(format, Version::Current | Version::Thirteen),
+        matches!(
+            format,
+            Version::Current | Version::Fourteen | Version::Thirteen
+        ),
+        matches!(format, Version::Current | Version::Fourteen),
         format == Version::Current,
     )
 }
@@ -1624,6 +1652,7 @@ fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(),
     if matches!(
         format,
         Version::Current
+            | Version::Fourteen
             | Version::Thirteen
             | Version::Twelve
             | Version::Eleven
@@ -1770,6 +1799,7 @@ fn stored_scene_state(object: &SceneObject) -> SceneState {
                 .runs
                 .iter()
                 .map(|run| StoredCaptionRun {
+                    underline: run.underline,
                     color: run.color.clone(),
                     size_pt: run.size_pt,
                     font: run.font.map(Into::into),
@@ -1848,6 +1878,7 @@ fn read_scene_state(object: SceneState) -> Result<SceneObject, String> {
                 runs: runs
                     .into_iter()
                     .map(|run| CaptionRun {
+                        underline: run.underline,
                         color: run.color,
                         size_pt: run.size_pt,
                         font: run.font.map(Into::into),

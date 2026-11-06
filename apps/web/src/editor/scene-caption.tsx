@@ -35,6 +35,9 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
           )
         })}
       </text>
+      <g aria-hidden="true" pointerEvents="none" className="fill-foreground" data-caption-underlines="">
+        {object.runs.map((run, index) => run.underline && <rect key={index} data-caption-underline={index} fill={run.color ?? undefined} />)}
+      </g>
     </g>
   )
 }

@@ -121,6 +121,8 @@ pub enum CaptionStyle {
 /// Text stored verbatim: no Unicode normalization or index-based edits.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CaptionRun {
+    /// Independent appearance flag; does not change text advance or chemical meaning.
+    pub underline: bool,
     /// None inherits the current foreground; overrides are opaque canonical sRGB #RRGGBB.
     pub color: Option<String>,
     /// None follows the document label size dynamically; overrides are finite 4–72 pt.
