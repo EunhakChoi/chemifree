@@ -49,7 +49,7 @@ test('visible projection has no hidden atom or internal bond hit but retains the
   const view = compactView(document, 's1')
   assert.deepEqual(view.atoms.map((atom) => atom.id), ['a1', 'a2'])
   assert.deepEqual(view.bonds.map((bond) => bond.id), ['b1'])
-  const label = ethylLabel({ font: 'sans-serif', size: 12, carbons: 'default' })
+  const label = ethylLabel({ font: 'sans-serif', size: 12, carbons: 'default', weight: 'normal', style: 'normal', underline: false })
   const labels = new Map([['a2', label]])
   assert.equal(hitTest(view, { x: 45, y: 25 }, new Set(), atomIndex(view), labels), null)
   assert.equal(hitTest(view, { x: 38, y: 14 }, new Set(), atomIndex(view), labels), null)
