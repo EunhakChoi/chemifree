@@ -34,3 +34,23 @@ Authored checks:
 Executed in this session: formatting and diff review only. Tests, builds,
 clippy/typecheck and browser runs were not executed by explicit task instruction.
 Reviews and finding dispositions are recorded by the PR delivery workflow.
+
+
+## Codex PR review findings and dispositions
+
+Source: Codex review of [PR #197](https://github.com/EunhakChoi/chemifree/pull/197).
+The complete review identity, reviewed head and timing are recorded in the PR.
+
+- P1 — stale `labelStyleOf` expected object omitted `underline: false`.
+  Addressed by `aaf8bd8` (`Complete chemical label style fixtures for underline`).
+  Static inspection confirms the expected object now includes the false default;
+  the directly constructed Et style fixture also names all current style fields.
+- P2 — the primary native file-format section still described v19 and a stale
+  migration/archive range. Addressed by the accompanying documentation change:
+  document and draft headers now name v20, migration/first-save archival covers
+  v1–19, and the current/history underline, weight/style introduction boundaries,
+  and future-v21 refusal agree with `crates/providers/src/file_format.rs`.
+  Historical descriptions of individual earlier format additions remain.
+
+Verification of this review fix: source/document comparison and `git diff --check`
+only. No tests or builds were run for this documentation-only change.
