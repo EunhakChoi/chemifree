@@ -1999,8 +1999,11 @@ export class DocumentClient {
       const oldBonds = new Set(before.bonds.map((bond) => bond.id))
       const atoms = after.atoms.filter((atom) => !oldAtoms.has(atom.id))
       const bonds = after.bonds.filter((bond) => !oldBonds.has(bond.id))
+      // Scene captures follow paint order; the service returns ID-ordered sets.
+      const selected = after.selection
       if (after.revision !== before.revision + 1 || atoms.length !== 6 || bonds.length !== 6 ||
-          snapshot.notes?.length || !sameJson(after.selection, selection)) throw clipboardIncompatible()
+          snapshot.notes?.length || !selected || !sameClipboardIds(selected.objects, selection.objects) ||
+          !sameClipboardIds(selected.atoms, selection.atoms) || !sameClipboardIds(selected.bonds, selection.bonds)) throw clipboardIncompatible()
       const length = settingsOf(before).bond_length_pt
       const height = length * (Math.sqrt(3) / 2)
       const offsets = [[length, 0], [length / 2, height], [-length / 2, height],

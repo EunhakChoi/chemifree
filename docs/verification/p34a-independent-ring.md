@@ -75,8 +75,16 @@ request-ID 재생성·process guard 제거는 lost-response/restart 검사로 �
   IDs/history·DTO/catalog·중심 클릭·immutable process gate·작성 검사·범위를 확인했다.
   테스트/빌드/브라우저/mutation/skill gate는 실행하지 않았다. 이후 보강한 시험은
   drag 비삽입·OS clipboard 접근 금지·terminal revision conflict의 명시 reconcile다.
-- PR Codex review: pending. 완료된 PR review 근거는 아직 이 기록에 없다.
-  전체 검증과 PR/병합 CI도 pending이며 위 targeted 통과로 완료 처리하지 않는다.
+- [PR #174 Codex review](https://github.com/EunhakChoi/chemifree/pull/174#pullrequestreview-5795053934)는
+  `59c8478d96`의 선택 배열 순서 비교를 P2로 지적했다
+  ([지적](https://github.com/EunhakChoi/chemifree/pull/174#discussion_r4488469866)).
+  scene reorder 뒤 capture는 paint/DFS 순서, Rust 응답은 ID 순서여서 정상 삽입도
+  미확정으로 잠겼다. objects/atoms/bonds를 기존 distinct-ID 집합 비교로 검사해
+  멤버 보존·개수를 검증하고 순서 차이만 허용하도록 수정했다. 재정렬된 두 root의
+  실제 `selectionSnapshot` 입력과 잃은 응답 재확인 성공·같은 request 유지 회귀,
+  선택 누락/추가/교체/중복 거절 회귀를 더했다. 이 수정과 추가 회귀는 공유 격리
+  검증 중인 이전 snapshot과 별개이며 아직 실행하지 않았다.
+  전체 검증과 PR/병합 CI는 pending이며 위 targeted 통과로 완료 처리하지 않는다.
 
 Rust/TypeScript patterns/testing skills를 적용했다. shadcn의 기존 Button/Alert/ToggleGroup
 구성을 재사용하며 새로운 UI primitive나 dependency는 추가하지 않았다.
