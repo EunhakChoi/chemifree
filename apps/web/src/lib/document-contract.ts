@@ -2291,7 +2291,8 @@ export class DocumentClient {
       bonds: document.bonds.length, mapping: result.mapping, losses }
   }
 
-  async createInterchange(input: InterchangeInput, digest: string): Promise<DocumentResponse> {
+  /** Reviewed browser inputs use `reload` to prevent even a first-send restart retry. */
+  async createInterchange(input: InterchangeInput, digest: string, onInitialRestart: 'retry' | 'reload' = 'retry'): Promise<DocumentResponse> {
     const key = `interchange:${JSON.stringify([input, digest])}`
     try {
       return await this.createOnce(
@@ -2305,6 +2306,7 @@ export class DocumentClient {
         const created = DocumentClient.document({ api_version: API_VERSION, ...result })
         return replayed ? this.get(created.document.id) : created
       },
+      onInitialRestart,
       )
     } catch (error) {
       // A structured refusal is a definitive non-commit; an invalid or lost reply may hide a commit.
@@ -2313,6 +2315,11 @@ export class DocumentClient {
       }
       throw error
     }
+  }
+
+  /** Explicit Saved-documents reconciliation ends tracking; it never resends or rolls back creation. */
+  reconcileInterchangeCreation(input: InterchangeInput, digest: string): void {
+    this.unconfirmed.delete(`interchange:${JSON.stringify([input, digest])}`)
   }
 
   async previewCt(documentId: string, revision: number, format: CtFormat, source: string, record: number): Promise<CtPreview> {
@@ -3024,6 +3031,7 @@ export class DocumentClient {
     body: Record<string, unknown>,
     unknown: ApiError,
     settle: (value: unknown, replayed: boolean) => Promise<T>,
+    onInitialRestart: 'retry' | 'reload' = 'retry',
   ): Promise<T> {
     const pending = this.unconfirmed.get(key) ?? { requestId: requestId() }
     this.unconfirmed.set(key, pending)
@@ -3039,7 +3047,7 @@ export class DocumentClient {
         value = await this.write(
           path,
           { request_id: pending.requestId, ...body },
-          pending.sentTo === undefined ? 'retry' : 'reload',
+          pending.sentTo === undefined ? onInitialRestart : 'reload',
           sending,
         )
       } catch (error) {

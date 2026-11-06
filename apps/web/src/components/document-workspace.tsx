@@ -81,7 +81,7 @@ import { StructureCanvas, type DrawnKind, type DrawnOrder, type Tool } from '@/e
 import { MarkGlyph } from '@/editor/stroke-shapes'
 import { buildMark, inspectorWhere, setMark } from '@/editor/mark-gestures'
 import { DocumentStyleButton, PreferencesButton } from '@/components/style-settings'
-import { CdxmlImport } from '@/components/cdxml-import'
+import { CdxmlImport, InterchangeCreationNotice } from '@/components/cdxml-import'
 import { CtfilePanel } from '@/components/ctfile-panel'
 import { InterchangeExportPanel } from '@/components/interchange-export-panel'
 import { NativeClipboardPanel } from '@/components/native-clipboard-panel'
@@ -256,6 +256,7 @@ export function DocumentWorkspace() {
       </CardHeader>
       <CardContent className="flex min-w-0 flex-col gap-4">
         {editor.error && <ErrorNotice editor={editor} />}
+        {editor.current && <InterchangeCreationNotice editor={editor} />}
         {editor.current ? <Editor editor={editor} current={editor.current} /> : <DocumentPicker editor={editor} />}
       </CardContent>
       <CardFooter className="gap-2">
@@ -340,7 +341,7 @@ function DocumentPicker({ editor }: { editor: DocumentEditor }) {
           <EmptyDescription>Draw atoms and bonds, undo and redo, and save to a local file.</EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
-          <Button onClick={() => void editor.create()} disabled={editor.busy}>
+          <Button onClick={() => void editor.create()} disabled={editor.busy || editor.interchangeCreation !== null}>
             <FilePlus2Icon data-icon="inline-start" aria-hidden="true" />New document
           </Button>
         </EmptyContent>
