@@ -874,10 +874,13 @@ function withStates(response: DocumentResponse): DocumentResponse {
   }
 }
 
+// Transport provenance stays in memory; it is never an API or saved-document field.
+const snapshotOrigins = new WeakMap<object, { client: DocumentClient; generation: number }>()
+
 function withDocumentStates(document: DocumentView): DocumentView {
   const atoms = document.atoms as Array<AtomView | Omit<AtomView, (typeof ATOM_STATE_FIELDS)[number]>>
   const bonds = document.bonds as Array<BondView | Omit<BondView, 'query' | 'mark'> | Omit<BondView, 'mark'>>
-  return {
+  const normalized: DocumentView = {
     ...document,
     stereo: stereoOf(document),
     atoms: atoms.map((atom) =>
@@ -891,6 +894,9 @@ function withDocumentStates(document: DocumentView): DocumentView {
       mark: 'mark' in bond ? bond.mark : null,
     })),
   }
+  const origin = snapshotOrigins.get(document)
+  if (origin) snapshotOrigins.set(normalized, origin)
+  return normalized
 }
 
 const isCountOrNull = (value: unknown) => value === null || isCount(value)
@@ -1851,6 +1857,7 @@ function clipboardMappings(value: unknown, sources: readonly string[], prefix: '
 
 /** Client for the local document API. Writes carry the per-process session token. */
 export class DocumentClient {
+  private generation = 0
   private token: Promise<{ header: string; token: string }> | null = null
   /**
    * `reread` found that the process holding `token` was replaced. Writes keep presenting the
@@ -1867,6 +1874,15 @@ export class DocumentClient {
   private unconfirmedSaves = new Map<string, Unconfirmed>()
   private unconfirmedImports = new Map<string, Unconfirmed>()
   private readonly restartListeners = new Set<() => void>()
+
+  /** Local transport epoch; a new token alone does not rebind an older snapshot. */
+  get serviceGeneration() { return this.generation }
+
+  /** Whether this snapshot came from an HTTP attempt in this client's current process. */
+  isCurrentSnapshot(response: DocumentResponse): boolean {
+    const origin = snapshotOrigins.get(response.document)
+    return origin?.client === this && origin.generation === this.generation
+  }
 
   /**
    * Calls `listener` each time a write finds that the service restarted (its session token was
@@ -1887,6 +1903,7 @@ export class DocumentClient {
   }
 
   private notifyRestart() {
+    this.generation += 1
     for (const listener of this.restartListeners) listener()
   }
 
@@ -1900,7 +1917,7 @@ export class DocumentClient {
     }
   }
 
-  private async request(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, headers: Record<string, string> = {}) {
+  private async request(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, headers: Record<string, string> = {}, generation = this.generation) {
     let response: Response
     try {
       response = await fetch(path, {
@@ -1941,6 +1958,15 @@ export class DocumentClient {
       }
       throw new ApiError('http_error', `The local service returned HTTP ${response.status}.`, response.status)
     }
+    if (isRecord(value)) {
+      const result = isRecord(value.result) ? value.result : null
+      const snapshot = result && isRecord(result.snapshot) ? result.snapshot : null
+      for (const container of [value, result, snapshot]) {
+        if (container && isRecord(container.document)) {
+          snapshotOrigins.set(container.document, { client: this, generation })
+        }
+      }
+    }
     return value
   }
 
@@ -1959,10 +1985,11 @@ export class DocumentClient {
     method: 'POST' | 'PUT' = 'POST',
   ) {
     for (let attempt = 0; ; attempt += 1) {
+      const generation = this.generation
       const { header, token } = await this.session()
       sending?.(token)
       try {
-        return await this.request(method, path, body, { [header]: token })
+        return await this.request(method, path, body, { [header]: token }, generation)
       } catch (error) {
         if (!(error instanceof ApiError && error.code === 'unauthorized')) throw error
         this.token = null
@@ -3042,17 +3069,29 @@ export class DocumentClient {
   }
 
   /**
-   * Reads a document. The service process's session token is learned first, so the view is
-   * tied to that process and a later `reread` can tell that it restarted since, even when the
-   * page has not written anything yet.
+   * Explicitly reads the current process's document. A cached token may describe an older
+   * process even before any write has been refused, so verify the token around the read.
+   * A process change during the read refuses the snapshot rather than guessing its origin.
    */
   async get(id: string) {
-    if (this.replaced) {
-      this.token = null
-      this.replaced = false
+    const previous = this.token === null ? null : await this.session()
+    const observed = DocumentClient.sessionOf(await this.request('GET', '/api/v1/session'))
+    const alreadyNotified = this.replaced
+    this.token = Promise.resolve(observed)
+    this.replaced = false
+    if (previous !== null && previous.token !== observed.token && !alreadyNotified) {
+      this.notifyRestart()
     }
-    await this.session()
-    return DocumentClient.document(await this.request('GET', documentPath(id)))
+    const generation = this.generation
+    const value = await this.request('GET', documentPath(id), undefined, {}, generation)
+    const after = DocumentClient.sessionOf(await this.request('GET', '/api/v1/session'))
+    if (observed.token !== after.token) {
+      this.token = Promise.resolve(after)
+      if (this.generation === generation) this.notifyRestart()
+      throw restarted(200)
+    }
+    if (this.generation !== generation) throw restarted(200)
+    return DocumentClient.document(value)
   }
 
   /**
@@ -3066,8 +3105,9 @@ export class DocumentClient {
    * the new process as if nothing happened.
    */
   async reread(id: string) {
+    const generation = this.generation
     const { token } = await this.session()
-    const value = await this.request('GET', documentPath(id))
+    const value = await this.request('GET', documentPath(id), undefined, {}, generation)
     if (DocumentClient.sessionOf(await this.request('GET', '/api/v1/session')).token !== token) {
       this.replaced = true
       this.notifyRestart()
