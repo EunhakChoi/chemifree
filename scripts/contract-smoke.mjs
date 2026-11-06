@@ -1113,6 +1113,26 @@ try {
       const redoAttach = await both((id) => request('op-ring-attach-redo', 'history.redo', { document_id: id, expected_revision: 8 }))
       assert.deepEqual(redoAttach.result.document.atoms, attached.result.document.atoms)
       assert.deepEqual(redoAttach.result.document.bonds, attached.result.document.bonds)
+      const kekule = (id) => request('op-ring-kekule', 'document.transaction', { document_id: id, expected_revision: 9,
+        commands: [{ op: 'insert_ring', instance: 's1', center: { x: 200, y: 200 }, pattern: 'kekule' }] })
+      const alternating = await both(kekule)
+      assert.equal(alternating.outcome, 'ok')
+      assert.equal(alternating.result.document.atoms.length, 23)
+      assert.deepEqual(alternating.result.document.bonds.slice(-6).map((bond) => bond.order), ['double', 'single', 'double', 'single', 'double', 'single'])
+      assert.deepEqual(alternating.result.document.bonds.slice(0, 18), attached.result.document.bonds)
+      assert.deepEqual(await both(kekule), alternating)
+      for (const [index, pattern] of [null, 'aromatic', 'Kekule', 1].entries()) {
+        const refusal = await both((id) => request(`op-ring-pattern-${index}`, 'document.transaction', { document_id: id, expected_revision: 10,
+          commands: [{ op: 'insert_ring', instance: 's1', center: { x: 0, y: 0 }, pattern }] }))
+        assert.equal(refusal.diagnostics[0].code, 'invalid_request')
+      }
+      const fiveKekule = await both((id) => request('op-ring-five-kekule', 'document.transaction', { document_id: id, expected_revision: 10,
+        commands: [{ op: 'insert_ring', instance: 's1', center: { x: 0, y: 0 }, size: 5, pattern: 'kekule' }] }))
+      assert.equal(fiveKekule.diagnostics[0].details.reason, 'ring_pattern_invalid')
+      const undoKekule = await both((id) => request('op-ring-kekule-undo', 'history.undo', { document_id: id, expected_revision: 10 }))
+      assert.deepEqual(undoKekule.result.document.bonds, attached.result.document.bonds)
+      const redoKekule = await both((id) => request('op-ring-kekule-redo', 'history.redo', { document_id: id, expected_revision: 11 }))
+      assert.deepEqual(redoKekule.result.document.bonds, alternating.result.document.bonds)
       httpDoc = outerHttp
       cliDoc = outerCli
     }

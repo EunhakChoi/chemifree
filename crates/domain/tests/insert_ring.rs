@@ -2,7 +2,7 @@
 
 use chemifree_domain::document::{
     Atom, AtomId, BondOrder, Command, Document, DocumentId, EditError, MAX_ATOMS, NewAtomPositions,
-    ObjectId, Point, RingSize, Vector,
+    ObjectId, Point, RingPattern, RingSize, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::settings::SettingsEdit;
@@ -16,6 +16,7 @@ fn ring(x: f64, y: f64) -> Command {
         instance: ObjectId::from_serial(1).unwrap(),
         center: Point::new(x, y).unwrap(),
         size: RingSize::Six,
+        pattern: RingPattern::Single,
     }
 }
 
@@ -108,6 +109,7 @@ fn late_coordinate_failure_rolls_back_prior_commands_counters_and_redo() {
             instance: ObjectId::from_serial(1).unwrap(),
             center: Point::new(x, y).unwrap(),
             size,
+            pattern: RingPattern::Single,
         };
         let mut document = drawing();
         document.apply(&[insert(0.0, 0.0)]).unwrap();
@@ -136,6 +138,7 @@ fn multiple_or_missing_placements_are_refused_without_editing() {
             instance: ObjectId::from_serial(99).unwrap(),
             center: Point::new(0.0, 0.0).unwrap(),
             size: RingSize::Six,
+            pattern: RingPattern::Single,
         }])
         .unwrap_err();
     assert_eq!(error.error.reason(), Some("object_unknown"));
@@ -226,6 +229,7 @@ fn five_ring_has_independent_geometry_cycle_and_one_step_history() {
         instance: document.first_instance(),
         center: Point::new(100.0, 100.0).unwrap(),
         size: RingSize::Five,
+        pattern: RingPattern::Single,
     };
     let before = document.to_parts();
     document.apply(std::slice::from_ref(&command)).unwrap();
@@ -311,6 +315,7 @@ fn five_ring_late_coordinate_and_id_failures_roll_back_whole_transaction() {
                     instance: document.first_instance(),
                     center: Point::new(x, 0.0).unwrap(),
                     size: RingSize::Five,
+                    pattern: RingPattern::Single,
                 },
             ])
             .unwrap_err();
@@ -335,6 +340,7 @@ fn five_ring_respects_atom_budget_at_and_over_boundary() {
         instance: document.first_instance(),
         center: Point::new(0.0, 0.0).unwrap(),
         size: RingSize::Five,
+        pattern: RingPattern::Single,
     };
     document.apply(std::slice::from_ref(&command)).unwrap();
     assert_eq!(document.atoms().len(), MAX_ATOMS);
@@ -342,6 +348,176 @@ fn five_ring_respects_atom_budget_at_and_over_boundary() {
     assert_eq!(
         document.apply(&[command]).unwrap_err().error,
         EditError::AtomLimit
+    );
+    assert_eq!(document.to_parts(), before);
+}
+
+#[test]
+fn kekule_six_cycle_has_explicit_orders_and_ordinary_history() {
+    let mut document = drawing();
+    let command = Command::InsertRing {
+        instance: document.first_instance(),
+        center: Point::new(100.0, 200.0).unwrap(),
+        size: RingSize::Six,
+        pattern: RingPattern::Kekule,
+    };
+    let before = document.to_parts();
+    document.apply(&[command]).unwrap();
+    let inserted = document.to_parts();
+    assert_eq!(document.atoms().len(), 6);
+    assert!(
+        document
+            .atoms()
+            .all(|(_, atom)| atom == &Atom::from(Element::CARBON))
+    );
+    let edges: Vec<_> = document
+        .bonds()
+        .map(|(_, bond)| {
+            assert_eq!(bond.mark, None);
+            (bond.begin.serial(), bond.end.serial(), bond.order.clone())
+        })
+        .collect();
+    assert_eq!(
+        edges,
+        vec![
+            (1, 2, BondOrder::Double),
+            (2, 3, BondOrder::Single),
+            (3, 4, BondOrder::Double),
+            (4, 5, BondOrder::Single),
+            (5, 6, BondOrder::Double),
+            (6, 1, BondOrder::Single),
+        ]
+    );
+    assert_eq!(
+        document.position(document.first_instance(), AtomId::from_serial(1).unwrap()),
+        Some(Point::new(130.0, 200.0).unwrap())
+    );
+    assert_eq!(
+        document.position(document.first_instance(), AtomId::from_serial(4).unwrap()),
+        Some(Point::new(70.0, 200.0).unwrap())
+    );
+    assert_eq!(document.undo_depth(), 1);
+    document.undo().unwrap();
+    assert_eq!(document.to_parts().atoms, before.atoms);
+    assert_eq!(document.to_parts().bonds, before.bonds);
+    document.redo().unwrap();
+    assert_eq!(document.to_parts().atoms, inserted.atoms);
+    assert_eq!(document.to_parts().bonds, inserted.bonds);
+    assert_eq!(document.to_parts().positions, inserted.positions);
+    assert_eq!(document.to_parts().stereo, inserted.stereo);
+}
+
+#[test]
+fn kekule_refusals_rollback_prior_commands_counters_and_redo() {
+    for (size, x, atom_serial, bond_serial, expected) in [
+        (RingSize::Five, 0.0, 1, 1, EditError::RingPatternInvalid),
+        (
+            RingSize::Six,
+            -99_990.0,
+            1,
+            1,
+            EditError::CoordinateOutOfRange,
+        ),
+        (
+            RingSize::Six,
+            0.0,
+            u32::MAX - 2,
+            1,
+            EditError::IdentifierSpaceExhausted,
+        ),
+        (
+            RingSize::Six,
+            0.0,
+            1,
+            u32::MAX - 2,
+            EditError::IdentifierSpaceExhausted,
+        ),
+    ] {
+        let mut parts = drawing().to_parts();
+        parts.next_atom = atom_serial;
+        parts.next_bond = bond_serial;
+        let mut document = Document::restore(parts).unwrap();
+        document
+            .apply(&[Command::Rename {
+                title: "Temporary".into(),
+            }])
+            .unwrap();
+        document.undo().unwrap();
+        let before = document.to_parts();
+        let refused = document
+            .apply(&[
+                Command::Rename {
+                    title: "Must roll back".into(),
+                },
+                Command::InsertRing {
+                    instance: document.first_instance(),
+                    center: Point::new(x, 0.0).unwrap(),
+                    size,
+                    pattern: RingPattern::Kekule,
+                },
+            ])
+            .unwrap_err();
+        assert_eq!(refused.index, Some(1));
+        assert_eq!(refused.error, expected);
+        assert_eq!(document.to_parts(), before);
+    }
+}
+
+#[test]
+fn kekule_requires_one_existing_placement_and_respects_atom_budget() {
+    let mut document = drawing();
+    let atom = Command::AddAtom {
+        atom: Atom::from(Element::CARBON),
+        positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+        bond_to: None,
+    };
+    for chunk in vec![atom; MAX_ATOMS - 6].chunks(500) {
+        document.apply(chunk).unwrap();
+    }
+    let command = Command::InsertRing {
+        instance: document.first_instance(),
+        center: Point::new(0.0, 0.0).unwrap(),
+        size: RingSize::Six,
+        pattern: RingPattern::Kekule,
+    };
+    document.apply(std::slice::from_ref(&command)).unwrap();
+    assert_eq!(document.atoms().len(), MAX_ATOMS);
+    let before = document.to_parts();
+    assert_eq!(
+        document.apply(&[command]).unwrap_err().error,
+        EditError::AtomLimit
+    );
+    assert_eq!(document.to_parts(), before);
+
+    let mut document = drawing();
+    let missing = Command::InsertRing {
+        instance: ObjectId::from_serial(99).unwrap(),
+        center: Point::new(0.0, 0.0).unwrap(),
+        size: RingSize::Six,
+        pattern: RingPattern::Kekule,
+    };
+    let before = document.to_parts();
+    assert_eq!(
+        document.apply(&[missing]).unwrap_err().error.reason(),
+        Some("object_unknown")
+    );
+    assert_eq!(document.to_parts(), before);
+    document
+        .apply(&[Command::AddInstance {
+            source: None,
+            offset: Vector { dx: 10.0, dy: 0.0 },
+        }])
+        .unwrap();
+    let before = document.to_parts();
+    let command = Command::InsertRing {
+        instance: document.first_instance(),
+        center: Point::new(0.0, 0.0).unwrap(),
+        size: RingSize::Six,
+        pattern: RingPattern::Kekule,
+    };
+    assert_eq!(
+        document.apply(&[command]).unwrap_err().error,
+        EditError::PositionsRequired { instances: 2 }
     );
     assert_eq!(document.to_parts(), before);
 }

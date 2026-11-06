@@ -12,7 +12,7 @@ export function ringSource() {
   return source
 }
 
-export function ringAfter(size = 6) {
+export function ringAfter(size = 6, pattern = 'single') {
   const result = ringSource()
   result.document.revision = 4
   const positions = size === 5
@@ -24,7 +24,7 @@ export function ringAfter(size = 6) {
     charge: 0, isotope: null, hydrogens: { mode: 'inferred' }, radical: 'none', attachment_points: [], position: { x, y } }))
   result.document.atoms.push(...atoms)
   result.document.bonds.push(...atoms.map((atom, index) => ({ id: `b${index + 2}`, begin: atom.id,
-    end: atoms[(index + 1) % size].id, order: 'single', query: null, mark: null })))
+    end: atoms[(index + 1) % size].id, order: pattern === 'kekule' && index % 2 === 0 ? 'double' : 'single', query: null, mark: null })))
   result.document.scene.instances[0].positions.push(...atoms.map(({ id, position }) => ({ atom: id, ...position })))
   result.document.selection = ringSelection()
   result.session.unsaved_changes = true

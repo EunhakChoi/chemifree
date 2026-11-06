@@ -365,6 +365,16 @@ pub enum RingSize {
     Six,
 }
 
+/// Explicit bond recipes; these state bond orders without aromaticity inference.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RingPattern {
+    /// All five or six bonds are single; the original recipe.
+    #[default]
+    Single,
+    /// Six bonds alternate double/single, starting at the rightmost vertex clockwise.
+    Kekule,
+}
+
 // Fixed recipes start at the rightmost vertex, clockwise in y-down coordinates.
 // Keep the original six-ring arithmetic unchanged for compatibility.
 fn ring_offsets(length: f64, size: RingSize) -> Vec<(f64, f64)> {
@@ -401,12 +411,13 @@ fn ring_offsets(length: f64, size: RingSize) -> Vec<(f64, f64)> {
 /// One edit. A transaction applies an ordered list of commands all-or-nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
-    /// Appends an independent five- or six-carbon single-bond regular ring in the only placement.
+    /// Appends an independent regular carbon ring in the only placement.
     /// Uses the current document bond length; creates no transaction-local `$N` target.
     InsertRing {
         instance: ObjectId,
         center: Point,
         size: RingSize,
+        pattern: RingPattern,
     },
     /// Connects a fresh regular carbon ring to an existing atom with one single bond.
     /// Direction is finite and nonzero; its length is ignored. Stereo follows ordinary AddBond.
@@ -656,6 +667,8 @@ pub enum EditError {
     CoordinateOutOfRange,
     /// Ring attachment needs a finite nonzero direction.
     RingDirectionInvalid,
+    /// Kekulé is defined only for the independent six-carbon recipe.
+    RingPatternInvalid,
     ChargeOutOfRange(i8),
     IsotopeOutOfRange(u16),
     IdentifierSpaceExhausted,
@@ -766,6 +779,7 @@ impl EditError {
     pub fn reason(&self) -> Option<&'static str> {
         match self {
             Self::RingDirectionInvalid => Some("ring_direction_invalid"),
+            Self::RingPatternInvalid => Some("ring_pattern_invalid"),
             Self::InvalidState(state) => Some(state.code()),
             Self::Settings(error) => Some(error.code()),
             Self::Stereo(error) => Some(error.code()),
@@ -819,6 +833,7 @@ impl fmt::Display for EditError {
                 "a title needs 1-{MAX_TITLE_CHARS} characters without control characters"
             ),
             Self::RingDirectionInvalid => formatter.write_str("ring direction must be finite and nonzero"),
+            Self::RingPatternInvalid => formatter.write_str("Kekule ring pattern requires six carbon atoms"),
             Self::CoordinateOutOfRange => write!(
                 formatter,
                 "coordinates must be finite and within ±{MAX_COORDINATE} pt"
@@ -1653,11 +1668,12 @@ impl Draft {
         Ok(id)
     }
 
-    /// Allocates one fixed recipe's carbon cycle; both callers supply five or six positions.
+    /// Allocates a carbon cycle with explicit orders; callers validate the recipe and positions.
     fn insert_carbon_ring(
         &mut self,
         instance: ObjectId,
         positions: &[Point],
+        pattern: RingPattern,
     ) -> Result<AtomId, EditError> {
         let mut atoms = Vec::with_capacity(positions.len());
         for point in positions {
@@ -1672,7 +1688,11 @@ impl Draft {
             self.insert_bond(
                 atoms[index],
                 atoms[(index + 1) % atoms.len()],
-                BondOrder::Single,
+                if pattern == RingPattern::Kekule && index % 2 == 0 {
+                    BondOrder::Double
+                } else {
+                    BondOrder::Single
+                },
             )?;
         }
         Ok(atoms[0])
@@ -2062,7 +2082,11 @@ impl Draft {
                 instance,
                 center,
                 size,
+                pattern,
             } => {
+                if *pattern == RingPattern::Kekule && *size != RingSize::Six {
+                    return Err(EditError::RingPatternInvalid);
+                }
                 self.content.require_instance(*instance)?;
                 let instances = self.content.instance_count();
                 if instances != 1 {
@@ -2073,7 +2097,7 @@ impl Draft {
                     .into_iter()
                     .map(|(x, y)| Point::new(center.x() + x, center.y() + y))
                     .collect::<Result<Vec<_>, _>>()?;
-                self.insert_carbon_ring(*instance, &positions)?;
+                self.insert_carbon_ring(*instance, &positions, *pattern)?;
             }
             Command::AttachRing {
                 instance,
@@ -2113,7 +2137,7 @@ impl Draft {
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let first = self.insert_carbon_ring(*instance, &positions)?;
+                let first = self.insert_carbon_ring(*instance, &positions, RingPattern::Single)?;
                 self.insert_bond(*atom, first, BondOrder::Single)?;
             }
             Command::AddAtom {

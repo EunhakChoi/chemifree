@@ -115,6 +115,7 @@ import {
   type GraphicShape,
   type InstanceView,
   type RingSize,
+  type RingPattern,
   type ListSort,
   type Position,
   type ReferenceTarget,
@@ -571,6 +572,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [element, setElement] = useState('C')
   const [bondKind, setBondKind] = useState<DrawnKind>('single')
   const [ringSize, setRingSize] = useState<RingSize>(6)
+  const [ringPattern, setRingPattern] = useState<RingPattern>('single')
   const [ringMode, setRingMode] = useState<'independent' | 'attach'>('independent')
   const [dragging, setDragging] = useState(false)
   const [ringRecoveryError, setRingRecoveryError] = useState<string | null>(null)
@@ -797,7 +799,10 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         value={[ringMode]}
         disabled={editor.busy || dragging}
         onValueChange={(values) => {
-          if (values[0] === 'independent' || values[0] === 'attach') setRingMode(values[0])
+          if (values[0] === 'independent' || values[0] === 'attach') {
+            setRingMode(values[0])
+            if (values[0] === 'attach') setRingPattern('single')
+          }
         }}
       >
         <ToggleGroupItem value="independent">Independent</ToggleGroupItem>
@@ -810,15 +815,31 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         value={[String(ringSize)]}
         disabled={editor.busy || dragging}
         onValueChange={(values) => {
-          if (values[0] === '5') setRingSize(5)
+          if (values[0] === '5') {
+            setRingSize(5)
+            setRingPattern('single')
+          }
           if (values[0] === '6') setRingSize(6)
         }}
       >
         <ToggleGroupItem value="5" aria-label="Five-member carbon ring">5</ToggleGroupItem>
         <ToggleGroupItem value="6" aria-label="Six-member carbon ring">6</ToggleGroupItem>
       </ToggleGroup>}
+      {tool === 'ring' && ringMode === 'independent' && ringSize === 6 && <ToggleGroup
+        aria-label="Ring bond pattern"
+        variant="outline"
+        size="sm"
+        value={[ringPattern]}
+        disabled={editor.busy || dragging}
+        onValueChange={(values) => {
+          if (values[0] === 'single' || values[0] === 'kekule') setRingPattern(values[0])
+        }}
+      >
+        <ToggleGroupItem value="single">All single bonds</ToggleGroupItem>
+        <ToggleGroupItem value="kekule">Kekulé alternating bonds</ToggleGroupItem>
+      </ToggleGroup>}
       {tool === 'ring' && <p className="text-xs text-muted-foreground">
-        {ringMode === 'independent' ? `Click a center to add an independent ${ringSize}-carbon single-bond ring.`
+        {ringMode === 'independent' ? `Click a center to add an independent ${ringSize}-carbon ${ringPattern === 'kekule' ? 'alternating single/double-bond' : 'single-bond'} ring.`
           : `Drag from an atom toward the new ${ringSize}-carbon ring. One single bond connects it; ordinary bond-addition stereo clearing applies.`}
         {' '}Current bond length; one placement only. No fusion, collision avoidance or conformation calculation.
       </p>}
@@ -853,7 +874,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             ringMode={ringMode}
             ringSize={ringSize}
             onAttachRing={(instance, atom, direction, size) => void editor.attachRing(document.id, instance, atom, direction, size)}
-            onRing={(instance, center) => void editor.insertRing(document.id, instance, center, ringSize)}
+            onRing={(instance, center) => void editor.insertRing(document.id, instance, center, ringSize, ringPattern)}
             rings={rings}
             cipLabels={labels}
             groupLabels={groupMarkList}

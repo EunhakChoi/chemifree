@@ -102,12 +102,19 @@ Unknown parameters are `invalid_request` (`path: "parameters"`). Every other ope
 
 ## Independent six-carbon ring insertion (P34a)
 
-The `insert_ring` transaction command is `{ op: "insert_ring", instance, center: { x, y }, size?: 5 | 6 }`.
+The `insert_ring` transaction command is `{ op: "insert_ring", instance, center: { x, y }, size?: 5 | 6, pattern?: "single" | "kekule" }`.
 P34b adds size 5; omission and explicit 6 retain the original six-ring recipe and arithmetic.
 Explicit `null`, strings, non-integers and any number outside 5/6 are `invalid_request`
 without changing the document.
 It appends five or six neutral natural-abundance carbon atoms (inferred hydrogens, no radicals or
-attachment points) and the same number of single bonds as one independent cycle. It runs through the same
+attachment points) and the same number of bonds as one independent cycle. The default pattern
+is all single bonds. P34g adds explicit `pattern:"kekule"` for six vertices only: the bonds
+from vertex 0 to 1, 2 to 3, and 4 to 5 are double; the other three are single. Omitted size
+still means 6; explicit `pattern:"single"` keeps the old recipe for either size. Null, unknown
+patterns, and non-string patterns are `invalid_request`; size 5 with `kekule` is
+`invalid_command` with `details.reason:"ring_pattern_invalid"`. The stated orders do not
+assign aromaticity, configurations, bond marks or CIP labels. `attach_ring` accepts no
+pattern field and retains its all-single behavior. It runs through the same
 Application transaction via HTTP, CLI `documents apply`, or operation contract 1; it is not a
 separate format, provider or external DATA consumer. The command requires an existing explicit
 instance and exactly one molecule placement. The current document `bond_length_pt` is the side
@@ -130,9 +137,14 @@ The existing 500-command budget counts this as one bounded command. Save/reopen 
 Undo/Redo retain its IDs and coordinates without a storage schema change.
 
 The web Ring tool (R) offers a 5/6 size selector (initially 6, not saved in the document)
-and sends the pointer-down center on a completed click through the inverse
+and, for independent six-carbon rings, an explicit All single bonds / Kekulé alternating bonds
+selector (initially all single, not saved). Choosing size 5 or Attach to atom resets the
+pattern to all single. The pattern is captured with the click and stays frozen through
+queueing and lost-reply recovery; its control is disabled while busy or dragging. The client
+checks each returned bond order, including the chosen alternating phase. The tool
+sends the pointer-down center on a completed click through the inverse
 SVG transform; dragging does not insert. A click over existing content never attaches, replaces
-or fuses it. The queued action captures size/document/process/instance/selection and resolves the
+or fuses it. The queued action captures size/pattern/document/process/instance/selection and resolves the
 current bond length when the transaction executes. A missing target, another document/process
 or unsupported placement count refuses the captured action. An uncertain response holds later
 edits and shows **Check ring insertion outcome**, reusing the same request/body/process.
@@ -148,12 +160,13 @@ shown. Normal clean Close and the existing unsaved-discard confirmation resume a
 
 This is an independently defined 2D regular-ring drawing recipe, not conformation prediction,
 aromaticity assignment, chemical layout or collision avoidance. Multiple placements, other ring
-sizes beyond 5/6 or atom/bond patterns, fusion/replacement, other substituent patterns, template attachment,
+sizes beyond 5/6 or other atom/bond patterns, fusion, other substituent patterns,
 abbreviation contraction/expansion and prepared legacy template framing activation remain
 unsupported. Unknown command fields are refused. P34 remains **in_progress**. The written
 checks have not been executed in this implementation session; see
-[the P34a verification plan](verification/p34a-independent-ring.md) and
-[the P34b verification plan](verification/p34b-five-ring.md).
+[the P34a verification plan](verification/p34a-independent-ring.md),
+[the P34b verification plan](verification/p34b-five-ring.md), and
+[the P34g verification plan](verification/p34g-kekule-ring.md).
 
 ## User graph template files (P34d)
 

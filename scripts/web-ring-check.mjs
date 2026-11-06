@@ -66,6 +66,7 @@ try {
   let heldReady
   let expectedSelection = ringSelection()
   let expectedSize = 6
+  let expectedPattern = 'single'
   const bodies = []
   const replies = new Map()
   const navigation = []
@@ -98,7 +99,7 @@ try {
     if (path.endsWith('/undo') || path.endsWith('/redo')) {
       const revision = state.document.revision + 1
       const undo = path.endsWith('/undo')
-      state = undo ? ringSource() : ringAfter(expectedSize)
+      state = undo ? ringSource() : ringAfter(expectedSize, expectedPattern)
       state.document.revision = revision
       state.document.selection = ringSelection()
       state.session.undo_depth = undo ? 0 : 1
@@ -127,12 +128,12 @@ try {
           message: conflict ? 'Revision changed before replay could confirm the attempt.' : 'Unrelated refusal after reply loss.',
           severity: 'error', path: null, details: conflict ? { current_revision: 4 } : {} }], loss_report: [] })
     }
-    assert.deepEqual(body.commands, [{ op: 'insert_ring', instance: 's1', center: { x: 100, y: 100 }, ...(expectedSize === 6 ? {} : { size: expectedSize }) }])
+    assert.deepEqual(body.commands, [{ op: 'insert_ring', instance: 's1', center: { x: 100, y: 100 }, ...(expectedSize === 6 ? {} : { size: expectedSize }), ...(expectedPattern === 'single' ? {} : { pattern: expectedPattern }) }])
     let confirmed = replies.get(body.request_id)
     if (!confirmed) {
       assert.equal(body.expected_revision, 3)
       assert.deepEqual(body.selection_before, expectedSelection)
-      state = ringAfter(expectedSize)
+      state = ringAfter(expectedSize, expectedPattern)
       state.document.selection = structuredClone(expectedSelection)
       confirmed = structuredClone(state)
       replies.set(body.request_id, confirmed)
@@ -184,6 +185,7 @@ try {
     droppedBeforeDispatch = 2
     expectedSelection = emptySelection
     expectedSize = 6
+    expectedPattern = 'single'
     bodies.length = 0
     navigation.length = 0
     replies.clear()
@@ -233,6 +235,54 @@ try {
   await page.getByText('No document open', { exact: true }).waitFor()
   assert.deepEqual(navigation, ['/api/v1/documents/drawing/close'])
   assert.equal(await page.getByRole('button', { name: 'New document', exact: true }).isEnabled(), true)
+
+  // Production explicit Kekulé choice is frozen through response loss, then remains undoable.
+  resetRequests()
+  expectedPattern = 'kekule'
+  await page.goto(`${url}?workspace`)
+  await page.locator('[data-document-id="drawing"]').getByRole('button', { name: 'Open', exact: true }).click()
+  await page.getByLabel('Document title', { exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Insert carbon ring', exact: true }).click()
+  const singlePattern = page.getByRole('button', { name: 'All single bonds', exact: true })
+  const kekulePattern = page.getByRole('button', { name: 'Kekulé alternating bonds', exact: true })
+  assert.equal(await singlePattern.getAttribute('aria-pressed'), 'true')
+  await kekulePattern.click()
+  assert.equal(await kekulePattern.getAttribute('aria-pressed'), 'true')
+  // Switching to five or attachment explicitly drops the unsupported recipe.
+  await page.getByRole('button', { name: 'Five-member carbon ring', exact: true }).click()
+  await kekulePattern.waitFor({ state: 'hidden' })
+  await page.getByRole('button', { name: 'Six-member carbon ring', exact: true }).click()
+  assert.equal(await singlePattern.getAttribute('aria-pressed'), 'true')
+  await kekulePattern.click()
+  await page.getByRole('button', { name: 'Attach to atom', exact: true }).click()
+  await kekulePattern.waitFor({ state: 'hidden' })
+  await page.getByRole('button', { name: 'Independent', exact: true }).click()
+  assert.equal(await singlePattern.getAttribute('aria-pressed'), 'true')
+  await kekulePattern.click()
+  const kekuleCanvas = page.locator('[data-structure-canvas]')
+  await kekuleCanvas.scrollIntoViewIfNeeded()
+  await kekuleCanvas.focus()
+  for (let index = 0; index < 5; index += 1) await kekuleCanvas.press('-')
+  const kekuleCenter = await kekuleCanvas.evaluate((svg) => {
+    const location = new DOMPoint(100, 100).matrixTransform(svg.getScreenCTM())
+    return { x: location.x, y: location.y }
+  })
+  await page.mouse.click(kekuleCenter.x, kekuleCenter.y)
+  await checkRing.waitFor()
+  assert.equal(await kekulePattern.isDisabled(), true)
+  assert.equal(await singlePattern.isDisabled(), true)
+  assert.equal(await page.getByRole('button', { name: 'Close document', exact: true }).isDisabled(), true)
+  await checkRing.click()
+  await checkRing.waitFor({ state: 'hidden' })
+  assert.deepEqual(bodies, [bodies[0], bodies[0], bodies[0]])
+  assert.equal(bodies[0].commands[0].pattern, 'kekule')
+  assert.deepEqual(state.document.bonds.slice(1).map((bond) => bond.order), ['double', 'single', 'double', 'single', 'double', 'single'])
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await page.locator('[data-structure-canvas][aria-label="Independent ring: 2 atoms and 1 bonds"]').waitFor()
+  assert.equal(state.document.atoms.length, 2)
+  await page.getByRole('button', { name: 'Redo', exact: true }).click()
+  await page.locator('[data-structure-canvas][aria-label="Independent ring: 8 atoms and 7 bonds"]').waitFor()
+  assert.deepEqual(state.document.bonds, ringAfter(6, 'kekule').document.bonds)
 
   // Hook callers can queue navigation before a sending ring becomes "unconfirmed".
   resetRequests()
