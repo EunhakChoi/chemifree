@@ -182,9 +182,19 @@ fn edits_to_members_boundary_and_local_marks_expand_atomically_without_stereo_lo
     }])
     .unwrap();
     assert_eq!(doc.abbreviations().count(), 0);
-    assert_eq!(doc.atom(atom(3)).unwrap().charge, 1);
+    assert_eq!(
+        doc.atoms()
+            .find(|(id, _)| *id == atom(3))
+            .map(|(_, state)| state.charge),
+        Some(1)
+    );
     doc.undo().unwrap();
-    assert_eq!(doc.atom(atom(3)).unwrap().charge, 0);
+    assert_eq!(
+        doc.atoms()
+            .find(|(id, _)| *id == atom(3))
+            .map(|(_, state)| state.charge),
+        Some(0)
+    );
     assert_eq!(doc.abbreviations().count(), 1);
     let before = doc.clone();
     assert_eq!(

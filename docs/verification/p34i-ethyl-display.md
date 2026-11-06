@@ -134,3 +134,13 @@ stale current transaction totals from 39/50 to 41/52. Provider migration constru
 explicit empty abbreviation fields; test-only change sets use the default for new fields.
 No further mismatch was found by this inspection. Only formatting and diff whitespace checks
 ran for this correction; Rust compilation and all runtime verification remain with the parent.
+
+The parent's next isolated check reached domain test compilation and reported two E0599
+errors in `crates/domain/tests/abbreviation.rs` (`/tmp/chemifree-work/p34i-full-retry.log`).
+The charge-edit/Undo assertions called an unavailable `Document::atom` accessor. Changed
+both to find the exact ID through the existing public `atoms()` iterator and compare
+`Some(1)` / `Some(0)`, preserving the checks for both atom presence and its charge.
+Statically compared the abbreviation domain/provider tests' document calls with public
+methods (including `persistence_weight` in the persistence module), and application/provider
+calls with their existing inherent or repository trait declarations. No additional unavailable
+call was found. Formatting and whitespace checks only; compilation and tests remain deferred.
