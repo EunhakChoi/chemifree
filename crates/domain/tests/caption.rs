@@ -16,6 +16,7 @@ fn caption(text: &str) -> Caption {
         alignment: Default::default(),
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![CaptionRun {
+            font: None,
             text: text.into(),
             script: CaptionScript::Baseline,
             weight: Default::default(),
@@ -42,18 +43,21 @@ fn caption_unicode_and_explicit_scripts_are_verbatim_and_one_undo_step() {
         anchor: Point::new(5.0, 7.0).unwrap(),
         runs: vec![
             CaptionRun {
+                font: None,
                 text: "한글 e\u{301} 👩‍🔬 H".into(),
                 script: CaptionScript::Baseline,
                 weight: Default::default(),
                 style: Default::default(),
             },
             CaptionRun {
+                font: None,
                 text: "2".into(),
                 script: CaptionScript::Subscript,
                 weight: Default::default(),
                 style: Default::default(),
             },
             CaptionRun {
+                font: None,
                 text: "+".into(),
                 script: CaptionScript::Superscript,
                 weight: Default::default(),
@@ -269,5 +273,54 @@ fn whole_caption_alignment_keeps_anchor_runs_graph_and_one_undo_step() {
         doc.redo().unwrap();
         assert_eq!(doc.scene_objects()[1].2, &SceneObject::Caption(next));
         doc.undo().unwrap();
+    }
+}
+
+#[test]
+fn font_only_replacement_is_one_edit_and_preserves_mixed_runs_and_graph() {
+    use chemifree_domain::settings::LabelFont;
+    let mut doc = document();
+    let mut value = caption("  한글 e\u{301} 👩‍🔬 H  ");
+    value.alignment = chemifree_domain::scene::CaptionAlignment::Right;
+    value.runs[0].weight = CaptionWeight::Bold;
+    value.runs[0].style = CaptionStyle::Italic;
+    let mut script = value.runs[0].clone();
+    script.script = CaptionScript::Subscript;
+    script.text = "2".into();
+    value.runs.push(script);
+    doc.apply(&[add(value.clone())]).unwrap();
+    for font in [
+        Some(LabelFont::SansSerif),
+        Some(LabelFont::Serif),
+        Some(LabelFont::Monospace),
+        None,
+    ] {
+        let before = value.clone();
+        value.runs[0].font = font;
+        let depth = doc.undo_depth();
+        let command = Command::UpdateCaption {
+            object: object(2),
+            caption: value.clone(),
+        };
+        assert_eq!(
+            doc.apply(std::slice::from_ref(&command)).unwrap(),
+            Outcome::Changed
+        );
+        assert_eq!(doc.undo_depth(), depth + 1);
+        assert_eq!(
+            doc.scene_objects()[1].2,
+            &SceneObject::Caption(value.clone())
+        );
+        assert_eq!(doc.apply(&[command]).unwrap(), Outcome::Unchanged);
+        doc.undo().unwrap();
+        assert_eq!(doc.scene_objects()[1].2, &SceneObject::Caption(before));
+        doc.redo().unwrap();
+        assert_eq!(
+            doc.scene_objects()[1].2,
+            &SceneObject::Caption(value.clone())
+        );
+        assert_eq!(doc.atoms().count(), 0);
+        assert_eq!(doc.bonds().count(), 0);
+        assert_eq!(doc.abbreviations().count(), 0);
     }
 }

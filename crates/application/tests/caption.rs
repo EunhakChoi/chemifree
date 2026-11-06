@@ -37,7 +37,7 @@ fn setup() -> (App, tempfile::TempDir, String) {
     (app, root, id)
 }
 fn runs() -> Value {
-    json!([{"text":"한글 e\u{301} 👩‍🔬 H","script":"baseline","weight":"bold","style":"normal"},{"text":"2","script":"subscript","weight":"normal","style":"italic"},{"text":"+","script":"superscript","weight":"bold","style":"italic"}])
+    json!([{"text":"한글 e\u{301} 👩‍🔬 H","script":"baseline","weight":"bold","style":"normal","font":"serif"},{"text":"2","script":"subscript","weight":"normal","style":"italic","font":"monospace"},{"text":"+","script":"superscript","weight":"bold","style":"italic","font":"sans-serif"}])
 }
 fn commands() -> Value {
     json!([
@@ -351,6 +351,7 @@ fn a_small_wire_request_cannot_create_an_oversized_caption_history_entry() {
                 anchor: Point::new(0.0, 0.0).unwrap(),
                 runs: vec![
                     CaptionRun {
+                        font: None,
                         text: "\"".repeat(512),
                         script: CaptionScript::Superscript,
                         weight: Default::default(),
@@ -436,7 +437,7 @@ fn invalid_caption_styles_refuse_the_whole_transaction_and_omissions_default_to_
     assert_eq!(
         added["result"]["document"]["scene"]["objects"][1]["runs"],
         json!([
-            {"text":"H","script":"baseline","weight":"normal","style":"normal"}
+            {"text":"H","script":"baseline","weight":"normal","style":"normal","font":null}
         ])
     );
 }
@@ -511,5 +512,62 @@ fn alignment_defaults_are_whole_state_replacements_and_invalid_values_preserve_h
     assert_eq!(
         serde_json::to_value(undone.document).unwrap()["scene"]["objects"][1]["alignment"],
         "center"
+    );
+}
+
+#[test]
+fn font_only_wire_edit_replays_and_omission_resets_to_inheritance() {
+    let (app, _root, id) = setup();
+    let mut run = json!({"text":" H ","script":"baseline","font":"serif"});
+    let added = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":[{"op":"add_caption","anchor":{"x":3,"y":4},"alignment":"right","runs":[run]}]}),
+    );
+    assert_eq!(added["outcome"], "ok", "{added}");
+    run["font"] = json!("monospace");
+    let params = json!({"document_id":id,"expected_revision":1,"commands":[{"op":"update_caption","object":"s2","anchor":{"x":3,"y":4},"alignment":"right","runs":[run]}]});
+    let changed = send(&app, "family-only", "document.transaction", params.clone());
+    assert_eq!(changed["outcome"], "ok", "{changed}");
+    assert_eq!(
+        changed["result"]["document"]["scene"]["objects"][1]["runs"][0]["font"],
+        "monospace"
+    );
+    assert_eq!(
+        send(&app, "family-only", "document.transaction", params.clone()),
+        changed
+    );
+    let mut different = params;
+    different["commands"][0]["runs"][0]["font"] = json!(null);
+    assert_eq!(
+        send(&app, "family-only", "document.transaction", different)["diagnostics"][0]["code"],
+        "request_id_reused"
+    );
+    for font in [
+        json!("Arial"),
+        json!("inherit"),
+        json!(4),
+        json!({}),
+        json!([]),
+    ] {
+        let before = snapshot(&app, &id);
+        let refused = call(
+            &app,
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":2,"commands":[{"op":"rename","title":"must roll back"},{"op":"update_caption","object":"s2","anchor":{"x":3,"y":4},"runs":[{"text":"H","script":"baseline","font":font}]}]}),
+        );
+        assert_eq!(refused["diagnostics"][0]["code"], "invalid_request");
+        assert_eq!(snapshot(&app, &id), before);
+    }
+    run.as_object_mut().unwrap().remove("font");
+    let reset = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":2,"commands":[{"op":"update_caption","object":"s2","anchor":{"x":3,"y":4},"alignment":"right","runs":[run]}]}),
+    );
+    assert_eq!(reset["outcome"], "ok", "{reset}");
+    assert_eq!(
+        reset["result"]["document"]["scene"]["objects"][1]["runs"][0]["font"],
+        Value::Null
     );
 }

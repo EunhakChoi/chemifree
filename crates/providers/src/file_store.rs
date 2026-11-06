@@ -1244,6 +1244,7 @@ mod tests {
                     anchor: Point::new(-99_999.999_999, 99_999.999_999).unwrap(),
                     runs: vec![
                         CaptionRun {
+                            font: None,
                             text: "\"".repeat(512),
                             script: CaptionScript::Superscript,
                             weight: Default::default(),

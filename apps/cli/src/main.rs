@@ -818,8 +818,14 @@ fn document_text(response: &DocumentResponse) -> String {
                             CaptionStyleDto::Normal => "normal",
                             CaptionStyleDto::Italic => "italic",
                         };
+                        let font = match run.font {
+                            None => "inherit",
+                            Some(chemifree_application::LabelFontDto::SansSerif) => "sans-serif",
+                            Some(chemifree_application::LabelFontDto::Serif) => "serif",
+                            Some(chemifree_application::LabelFontDto::Monospace) => "monospace",
+                        };
                         format!(
-                            "{script}/{weight}/{style}(\"{}\")",
+                            "{script}/{weight}/{style}/{font}(\"{}\")",
                             run.text.escape_default()
                         )
                     })
@@ -1133,7 +1139,7 @@ mod tests {
     fn caption_output_keeps_parent_anchor_run_order_and_explicit_script() {
         let text = shown(json!([
             {"op":"add_caption","anchor":{"x":5,"y":7},"alignment":"center","runs":[
-                {"text":"H","script":"baseline"},{"text":"2","script":"subscript","weight":"bold","style":"italic"},{"text":"+","script":"superscript","style":"italic"}
+                {"text":"H","script":"baseline","font":"serif"},{"text":"2","script":"subscript","weight":"bold","style":"italic","font":"monospace"},{"text":"+","script":"superscript","style":"italic","font":"sans-serif"}
             ]},
             {"op":"add_graphic","shape":"line","points":[{"x":0,"y":0},{"x":10,"y":0}]},
             {"op":"group","objects":["s2","s3"]}
@@ -1145,7 +1151,7 @@ mod tests {
         assert_eq!(
             caption,
             [
-                r#"  s2  caption in s4 at (5, 7) [center]: baseline/normal/normal("H") subscript/bold/italic("2") superscript/normal/italic("+")"#
+                r#"  s2  caption in s4 at (5, 7) [center]: baseline/normal/normal/serif("H") subscript/bold/italic/monospace("2") superscript/normal/italic/sans-serif("+")"#
             ]
         );
     }
@@ -1164,7 +1170,7 @@ mod tests {
         assert_eq!(
             caption,
             [
-                r#"  s2  caption in page at (0, 0) [left]: baseline/normal/normal("\u{d55c}\u{ae00} e\u{301} \u{202e}\"\\ & <>")"#
+                r#"  s2  caption in page at (0, 0) [left]: baseline/normal/normal/inherit("\u{d55c}\u{ae00} e\u{301} \u{202e}\"\\ & <>")"#
             ]
         );
         assert!(

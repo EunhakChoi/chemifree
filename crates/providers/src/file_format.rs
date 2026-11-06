@@ -1,7 +1,8 @@
-//! Chemifree document file format, version 11 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 12 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
+//! Version 12 adds a nullable per-run font override; versions 8–11 inherit the document font.
 //! Version 11 adds explicit whole-caption alignment; versions 8–10 migrate as left.
 //! Version 10 adds explicit caption run weight/style; versions 8–9 migrate them as normal.
 //! Version 9 adds per-placement Et display metadata to version 8 captions. It stores the chemical graph
@@ -21,7 +22,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 11. Other versions
+//! so they read with none. Reading never writes; the next write is version 12. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -48,9 +49,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 11;
+const FORMAT_VERSION: u32 = 12;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 11;
+const DRAFT_FORMAT_VERSION: u32 = 12;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -65,7 +66,7 @@ const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Current v11 scene/history: groups, styled/aligned captions, and Et display maps.
+/// Current v12 scene/history: groups, styled/aligned captions, and Et display maps.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -156,6 +157,8 @@ enum SceneState {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StoredCaptionRun {
+    #[serde(default)]
+    font: Option<StoredFont>,
     text: String,
     script: StoredCaptionScript,
     #[serde(default)]
@@ -1182,6 +1185,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    Eleven,
     Ten,
     Nine,
     Eight,
@@ -1204,6 +1208,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        11 => Ok(Version::Eleven),
         10 => Ok(Version::Ten),
         9 => Ok(Version::Nine),
         8 => Ok(Version::Eight),
@@ -1216,7 +1221,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, and \
              {current}"
         )),
     }
@@ -1380,6 +1385,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Four) => Some(VERSION_4),
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
+        Ok(Version::Eleven) => Some(11),
         Ok(Version::Ten) => Some(10),
         Ok(Version::Nine) => Some(9),
         Ok(Version::Eight) => Some(8),
@@ -1395,7 +1401,12 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     check_abbreviation_fields(bytes, format)?;
     check_caption_fields(bytes, format)?;
     let parts = match format {
-        Version::Current | Version::Ten | Version::Nine | Version::Eight | Version::Seven => {
+        Version::Current
+        | Version::Eleven
+        | Version::Ten
+        | Version::Nine
+        | Version::Eight
+        | Version::Seven => {
             let file: SceneFile = parse(bytes, "document")?;
             scene_parts(file.document, file.history)?
         }
@@ -1436,7 +1447,12 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     check_abbreviation_fields(bytes, format)?;
     check_caption_fields(bytes, format)?;
     let (parts, base_revision, saved_at_ms) = match format {
-        Version::Current | Version::Ten | Version::Nine | Version::Eight | Version::Seven => {
+        Version::Current
+        | Version::Eleven
+        | Version::Ten
+        | Version::Nine
+        | Version::Eight
+        | Version::Seven => {
             let file: SceneDraftFile = parse(bytes, "draft")?;
             let parts = scene_parts(file.document, file.history)?;
             (parts, file.base_revision, file.saved_at_ms)
@@ -1486,7 +1502,10 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
 /// current/history state; earlier headers cannot smuggle even empty v9 fields.
 fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String> {
     let raw: serde_json::Value = parse(bytes, "document or draft")?;
-    let current = matches!(format, Version::Current | Version::Ten | Version::Nine);
+    let current = matches!(
+        format,
+        Version::Current | Version::Eleven | Version::Ten | Version::Nine
+    );
     let document = raw.get("document").ok_or("missing document")?;
     let history = raw.get("history").ok_or("missing history")?;
     let mut states = vec![document];
@@ -1511,33 +1530,41 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
 
 /// Required caption fields are versioned for every current and historical state.
 fn check_caption_fields(bytes: &[u8], format: Version) -> Result<(), String> {
-    fn check(value: &serde_json::Value, styles: bool, alignment: bool) -> Result<(), String> {
+    fn check(
+        value: &serde_json::Value,
+        styles: bool,
+        alignment: bool,
+        font: bool,
+    ) -> Result<(), String> {
         match value {
             serde_json::Value::Object(object) => {
                 if object.get("kind").and_then(serde_json::Value::as_str) == Some("caption") {
                     let field = object.get("alignment");
                     if field.is_some() != alignment || field.is_some_and(serde_json::Value::is_null)
                     {
-                        return Err("Caption alignment is required in v11 and forbidden in v1–10, including history.".into());
+                        return Err("Caption alignment is required in v11–12 and forbidden in v1–10, including history.".into());
                     }
                     if let Some(runs) = object.get("runs").and_then(serde_json::Value::as_array) {
                         for run in runs {
+                            if run.get("font").is_some() != font {
+                                return Err("Caption font is required in v12 and forbidden in v1–11, including history.".into());
+                            }
                             for field in ["weight", "style"] {
                                 let present = run.get(field).is_some();
                                 if present != styles || (present && run[field].is_null()) {
-                                    return Err("Caption weight/style are required in v10–11 and forbidden in v1–9, including history.".into());
+                                    return Err("Caption weight/style are required in v10–12 and forbidden in v1–9, including history.".into());
                                 }
                             }
                         }
                     }
                 }
                 for child in object.values() {
-                    check(child, styles, alignment)?;
+                    check(child, styles, alignment, font)?;
                 }
             }
             serde_json::Value::Array(values) => {
                 for child in values {
-                    check(child, styles, alignment)?;
+                    check(child, styles, alignment, font)?;
                 }
             }
             _ => {}
@@ -1546,7 +1573,8 @@ fn check_caption_fields(bytes: &[u8], format: Version) -> Result<(), String> {
     }
     check(
         &parse(bytes, "document or draft")?,
-        matches!(format, Version::Current | Version::Ten),
+        matches!(format, Version::Current | Version::Eleven | Version::Ten),
+        matches!(format, Version::Current | Version::Eleven),
         format == Version::Current,
     )
 }
@@ -1555,7 +1583,7 @@ fn check_caption_fields(bytes: &[u8], format: Version) -> Result<(), String> {
 fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(), String> {
     if matches!(
         format,
-        Version::Current | Version::Ten | Version::Nine | Version::Eight
+        Version::Current | Version::Eleven | Version::Ten | Version::Nine | Version::Eight
     ) {
         return Ok(());
     }
@@ -1696,6 +1724,7 @@ fn stored_scene_state(object: &SceneObject) -> SceneState {
                 .runs
                 .iter()
                 .map(|run| StoredCaptionRun {
+                    font: run.font.map(Into::into),
                     text: run.text.clone(),
                     style: Some(match run.style {
                         CaptionStyle::Normal => StoredCaptionStyle::Normal,
@@ -1771,6 +1800,7 @@ fn read_scene_state(object: SceneState) -> Result<SceneObject, String> {
                 runs: runs
                     .into_iter()
                     .map(|run| CaptionRun {
+                        font: run.font.map(Into::into),
                         text: run.text,
                         style: match run.style.unwrap_or(StoredCaptionStyle::Normal) {
                             StoredCaptionStyle::Normal => CaptionStyle::Normal,

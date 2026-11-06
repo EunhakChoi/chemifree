@@ -17,7 +17,7 @@ export function CaptionPanel({ document, editor }: { document: DocumentView; edi
   const caption = selected.length === 1 && selected[0].kind === 'caption' ? selected[0] : null
   return (
     <section aria-label="Captions" className="flex flex-col gap-2 rounded-lg border p-3">
-      <p className="text-xs text-muted-foreground">Independent text with explicit script, weight and style runs. Captions do not change atoms or chemical formulas. Single line with left, center or right alignment at a fixed anchor; uses the drawing label font and size.</p>
+      <p className="text-xs text-muted-foreground">Independent text with explicit script, weight and style runs. Captions do not change atoms or chemical formulas. Single line with left, center or right alignment at a fixed anchor; uses the drawing label size, with a drawing font or generic family per run.</p>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" size="sm" disabled={editor.busy} onClick={() => setDraft({ original: null })}>Add caption…</Button>
         <Button variant="outline" size="sm" disabled={editor.busy || caption === null} onClick={() => caption && setDraft({ original: caption })}>Edit selected caption…</Button>
@@ -34,7 +34,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
   close: () => void
 }) {
   const id = useId()
-  const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal' }])
+  const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null }])
   const [alignment, setAlignment] = useState<CaptionAlignment>(original?.alignment ?? 'left')
   const [x, setX] = useState(String(original?.anchor.x ?? 0))
   const [y, setY] = useState(String(original?.anchor.y ?? 0))
@@ -61,7 +61,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
       <DialogContent className="max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{original ? `Edit caption ${original.id}` : 'Add caption'}</DialogTitle>
-          <DialogDescription>Each input stores one complete Unicode run. Text is kept verbatim. Script, weight and style change appearance only. Alignment includes leading and trailing spaces. Paragraph direction is fixed left-to-right; RTL shaping is browser-native within each run, with runs kept in stored order. Run boundaries may split shaping; avoid splitting combining or emoji sequences.</DialogDescription>
+          <DialogDescription>Each input stores one complete Unicode run. Text is kept verbatim. Script, weight, style and font family change appearance only. Alignment includes leading and trailing spaces. Paragraph direction is fixed left-to-right; RTL shaping is browser-native within each run, with runs kept in stored order. Run boundaries may split shaping; avoid splitting combining or emoji sequences.</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field><FieldLabel id={`${id}-alignment`}>Caption alignment</FieldLabel>
@@ -89,6 +89,14 @@ function CaptionDialog({ documentId, original, editor, close }: {
                   <ToggleGroupItem value="baseline">Baseline</ToggleGroupItem><ToggleGroupItem value="subscript">Subscript</ToggleGroupItem><ToggleGroupItem value="superscript">Superscript</ToggleGroupItem>
                 </ToggleGroup>
               </Field>
+              <Field><FieldLabel id={`${id}-font-${index}`}>Run {index + 1} font family</FieldLabel>
+                <ToggleGroup variant="outline" size="sm" aria-labelledby={`${id}-font-${index}`} value={[run.font ?? 'inherit']} onValueChange={(values) => {
+                  const value = values[0]
+                  if (value === 'inherit' || value === 'sans-serif' || value === 'serif' || value === 'monospace') setRuns((current) => current.map((item, at) => at === index ? { ...item, font: value === 'inherit' ? null : value } : item))
+                }}>
+                  <ToggleGroupItem value="inherit">Drawing font</ToggleGroupItem><ToggleGroupItem value="sans-serif">Sans-serif</ToggleGroupItem><ToggleGroupItem value="serif">Serif</ToggleGroupItem><ToggleGroupItem value="monospace">Monospace</ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
               <Field><FieldLabel id={`${id}-weight-${index}`}>Run {index + 1} weight</FieldLabel>
                 <ToggleGroup variant="outline" size="sm" aria-labelledby={`${id}-weight-${index}`} value={[run.weight]} onValueChange={(values) => {
                   const value = values[0]
@@ -109,7 +117,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
             </FieldGroup>
           ))}
         </FieldGroup>
-        <Button variant="outline" disabled={runs.length >= 32 || composing} onClick={() => setRuns((current) => [...current, { text: '', script: 'baseline', weight: 'normal', style: 'normal' }])}>Add run</Button>
+        <Button variant="outline" disabled={runs.length >= 32 || composing} onClick={() => setRuns((current) => [...current, { text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null }])}>Add run</Button>
         <p className="text-xs text-muted-foreground">1–32 nonempty runs, at most 16384 UTF-8 bytes in total. No line breaks or control characters. Move/group/delete from Scene. Arrangement, rotation, reflection and graphic clipboard do not yet support captions.</p>
         <DialogFooter><Button disabled={!valid || composing || editor.busy} onClick={submit}>{original ? 'Apply caption' : 'Create caption'}</Button></DialogFooter>
       </DialogContent>
