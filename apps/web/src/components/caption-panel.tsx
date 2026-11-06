@@ -6,6 +6,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
+import { parseCaptionSize } from '@/lib/caption-input'
 import { validCaptionRuns, type CaptionAlignment, type CaptionRun, type DocumentView, type SceneObject } from '@/lib/document-contract'
 
 type Caption = Extract<SceneObject, { kind: 'caption' }>
@@ -36,7 +37,8 @@ function CaptionDialog({ documentId, original, editor, close }: {
   const id = useId()
   const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null }])
   const [sizes, setSizes] = useState<string[]>(original?.runs.map((run) => run.size_pt == null ? '' : String(run.size_pt)) ?? [''])
-  const validSizes = sizes.map((size) => size.trim() === '' || (Number.isFinite(Number(size)) && Number(size) >= 4 && Number(size) <= 72))
+  const parsedSizes = sizes.map((size) => parseCaptionSize(size))
+  const validSizes = parsedSizes.map((size) => size !== undefined)
   const [alignment, setAlignment] = useState<CaptionAlignment>(original?.alignment ?? 'left')
   const [x, setX] = useState(String(original?.anchor.x ?? 0))
   const [y, setY] = useState(String(original?.anchor.y ?? 0))
@@ -45,7 +47,12 @@ function CaptionDialog({ documentId, original, editor, close }: {
   function submit() {
     if (!valid || composing || editor.busy) return
     const anchor = { x: Number(x), y: Number(y) }
-    const frozen = runs.map((run, index) => ({ ...run, size_pt: sizes[index].trim() === '' ? null : Number(sizes[index]) }))
+    const frozen: CaptionRun[] = []
+    for (const [index, run] of runs.entries()) {
+      const size = parsedSizes[index]
+      if (size === undefined) return
+      frozen.push({ ...run, size_pt: size })
+    }
     void editor.apply((latest) => {
       if (latest.id !== documentId) return null
       if (original) {

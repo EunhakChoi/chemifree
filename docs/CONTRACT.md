@@ -1866,8 +1866,9 @@ top-level operation.
   and superscript render at two thirds of it, with vertical offsets of +1/3 and −5/12 of
   that effective run size. Alignment uses the measured total SVG advance across mixed sizes,
   styles and families, including edge spaces; hit regions and fit use measured ink.
-  The form accepts a blank size as inheritance and rejects invalid numeric text without
-  silently substituting a size. Atom/Et labels, run color, wrapping and clipboard are outside
+  The form accepts a blank size as inheritance and decimal input (optional sign, decimal
+  point and exponent) for overrides; hexadecimal/binary/octal prefixes, invalid numeric
+  text and out-of-range sizes are rejected without silently substituting a size. Atom/Et labels, run color, wrapping and clipboard are outside
   this slice.
 - A run stores a nonempty Unicode string and exactly one `script`: `baseline`, `subscript`
   or `superscript`. P35b adds independent `weight` (`normal` | `bold`) and `style`

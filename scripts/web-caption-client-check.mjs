@@ -3,6 +3,7 @@ import { test } from 'node:test'
 
 import { ringSource } from './lib/ring-fixture.mjs'
 
+const { parseCaptionSize } = await import('../apps/web/src/lib/caption-input.ts')
 const { validCaptionRuns, isDocumentResponse } = await import('../apps/web/src/lib/document-contract.ts')
 const { selectionMove, selectionTransform } = await import('../apps/web/src/editor/selection-geometry.ts')
 const { sceneGeometryCommands } = await import('../apps/web/src/editor/scene-geometry.ts')
@@ -131,3 +132,17 @@ for (const size of [3.999, 72.001, NaN, Infinity, -Infinity, '12', '', false, []
   value.document.scene.objects.at(-1).runs[0].size_pt = size
   assert.equal(isDocumentResponse(value), false)
 })
+
+for (const [text, expected] of [
+  ['', null], ['   ', null], ['4', 4], ['72', 72], ['4.0001', 4.0001], ['71.9999', 71.9999],
+  ['12.5', 12.5], ['+4.25', 4.25], ['004.5', 4.5], ['4.', 4], [' 12.5 ', 12.5],
+  ['.5e1', 5], ['4e1', 40], ['72e0', 72],
+]) test(`caption size input parses decimal ${JSON.stringify(text)}`, () => {
+  assert.equal(parseCaptionSize(text), expected)
+})
+for (const text of ['0x10', '0X10', '0b100', '0B100', '0o10', '0O10', ' 0x10 ',
+  '3.9999', '72.0001', '-4', 'NaN', 'Infinity', '1e309', '4e', '.', '12 pt', '4 2', '8/2']) {
+  test(`caption size input rejects ${JSON.stringify(text)}`, () => {
+    assert.equal(parseCaptionSize(text), undefined)
+  })
+}

@@ -166,9 +166,13 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.getByRole('group', { name: 'Run 3 font family', exact: true }).getByRole('button', { name: 'Sans-serif', exact: true }).click()
   await page.getByLabel('Run 1 size (pt)', { exact: true }).fill('24')
   await page.getByLabel('Run 2 size (pt)', { exact: true }).fill('18')
-  for (const invalid of ['3.99', '72.01', 'NaN', 'Infinity', '12 pt']) {
+  for (const invalid of ['3.99', '72.01', 'NaN', 'Infinity', '12 pt', '0x10', '0b100', '0o10']) {
     await page.getByLabel('Run 1 size (pt)', { exact: true }).fill(invalid)
     assert.equal(await button('Create caption').isDisabled(), true, invalid)
+  }
+  for (const valid of ['4', '72', '4.25', '71.9999', '12.5', '.5e1']) {
+    await page.getByLabel('Run 1 size (pt)', { exact: true }).fill(valid)
+    assert.equal(await button('Create caption').isDisabled(), false, valid)
   }
   await page.getByLabel('Run 1 size (pt)', { exact: true }).fill('24')
   await button('Create caption').click()

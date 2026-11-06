@@ -92,3 +92,13 @@ diagnostic assertion. A static search across script version assertions and provi
 future-version fixtures confirmed that remaining v13 assertions refer to current writes,
 while unsupported fixtures use v14 or v99. A stale current-save explanation was also
 updated from v12 to v13. No tests or builds were run for this correction.
+
+Codex review P2 (#190, numeric text grammar): fixed. The point-size form previously
+used Number directly, accepting hexadecimal/binary/octal strings such as 0x10, 0b100 and
+0o10. A dedicated parser now accepts trimmed decimal/scientific notation only (optional
+sign, decimal point and exponent), then enforces finite 4–72 pt bounds. Blank stays null
+inheritance. The form submits the parsed value it validated instead of reinterpreting text.
+Written parser cases cover radix rejection, fractional decimals, boundary-adjacent values,
+both inclusive boundaries, signs/whitespace/exponents and malformed/nonfinite input. The
+production browser form adds the three radix refusals and valid fractional/boundary inputs.
+No tests or builds were run for this review fix; parent isolation owns their execution.
