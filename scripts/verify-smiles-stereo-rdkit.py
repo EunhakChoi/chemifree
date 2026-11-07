@@ -28,8 +28,9 @@ nothing with Chemifree's reading of `/` and `\\`, and is compared with the store
 double bonds RDKit labels with `rdCIPLabeler` (E or Z) must be exactly those `chem.cip` labels
 on the stored configurations, with the same letter. A fixture lists how many double bonds
 Chemifree must store; a one-sided double bond served by its neighbour (`C/C=C/C=CC`) stores
-none and RDKit must not label it either. A double bond RDKit cannot answer for (the embedding
-fails) is printed as a NOTE with the reason and is not hidden. Exports of a fixture with stored
+none and RDKit must not label it either. Embedding tries a fixed list of seeds; a stored double
+bond that no seed embeds is a FAILURE, never a note, so the summary line counts every geometry
+comparison made and none can be skipped quietly. Exports of a fixture with stored
 double bonds must be refused as `loss_consent_required` for `stereo_configuration`: the writers
 write no `/` or `\\` yet. Refusal fixtures also print what RDKit makes of the text (it reads
 and ignores many of them), which is information, not an oracle.
@@ -141,6 +142,10 @@ FIXTURES = [
     Fixture("C/1=C/C=C\\C=C/C=C\\1", refused="directional_bond_unsupported"),
     Fixture("c1ccc/cc1", refused="directional_bond_unsupported"),
     Fixture("F/P=C/F", refused="directional_bond_end_unsupported"),
+    Fixture("Cl/[CH](F)=C/F", refused="directional_bond_end_unsupported"),
+    Fixture("[CH2](/F)=C/F", refused="directional_bond_end_unsupported"),
+    Fixture("C1=CC=CC=C1/C", refused="directional_bond_without_double_bond"),
+    Fixture("c1ccccc1/C", refused="directional_bond_without_double_bond"),
 ]
 # Respellings of one molecule: every text must give the same CIP label at the stereocenter.
 RESPELLINGS = [
@@ -299,20 +304,36 @@ def _rdkit(text: str) -> dict[str, Any]:
     }
 
 
+# The same ETKDG policy under every seed; the first that embeds is used.
+_EMBED_SEEDS = (0xF00D, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+
+
+@dataclass
+class Tally:
+    """Geometry comparisons made, so the summary can say how many there were, and the
+    information (not oracle) notes printed about refused texts."""
+
+    compared: int = 0
+    notes: list[str] = field(default_factory=list)
+
+
 def _rdkit_same_side(
     mol: rdkit.Chem.Mol, atoms: tuple[int, int, int, int]
 ) -> tuple[bool | None, str]:
     """Whether the end atoms of the 4-atom path lie on one side of its middle bond.
 
-    Embeds `mol` in 3D with ETKDG and a fixed seed and measures the dihedral. Returns
-    `(None, reason)` when RDKit cannot embed the molecule.
+    Embeds `mol` in 3D with ETKDG, trying the seeds of `_EMBED_SEEDS` in order, and measures the
+    dihedral. Returns `(None, reason)` when no seed embeds the molecule.
     """
     embeddable = rdkit.Chem.AddHs(mol)
-    parameters = rdkit.Chem.AllChem.ETKDGv3()
-    parameters.randomSeed = 0xF00D
-    parameters.maxIterations = 200
-    if rdkit.Chem.AllChem.EmbedMolecule(embeddable, parameters) != 0:
-        return None, "RDKit ETKDG could not embed the molecule"
+    for seed in _EMBED_SEEDS:
+        parameters = rdkit.Chem.AllChem.ETKDGv3()
+        parameters.randomSeed = seed
+        parameters.maxIterations = 200
+        if rdkit.Chem.AllChem.EmbedMolecule(embeddable, parameters) == 0:
+            break
+    else:
+        return None, f"RDKit ETKDG could not embed the molecule with {len(_EMBED_SEEDS)} seeds"
     angle = rdkit.Chem.rdMolTransforms.GetDihedralDeg(
         embeddable.GetConformer(), *atoms
     )
@@ -333,7 +354,7 @@ def _check_double_bonds(
     fixture: Fixture,
     ours: dict[str, Any],
     theirs: dict[str, Any],
-    notes: list[str],
+    tally: Tally,
 ) -> list[str]:
     """Compares the stored double bonds with RDKit's geometry and CIP labels."""
     failures: list[str] = []
@@ -352,8 +373,10 @@ def _check_double_bonds(
         path = (info["begin_neighbor"], info["begin"], info["end"], info["end_neighbor"])
         same_side, detail = _rdkit_same_side(theirs["mol"], path)
         if same_side is None:
-            notes.append(f"{fixture.text}: bond {pair}: {detail}")
-        elif same_side != info["same_side"]:
+            failures.append(f"{fixture.text}: bond {pair} not compared: {detail}")
+            continue
+        tally.compared += 1
+        if same_side != info["same_side"]:
             failures.append(
                 f"{fixture.text}: bond {pair} stored same_side={info['same_side']}, "
                 f"RDKit geometry same_side={same_side} ({detail})"
@@ -376,7 +399,7 @@ def _check_consent(fixture: Fixture, written: dict[str, Any]) -> list[str]:
     return []
 
 
-def _check(session: Session, notes: list[str]) -> list[str]:
+def _check(session: Session, tally: Tally) -> list[str]:
     failures: list[str] = []
     for fixture in FIXTURES:
         ours = _chemifree(session, fixture.text)
@@ -384,7 +407,7 @@ def _check(session: Session, notes: list[str]) -> list[str]:
             if ours.get("refused") != fixture.refused:
                 failures.append(f"{fixture.text}: expected refusal {fixture.refused}, got {ours}")
             else:
-                notes.append(f"refused {fixture.text} ({fixture.refused}): {_describe_rdkit(fixture.text)}")
+                tally.notes.append(f"refused {fixture.text} ({fixture.refused}): {_describe_rdkit(fixture.text)}")
             continue
         theirs = _rdkit(fixture.text)
         if not theirs["parsed"]:
@@ -409,7 +432,7 @@ def _check(session: Session, notes: list[str]) -> list[str]:
                 f"{fixture.text}: RDKit groups {theirs['groups']}, "
                 f"expected {fixture.groups}"
             )
-        failures.extend(_check_double_bonds(fixture, ours, theirs, notes))
+        failures.extend(_check_double_bonds(fixture, ours, theirs, tally))
         written = ours["written"]
         if ours["double_bonds"]:
             failures.extend(_check_consent(fixture, written))
@@ -461,16 +484,21 @@ def main(argv: list[str]) -> int:
     _LOGGER.info("RDKit %s", rdkit.__version__)
     with tempfile.TemporaryDirectory() as data:
         session = Session(pathlib.Path(argv[1]), data)
-        notes: list[str] = []
+        tally = Tally()
         try:
-            failures = _check(session, notes)
+            failures = _check(session, tally)
         finally:
             session.close()
-    for note in notes:
+    for note in tally.notes:
         _LOGGER.info("NOTE %s", note)
     for failure in failures:
         _LOGGER.error("FAIL %s", failure)
-    _LOGGER.info("%d fixtures, %d failures", len(FIXTURES) + len(RESPELLINGS), len(failures))
+    _LOGGER.info(
+        "%d fixtures, %d double-bond geometry comparisons, %d failures",
+        len(FIXTURES) + len(RESPELLINGS),
+        tally.compared,
+        len(failures),
+    )
     return 1 if failures else 0
 
 

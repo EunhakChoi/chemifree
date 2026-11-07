@@ -205,7 +205,10 @@ fn import_commands(
     target: &DocumentView,
     losses: &mut Vec<Loss>,
 ) -> Result<Vec<Command>, Diagnostic> {
-    let mut commands = grid_commands(read, target)?;
+    let GridCommands {
+        mut commands,
+        first_bond,
+    } = grid_commands(read, target)?;
     let created = |slot: SmilesSlot| match slot {
         SmilesSlot::Atom(index) => SlotRef::Atom(AtomRef::Created(index)),
         SmilesSlot::ImplicitHydrogen => SlotRef::ImplicitHydrogen,
@@ -219,10 +222,9 @@ fn import_commands(
             }),
         });
     }
-    // The bond commands follow the atom commands, so a bond's command index is after all atoms.
     for double_bond in &read.stereo.double_bonds {
         commands.push(Command::SetBondConfiguration {
-            bond: BondRef::Created(read.atoms.len() + double_bond.bond),
+            bond: BondRef::Created(first_bond + double_bond.bond),
             configuration: Some(BondConfiguration::Relative {
                 begin_neighbor: SlotRef::Atom(AtomRef::Created(double_bond.begin_neighbor)),
                 end_neighbor: SlotRef::Atom(AtomRef::Created(double_bond.end_neighbor)),
@@ -306,8 +308,16 @@ fn replayed_group_losses(read: &SmilesRead, committed: &DocumentView) -> Vec<Los
     })
 }
 
-/// Grid positions for new atoms, below `target`'s atoms, or `None` when one is out of range.
-fn grid_commands(read: &SmilesRead, target: &DocumentView) -> Result<Vec<Command>, Diagnostic> {
+/// The commands that make the graph of a read, and where its bonds start among them: a created
+/// bond is named by the index of its command, so `first_bond + n` names the n-th bond of the read.
+struct GridCommands {
+    commands: Vec<Command>,
+    first_bond: usize,
+}
+
+/// Grid positions for new atoms, below `target`'s atoms, and the bonds between them; fails when
+/// a position is out of range.
+fn grid_commands(read: &SmilesRead, target: &DocumentView) -> Result<GridCommands, Diagnostic> {
     // Everything the drawing holds that has a position: atoms and the points of graphics.
     let graphic_points = target.scene.objects.iter().flat_map(|object| match object {
         SceneObjectView::Graphic { points, .. } => points.clone(),
@@ -360,6 +370,7 @@ fn grid_commands(read: &SmilesRead, target: &DocumentView) -> Result<Vec<Command
             bond_to: None,
         });
     }
+    let first_bond = commands.len();
     for bond in &read.bonds {
         commands.push(Command::AddBond {
             begin: AtomRef::Created(bond.begin),
@@ -367,7 +378,10 @@ fn grid_commands(read: &SmilesRead, target: &DocumentView) -> Result<Vec<Command
             order: bond.order.clone(),
         });
     }
-    Ok(commands)
+    Ok(GridCommands {
+        commands,
+        first_bond,
+    })
 }
 
 fn generated_layout() -> Loss {
@@ -748,5 +762,89 @@ mod group_fault_tests {
         assert_eq!(exhausted.details["family"], "resource_limit");
         let unreadable = group_fault_diagnostic(GroupFault::DrawingUnreadable, &read, source);
         assert_eq!(unreadable.code, "internal_error");
+    }
+}
+
+#[cfg(test)]
+mod command_index_tests {
+    use chemifree_domain::document::{Atom, BondOrder, Document, DocumentId};
+    use chemifree_domain::element::Element;
+    use chemifree_domain::stereo::Relation;
+
+    use super::*;
+    use crate::smiles::{SmilesAtom, SmilesBond, SmilesDoubleBond, SmilesStereo};
+
+    /// `F/C=C/F` without a reader: four atoms, a chain of three bonds, the middle one double.
+    fn trans_difluoroethene() -> SmilesRead {
+        let atom = |symbol: &str, offset: usize| SmilesAtom {
+            atom: Atom::from(Element::from_symbol(symbol).expect("an element")),
+            span: Span::new(offset, 1),
+        };
+        let bond = |begin: usize, order: BondOrder| SmilesBond {
+            begin,
+            end: begin + 1,
+            order,
+        };
+        SmilesRead {
+            atoms: vec![atom("F", 0), atom("C", 2), atom("C", 4), atom("F", 6)],
+            bonds: vec![
+                bond(0, BondOrder::Single),
+                bond(1, BondOrder::Double),
+                bond(2, BondOrder::Single),
+            ],
+            ignored_text: None,
+            losses: Vec::new(),
+            stereo: SmilesStereo {
+                centers: Vec::new(),
+                double_bonds: vec![SmilesDoubleBond {
+                    bond: 1,
+                    begin_neighbor: 0,
+                    end_neighbor: 3,
+                    relation: Relation::OppositeSides,
+                    span: Span::new(1, 1),
+                }],
+                groups: Vec::new(),
+            },
+        }
+    }
+
+    fn empty_view() -> DocumentView {
+        let id = DocumentId::parse("empty").expect("a valid identifier");
+        let document = Document::new(id, "empty").expect("an empty document");
+        DocumentResponse::new(&document, 0, None).document
+    }
+
+    #[test]
+    fn a_configuration_names_the_command_that_made_its_double_bond() {
+        let read = trans_difluoroethene();
+        let view = empty_view();
+        let grid = grid_commands(&read, &view).expect("a grid");
+        assert!(
+            grid.commands[..grid.first_bond]
+                .iter()
+                .all(|command| matches!(command, Command::AddAtom { .. }))
+        );
+        assert!(
+            grid.commands[grid.first_bond..]
+                .iter()
+                .all(|command| matches!(command, Command::AddBond { .. }))
+        );
+        let mut losses = Vec::new();
+        let commands = import_commands(&read, "F/C=C/F", &view, &mut losses).expect("commands");
+        let Some(Command::SetBondConfiguration {
+            bond: BondRef::Created(named),
+            ..
+        }) = commands
+            .iter()
+            .find(|command| matches!(command, Command::SetBondConfiguration { .. }))
+        else {
+            panic!("the double bond has a configuration command");
+        };
+        // The command the configuration names is the one that adds the double bond.
+        assert!(matches!(
+            &commands[*named],
+            Command::AddBond { begin: AtomRef::Created(1), end: AtomRef::Created(2), order }
+                if *order == BondOrder::Double
+        ));
     }
 }

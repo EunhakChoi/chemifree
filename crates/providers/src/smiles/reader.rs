@@ -78,6 +78,14 @@ struct ReadBond {
     mark: Option<Mark>,
 }
 
+/// A bond symbol read and not yet followed by the atom or ring label it belongs to. The
+/// direction of `/` and `\` is part of it, so whoever takes the symbol takes the mark.
+struct PendingBond {
+    order: BondOrder,
+    span: Span,
+    mark: Option<Mark>,
+}
+
 struct OpenRing {
     atom: usize,
     symbol: Option<BondOrder>,
@@ -128,9 +136,7 @@ struct Reader<'a> {
     anchor: Option<usize>,
     /// The atom whose ring labels are being read.
     current: Option<usize>,
-    pending: Option<(BondOrder, Span)>,
-    /// The directional mark that `pending` stands for, when it is `/` or `\`.
-    pending_mark: Option<Mark>,
+    pending: Option<PendingBond>,
     dot: Option<Span>,
     /// Bracket atoms that named an atom class, by atom index; the class is not kept.
     classes: Vec<(usize, Span)>,
@@ -188,7 +194,6 @@ pub(super) fn parse(source: &str) -> Result<Parsed, Fail> {
         anchor: None,
         current: None,
         pending: None,
-        pending_mark: None,
         dot: None,
         classes: Vec::new(),
         neighborhoods: Neighborhoods::default(),
@@ -244,7 +249,7 @@ impl Reader<'_> {
                 let span = self
                     .pending
                     .as_ref()
-                    .map_or_else(|| self.here(), |(_, span)| *span);
+                    .map_or_else(|| self.here(), |pending| pending.span);
                 Some(at(SmilesCode::DanglingBond, span))
             }
             Prev::Dot => Some(at(
@@ -343,8 +348,11 @@ impl Reader<'_> {
             Prev::Atom => Prev::Bond,
             Prev::Open | Prev::Close => Prev::DetachedBond,
         };
-        self.pending = Some((symbol, span));
-        self.pending_mark = mark;
+        self.pending = Some(PendingBond {
+            order: symbol,
+            span,
+            mark,
+        });
         self.previous = next;
         self.position += 1;
         Ok(())
@@ -357,12 +365,16 @@ impl Reader<'_> {
             Prev::Bond => {
                 let pending = self.pending.take();
                 // Toolkits disagree on which atom a mark on a ring digit is relative to.
-                if self.pending_mark.take().is_some() {
-                    let span = pending.map_or_else(|| self.here(), |(_, span)| span);
+                if let Some(PendingBond {
+                    mark: Some(_),
+                    span,
+                    ..
+                }) = pending
+                {
                     return Err(at(SmilesCode::DirectionalBondUnsupported, span)
                         .because("a mark on a ring-closure digit is not read"));
                 }
-                pending.map(|(symbol, _)| symbol)
+                pending.map(|pending| pending.order)
             }
             Prev::Start => return Err(at(SmilesCode::RingDigitAtStart, self.here())),
             Prev::Open => return Err(at(SmilesCode::RingDigitAfterBranchOpen, self.here())),
@@ -489,11 +501,10 @@ impl Reader<'_> {
         self.neighborhoods.add_atom(atom.chirality);
         self.atoms.push(atom.read);
         if let Some(anchor) = self.anchor {
-            let (symbol, span) = match self.pending.take() {
-                Some((symbol, span)) => (Some(symbol), span),
-                None => (None, Span::new(start, self.position - start)),
+            let (symbol, span, mark) = match self.pending.take() {
+                Some(pending) => (Some(pending.order), pending.span, pending.mark),
+                None => (None, Span::new(start, self.position - start), None),
             };
-            let mark = self.pending_mark.take();
             self.add_bond(anchor, index, symbol, mark, span)?;
             self.neighborhoods.chain_bond(anchor, index);
         }

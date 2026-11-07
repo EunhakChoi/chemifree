@@ -26,6 +26,7 @@ use std::collections::{HashSet, VecDeque};
 
 use chemifree_application::smiles::{SmilesCode, SmilesDoubleBond, SmilesError, Span};
 use chemifree_domain::document::{Atom, BondOrder};
+use chemifree_domain::states::Hydrogens;
 use chemifree_domain::stereo::Relation;
 
 /// Rings with fewer atoms than this have no double-bond configuration here.
@@ -83,6 +84,9 @@ pub(super) fn read(
     // The marked bonds that a recorded configuration reads.
     let mut used: HashSet<usize> = HashSet::new();
     let mut partial = Vec::new();
+    // Ring double bonds whose only marks sit on chains hung from the ring: those marks are
+    // about something else (the ring is as unmarkable as an aromatic one), not about the bond.
+    let mut ring_only: HashSet<usize> = HashSet::new();
     for (index, bond) in bonds.iter().enumerate() {
         if *bond.order != BondOrder::Double {
             continue;
@@ -110,16 +114,22 @@ pub(super) fn read(
         else {
             continue;
         };
-        faults.push(if topology.cumulated(index) {
-            SmilesError::at(SmilesCode::DirectionalBondCumulated, first.span)
-                .because("an end of this double bond carries a second double or triple bond")
+        if topology.cumulated(index) {
+            faults.push(
+                SmilesError::at(SmilesCode::DirectionalBondCumulated, first.span)
+                    .because("an end of this double bond carries a second double or triple bond"),
+            );
+        } else if topology.hangs_from_small_ring(index, &marks) {
+            ring_only.insert(index);
         } else {
-            SmilesError::at(SmilesCode::DirectionalBondIncomplete, first.span)
-                .because("the other end of the double bond has no directional bond")
-        });
+            faults.push(
+                SmilesError::at(SmilesCode::DirectionalBondIncomplete, first.span)
+                    .because("the other end of the double bond has no directional bond"),
+            );
+        }
     }
     for (index, bond) in bonds.iter().enumerate() {
-        if bond.mark.is_some() && !topology.touches_double_bond(index) {
+        if bond.mark.is_some() && !topology.touches_double_bond(index, &ring_only) {
             faults.push(
                 SmilesError::at(SmilesCode::DirectionalBondWithoutDoubleBond, bond.span)
                     .because("neither atom of this bond is in a double bond"),
@@ -189,13 +199,20 @@ impl<'a> Topology<'a> {
         })
     }
 
-    fn touches_double_bond(&self, marked: usize) -> bool {
+    /// Whether an end of the bond `marked` is in a double bond other than those `skipped`.
+    fn touches_double_bond(&self, marked: usize, skipped: &HashSet<usize>) -> bool {
         let bond = &self.bonds[marked];
         [bond.begin, bond.end].into_iter().any(|atom| {
-            self.adjacent[atom]
-                .iter()
-                .any(|&(_, other)| *self.bonds[other].order == BondOrder::Double)
+            self.adjacent[atom].iter().any(|&(_, other)| {
+                *self.bonds[other].order == BondOrder::Double && !skipped.contains(&other)
+            })
         })
+    }
+
+    /// Whether `double` is in a ring of fewer than eight atoms and none of its `marks` is: its
+    /// marks are on chains hung from the ring, as on `C1=CC=CC=C1/C`, written like `c1ccccc1/C`.
+    fn hangs_from_small_ring(&self, double: usize, marks: &[Placed]) -> bool {
+        self.in_small_ring(double) && marks.iter().all(|placed| !self.in_small_ring(placed.bond))
     }
 
     /// Why `atom` cannot be an end of a configured double bond, when it cannot.
@@ -211,7 +228,12 @@ impl<'a> Topology<'a> {
         if entry.charge != 0 {
             return Some("a charged atom is not a configurable end");
         }
-        let others = self.adjacent[atom].len() - 1;
+        // Hydrogens stated in brackets are neighbours too; implicit ones are not counted.
+        let stated = match entry.hydrogens {
+            Hydrogens::Specified(count) => usize::from(count),
+            Hydrogens::Inferred | Hydrogens::Unknown => 0,
+        };
+        let others = self.adjacent[atom].len() - 1 + stated;
         match entry.kind.element().map(|element| element.symbol()) {
             Some("C") if others <= 2 => None,
             Some("C") => Some("a carbon end has at most two other neighbours"),

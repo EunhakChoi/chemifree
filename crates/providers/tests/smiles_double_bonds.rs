@@ -308,6 +308,100 @@ fn an_unsupported_end_is_reported_before_a_conflict_or_a_ring_it_would_hide() {
 }
 
 #[test]
+fn stated_bracket_hydrogens_count_as_neighbours_of_an_end() {
+    // A carbon end has two positions besides the double bond; `[CH]` uses one for its hydrogen,
+    // so a second neighbour fills them and a third cannot be placed. Nitrogen has one.
+    for (text, offset) in [
+        ("Cl/[CH](F)=C/F", 2),
+        ("[CH2](/F)=C/F", 6),
+        ("F/[CH2](C)=C/F", 1),
+        ("F/[CH2]=C/F", 1),
+        ("F/[NH]=C/F", 1),
+        ("F/[NH](C)=C/F", 1),
+    ] {
+        let (code, found, _) = refused(text);
+        assert_eq!(
+            (code, found),
+            (SmilesCode::DirectionalBondEndUnsupported, offset),
+            "{text}"
+        );
+    }
+    // With the hydrogen as the only other neighbour the end is fine, written either way.
+    assert_eq!(configurations("F/[CH]=[CH]/F"), [(1, 0, 3, Opposite)]);
+    assert_eq!(configurations("[H]/C(F)=C/F"), [(2, 0, 4, Opposite)]);
+    assert_eq!(configurations("[H]/N=N/F"), [(1, 0, 3, Opposite)]);
+    // Hydrogens left to the valence rule are not neighbours.
+    assert_eq!(configurations("C/C=C/C"), [(1, 0, 3, Opposite)]);
+}
+
+#[test]
+fn a_mark_belongs_to_the_bond_it_was_written_on_not_to_the_next() {
+    // The mark of `(/F)` is the first branch bond's; the second branch bond has none.
+    assert_eq!(configurations("C(/F)(F)=C/F"), [(2, 1, 4, Same)]);
+    assert_eq!(configurations("C(F)(/F)=C/F"), [(2, 2, 4, Same)]);
+    // A mark that no atom follows is dangling, whatever comes next, and no mark is carried over
+    // to the atom after it.
+    for (text, offset) in [("C/(F)C=C/F", 1), ("C/.C=C/F", 1)] {
+        let (code, found, _) = refused(text);
+        assert_eq!((code, found), (SmilesCode::DanglingBond, offset), "{text}");
+    }
+}
+
+#[test]
+fn a_chain_hung_from_a_kekule_ring_is_written_like_one_hung_from_an_aromatic_ring() {
+    // Both spellings of the same molecule have a mark beside no configurable double bond.
+    assert_eq!(
+        refused("c1ccccc1/C"),
+        (SmilesCode::DirectionalBondWithoutDoubleBond, 8, 1)
+    );
+    assert_eq!(
+        refused("C1=CC=CC=C1/C"),
+        (SmilesCode::DirectionalBondWithoutDoubleBond, 11, 1)
+    );
+    // A mark on the ring's own bond is on the double bond's end, as in a chain: incomplete.
+    assert_eq!(
+        refused("C1=C/CCCC1"),
+        (SmilesCode::DirectionalBondIncomplete, 4, 1)
+    );
+    assert_eq!(
+        refused("C/C=C"),
+        (SmilesCode::DirectionalBondIncomplete, 1, 1)
+    );
+    // A ring double bond of eight atoms is a candidate, so it is incomplete as in a chain.
+    assert_eq!(
+        refused("C1=C/CCCCCC1"),
+        (SmilesCode::DirectionalBondIncomplete, 4, 1)
+    );
+    // The chain's own double bond is still read, and the ring's stays silent.
+    assert_eq!(configurations("C1=CC=CC=C1/C=C/C"), [(7, 5, 8, Opposite)]);
+}
+
+#[test]
+fn a_mark_between_two_aromatic_rings_is_a_mark_beside_no_double_bond() {
+    // Not an aromatic ring bond (the atoms are in different rings), so no ring-bond refusal:
+    // the generic rule finds that neither atom is in a double bond.
+    assert_eq!(
+        refused("c1ccccc1/c1ccccc1"),
+        (SmilesCode::DirectionalBondWithoutDoubleBond, 8, 1)
+    );
+}
+
+#[test]
+fn within_one_double_bond_a_conflict_is_reported_before_a_small_ring() {
+    // Both neighbours of the first end lie below, and the bond is in a six-membered ring: the
+    // conflict is the fault of this bond, at the second mark, and the ring is not mentioned.
+    assert_eq!(
+        refused("C1C/C(\\F)=C/CC1"),
+        (SmilesCode::DirectionalBondConflict, 6, 1)
+    );
+    // Without the conflict the same bond is the ring's.
+    assert_eq!(
+        refused("C1C/C(F)=C/CC1"),
+        (SmilesCode::DirectionalBondSmallRing, 3, 1)
+    );
+}
+
+#[test]
 fn the_earliest_mark_is_the_one_reported_when_several_things_are_wrong() {
     assert_eq!(
         refused("C/C/C.F/P=C/F"),
