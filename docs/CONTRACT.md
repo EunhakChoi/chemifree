@@ -702,10 +702,54 @@ state/history, with no new command, schema, migration or scientific semantics.
 
 No bounding-box resize, aspect lock, multi-object/group handles, rotation handles,
 new shapes, image controls, clipping, layers, styles or reaction/electron arrow
-meaning is added. P36 stays `in_progress`. P36a PR #204 merge is pending separately
-from P36b's full checks, both reviews and PR CI. No successful full verification
-or merge is asserted by this candidate record; see
+meaning is added. P36 stays `in_progress`. P36a PR #204 has merged. P36b
+[#206](https://github.com/EunhakChoi/chemifree/pull/206) merged as `7601617` from
+`f36550d` with successful [PR check/browser CI 42324595907](https://github.com/EunhakChoi/chemifree/actions/runs/42324595907).
+Its [post-merge main run 42325796411](https://github.com/EunhakChoi/chemifree/actions/runs/42325796411)
+is pending, separately from P36c full checks/reviews/CI. Historical notes remain; see
 [the P36b record](verification/p36b-graphic-endpoint-drag.md).
+
+### Explicit canvas graphic creation (P36c candidate)
+
+The **Graphic** tool (G) exposes an explicit Line, Arrow or Rectangle choice.
+Initially no shape is chosen; a canvas press without a choice creates nothing.
+With a choice, a primary-pointer drag can start over empty canvas or existing
+atoms, bonds and graphics. It creates independent graphic geometry without
+editing the chemical graph or implicitly selecting a group as its parent.
+Existing Scene graphic-add buttons remain available.
+
+Press captures document ID/revision, chosen shape, service generation and the
+first document point. Actual SVG inverse screen coordinates account for prior
+pan/zoom and use the existing 0.01 pt rounding. Both points must be finite and
+within inclusive±100000 pt. At the existing 3-client-pixel threshold, movement
+paints a local preview through the normal graphic renderer and sends no write.
+Valid release submits one existing `add_graphic` command with the ordered press
+and release points. Omitting parent/index creates a fresh page-root graphic in
+the ordinary root order, even if a group is selected. The arrow tip is point 2;
+rectangle corners retain their stored order. Existing degenerate/reversed point
+support is unchanged; a click/subthreshold gesture creates nothing. There is no
+snapping, aspect lock or clamping.
+
+Space/middle-button pan takes precedence at press. Escape, pointercancel, lost
+capture, blur, Fit and Reset discard previews; view navigation remains local.
+Changed document/revision, tool, shape or observed service generation invalidates
+the press context. Selection does not choose a creation parent. At submission,
+the editor copies the chosen shape/points and records the existing selection for
+the normal transaction history; the queued callback rechecks document/revision
+and service generation. A restart not yet observed can cause an expired-session
+request to refuse, but no automatic creation replay is sent to the replacement
+process. No partial object is stored from a cancelled or stale preview.
+
+Creation shares `add_graphic` atomicity, fresh IDs, revision/replay and one-step
+Undo/Redo. Existing objects, hierarchy, references, graph atoms/bonds, placements,
+stereo and settings remain unchanged except for the new page root. Native v25,
+command/schema/provider formats and existing external-format losses are unchanged.
+This adds no shapes beyond line/arrow/rectangle, curve/electron/reaction-arrow
+semantics, images, clipping, layers, style controls, automatic layout or group
+insertion gesture. P36 stays `in_progress`. Preceding #206 is merged with
+passing PR CI; its post-merge main run 42325796411 is pending separately from
+P36c full checks/reviews/CI. An ongoing browser regression is not a pass.
+See [the P36c record](verification/p36c-graphic-creation.md).
 
 ## Effective selection scope and movement (P32a)
 

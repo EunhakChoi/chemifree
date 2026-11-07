@@ -416,3 +416,14 @@ silently commit or retry the drag. Coincident points use the numeric form. No
 schema change or general resize/group/rotation handles are added. P36 remains
 `in_progress`; prior P36a PR #204 merge and P36b full checks/reviews/CI are separate
 pending gates. See [P36b record](docs/verification/p36b-graphic-endpoint-drag.md).
+
+P36c adds a candidate **Graphic** tool (G) with an explicit Line/Arrow/Rectangle
+choice. A drag previews without writes and valid release submits one existing
+`add_graphic` transaction for a fresh page root, without implicit group parenting
+or chemistry changes. Pan/zoom coordinates, cancellation and captured document,
+revision, shape and service guards keep stale previews from silently committing
+or replaying after restart. Native v25 and existing graphic/format limits remain;
+no new shapes, styles, layers or scientific arrow semantics are added. P36 stays
+`in_progress`. Preceding #206 is merged with passing PR CI42324595907; its
+post-merge main run42325796411 is pending separately from P36c full checks/reviews/CI.
+See [P36c record](docs/verification/p36c-graphic-creation.md).
