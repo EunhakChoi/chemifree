@@ -83,6 +83,7 @@ function Harness(){
   <button disabled={editor.busy} onClick={()=>void editor.save()}>Save spline</button>
   <output className="block break-all" aria-label="Spline snapshot">{JSON.stringify(editor.current)}</output>
   <output aria-label="Spline error">{editor.error?.message}</output>
+  <output aria-label="Spline canvas context">{JSON.stringify({tool,shape,generation:generation??editor.serviceGeneration})}</output>
   <output aria-label="Spline busy">{String(editor.busy)}</output>
   <GraphicToolControls shape={shape} onShapeChange={setShape} disabled={editor.busy}/>
   {editor.current&&<>
@@ -136,10 +137,33 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   assert.deepEqual(writes.at(-1).commands,[{op:'add_spline',points}]);assert.equal(spline.parent,null);assert.equal(spline.line_width_pt,null);assert.deepEqual(spline.points,points);graphSame((await snapshot()).document)
   await undo();assert.equal((await snapshot()).document.scene.objects.some((o)=>o.id===sid),false);await redo();assert.deepEqual(await pointsOf(sid),points)
   stage='shape/tool/revision/service/document/escape changes discard drafts without creation'
-  for(const cancel of [async()=>shape('Line'),async()=>button('Use select').click(),async()=>page.keyboard.press('Escape'),async()=>page.evaluate(()=>window.splineHarness.setGeneration(window.splineHarness.editor.serviceGeneration+1))]){
-    await page.evaluate(()=>window.splineHarness.setGeneration(null));await button('Use graphic').click();await shape('Spline');await click(points[0]);await count(1);const n=writes.length;await cancel();assert.equal(await page.locator('[data-spline-draft]').count(),0);assert.equal(writes.length,n)
+  const context=()=>page.getByLabel('Spline canvas context',{exact:true})
+  async function committedContext(expected){await page.waitForFunction((expected)=>{const shown=JSON.parse(document.querySelector('[aria-label="Spline canvas context"]').textContent);return Object.entries(expected).every(([key,value])=>shown[key]===value)},expected)}
+  for(const [name,cancel,change]of [
+    ['shape',async()=>shape('Line'),{shape:'line'}],
+    ['tool',async()=>button('Use select').click(),{tool:'select'}],
+    ['escape',async()=>page.keyboard.press('Escape'),{}],
+    ['service',async()=>page.evaluate(()=>window.splineHarness.setGeneration(window.splineHarness.editor.serviceGeneration+1)),{}],
+  ]){
+    await page.evaluate(()=>window.splineHarness.setGeneration(null));await button('Use graphic').click();await shape('Spline')
+    const generation=await page.evaluate(()=>window.splineHarness.editor.serviceGeneration)
+    await committedContext({tool:'graphic',shape:'spline',generation})
+    await click(points[0]);await count(1)
+    const beforeCancel=(await snapshot()).document;const n=writes.length
+    const expected={...JSON.parse(await context().textContent()),...change,...(name==='service'?{generation:generation+1}:{})}
+    stage='discard spline draft after '+name
+    await cancel()
+    // Imperative setters can return before React commits the new canvas context.
+    // Observe that commit and the removed preview; a broken cancellation must still time out.
+    await committedContext(expected)
+    await page.locator('[data-spline-draft]').waitFor({state:'detached'})
+    assert.equal(await page.locator('[data-spline-draft]').count(),0,name+' removes the actual preview')
+    if(expected.tool==='graphic'&&expected.shape==='spline')await count(0)
+    assert.deepEqual((await snapshot()).document,beforeCancel,name+' does not edit the document')
+    assert.equal(writes.length,n,name+' sends no transaction')
   }
-  await page.evaluate(()=>window.splineHarness.setGeneration(null));await button('Use graphic').click();await shape('Spline');await click(points[0]);await count(1);let before=(await snapshot()).document;await button('Change document').click();await revision(before.revision+1);await count(0)
+  stage='revision and document changes discard spline drafts without creation'
+  await page.evaluate(()=>window.splineHarness.setGeneration(null));await button('Use graphic').click();await shape('Spline');await committedContext({tool:'graphic',shape:'spline',generation:await page.evaluate(()=>window.splineHarness.editor.serviceGeneration)});await click(points[0]);await count(1);let before=(await snapshot()).document;await button('Change document').click();await revision(before.revision+1);await count(0)
   const otherResponse=await fetch(base+'/api/v1/documents',{method:'POST',headers,body:JSON.stringify({request_id:crypto.randomUUID(),title:'Other spline document'})});assert.equal(otherResponse.status,201);const otherId=(await otherResponse.json()).document.id;await click(points[0]);await count(1);const switchWrites=writes.length;await page.evaluate((id)=>void window.splineHarness.editor.open(id),otherId);await page.waitForFunction((id)=>window.splineHarness.editor.current?.document.id===id,otherId);await count(0);assert.equal(writes.length,switchWrites);await page.evaluate((id)=>void window.splineHarness.editor.open(id),id);await page.waitForFunction((id)=>window.splineHarness.editor.current?.document.id===id,id);await idle()
   stage='queued creation rejects stale revisions and freezes all four submitted points'
   before=(await snapshot()).document;const queueWrites=writes.length
