@@ -2,9 +2,9 @@
 
 Implementation-session follow-up (historical):
 
-Follow-up: this P36a record describes the numeric-form implementation session. [P36b](p36b-graphic-endpoint-drag.md) adds single-graphic canvas endpoint dragging; its verification is separate. P36a PR #204 merge remains pending in the parent handoff, and this documentation update claims no merge or successful P36b full checks/reviews/CI.
+Follow-up: this P36a record describes the numeric-form implementation session. [P36b](p36b-graphic-endpoint-drag.md) adds single-graphic canvas endpoint dragging; its verification is separate. (Historical: when this paragraph was written the #204 merge was pending in the parent handoff; #204 has since merged, see the delivery follow-up below.)
 
-Delivery follow-up: P36a PR #204 merged as26962b695ab2924370aecb63f0e231485e1cda04. Its post-merge main CI is pending in the parent handoff; this update makes no success claim for that run. The implementation-session verification notes below are historical. P36 remains in_progress, and no checks were rerun for this documentation rebase.
+Delivery follow-up: P36a PR #204 merged as26962b695ab2924370aecb63f0e231485e1cda04. Its post-merge main CI run [42323974348](https://github.com/EunhakChoi/chemifree/actions/runs/42323974348) later completed with success (checked with `gh run list`). The implementation-session verification notes below are historical. P36 remains in_progress, and no checks were rerun for this documentation rebase.
 
 This bounded candidate adds `update_graphic_points` for an existing line, arrow
 or rectangle. It requires a concrete graphic object ID and exactly two `{x,y}`
@@ -72,5 +72,5 @@ unchanged roadmap scope and acceptance.
 Status: source inspected at Rust `0650f7a` and web `66eac34`. This documentation
 work ran no tests, builds, browser checks or quality gates. Execution verification,
 Codex and independent fresh-context reviews with finding dispositions, and PR CI
-remain pending the parent workflow. No scientific or external-renderer equivalence
+remained pending the parent workflow at that time (historical; #204 has since merged with successful main CI, see above). No scientific or external-renderer equivalence
 is claimed.

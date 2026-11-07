@@ -1,12 +1,14 @@
 # P36h bounded ellipse candidate
 
+Delivery follow-up (checked with `gh pr view` and `gh run list`, 2026-11-07 UTC): P36h merged as #213 (`698a364`) and its main CI [run 42341200117](https://github.com/EunhakChoi/chemifree/actions/runs/42341200117) succeeded. Statements below that call checks, reviews, CI or the PR pending or open describe the implementation session and are historical; see the P36 status table in [the handoff](../HANDOFF.ko.md). P36 remains `in_progress`.
+
 This record describes the P36h candidate in [PR #213](https://github.com/EunhakChoi/chemifree/pull/213),
 reviewed at `66d9bdcc411cb69b4fc0ec60fcb77b1fead31257` before this correction. Completed
 focused Rust/web execution and the independent review are recorded below from
 existing logs and the PR body. The documentation agent read those records and
 ran no product tests, builds or browser checks. Full isolated local validation
 and PR CI remain in progress/pending in the parent handoff; no successful full
-or CI result is claimed. P36 stays `in_progress`; #213 is open. This is not
+or CI result is claimed. P36 stays `in_progress`; #213 was open when this was written (historical: merged as `698a364`). This is not
 merged delivery or general rendering/specification equivalence.
 Earlier P36a–g no-new-shape/no-schema/native25/native26 statements describe their
 own implementation slices. This candidate changes the shape admission and native/
@@ -153,6 +155,6 @@ completed evidence above from remaining full/CI work. It reruns none of the
 checks and does not claim an additional Codex approval or thread resolution.
 
 Full isolated local validation and current PR CI are still in progress/pending
-per the parent handoff. No full-local pass, PR-CI pass, merge or post-merge main-CI
-success is established by the focused logs. P36's broader acceptance and the
+per the parent handoff. At that time no full-local pass, PR-CI pass, merge or post-merge main-CI
+success was established by the focused logs (historical: #213 has since merged with main CI success, see the delivery follow-up above). P36's broader acceptance and the
 limitations above remain open.

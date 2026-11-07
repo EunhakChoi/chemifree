@@ -1,11 +1,13 @@
 # P36g same-parent scene order boundary candidate
 
+Delivery follow-up (checked with `gh pr view` and `gh run list`, 2026-11-07 UTC): P36g merged as #212 (`6545af6`) and its main CI [run 42339112423](https://github.com/EunhakChoi/chemifree/actions/runs/42339112423) succeeded. Statements below that call checks, reviews, CI or the PR pending or open describe the implementation session and are historical; see the P36 status table in [the handoff](../HANDOFF.ko.md). P36 remains `in_progress`.
+
 The current [PR #212](https://github.com/EunhakChoi/chemifree/pull/212) candidate
 head is `25d440c0`, based on main `d1920be8` (merged P36f #211). Its completed
 frontend checks and independent review are recorded below; full isolated checks
 and current PR CI remain pending. This documentation update read existing
 execution logs and PR metadata and ran no product tests/builds or browser checks.
-P36 stays `in_progress` against its broader scope; #212 is not recorded as merged.
+P36 stays `in_progress` against its broader scope; #212 was not recorded as merged when this was written (historical: merged as `6545af6`, see the delivery follow-up above).
 
 Scene First/Last moves a selected scene object directly to the beginning/end of
 its existing parent's sibling list, reducing repeated Earlier/Later presses.
@@ -98,6 +100,6 @@ This update reconciles that finding using the named logs and current PR body.
 It changes only this verification document and reruns none of those checks.
 
 Full isolated checks and current GitHub CI remain pending in the parent/PR
-handoff. No success for those gates or merged #212 delivery follows from the
-completed web logs. Existing bounded P32/P33 delivery and merged predecessor
+handoff. No success for those gates or merged #212 delivery followed from the
+completed web logs at that time (historical; see the delivery follow-up above). Existing bounded P32/P33 delivery and merged predecessor
 #211 are not reclassified, and broader P36 remains `in_progress`.

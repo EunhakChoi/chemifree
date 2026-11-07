@@ -1,5 +1,7 @@
 # P36f finite arbitrary-angle rotation UI candidate
 
+Delivery follow-up (checked with `gh pr view` and `gh run list`, 2026-11-07 UTC): P36f merged as #211 (`d1920be`) and its main CI [run 42337029831](https://github.com/EunhakChoi/chemifree/actions/runs/42337029831) succeeded. Statements below that call checks, reviews, CI or the PR pending or open describe the implementation session and are historical; see the P36 status table in [the handoff](../HANDOFF.ko.md). P36 remains `in_progress`.
+
 Source inspection covers the current web draft based on `6cb71791`, especially
 `selection-rotation.ts`, its form and existing selection/queue code. The browser
 check is currently in progress. This documentation pass ran no tests/builds or

@@ -1,5 +1,7 @@
 # P36j single open cubic spline candidate
 
+Delivery follow-up (checked with `gh pr view` and `gh run list`, 2026-11-07 UTC): P36j merged as #215 (`31e9328`) and its main CI [run 42345870358](https://github.com/EunhakChoi/chemifree/actions/runs/42345870358) succeeded. Statements below that call checks, reviews, CI or the PR pending or open describe the implementation session and are historical; see the P36 status table in [the handoff](../HANDOFF.ko.md). P36 remains `in_progress`.
+
 This record describes current P36j code and authored checks. The Rust executor's
 completed clippy/71 focused tests, final web checks, mutations and independent
 review are recorded below from existing logs and the parent review handoff.
@@ -192,6 +194,6 @@ candidate. This documentation agent did not perform or rerun that review, and
 no new independent review of this correction is implied.
 
 Full isolated local validation and current PR/main CI remain pending/not yet
-established in this handoff; Codex review is also pending. No full-local pass,
-CI success, merge or broader P36 completion follows from these focused results.
+established in this handoff; Codex review is also pending. At that time no full-local pass,
+CI success or merge was claimed (historical: #215 has since merged with main CI success, see the delivery follow-up above); broader P36 completion does not follow from these focused results.
 P36 remains `in_progress` with its documented limitations.

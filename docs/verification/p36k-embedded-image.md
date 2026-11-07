@@ -1,4 +1,4 @@
-# P36k embedded PNG image candidate
+# P36k embedded PNG image (merged in PR #216)
 
 This record describes the evolving P36k source and its bounded contract. The
 documentation pass inspected source, consulted the Rust/web owners and directly
@@ -6,9 +6,14 @@ read the seven execution logs listed below; it ran no product tests, builds or
 browser checks. Focused execution passed, but independent review of `eb40cfa`
 found a P2 history-replay pixel-limit bypass. The shared-state fix and regression
 now address that finding, with follow-up clippy and 52 focused tests passing.
-Codex review of `5ea2107` in PR #216 completed without findings. Full integrated
-validation and PR/main CI remain pending; no merged delivery, latest-head full pass or renderer/format equivalence
-is claimed. P36 stays `in_progress`; earlier slice results are not P36k evidence.
+Codex review of `5ea2107` in PR #216 completed without findings. PR #216 was
+later merged as `7bec5ea`; its merge-commit main CI failed in a spline cancellation
+browser test and was followed by PR #217, and a later Codex
+review of `f69f8de` left an unresolved P2 inline finding. See the
+[closing record](#merge-and-main-ci-closing-record) below, which supersedes the
+"pending" statements in the sections that follow. No latest-head renderer/format
+equivalence is claimed. P36 stays `in_progress`; earlier slice results are not
+P36k evidence.
 
 ## Implemented source boundary
 
@@ -111,8 +116,65 @@ The parent recorded the completed Codex review in
 `5ea2107b023ea1b99858b0b17ab53d8efac97a77`, no findings. This result is separate from
 the earlier independent review and its addressed P2.
 
-The parent owns final integrated validation under the shared 6 GiB sandbox lock.
-Full integrated checks and CI remain pending. The existing native
+The parent owned final integrated validation under the shared 6 GiB sandbox lock;
+its outcome and the CI results are in the closing record below. The existing native
 fixture commit `a9c49f2` alone supplies no execution evidence. This documentation
 adds no new feature authorization: the user requested stopping after this image
 slice is finished, so further feature work needs a new request.
+
+## Merge and main CI closing record
+
+Facts below were read from GitHub (`gh pr view`, `gh run list`, `gh run view`,
+review and review-thread APIs) on 2026-11-07 UTC; this documentation pass ran no
+product tests, builds or browsers.
+
+- **Merge:** [PR #216](https://github.com/EunhakChoi/chemifree/pull/216) "Add
+  bounded embedded PNG scene images" merged at 07:11 UTC as `7bec5ea`. The PR
+  head was `f69f8de` ("Correct future native version contract assertions"), whose
+  change since `5ea2107` is limited to docs and `scripts/contract-smoke.mjs`.
+- **PR CI:** run 42349141149 on `f69f8de` succeeded (check and browser). The two
+  earlier runs for `5ea2107` and `2ce2681` were cancelled by newer pushes. The PR
+  body also records that the local full isolated check ran in two parts: the first
+  passed lint, types, client, build and Rust but exposed two stale future-version
+  contract assertions, which were corrected before the remaining checks passed.
+- **Main CI failure:** run 42350215647 on `7bec5ea` failed. The `check` job
+  passed; the `browser` job failed with an `AssertionError` in the spline browser
+  at "shape/tool/revision/service/document/escape changes discard drafts without
+  creation". The log does not say which cancellation case failed.
+- **Fix PR:** [PR #217](https://github.com/EunhakChoi/chemifree/pull/217) "Wait
+  for spline draft cancellation to render" merged at 07:54 UTC as `4198438`. Its
+  body states there is no product code change; the test now waits for the actual
+  rendered context and preview removal, then asserts no document change or
+  transaction, and names each cancellation case. It records that the precise
+  trigger of the main failure is unconfirmed and that a service-generation setter
+  can return before React commits the new generation. Main CI run 42353217355 on
+  `4198438` succeeded (check and browser).
+- **Caption shadow ink failure (cause not determined, tracked in [#220](https://github.com/EunhakChoi/chemifree/issues/220)):** the first attempt of
+  PR #217's CI run 42351443496 passed the spline check but its browser job failed
+  at the step "Unicode caption form, canvas and native roundtrip", stage
+  "independent shadows with measured glyph and underline ink". The failure log
+  points at `scripts/web-caption-check.mjs:513:12` (`false !== true`); at
+  origin/main that line is `assert.equal(evidence.fits, true)`, a shadow ink fit
+  check rather than the alpha-pixel check a few lines above. Re-running the job
+  (attempt 2) passed, as did the final main run above. **The cause of the first failure is not determined.** A
+  passing rerun is not an explanation, and this record offers none.
+- **Reviews of #216:** (1) the independent fresh-context review of `eb40cfa`
+  found one P2, addressed by `2c140fd` and its regression as recorded above;
+  (2) Codex review of `5ea2107` completed without findings; (3) a later Codex
+  review of `f69f8de` (07:00 UTC) completed with one P2 inline finding on
+  `apps/web/src/editor/structure-canvas.tsx`: with label shadow enabled, an image
+  ordered before a molecule instance is still emitted after the global
+  chemical-shadow group, so an opaque overlapping image covers that instance's
+  shadow while its foreground paints above the image, and First/Last reorders the
+  instance only partially. The review thread was unresolved when #216 merged and
+  the PR has no reply or recorded disposition; no code in the PR after the review
+  touches that file. Main's `structure-canvas.tsx` still draws the shadow group
+  before scene objects (source inspection only, not a render check). **This P2 is
+  therefore a known limitation, tracked in
+  [#219](https://github.com/EunhakChoi/chemifree/issues/219).**
+- **#217 reviews:** the PR body records an independent fresh-context review of
+  `3530168` with no issues and a Codex review of the same commit with no findings.
+  Those reviews concern the test-only fix, not image behavior.
+- **Status:** P36 stays `in_progress` and the roadmap graphics row is not marked
+  done. The user stopped P36 after this PNG image (2026-11-07 session); the next
+  scope is set by the user's next request, not by a standing project rule.

@@ -708,7 +708,17 @@ and replayed state. A regression rejects both undo- and redo-only over-limit
 states without rewriting the native bytes. Follow-up clippy and 52 focused tests
 passed. Codex review of `5ea2107` in
 [PR #216](https://github.com/EunhakChoi/chemifree/pull/216) completed without
-findings; full integrated validation and CI remain pending.
+findings. #216 merged as `7bec5ea`. A later Codex review of `f69f8de` left one
+unresolved P2: an image ordered before a molecule instance is drawn after the
+global chemical label-shadow group and can cover that instance's shadow; this is
+a known limitation tracked in [#219](https://github.com/EunhakChoi/chemifree/issues/219). The merge commit's main CI run 42350215647 failed
+in a spline cancellation browser test; #217 (`4198438`) fixed the test and main
+run 42353217355 succeeded. A caption-shadow ink-fit check (`scripts/web-caption-check.mjs:513`) failed once in #217's CI
+and passed on rerun; its cause is not determined ([#220](https://github.com/EunhakChoi/chemifree/issues/220)). The closing record is in the
+[P36k record](verification/p36k-embedded-image.md#merge-and-main-ci-closing-record).
+P36a–k are all merged (#204, #206–#208, #210–#216) while P36 stays `in_progress`;
+earlier per-slice "pending" notes in this section are historical, and the user stopped
+P36 after the PNG image (2026-11-07 session); the next scope is set by the user's next request.
 
 ## Single open cubic spline profile (P36j candidate)
 
@@ -777,7 +787,7 @@ profile supersedes their no-curve/native28/clipboard5 boundaries without reusing
 their verification results. P36 stays in_progress; Rust executor final log records clippy/71 focused tests and five detected
 mutations with restored-source passes; the documentation agent only read it.
 Targeted web checks and the independent review are complete; full isolated
-validation and CI remain pending. See [P36j record](verification/p36j-spline.md).
+validation and CI remain pending. Historical: that was the status when this slice was written; P36j has since merged as #215 (`31e9328`) with main CI run 42345870358 success (see the [P36 status table](HANDOFF.ko.md)). See [P36j record](verification/p36j-spline.md).
 
 ## Bounded closed polygon profile (P36i candidate)
 
@@ -846,7 +856,7 @@ and rendering R10/R12/R15 contracts are broader: open paths/fills/colors/dashes,
 curves/arcs/splines, snapping/regularity/aspect locks, general scale/skew, images,
 clip/layers/scientific symbols/reaction semantics remain unsupported. P36 stays
 `in_progress`. Source/authored-check inspection is not a passing execution;
-Rust/web final/full/reviews/CI remain pending. See [P36i record](verification/p36i-polygon.md).
+Rust/web final/full/reviews/CI remain pending. Historical: that was the status when this slice was written; P36i has since merged as #214 (`d7e2b16`) with main CI run 42343862092 success (see the [P36 status table](HANDOFF.ko.md)). See [P36i record](verification/p36i-polygon.md).
 
 ## Axis-aligned ellipse profile (P36h candidate)
 
@@ -855,7 +865,7 @@ snapshots. Earlier P36a–g no-new-shape/no-schema/native25/native26 statements 
 record those slices' introduction; this section supersedes their current shape
 admission and storage/clipboard version boundary, not their historical execution
 status. P36 remains `in_progress`; targeted/full/browser checks, both reviews and
-CI are pending until evidenced. See [P36h record](verification/p36h-ellipse.md).
+CI are pending until evidenced. Historical: that was the status when this slice was written; P36h has since merged as #213 (`698a364`) with main CI run 42341200117 success (see the [P36 status table](HANDOFF.ko.md)). See [P36h record](verification/p36h-ellipse.md).
 
 An ellipse stores exactly two finite opposite bounding-box corners within
 inclusive ±100000 document pt, preserving their order even when reversed or
@@ -949,7 +959,7 @@ gesture below. It does not add general resize controls, new shapes, curved or
 reaction/electron arrows, scientific glyphs, images, clipping, layers, graphic
 style controls or automatic layout. Existing object movement/group/transform and
 format-loss policies remain binding. P36 remains `in_progress`; authored checks,
-both required reviews and PR CI are pending. See
+both required reviews and PR CI are pending. Historical: that was the status when this slice was written; P36a has since merged as #204 (`26962b6`) with main CI run 42323974348 success (see the [P36 status table](HANDOFF.ko.md)). See
 [the P36a record](verification/p36a-graphic-points.md).
 
 ### Single-graphic canvas endpoint drag (P36b candidate)
@@ -1042,11 +1052,11 @@ adds polygon admission to the P36d width/P36h ellipse profiles. Existing externa
 The historical P36c slice added no shapes beyond line/arrow/rectangle, curve/electron/reaction-arrow
 semantics, images, clipping, layers, style controls, automatic layout or group
 insertion gesture. P36 stays `in_progress`. P36c #207 merged as `afe6410`; its
-post-merge main run42329036170 is pending separately from P36d web/full/review/CI.
+post-merge main run42329036170 failed in the browser job and #209 followed.
 Implementation-session execution notes remain historical.
 Creation-preview, endpoint-preview and ordinary-movement return-path defects were
 reproduced and fixed during review follow-up; their separate commits and added
-regression scope are recorded below. The currently running full smoke is pending.
+regression scope are recorded below. The currently running full smoke is pending. Historical: P36c merged as #207 (`afe6410`); its main CI run 42329036170 failed in the browser job and #209 followed (see the [P36 status table](HANDOFF.ko.md)).
 See [the P36c record](verification/p36c-graphic-creation.md).
 
 ### Per-graphic line-width override (P36d candidate)
@@ -1095,9 +1105,9 @@ loss, rather than claiming styled-graphic roundtrip. Colours, dashes, fills,
 arrowhead controls, broader shapes/layout and scientific arrow meaning remain
 outside this slice. P36 stays `in_progress`. The parent reports 27 targeted Rust
 tests passed for `e6e3b45`; this documentation work reran none. Web/full checks,
-reviews and PR CI remain pending. Preceding P36c #207 merged as `afe6410`, with
+reviews and PR CI remain pending. Preceding P36c #207 merged as `afe6410`; its
 [post-merge main run42329036170](https://github.com/EunhakChoi/chemifree/actions/runs/42329036170)
-pending separately. See [the P36d record](verification/p36d-graphic-line-width.md).
+failed in the browser job and #209 followed. Historical: that was the status when this slice was written; P36d has since merged as #208 (`53e7437`) with main CI run 42333431290 success (see the [P36 status table](HANDOFF.ko.md)). See [the P36d record](verification/p36d-graphic-line-width.md).
 
 ### Styled graphic forest clipboard (P36e candidate)
 
@@ -1150,7 +1160,7 @@ external graphics formats or broader P36 completion. P36 stays `in_progress`.
 The independent duplicate-key preview finding and Codex invalid-settings preview
 finding were addressed with focused regressions. Their fixes and agent-reported
 web validation are recorded separately from pending full checks and CI; this
-documentation pass reran no product checks. See
+documentation pass reran no product checks. Historical: that was the status when this slice was written; P36e has since merged as #210 (`d1f257c`) with main CI run 42335557133 success (see the [P36 status table](HANDOFF.ko.md)). See
 [the P36e record](verification/p36e-styled-graphics-clipboard.md).
 
 ### Finite arbitrary-angle rotation input (P36f candidate)
@@ -1193,7 +1203,7 @@ geometry-only invariants; the drawing can disagree with stored stereo.
 
 Public API/catalog/native26/provider formats are unchanged. P36 remains
 `in_progress`; tests, reviews and CI are pending. A browser check currently in
-progress is not a pass. See [the P36f record](verification/p36f-selection-rotation.md).
+progress is not a pass. Historical: that was the status when this slice was written; P36f has since merged as #211 (`d1920be`) with main CI run 42337029831 success (see the [P36 status table](HANDOFF.ko.md)). See [the P36f record](verification/p36f-selection-rotation.md).
 
 ### Same-parent scene order boundaries (P36g candidate)
 
@@ -1235,7 +1245,7 @@ remain. Public API/catalog/native26/provider formats are unchanged. Multi-object
 boundary moves, layer visibility/locking/blending, new grouping/reparent controls and
 new scientific semantics are outside this slice. P36 stays `in_progress`.
 Browser/full/review/CI results are pending; preceding P36f #211 is open, not a
-confirmed merged dependency. See [the P36g record](verification/p36g-scene-order.md).
+confirmed merged dependency. Historical: that was the status when this slice was written; P36g has since merged as #212 (`6545af6`) with main CI run 42339112423 success (see the [P36 status table](HANDOFF.ko.md)). P36f #211 merged as `d1920be` (main CI run 42337029831 success). See [the P36g record](verification/p36g-scene-order.md).
 
 ## Effective selection scope and movement (P32a)
 

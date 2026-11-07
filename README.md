@@ -1,6 +1,6 @@
 # Chemifree
 
-Bounded P35 is done against the roadmap editing/storage scope under the approved graph-preserving display decision: captions, typed atom labels and editable Et/fragment text/script runs have documented acceptance evidence. #203 merged84ef063; final-head PR CI42320918256 and post-merge main CI42322504482 passed check/browser. General scientific/rendering requirements and unsupported arbitrary atom rich text, dictionaries/parsers and external caption/display roundtrip remain incomplete. Later implementation-session pending notes are historical; see the [completion audit](docs/verification/p35-completion-audit.md) for exact source, CI and review dispositions. P36a #204 is merged26962b6, with its separate main CI still pending and P36 in progress; this completion documentation has its own integration/review/CI gates.
+Bounded P35 is done against the roadmap editing/storage scope under the approved graph-preserving display decision: captions, typed atom labels and editable Et/fragment text/script runs have documented acceptance evidence. #203 merged84ef063; final-head PR CI42320918256 and post-merge main CI42322504482 passed check/browser. General scientific/rendering requirements and unsupported arbitrary atom rich text, dictionaries/parsers and external caption/display roundtrip remain incomplete. Later implementation-session pending notes are historical; see the [completion audit](docs/verification/p35-completion-audit.md) for exact source, CI and review dispositions. P36a #204 is merged26962b6 (its main CI run 42323974348 succeeded) and P36 remains in progress; P36a–k are merged through #216/#217, see the [P36 status in the handoff](docs/HANDOFF.ko.md); this completion documentation has its own integration/review/CI gates.
 
 
 An independently authored, open-source chemical drawing workspace for humans and agents.
@@ -405,7 +405,7 @@ shares atomic transactions, replay, Undo/Redo and native v25 history without a
 schema change. The UI guards invalid/IME input and stale queued geometry edits.
 Resize handles, new shapes, images, clipping, layers and graphic styles remain
 outside this slice. P36 is `in_progress`; checks, both reviews and PR CI are
-pending. See [P36a record](docs/verification/p36a-graphic-points.md).
+pending. Historical: that was the status when this slice was written; P36a has since merged as #204 (`26962b6`) with main CI run 42323974348 success (see the [P36 status table](docs/HANDOFF.ko.md)). See [P36a record](docs/verification/p36a-graphic-points.md).
 
 P36b adds candidate canvas endpoint handles for exactly one explicitly selected,
 noncoincident line, arrow or rectangle in Select mode. Actual SVG screen-to-document
@@ -415,7 +415,7 @@ Cancellation, stale document/revision/selection/target and service restart do no
 silently commit or retry the drag. Coincident points use the numeric form. No
 schema change or general resize/group/rotation handles are added. P36 remains
 `in_progress`; prior P36a PR #204 merge and P36b full checks/reviews/CI are separate
-pending gates. See [P36b record](docs/verification/p36b-graphic-endpoint-drag.md).
+pending gates. Historical: that was the status when this slice was written; P36b has since merged as #206 (`7601617`) with main CI run 42325796411 success (see the [P36 status table](docs/HANDOFF.ko.md)). See [P36b record](docs/verification/p36b-graphic-endpoint-drag.md).
 
 P36c adds a candidate **Graphic** tool (G) with an explicit Line/Arrow/Rectangle
 choice. A drag previews without writes and valid release submits one existing
@@ -424,8 +424,8 @@ or chemistry changes. Pan/zoom coordinates, cancellation and captured document,
 revision, shape and service guards keep stale previews from silently committing
 or replaying after restart. Native v25 and existing graphic/format limits remain;
 no new shapes, styles, layers or scientific arrow semantics are added. P36 stays
-`in_progress`. Preceding #206 is merged with passing PR CI42324595907; its
-post-merge main run42325796411 is pending separately from P36c full checks/reviews/CI.
+`in_progress`. Preceding #206 is merged with passing PR CI42324595907 and
+successful post-merge main run42325796411.
 See [P36c record](docs/verification/p36c-graphic-creation.md).
 
 P36d adds candidate per-graphic `line_width_pt`: an explicit finite0.1–10 pt
@@ -438,7 +438,7 @@ archives. P36d initially refused explicit widths in v2; P36e adds a v3 graphics 
 that preserves them. Resetting to document width remains an explicit choice that
 may change appearance, not a Copy/Cut prerequisite. P36 stays `in_progress`.
 The parent reports27 targeted Rust cases passed at e6e3b45; web/full/reviews/CI
-remain pending. Preceding #207 merged afe6410, with main run42329036170 pending.
+remain pending. Preceding #207 merged afe6410; its main run42329036170 failed in the browser job and #209 followed.
 See [P36d record](docs/verification/p36d-graphic-line-width.md).
 
 P36e adds a candidate styled-graphics clipboard profile: all-inherited forests
@@ -449,6 +449,7 @@ offsets and Undo/Cut/Paste. V2 still forbids width fields; v2-only readers are n
 claimed to support v3. Settings must match and existing byte/command limits remain.
 Native v26 and chemical graphs are unchanged. P36 stays `in_progress`;
 Rust/browser/full/reviews/CI remain pending without confirmed execution evidence.
+Historical: that was the status when this slice was written; P36e has since merged as #210 (`d1f257c`) with main CI run 42335557133 success (see the [P36 status table](docs/HANDOFF.ko.md)).
 See [P36e record](docs/verification/p36e-styled-graphics-clipboard.md).
 
 P36f adds a candidate finite arbitrary-angle input beside fixed Scene rotations.
@@ -459,6 +460,7 @@ reconciliation applies, without a special no-replay rule. API/native26 and
 geometry-only graph/stereo/width/reference behavior remain unchanged. Custom
 pivot and rotation-drag controls are not added. P36 stays `in_progress`;
 tests/reviews/CI remain pending while browser verification is in progress.
+Historical: that was the status when this slice was written; P36f has since merged as #211 (`d1920be`) with main CI run 42337029831 success (see the [P36 status table](docs/HANDOFF.ko.md)).
 See [P36f record](docs/verification/p36f-selection-rotation.md).
 
 P36g adds candidate Scene **First**/**Last** buttons for one selected scene
@@ -468,7 +470,7 @@ layers or reparenting. Captured document/object/parent remain fixed while the
 queue computes the boundary from latest siblings; existing boundaries are no-ops
 and stale/deleted/reparented targets lapse. Ordinary revision, selection history,
 restart reconciliation, API and native26 rules remain. P36 stays `in_progress`;
-browser/full/reviews/CI are pending. See
+browser/full/reviews/CI are pending. Historical: that was the status when this slice was written; P36g has since merged as #212 (`6545af6`) with main CI run 42339112423 success (see the [P36 status table](docs/HANDOFF.ko.md)). See
 [P36g record](docs/verification/p36g-scene-order.md).
 
 
@@ -488,7 +490,7 @@ Rust clippy/117 focused tests, web lint/typecheck/client/build, ellipse/creation
 clipboard/endpoint/width/order/rotation and general browser checks. The independent
 review of `4e56f5e` reported no findings. Codex's stale-status P2 is addressed by
 this documentation correction; full isolated local validation and PR CI remain
-in progress/pending, with no merge/main-CI success claimed. See the
+in progress/pending, with no merge/main-CI success claimed. Historical: that was the status when this slice was written; P36h has since merged as #213 (`698a364`) with main CI run 42341200117 success (see the [P36 status table](docs/HANDOFF.ko.md)). See the
 [P36h record](docs/verification/p36h-ellipse.md) for logs and exact scope.
 
 
@@ -508,8 +510,7 @@ P36 stays `in_progress`. Existing logs and [PR #214](https://github.com/EunhakCh
 record passed Rust clippy/55 focused tests and five mutations, web lint/typecheck/
 client/build, polygon/ellipse/creation/endpoint browsers and three web mutations.
 Independent review of `13cebd5` and Codex review of `f1a7978` reported no findings.
-Full isolated local validation and CI remain in progress; no merge/main-CI success
-is claimed. See [P36i record](docs/verification/p36i-polygon.md) for exact evidence
+Full isolated local validation and CI remained in progress when this was written, with no merge/main-CI success claimed (historical: P36i merged as #214 (`d7e2b16`), main CI run 42343862092 success; see the [P36 status table](docs/HANDOFF.ko.md)). See [P36i record](docs/verification/p36i-polygon.md) for exact evidence
 and limits.
 
 
@@ -533,7 +534,7 @@ passed, including the actual workspace focus/underlay regression; three web
 mutations were detected and restored checks passed. The parent reports independent
 review `1d28c6d` with no findings. The separate formatter attempt hit `ENOTCACHED`
 and did not pass. Full isolated validation, Codex review and CI remain pending;
-this documentation ran no product checks. See
+this documentation ran no product checks. Historical: that was the status when this slice was written; P36j has since merged as #215 (`31e9328`) with main CI run 42345870358 success (see the [P36 status table](docs/HANDOFF.ko.md)). See
 [P36j record](docs/verification/p36j-spline.md) for exact scope and evidence.
 
 P36k adds a bounded **Embedded PNG image** candidate. Choose a local static,
@@ -554,6 +555,12 @@ review of `eb40cfa` found a P2: image pixel limits could be bypassed through
 history replay. The shared replay-state guard and a regression now address that
 finding; follow-up clippy and 52 focused tests passed. Codex review of
 `5ea2107` in [PR #216](https://github.com/EunhakChoi/chemifree/pull/216) completed
-without findings. Full integrated validation and CI remain pending. These focused
-passes do not establish general image-format or renderer parity.
+without findings. #216 merged as `7bec5ea`; a later Codex review of `f69f8de` left
+an unresolved P2 (an image ordered before a molecule instance can cover that
+instance's label shadow), a known limitation tracked in [#219](https://github.com/EunhakChoi/chemifree/issues/219). The merge commit's main
+CI run 42350215647 failed in a spline cancellation browser test; follow-up #217
+(`4198438`) fixed the test and main run 42353217355 succeeded. A caption-shadow
+ink-fit check (`scripts/web-caption-check.mjs:513`) also failed once in #217's CI and passed on rerun; its cause is not
+determined ([#220](https://github.com/EunhakChoi/chemifree/issues/220)). P36 stays `in_progress`; the user stopped P36 after the PNG image (2026-11-07 session) and the next scope is set by the user's next request. These focused passes do not establish general
+image-format or renderer parity.
 See [P36k record](docs/verification/p36k-embedded-image.md).

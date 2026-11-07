@@ -1,6 +1,6 @@
 # P36c explicit canvas graphic-creation candidate
 
-Delivery follow-up: P36c #207 merged as `afe6410`; [post-merge main run42329036170](https://github.com/EunhakChoi/chemifree/actions/runs/42329036170) is pending in the parent handoff. Earlier implementation-session pending notes below are historical. [P36d](p36d-graphic-line-width.md) separately adds candidate native v26 graphic widths and has its own pending web/full/review/CI gates; P36 remains in_progress.
+Delivery follow-up: P36c #207 merged as `afe6410`; [post-merge main run42329036170](https://github.com/EunhakChoi/chemifree/actions/runs/42329036170) later completed with **failure** in the browser job (checked with `gh run list`); #209 followed. See the [P36 status table](../HANDOFF.ko.md). Earlier implementation-session pending notes below are historical. [P36d](p36d-graphic-line-width.md) separately adds candidate native v26 graphic widths and has its own pending web/full/review/CI gates; P36 remains in_progress.
 
 Source/test inspection covers P36c implementation `fbec0a0` and review fixes
 `a6c2f10`, `b630a3b` and `5864f84`, based on predecessor `f36550d`. This
@@ -107,10 +107,10 @@ Verification status: preceding P36b [#206](https://github.com/EunhakChoi/chemifr
 merged as `76016170fe68fb5ad188d04ed26153cdcdc911ba` from final `f36550d`.
 Its [PR CI42324595907](https://github.com/EunhakChoi/chemifree/actions/runs/42324595907)
 passed check/browser; [post-merge main run42325796411](https://github.com/EunhakChoi/chemifree/actions/runs/42325796411)
-remains pending in the last parent handoff. P36c full-check results, remaining
-Codex review/final disposition recording and PR CI are separate pending gates.
+was pending in the last parent handoff at that time (historical: it later succeeded, run 42325796411). P36c full-check results, remaining
+Codex review/final disposition recording and PR CI were separate pending gates then; P36c has since merged as #207 (`afe6410`), whose main run 42329036170 failed in the browser job, with #209 following (see the [P36 status table](../HANDOFF.ko.md)).
 The independent finding and related follow-up fixes are recorded above rather
 than described as an unstarted review; no repeat independent round is implied. The full general smoke is currently running and
 is not recorded as passed. This documentation work reran no product
-tests, builds or browser checks and claims no P36c merge, complete P36 delivery or
+tests, builds or browser checks and made no P36c merge claim at that time (historical: merged as #207, see the delivery follow-up above) and still claims neither complete P36 delivery nor
 external-renderer equivalence.

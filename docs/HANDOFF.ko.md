@@ -1,14 +1,39 @@
 # Chemifree 새 세션 인계
 
-## P36k embedded PNG 이미지 후보 (P2 수정 검증 완료·전체 통합 대기)
+## P36 현재 기준: P36a–k 병합 현황 (#204–#217 확인)
+
+P36(그래픽)은 `in_progress`이며 완료가 아니다. 사용자가 2026-11-07 세션에서 **P36k PNG 이미지 이후 P36을 중단시켰다. 다음 범위는 사용자의 다음 요청이 정한다(상시 제약이 아니다).** 아래는 `gh pr view`와 `gh run list --branch main`으로 확인한 병합·main CI 사실이다. 슬라이스와 PR의 대응은 PR 제목과 기존 기록을 대조한 것이다. 이 표가 아래 각 P36 항목의 "대기/pending" 문구보다 우선하며, 그 문구는 작성 당시 기록으로 남긴다.
+
+| slice | PR | 병합 커밋 | main CI run | 결과 |
+| --- | --- | --- | --- | --- |
+| P36a 두 점 편집 | #204 | `26962b6` | 42323974348 | success |
+| P36b endpoint drag | #206 | `7601617` | 42325796411 | success |
+| P36c 직접 생성 | #207 | `afe6410` | 42329036170 | **failure**(browser job). 이어서 #209(`dbc800b`, 수동 stereo 검사 보존, run 42331951046 success)가 병합됐다. #209 PR 본문은 #207 main browser 실패를 stereo 비교 단계로 적되 로그가 어떤 요청이 취소됐는지 확정하지 못해 인과를 가정하지 않는다. |
+| P36d line width | #208 | `53e7437` | 42333431290 | success |
+| P36e styled clipboard | #210 | `d1f257c` | 42335557133 | success |
+| P36f 임의각 회전 | #211 | `d1920be` | 42337029831 | success |
+| P36g First/Last | #212 | `6545af6` | 42339112423 | success |
+| P36h ellipse | #213 | `698a364` | 42341200117 | success |
+| P36i polygon | #214 | `d7e2b16` | 42343862092 | success |
+| P36j cubic spline | #215 | `31e9328` | 42345870358 | success |
+| P36k PNG 이미지 | #216 | `7bec5ea` | 42350215647 | **failure**(browser job, spline 취소 browser test 경합). 후속 #217(`4198438`)의 main run 42353217355는 success. |
+
+- P36k #216은 2026-11-07 병합됐다. PR CI(run 42349141149, head `f69f8de`)는 check/browser 모두 성공이었으나, 병합 커밋의 main CI browser job이 "shape/tool/revision/service/document/escape changes discard drafts without creation" spline 취소 단계에서 실패했다. 로그는 어느 취소 case인지 식별하지 않았다.
+- #217 "Wait for spline draft cancellation to render"는 제품 코드 변경 없이 렌더된 context와 preview 제거를 기다리고 case 이름을 진단에 붙이는 테스트 수정이다. PR 본문은 service-generation setter가 React commit 전에 반환할 수 있다는 관찰을 적지만 정확한 trigger는 미확인이라고 쓴다.
+- #217 PR CI run 42351443496의 첫 시도는 browser job의 "Unicode caption form, canvas and native roundtrip" 단계(실패 로그: stage "independent shadows with measured glyph and underline ink", `scripts/web-caption-check.mjs:513:12`, `false !== true`; origin/main의 해당 줄은 `assert.equal(evidence.fits, true)`로 shadow ink fit 검사이며 alpha 픽셀 검사가 아니다)에서 실패했고, 같은 run을 재실행한 attempt 2가 성공했다. 추적 이슈는 [#220](https://github.com/EunhakChoi/chemifree/issues/220)이다. **이 첫 실패의 원인은 확정되지 않았다.** 재실행 성공과 최종 main 성공은 원인 설명이 아니며 추정 원인을 기록하지 않는다.
+- 위 표의 main CI failure 두 건(#207, #216 병합 커밋) 이후 각각 후속 PR(#209, #217)이 병합됐고 현재 main(`4198438`)의 CI(run 42353217355)는 성공이다. 이는 P36 완료나 그래픽 요구사항 충족을 뜻하지 않는다.
+
+## P36k embedded PNG 이미지 (#216 병합, main CI 실패 후 #217로 복구)
 
 - 로컬 static/noninterlaced RGB/RGBA8 PNG를 명시 origin/positive size(pt)로 삽입한다. source128KiB, edge2048, image1,048,576px, current occurrence4,194,304px, unique history67,108,864px 정책이다. canonical base64·모든 chunkCRC·exact zlib·완전 decode·IEND/EOF를 검사하며 sRGB/gAMA/pHYs만 추가 허용한다. sRGB/gAMA 동시 존재 시 두 순서 모두 gAMA45455여야 한다. URL/OCR/chemical recognition은 없다.
 - image는 immutable bytes+axis-aligned rectangle다. transparent pixels 포함 전체 rectangle hit/Fit/marquee/arrangement, aspect ratio 자유, move/group/order/ref/delete/geometry/Undo/persistence 경로를 쓴다. angle0 포함 rotation/reflection은 image_unsupported, image subtree Copy/Cut 준비는 image_clipboard_unsupported로 전체 거절한다. 외부 구조 export는 graph를 유지하고 scene rendering loss를 보고한다.
 - native30 current/history/draft, old1–29 image 금지·future31, exact old byte archive와 shared48MiB/8MiB/physical64MiB 정책이다. 이미지 pixel 제한의 **이력 replay 우회 P2**가 독립 리뷰 `eb40cfa`에서 발견됐다. 원래 fix b6cd0e4는 rebase 후 `2c140fd116e99e386e12050e190296e74c407a4b`다. 공통 Content::validate에서 모든 restored/replayed state의 current pixel 한도를 검사하며, 4Mi current 뒤 5Mi undo-only/redo-only 상태를 정확한 파일 bytes 보존과 함께 거절하는 회귀를 추가했다.
-- 문서 agent가 `/tmp/chemifree-work/p36k-rust-final.log`, `p36k-web-gate.log`, `p36k-web-browser-3.log`, `p36k-image-final.log`, `p36k-ts-skill-gate.log`를 직접 읽었다. Rust clippy/집중73건·6 mutations 검출·복원 image/provider23건, web lint/typecheck/client/build, image·order·clipboard integration·endpoint·creation·general browsers, web3 mutations 검출·복원 client7/7 및 최종 image browser가 로그상 통과했다. TS helper lint/types PASS이나 formatter는 ENOTCACHED로 실패(exit1)하여 통과 주장이 없다. 추가 직접 확인한 `p36k-image-history-repro.log`는 수정 전 회귀1건 실패(exit101), `p36k-image-history-fix.log`는 수정 후 clippy/집중52건 통과(exit0)다. P2는 수정·회귀 근거로 addressed이며 독립 리뷰 무지적/새 승인으로 바꾸지 않는다. 부모가 원격 PR #216에 기록한 Codex review는 `5ea2107b023ea1b99858b0b17ab53d8efac97a77` 대상으로 findings 없이 완료됐다. full·CI는 계속 pending이다. [P36k 기록](verification/p36k-embedded-image.md).
-- P36은 in_progress다. 사용자 요청에 따라 **P36k 이미지 기능 마무리 후 중단**한다. 이 기능의 수정·검증·리뷰 마무리 외 새 기능/다음 P36 slice는 시작하지 않으며 별도 요청이 필요하다.
+- 문서 agent가 `/tmp/chemifree-work/p36k-rust-final.log`, `p36k-web-gate.log`, `p36k-web-browser-3.log`, `p36k-image-final.log`, `p36k-ts-skill-gate.log`를 직접 읽었다. Rust clippy/집중73건·6 mutations 검출·복원 image/provider23건, web lint/typecheck/client/build, image·order·clipboard integration·endpoint·creation·general browsers, web3 mutations 검출·복원 client7/7 및 최종 image browser가 로그상 통과했다. TS helper lint/types PASS이나 formatter는 ENOTCACHED로 실패(exit1)하여 통과 주장이 없다. 추가 직접 확인한 `p36k-image-history-repro.log`는 수정 전 회귀1건 실패(exit101), `p36k-image-history-fix.log`는 수정 후 clippy/집중52건 통과(exit0)다. P2는 수정·회귀 근거로 addressed이며 독립 리뷰 무지적/새 승인으로 바꾸지 않는다. 부모가 원격 PR #216에 기록한 Codex review는 `5ea2107b023ea1b99858b0b17ab53d8efac97a77` 대상으로 findings 없이 완료됐다. [P36k 기록](verification/p36k-embedded-image.md).
+- 병합 결과(PR/GitHub 직접 확인): #216은 `7bec5ea`로 병합됐다. 병합 전 PR 본문은 로컬 full isolated check가 두 부분으로 통과(첫 실행이 오래된 future-version 계약 assertion 2건을 드러내 수정)했다고 기록하며, PR CI run 42349141149(head `f69f8de`)는 check/browser 성공이다. 그러나 병합 커밋의 main CI run 42350215647은 browser job spline 취소 browser test에서 실패했고 #217(`4198438`) 이후 run 42353217355가 성공했다. 상세는 위 표와 P36k 기록의 마감 기록을 따른다.
+- 리뷰 처분: 독립 fresh-context 리뷰의 P2는 위와 같이 수정·회귀로 처리됐다. 그러나 head `f69f8de`에 대한 두 번째 Codex 리뷰(2026-11-07 07:00 UTC)는 `structure-canvas.tsx` 인라인 P2 1건을 남겼다. label shadow가 켜진 상태에서 molecule instance보다 앞에 정렬된 이미지가 전역 chemical-shadow 그룹 뒤에 그려져, 겹치는 불투명 이미지가 instance의 shadow를 덮고 foreground는 이미지 위에 그려진다는 지적이다. 이 thread는 병합 시점에 unresolved이고 답글·수정 처분 기록이 PR에 없다. `5ea2107`부터 `f69f8de`까지 변경은 문서와 `scripts/contract-smoke.mjs`뿐이며, 병합된 main 소스도 shadow 그룹을 scene objects보다 먼저 그린다(소스 대조, 렌더 실행 없음). 따라서 **이 P2는 known limitation이며 [#219](https://github.com/EunhakChoi/chemifree/issues/219)에서 추적한다.**
+- P36은 in_progress다. 사용자가 2026-11-07 세션에서 P36k 이미지 이후 P36을 중단시켰고 이미지는 병합됐다. 다음 범위는 사용자의 다음 요청이 정한다(상시 제약이 아니다). 그래픽 행을 done으로 올리지 않는다.
 
-## P36j single open cubic spline 후보 (검사 대기)
+## P36j single open cubic spline 후보 (#215 병합·main CI 성공; 아래는 당시 기록)
 
 - 정확히 P0,C1,C2,P3 순서의 open stroke-only cubic1개다. P0/P3 endpoints·C1/C2 explicit controls이며 interpolation/fit/closing point를 추론하지 않는다. finite±100000pt·repeated/degenerate 그대로, SVG M…C…·fill/head/close 없음이다. single4/open profile은 공개 명세의 일반 spline이 아닌 Chemifree bounded 선택이다.
 - Fit/marquee/arrangement/transform pivot은 네 defining points AABB를 쓴다. conservative centerline box이지 실제 curve extrema/ink bounds가 아니며 controls가 곡선 밖이면 더 넓다. hit는 실제 path stroke다. 모든4점 move/임의각/reflection은 가능하지만 ellipse/rectangle mixed refusal는 남고 graph/stereo/shape/width/IDs/group/order/refs를 보존한다.
@@ -18,7 +43,7 @@
 - clipboard selectedforest spline6>polygon5>ellipse4>explicit3>inherit2, nullable width3–6필수/2금지·old2–5 spline금지·future7. v6 old-shape input 후 recopy canonical2–5 가능; oldconsumer/downgrade/curve approximation 미지원. graph1/settings/ref/Cut/limits/fresh IDs/offset 유지, scientific graph 불변·export scene_object rendering loss다.
 - P36 in_progress; source/authored tests와 Rust 실행자 p36j-rust-final.log를 읽었다. clippy/집중71건·5 mutations 검출·복원후 재검사 통과가 기록됐으며 문서 agent 실행은 아니다. web/full/양 리뷰/CI는 pending. 기존 P36a–i no-curves/native/clipboard는 당시 범위이며 과거 pass를 P36j로 쓰지 않는다. multi-segment/closed/quadratic/arc/fill/heads/tight extrema/handle drag/scale-skew/snap/images/clip/layers/scientific symbols 미구현. [P36j 기록](verification/p36j-spline.md).
 
-## P36i closed stroke-only polygon 후보 (최종 검사 대기)
+## P36i closed stroke-only polygon 후보 (#214 병합·main CI 성공; 아래는 당시 기록)
 
 - ordered3–64 vertices의 closed stroke-only scene graphic이다. finite·inclusive±100000pt, 반복/collinear/self-crossing/coincident/zero-area·마지막 first 반복을 그대로 보존하며 implicit last→first edge 외 점을 합성하지 않는다.64는 공개 명세가 아닌 Chemifree 내부 budget 선택이다. chemistry/regular polygon/area/winding 의미는 없다.
 - add_polygon(vertices,parent?,index?)와 update_polygon_vertices(object,vertices)는 별도 명령이다. public add는 width 상속으로 시작한다. 기존 line/arrow/rectangle/ellipse는 exact2를 유지하며 old command/polygon command 혼용은 graphic_command_mismatch, 잘못된 점 개수는 graphic_geometry_invalid다. 전체 atomic/no-op/replay/history·ID/shape/width/parent/refs·graph/stereo 보존을 공유한다. polygon 자유각 변환은 모든 vertex를 방문하나 ellipse/rectangle 제한은 남는다.
@@ -27,7 +52,7 @@
 - copied polygon forest→clipboard5(모든 graphic nullable width 필수), 없으면 ellipse4/explicit3/inherit2. v2–4 polygon 금지, v2 width 금지·v3–5 필수, v5 old-shape 입력은 허용하되 recopy는 실제 내용으로 canonical2/3/4다. old consumer 호환/silent downgrade 없음. graph v1·settings-match·64KiB/500command·refs/Cut/freshID/offset 경계 유지. export는 graph 유지+scene_object rendering loss다.
 - P36은 in_progress다. 현재 source/authored checks만 대조했으며 Rust/web final/full·양 리뷰/CI 결과는 확인 전 pending이다. 기존 P36a–h shape/native/clipboard·배송 대기는 각 당시 기록으로 구분하고 P36h 결과를 P36i 통과로 쓰지 않는다. fill/open path/curves/vertex drag/snap/scale/skew/images/clip/layers/scientific graphics는 미구현이다. [P36i 기록](verification/p36i-polygon.md).
 
-## P36h axis-aligned ellipse 후보 (검증 대기)
+## P36h axis-aligned ellipse 후보 (#213 병합·main CI 성공; 아래는 당시 기록)
 
 - Ellipse는 정확히 두 opposite bounding-box corners로 저장하고 순서를 보존한다. finite·inclusive±100000 pt, reversed/coincident/zero-axis도 허용한다. stroke-only이며 zero-axis는 실제 획·hit stroke가 보이지 않아 Scene 선택과 numeric corner form을 쓴다. distinct corners의 기존 handle은 bounding corners를 편집한다.
 - Graphic 명시 shape·Scene Add·기존 preview/release/page-root 생성·취소/pan/zoom/stale/service 정책을 재사용한다. move/reflection/exact quarter-turn은 가능하지만 일반 각도는 circle/degenerate/group descendant도 transform_ellipse_unsupported로 mixed transaction 전체 거절한다. graph/stored stereo/width/IDs/refs는 보존한다.
@@ -38,12 +63,16 @@
 
 ## P36g same-parent First/Last 후보
 
+- 당시 기록 표지: 이 항목의 pending/대기/open 문구는 작성 당시 상태다. 현재는 #212(`6545af6`)로 병합됐고 main CI run 42339112423 success이다(위 P36 현재 기준 표).
+
 - Scene First/Last는 selected scene object 정확히1개를 같은 parent의 처음/마지막으로 옮겨 Earlier/Later 반복을 줄인다. 전체 selected ID가1개일 필요는 없고 valid atom/bond IDs 동시 선택은 history에 보존하되 reorder하지 않는다. graph-only·복수 scene object·ancestor+descendant 동시 선택은 boundary action이 없다.
 - root는 page roots, child는 기존 group children 안에서 이동한다. group은 subtree 전체로 이동하며 내부 child order·geometry/shape/width/style·graph/placement/stereo·IDs/refs/containment는 그대로다. 별도 layer/global z-index·reparent 기능은 아니다.
 - press document/object/parent와 First/Last 의도는 capture하지만 revision·siblings·geometry는 freeze하지 않는다. 큐에서 same doc/object/parent와 membership를 검증하고 최신 siblings의0 또는 len−1로 기존 reorder1개를 제출한다. 앞선 append/reorder가 index를 바꾸며 뒤 live selection은 target을 바꾸지 않는다. 이미 boundary/singleton이면 no-op, 삭제/다른 문서/parent 변경/소실이면 lapse하고 새 parent를 따라가지 않는다.
 - 기존 선택 history·원자성/Undo/replay/save와 공통 mutation/restart 정책을 쓰며 특별 service capture/no-replay는 없다. API/catalog/native26/provider 불변, multi-object boundary/layer controls/scientific 의미는 추가하지 않는다. P36은 `in_progress`; browser/full/양 리뷰/CI pending이고 선행 P36f #211은 open이며 merge를 단정하지 않는다. source/test 대조만 수행했다. [P36g 기록](verification/p36g-scene-order.md).
 
 ## P36f finite arbitrary-angle UI 후보
+
+- 당시 기록 표지: 이 항목의 pending/대기/open 문구는 작성 당시 상태다. 현재는 #211(`d1920be`)로 병합됐고 main CI run 42337029831 success이다(위 P36 현재 기준 표).
 
 - 기존 transform_selection 위에 Scene Rotate selected geometry form을 추가한다. finite decimal/scientific angle을 별도 magnitude cap 없이 받고 raw degrees를 보낸다. positive clockwise·negative counterclockwise·modulo360/quarter-turn/trig는 기존 domain 정책이다. full-turn UI identity는 무전송, invalid/empty/IME는 차단하며 문서 전환은 draft를 reset한다.
 - document ID·raw selected IDs·active placement·angle을 제출 때 capture하되 revision/pivot은 freeze하지 않는다. 큐에서 최신 geometry의 union-bounds center를 계산하고 최신 revision으로 제출한다. 앞선 move는 pivot을 바꾸지만 뒤 live selection/placement/angle 변경은 대상을 바꾸지 않는다. 다른 문서·missing target/필수 placement·caption/empty scope는 전체 lapse다.
@@ -52,6 +81,8 @@
 
 ## P36e styled graphics clipboard v3 후보
 
+- 당시 기록 표지: 이 항목의 pending/대기/open 문구는 작성 당시 상태다. 현재는 #210(`d1f257c`)로 병합됐고 main CI run 42335557133 success이다(위 P36 현재 기준 표).
+
 - 기존 graphics Copy/Cut/Paste는 nullable width를 보존한다. included forest 전부 상속이면 기존 width field 없는 v2, explicit override1개라도 있으면 모든 graphic에 required nullable line_width_pt를 넣은 v3를 쓴다. 문서값과 같은 숫자도 explicit이며 outside width는 version 선택에 영향 없다.
 - v2는 null까지 field 금지, v3는 각 graphic 필수·null 또는 finite0.1–10 pt이며 group에는 width field가 없다. all-null v3 입력은 허용하지만 다시 Copy하면 v2다. v2-only reader의 v3 호환은 주장하지 않으며 silent downgrade/reset은 없다. strict unknown/duplicate/header/tree/ref/setting·64KiB·500-command 한도는 유지한다.
 - P36d 당시 styled subtree refusal/reset-before-copy는 historical 정책이며 현행 후보는 v3 보존이다. UI는 width별 inherited/override를 표시하고 Copy/Cut preservation을 안내한다. Use document width는 선택적 상속 reset으로 남으며 외형이 바뀔 수 있다. Cut의 exact source/process/incoming-ref와 write-before-delete·uncertainty/Undo 원자성, Paste fresh IDs/group/ref/offset·selection·exact settings match는 유지한다.
@@ -59,36 +90,42 @@
 
 ## P36d per-graphic line width 후보
 
+- 당시 기록 표지: 이 항목의 pending/대기/open 문구는 작성 당시 상태다. 현재는 #208(`53e7437`)로 병합됐고 main CI run 42333431290 success이다(위 P36 현재 기준 표).
+
 - `set_graphic_line_width`는 existing line/arrow/rectangle의 필수 nullable `line_width_pt`만 바꾼다. finite0.1–10 pt 또는 null=document width 동적 상속이다. 명시 숫자가 현재 document 값과 같아도 override이며 이후 document 변경을 따르지 않는다. null reset은 effective 값이 같아도 metadata 편집이다. 새 graphics는 상속하며 add_graphic은 width 입력을 받지 않는다.
 - width form은 단일 explicit graphic의 inherited/override/effective 값을 보이고 blank/Use document width로 reset한다. decimal/scientific·range·no-op·busy/IME gate와 document/revision/exact-target 큐 검증·restart no-replay를 적용한다. 실제 stroke/arrowhead outline·selection underlay·hit stroke가 effective width를 쓴다. point-based fit/arrange와 arrowhead geometry 정책은 바꾸지 않는다.
 - graph/geometry/ID/shape/scene root·group/order·refs/selection·문서 및 caption/label style은 보존하며 points/move/transform도 override를 유지한다. whole transaction atomicity·Undo/Redo·revision/replay를 공유한다. width range는 line_width_out_of_range, 없는/다른-kind object는 기존 typed reason으로 거절한다.
 - native v26 document/draft current·before/after history graphic에 nullable field 필수다. v1–25는 null/history-only까지 금지하고 모든 boundary를 inherited로 migration한다. 읽기는 쓰지 않고 첫 overwrite/recovery 전에 exact old bytes를 보관한다. future27은 untouched 거절하며 existing256-byte graphic reservation·64MiB physical cap을 유지한다. provider capacity fixture는 source로 확인했고 이 문서에서 실행하지 않았다.
 - native clipboard v2는 그대로이며 explicit width가 selected subtree 어디에 있든 전체 Copy/Cut을 clipboard_scene_graphic_line_width_unsupported로 거절한다. 문서값과 같은 explicit width도 해당한다. UI는 각 graphic을 Use document width로 명시 reset하면 외형이 document width를 따를 수 있다고 안내한다. silent stripping/부분 copy·cut은 없고 outside override는 보존한다. chemical export는 기존 scene_object loss이며 styled roundtrip을 주장하지 않는다.
-- Rust production e6e3b45에 대해 targeted Rust27건 통과는 부모 보고 근거다. 이 문서 작업은 source/test 대조만 했고 웹/full/양 리뷰/CI는 pending이다. P36은 `in_progress`; 선행 #207은 merge afe6410이며 post-merge main run42329036170은 별도 pending이다. [P36d 기록](verification/p36d-graphic-line-width.md).
+- Rust production e6e3b45에 대해 targeted Rust27건 통과는 부모 보고 근거다. 이 문서 작업은 source/test 대조만 했고 웹/full/양 리뷰/CI는 pending이다. P36은 `in_progress`; 선행 #207은 merge afe6410이며 post-merge main run42329036170은 당시 별도 pending이었고 이후 browser job failure로 확인됐다(#209 후속). [P36d 기록](verification/p36d-graphic-line-width.md).
 
 ## P36c explicit Graphic tool 생성 후보
+
+- 당시 기록 표지: 이 항목의 pending/대기/open 문구는 작성 당시 상태다. 현재는 #207(`afe6410`)로 병합됐고 main CI run 42329036170 failure, 이후 #209이다(위 P36 현재 기준 표).
 
 - Graphic(G)에서 Line/Arrow/Rectangle을 명시 선택한다. 초기 shape는 null이며 선택 전 canvas press는 생성하지 않는다. 기존 atom/bond/graphic 위에서도 graph edit 없이 두 점 gesture를 시작하고 existing Scene Add controls는 유지한다.
 - press document/revision/shape/service generation/start point를 capture한다. inverse SVG screen 좌표로 pan/zoom을 반영하고0.01 pt rounding·finite inclusive±100000 pt와3 client px threshold를 유지한다. move는 실제 renderer의 local preview만 바꾸며 쓰지 않고 valid release는 ordered press/release points의 add_graphic1개만 제출한다. parent/index를 생략해 선택 group과 무관한 fresh page root다. 반응/전자 의미·snapping/clamping/aspect lock은 없다.
 - Escape/pointercancel/lost capture/blur/Fit/Reset·문서/revision/tool/shape/관찰된 service generation 변경은 preview를 버린다. Space/middle pan이 press에서 우선한다. 제출한 shape/points는 복사·고정하고 큐에서 document/revision/service를 재검증한다. 미관찰 restart는 expired request 거절을 낼 수 있지만 replacement process에 생성 edit를 자동 replay하지 않는다.
 - existing objects/group/order/refs·graph/placements/stereo/settings는 새 page root 외에 보존한다. 기존 add_graphic atomic/fresh IDs/selection history/Undo/Redo와 native v25를 재사용하며 command/schema/provider 변경은 없다. 새 shapes·curves/reaction/electron arrows·images·clip/layers/styles/layout·group insertion gesture는 추가하지 않는다.
-- P36은 `in_progress`; 선행 P36b #206은 final f36550d에서 merge76016170fe68fb5ad188d04ed26153cdcdc911ba로 병합됐고 PR CI42324595907 check/browser가 성공했다. 그 post-merge main run42325796411 pending과 P36c full checks·양 리뷰·CI pending을 구분한다. 기존 browser regression 검사 진행을 성공으로 기록하지 않는다. source/test 대조만 했으며 제품 검사 실행 주장은 없다. [P36c 기록](verification/p36c-graphic-creation.md).
+- P36은 `in_progress`; 선행 P36b #206은 final f36550d에서 merge76016170fe68fb5ad188d04ed26153cdcdc911ba로 병합됐고 PR CI42324595907 check/browser가 성공했다. 그 post-merge main run42325796411(당시 pending, 이후 success)과 P36c full checks·양 리뷰·CI pending을 구분한다. 기존 browser regression 검사 진행을 성공으로 기록하지 않는다. source/test 대조만 했으며 제품 검사 실행 주장은 없다. [P36c 기록](verification/p36c-graphic-creation.md).
 
 ## P36b 단일 graphic canvas endpoint drag 후보
+
+- 당시 기록 표지: 이 항목의 pending/대기/open 문구는 작성 당시 상태다. 현재는 #206(`7601617`)로 병합됐고 main CI run 42325796411 success이다(위 P36 현재 기준 표).
 
 - Select에서 정확히 한 explicit noncoincident line/arrow/rectangle에만 두 endpoint handles를 보인다. group 자체·복수/mixed selection에는 없고 직접 선택한 grouped child는 가능하다. coincident stored points는 허용하되 numeric endpoint form으로 편집한다.
 - press-time document/revision/정확한 graphic/point/pointer를 capture하고 실제 SVG inverse screen transform으로 prior pan/zoom을 반영한다. handle 안 press offset을 보존한 pointer delta로 선택 point만 바꾸며 반대 point는 그대로다. 기존 canvas rounding·finite±100000 pt와3px drag threshold를 유지하고 snapping/clamping은 없다. Space/middle pan이 press에서 우선한다.
 - move는 실제 graphic renderer의 local preview만 바꾸고 transaction을 보내지 않는다. valid release는 기존 update_graphic_points1개로 commit하며 no-op/Undo/Redo·ID/shape/group/refs/graph 보존과 native v25를 재사용한다. schema/command 추가는 없다.
 - Escape/pointercancel/lost capture/blur/Fit/Reset은 preview를 버린다. document/revision/selection/tool/target geometry/kind/group 변화는 gesture를 무효화하며 큐에서 다시 검증한다. restart 후 미확정 edit 자동 재전송은 없다. bounding-box resize·multi/group/rotation handles·새 도형/image/clip/layers/style/과학 화살표 의미는 미지원이다.
-- HEAD79434f2 source 대조만 했다. P36은 `in_progress`; 선행 P36a PR#204 merge pending과 P36b full checks·Codex/독립 fresh review·PR CI pending을 구분한다. 부모/web 담당의 진행 중 general smoke를 성공으로 쓰지 않는다. [P36b 기록](verification/p36b-graphic-endpoint-drag.md).
+- HEAD79434f2 source 대조만 했다. P36은 `in_progress`; 선행 P36a PR#204 merge pending(당시; 이후 병합·main CI success)과 P36b full checks·Codex/독립 fresh review·PR CI pending을 구분한다. 부모/web 담당의 진행 중 general smoke를 성공으로 쓰지 않는다. [P36b 기록](verification/p36b-graphic-endpoint-drag.md).
 
-## P36a 기존 graphic 두 점 좌표 편집 (#204 merged, main CI pending)
+## P36a 기존 graphic 두 점 좌표 편집 (#204 merged, main CI 성공; 아래는 당시 기록)
 
 - `update_graphic_points`는 concrete graphic object ID와 정확히 두 points를 받아 기존 line/arrow/rectangle의 좌표만 교체한다. 각 x/y는 finite·inclusive±100000 pt이며 reversed/coincident도 허용한다. arrow의 두 번째 점은 tip, rectangle은 저장 순서를 보존한 두 opposite corners다. shape/ID·group/parent·roots/order·incoming/outgoing references·다른 객체·graph/placement/stereo/settings를 유지한다. 반응/전자 의미는 추론하지 않는다.
 - 필드/두 점 개수/type/null·shape 등 unknown field는 invalid_request, 범위 초과·없는 객체·다른 kind는 invalid_command다. 전체 transaction 원자성·동일점 no-op·Undo/Redo·selection·revision·same-process replay를 공유하며 새 native schema/version 없이 v25 object/history/draft/save 경로를 쓴다.
 - 실제 Graphic endpoints panel은 선택한 scene graphic1개의 x1/y1/x2/y2를 pt로 편집한다. decimal/scientific 입력·invalid/busy/no-op/IME gate와 captured document/revision/target 검증을 적용한다. 큐에서 revision·geometry·group/target이 바뀌면 lapse하며 restart 후 미확정 편집은 자동 재전송하지 않는다.
 - resize/endpoint drag handles·새 도형·curve/reaction/electron arrows·scientific glyph·image·clip/layer/style/layout은 추가하지 않는다. P36은 `in_progress`; Rust0650f7a·web66eac34 소스를 대조했으며 테스트·빌드·browser·두 리뷰·PR CI는 대기다. [P36a 기록](verification/p36a-graphic-points.md). 이 문서 작업은 실행 검증이나 전체 P36 완료를 주장하지 않는다.
-- 배송 후속: P36a PR #204는 main26962b6으로 병합되었다. post-merge main CI는 부모 인계에서 pending이며 위 구현-session 검사/리뷰 대기 문구와 구분한다. P36 전체는 계속 `in_progress`다.
+- 배송 후속: P36a PR #204는 main26962b6으로 병합되었다. post-merge main CI는 부모 인계 당시 pending이었고 이후 run 42323974348 success로 확인됐다. 위 구현-session 검사/리뷰 대기 문구와 구분한다. P36 전체는 계속 `in_progress`다.
 
 ## P35 bounded 완료 (main #203, PR/main CI success)
 
@@ -96,7 +133,7 @@ P35a–n/Et #185 및 #201/#202에 더해 #203 fragment script runs가 main84ef06
 
 승인된 실제 graph 보존·display-only 정책 아래 unchanged P35 scope/acceptance의 caption multi-style/script/alignment, typed atom 편집의 의미 구분, retained Et/fragment text/script 편집, Unicode/long-text/run/codec index 검사 및 native history/save/reopen 근거가 충족되어 bounded P35를 `done`으로 기록한다. fixed-Et-only 공백은 해소되었으나 arbitrary atom rich runs·nickname atom union/dictionary/parser·external caption/display roundtrip·일반 legacy rendering 동등성을 구현한 것은 아니다. 상위 RENDER-01/STYLE-01은 partial 경계를 유지한다.
 
-이 문서 branch는 #204 main26962b6 위로 rebase하며 P36a 문서/요구사항을 보존했다. #204의 post-merge main CI는 부모 인계에서 pending이며 성공을 주장하지 않는다. P36은 `in_progress`다. 이 완료 문서 자체의 integration 검사·리뷰·CI는 별도이며 문서 작업에서 tests/build/browser를 재실행하지 않았다. [완료 근거와 제한](verification/p35-completion-audit.md)을 현재 기준으로 사용한다. 아래 후보·대기 문구는 각 구현 당시 기록이며 확정 배송/검증 상태는 감사가 우선한다.
+이 문서 branch는 #204 main26962b6 위로 rebase하며 P36a 문서/요구사항을 보존했다. #204의 post-merge main CI는 당시 부모 인계에서 pending이었고 이후 run 42323974348 success로 확인됐다(위 P36 현재 기준 표). P36은 `in_progress`다. 이 완료 문서 자체의 integration 검사·리뷰·CI는 별도이며 문서 작업에서 tests/build/browser를 재실행하지 않았다. [완료 근거와 제한](verification/p35-completion-audit.md)을 현재 기준으로 사용한다. 아래 후보·대기 문구는 각 구현 당시 기록이며 확정 배송/검증 상태는 감사가 우선한다.
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
@@ -589,7 +626,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 1. 저장·복구 후속(필요 시): 휴지통 영구 삭제·비우기, 초안 만료 정책(현재는 만료 없음), 읽기 전용 모드.
 2. 형식 입출력: 구현된 MOL/SDF V2000·V3000, CDXML, CDX와 SMILES 부분을 유지하고 SMILES 이중결합 방향 `/`·`\` 읽기와 쓰기, InChI import 및 고급 필드는 별도 작업으로 진행한다(`@`·`@@`와 CXSMILES 그룹 읽기는 P29c). 외부 형식의 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
 3. 화학 그래프 진단: 제한된 원자가·물성·방향족·그래프 동등성 검사와 부분구조 검색을 유지하고 더 넓은 모델을 검증한다. 고리·차수·수소 개수 같은 질의 조건은 먼저 기록 상태가 필요하다.
-4. 편집기 확장: 고리 템플릿과 추가 장면 객체는 후속 범위다. P31의 로컬 viewport와 bounded P32 선택·정렬·문서 변환은 완료했으며 뷰 상태와 저장되는 문서 geometry는 구분한다.
+4. 편집기 확장: 고리 템플릿과 추가 장면 객체는 후속 범위다. P36 그래픽은 PNG 이미지(#216)까지 병합된 `in_progress`이며, 사용자가 2026-11-07 세션에서 PNG 이미지 이후 P36을 중단시켰다. 다음 범위는 사용자의 다음 요청이 정한다. P31의 로컬 viewport와 bounded P32 선택·정렬·문서 변환은 완료했으며 뷰 상태와 저장되는 문서 geometry는 구분한다.
 5. 사용자 인증·원격 배포는 별도 접근 제어 설계 후 진행.
 
 명명·NMR·물성·고급 형식·Windows bridge·팀 서비스를 한꺼번에 넣지 않는다. 기능을 실제로 연결하고 검증한 뒤 capability 상태를 변경한다.

@@ -1,6 +1,6 @@
 # P36b single-graphic canvas endpoint-drag candidate
 
-Delivery follow-up: [#206](https://github.com/EunhakChoi/chemifree/pull/206) merged as `76016170fe68fb5ad188d04ed26153cdcdc911ba` from final `f36550d`, with successful [PR check/browser CI42324595907](https://github.com/EunhakChoi/chemifree/actions/runs/42324595907). [Post-merge main run42325796411](https://github.com/EunhakChoi/chemifree/actions/runs/42325796411) is pending in the parent handoff. The implementation-session pending notes below are historical; [P36c](p36c-graphic-creation.md) has separate pending full checks/reviews/CI. P36 remains in_progress.
+Delivery follow-up: [#206](https://github.com/EunhakChoi/chemifree/pull/206) merged as `76016170fe68fb5ad188d04ed26153cdcdc911ba` from final `f36550d`, with successful [PR check/browser CI42324595907](https://github.com/EunhakChoi/chemifree/actions/runs/42324595907). [Post-merge main run42325796411](https://github.com/EunhakChoi/chemifree/actions/runs/42325796411) later completed with success (checked with `gh run list`). The implementation-session pending notes below are historical; [P36c](p36c-graphic-creation.md) has separate pending full checks/reviews/CI. P36 remains in_progress.
 
 Source inspected at `79434f2`. This follow-up uses P36a's existing
 `update_graphic_points` transaction; it adds a canvas gesture, without a new
@@ -69,7 +69,7 @@ automatic layout and reaction/electron-arrow semantics remain unsupported by
 this slice. It does not claim complete P36 acceptance or external-renderer parity.
 
 Verification status: this documentation pass inspected source/diffs and ran no
-tests, builds or browser checks. P36a PR #204 merge is pending in the parent
-handoff; it is distinct from P36b's pending full checks, Codex and independent
+tests, builds or browser checks. P36a PR #204 merge was pending in the parent
+handoff at that time (historical; #204 has since merged); it is distinct from P36b's pending full checks, Codex and independent
 fresh-context reviews/finding dispositions, and PR CI. General smoke in progress
-is not recorded as passed. No merge or successful full verification is claimed.
+is not recorded as passed. No merge or successful full verification was claimed at that time (historical: #206 has since merged, see the delivery follow-up above).

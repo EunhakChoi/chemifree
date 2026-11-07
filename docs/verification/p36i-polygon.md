@@ -1,12 +1,14 @@
 # P36i bounded polygon candidate
 
+Delivery follow-up (checked with `gh pr view` and `gh run list`, 2026-11-07 UTC): P36i merged as #214 (`d7e2b16`) and its main CI [run 42343862092](https://github.com/EunhakChoi/chemifree/actions/runs/42343862092) succeeded. Statements below that call checks, reviews, CI or the PR pending or open describe the implementation session and are historical; see the P36 status table in [the handoff](../HANDOFF.ko.md). P36 remains `in_progress`.
+
 This record describes the P36i candidate in [PR #214](https://github.com/EunhakChoi/chemifree/pull/214),
 reviewed at `f1a797848867668187ca30a192271ccbd35a9ded` before this correction.
 Completed focused Rust/web execution and both reviews are recorded below from
 existing logs and PR evidence. This documentation pass reads those records and
 runs no product tests/builds/browser checks. Full isolated local validation and
 CI remain in progress per the parent handoff; no full-local/CI pass, merge or
-post-merge main success is claimed. P36 remains `in_progress`. Earlier
+post-merge main success was claimed at that time (historical: merged as #214 with main CI success, see the delivery follow-up above). P36 remains `in_progress`. Earlier
 P36a–h version/no-new-shape statements are historical slice boundaries; P36i adds
 the polygon profile and native28/graphics clipboard5 described here.
 
@@ -185,7 +187,7 @@ of a formal review submission is not treated as the evidence; the completed
 summary explicitly identifies the reviewed commit and result.
 
 Full isolated local validation and CI remain in progress in the parent handoff.
-The PR is open; no merge or post-merge main-CI result is claimed. The focused
+The PR was open when this was written (historical: merged as #214, `d7e2b16`, main CI run 42343862092 success); no merge or main-CI result was claimed then. The focused
 passes and review results do not complete broader P36 acceptance or remove the
 unsupported behavior above. This correction changes documentation only and
 reruns no product checks.
