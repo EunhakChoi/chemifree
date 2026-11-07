@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import { chromium } from 'playwright-core'
-import { pngFixture, screenshotPixels } from './lib/web-png-fixture.mjs'
+import { pngFixture, pngChunk, screenshotPixels } from './lib/web-png-fixture.mjs'
 
 const work = mkdtempSync(join(tmpdir(), 'chemifree-image-'))
 let api
@@ -137,6 +137,11 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   await page.evaluate(()=>window.deferImageRead=true);await choose(png,'old-document.png');await page.getByRole('status').filter({hasText:'Reading PNG file…'}).waitFor();await page.evaluate((id)=>void window.imageHarness.editor.open(id),otherId);await page.waitForFunction((id)=>window.imageHarness.editor.current?.document.id===id,otherId);await page.evaluate(()=>window.releaseImageRead());assert.equal(await add().getByRole('button',{name:'Add PNG image',exact:true}).isDisabled(),true);assert.equal(await page.getByRole('status').filter({hasText:'old-document.png: image/png'}).count(),0);assert.equal(await page.locator('svg image').count(),0);await page.evaluate((id)=>void window.imageHarness.editor.open(id),id);await page.waitForFunction((id)=>window.imageHarness.editor.current?.document.id===id,id);await idle();assert.equal(writes.length,originalWrites)
   stage='server full validation refuses corrupt CRC without decoding or writing an image'
   const corrupt=Buffer.from(png);corrupt[corrupt.length-1]^=1;await choose(corrupt,'corrupt.png');await page.getByRole('status').filter({hasText:'corrupt.png: image/png'}).waitFor();await rectangle(add(),{x:50,y:60},{x:40,y:20});const rejected=page.waitForResponse((r)=>r.url().endsWith('/transactions'));await add().getByRole('button',{name:'Add PNG image',exact:true}).click();const refused=await rejected;assert.equal(refused.status(),422);assert.equal((await refused.json()).reason,'image_invalid');await page.getByLabel('Image error',{exact:true}).filter({hasText:/./}).waitFor();await idle();assert.equal(await page.locator('svg image').count(),0);assert.deepEqual((await snapshot()).document,original.document);assert.equal((await snapshot()).session.undo_depth,original.session.undo_depth)
+  stage='full PNG authority rejects inconsistent sRGB/gAMA in either chunk order without renderer decoding'
+  const gamma=Buffer.alloc(4);gamma.writeUInt32BE(100000);const colorChunks=[pngChunk('sRGB',Buffer.from([0])),pngChunk('gAMA',gamma)]
+  for(const [index,extra]of [colorChunks,colorChunks.toReversed()].entries()){
+    const name='inconsistent-color-'+index+'.png';await choose(pngFixture({extra}),name);await page.getByRole('status').filter({hasText:name+': image/png'}).waitFor();const validation=page.waitForResponse((r)=>r.url().endsWith('/transactions'));await add().getByRole('button',{name:'Add PNG image',exact:true}).click();const response=await validation;assert.equal(response.status(),422);assert.equal((await response.json()).reason,'image_invalid');await page.getByLabel('Image error',{exact:true}).filter({hasText:/./}).waitFor();await idle();assert.equal(await page.locator('svg image').count(),0);assert.deepEqual((await snapshot()).document,original.document);assert.equal((await snapshot()).session.undo_depth,original.session.undo_depth)
+  }
   stage='explicit pt geometry and IME guards precede one successful embedded-image creation'
   await choose(png);await page.getByRole('status').filter({hasText:'drawing.png: image/png'}).waitFor();assert.match(await add().textContent(),/compressed bytes \(limit 128 KiB\).*2 × 2 pixels/)
   await rectangle(add(),{x:99999,y:60},{x:40,y:20});assert.equal(await add().getByRole('button',{name:'Add PNG image',exact:true}).isDisabled(),true)
