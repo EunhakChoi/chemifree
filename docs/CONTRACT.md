@@ -846,7 +846,14 @@ same byte limit sooner than a corresponding v2 payload.
 
 The dialogs state that explicit widths are preserved and inherited widths follow
 document width, and show per-graphic inherited/override values from strictly read
-payloads. Invalid text is not presented as a valid style list. **Use document
+payloads. Before preview or Copy-reply validation, JSON grammar and duplicate
+decoded object keys are checked: identical duplicates, escaped-equivalent keys
+and nested coordinate/settings duplicates are all refused. Settings receive only
+the backend's legacy omission defaults for `label_weight`, `label_style`,
+`label_underline`, `label_outline` and `label_shadow`, then complete shared
+document-settings validation. Required base fields, unknown keys, wrong types,
+explicit nulls and out-of-range values are not repaired. Thus syntactically valid
+JSON with invalid settings is not presented as a valid style list. **Use document
 width** remains available in the width form to restore inheritance explicitly;
 it is no longer required for Copy/Cut. Reset can change appearance, and never
 happens implicitly during transport.
@@ -855,8 +862,10 @@ Graph clipboard v1, native document/draft v26 and its migrations, document setti
 chemical graph/placements/stereo and external-format losses are unchanged. This
 does not add colour/dash/fill/arrowhead styles, captions/instances in forests,
 external graphics formats or broader P36 completion. P36 stays `in_progress`.
-Source and authored tests are available, but Rust/browser/full/review/CI success
-is not established by this documentation pass; see
+The independent duplicate-key preview finding and Codex invalid-settings preview
+finding were addressed with focused regressions. Their fixes and agent-reported
+web validation are recorded separately from pending full checks and CI; this
+documentation pass reran no product checks. See
 [the P36e record](verification/p36e-styled-graphics-clipboard.md).
 
 ## Effective selection scope and movement (P32a)

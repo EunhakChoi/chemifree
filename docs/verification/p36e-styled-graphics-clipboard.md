@@ -1,9 +1,11 @@
 # P36e styled graphics clipboard candidate
 
-Source inspection covers web `c9cdf4cf` and Rust v3 implementation/test commit
-`30ebb34c`. This pass ran no Rust, browser or full checks. No
-confirmed execution/review/CI result for P36e is supplied here; those gates
-remain pending. P36 stays `in_progress` against its broader unchanged scope.
+Original source inspection covered web `c9cdf4cf` and Rust v3 implementation/test
+commit `30ebb34c`. This update inspects the duplicate-key fix `d1717d8b` (the
+rebased equivalent of original `5bfcafa`) and settings fix `c51c957`. Known
+independent/Codex findings and agent-reported focused results are recorded below.
+This documentation pass ran no Rust, browser or full checks. Full checks and
+CI remain pending; P36 stays `in_progress` against its broader unchanged scope.
 
 This candidate extends existing graphic forest Copy/Cut/Paste with literal
 nullable line-width preservation. It supersedes P36d's v2-only policy that refused
@@ -61,7 +63,22 @@ change appearance and never occurs implicitly during Copy/Cut/Paste. Clipboard
 activation/permission/manual fallback and restart reconciliation rules are
 unchanged; no OS/external-application compatibility claim follows from a harness.
 
-Authored/inspected verification scope, not passed execution evidence:
+The client parses JSON grammar and rejects duplicate decoded keys before using
+the payload for a style list or successful Copy-reply check. Escaped spellings
+that decode to the same key are duplicates, including nested coordinate/settings
+keys and identical repeated values. The scan uses an iterative scope stack under
+the existing caller byte limit; it does not relax scene-tree depth limits.
+
+For both v2/v3, missing `label_weight`/`label_style` default to normal and missing
+`label_underline`/`label_outline`/`label_shadow` to false, matching legacy serde
+defaults. Then the shared complete `isDocumentSettings` validation checks all
+supported fields, enums, numeric ranges and types. Missing base fields, unknown
+settings and explicit invalid/null values refuse rather than gaining defaults.
+Even an equally malformed expected-settings object cannot authorize a successful
+Copy reply. These preview corrections align with an already strict service;
+they add no new wire, native26 or graph/settings semantics.
+
+Inspected verification scope; execution results are distinguished below:
 
 - Domain `scene_clipboard_v3.rs`: mixed inherited/explicit forests, immutable copy,
   offsets/refs/IDs/graph, bounds/settings failure, Cut rollback and style Undo.
@@ -73,14 +90,31 @@ Authored/inspected verification scope, not passed execution evidence:
   recovery/history without rewriting the source.
 - `web-styled-clipboard-client-check.mjs`: strict parser/style lists, writer
   version choice, all-null input versus Copy reply, exact nullable mapping and
-  graph/outside-object/ref tamper detection.
+  graph/outside-object/ref tamper detection; duplicate decoded keys at different
+  scopes and v2/v3 invalid settings, legitimate boundaries and legacy omissions.
 - Existing real-backend clipboard integration and scene-Cut browser scripts are
   extended for styled copying/pasting/cutting and invalid style display/refusal;
   width browser guidance is updated. Registration and adapted older fixtures
   do not establish successful browser/full execution.
 
+## PR #210 review findings and reported execution
+
+| Finding | Disposition and inspected regression scope |
+| --- | --- |
+| Independent P3: duplicate decoded JSON keys could show a last-value-wins width preview although the service refuses the payload. | Original `5bfcafa`, now `d1717d8b` in this branch, introduces `parseStrictJson` and uses it before summaries/reply checks. Their stable patch IDs match. Tests cover conflicting/identical/escaped width keys, nested coordinates/settings, valid escaping/punctuation and independent nested scopes; the real-backend clipboard script includes duplicate-width rejection without an ambiguous style list. |
+| Codex P2: a payload with invalid document settings could still display a graphic style preview. | `c51c957` applies only the five legacy label omission defaults, then the shared complete settings validator. Tests exercise both v2/v3 missing base fields, unknown fields, malformed enums/types/nulls/ranges, valid boundary values and legitimate legacy omissions. Summary and Copy-reply validation share that gate. |
+
+For [PR #210](https://github.com/EunhakChoi/chemifree/pull/210), the parent relays
+the assigned agent's execution report: `baseline50` failed,
+`fix81` passed, and sandbox lint/typecheck/client/build passed. These are reported
+focused reproduction/fix and sandbox results, not runs by this documentation
+agent and not successful full-project or GitHub CI evidence. The source and
+regressions above were inspected here; the documentation pass did not reproduce
+the failures or rerun the passing gates. Full checks and PR/main CI remain
+pending, and no merged P36e delivery or repeat review round is asserted.
+
 Colour/dash/fill/arrowhead settings, captions/instances in forests, external
 graphics transports and broader P36 completion remain outside this candidate.
 P36d's separately reported targeted Rust result is not evidence that these new
-v3 cases passed. Current Rust/browser/full results, both review dispositions,
-PR/main CI and delivery status require the parent workflow's confirmed evidence.
+v3 cases passed. Final full execution/CI and delivery status require the parent
+workflow's confirmed evidence; the two known findings have the fixes above.
