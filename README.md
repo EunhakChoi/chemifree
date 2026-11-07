@@ -482,5 +482,11 @@ width required from v26. Graphics clipboard output uses required-width v4 when
 the copied forest includes an ellipse, otherwise canonical v2/v3; older readers
 are not assumed compatible. Graph/scientific state and existing export rendering
 losses remain. Earlier P36a–g shape/schema/version statements are historical slice
-boundaries, superseded here for P36h. P36 stays `in_progress`; targeted/full/web/
-reviews/CI remain pending. See [P36h record](docs/verification/p36h-ellipse.md).
+boundaries, superseded here for P36h. P36 stays `in_progress`. Existing execution
+logs and [PR #213](https://github.com/EunhakChoi/chemifree/pull/213) record passed
+Rust clippy/117 focused tests, web lint/typecheck/client/build, ellipse/creation/
+clipboard/endpoint/width/order/rotation and general browser checks. The independent
+review of `4e56f5e` reported no findings. Codex's stale-status P2 is addressed by
+this documentation correction; full isolated local validation and PR CI remain
+in progress/pending, with no merge/main-CI success claimed. See the
+[P36h record](docs/verification/p36h-ellipse.md) for logs and exact scope.

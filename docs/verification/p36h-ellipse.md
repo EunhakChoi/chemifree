@@ -1,10 +1,13 @@
 # P36h bounded ellipse candidate
 
-This record describes the current, still-changing P36h source and authored
-checks. Documentation inspection ran no product tests, builds or browser checks.
-Targeted Rust/web execution, full isolated checks, both reviews and PR/main CI
-remain pending until their actual results are supplied. P36 stays `in_progress`;
-this is not merged delivery or general rendering/specification equivalence.
+This record describes the P36h candidate in [PR #213](https://github.com/EunhakChoi/chemifree/pull/213),
+reviewed at `66d9bdcc411cb69b4fc0ec60fcb77b1fead31257` before this correction. Completed
+focused Rust/web execution and the independent review are recorded below from
+existing logs and the PR body. The documentation agent read those records and
+ran no product tests, builds or browser checks. Full isolated local validation
+and PR CI remain in progress/pending in the parent handoff; no successful full
+or CI result is claimed. P36 stays `in_progress`; #213 is open. This is not
+merged delivery or general rendering/specification equivalence.
 Earlier P36a–g no-new-shape/no-schema/native25/native26 statements describe their
 own implementation slices. This candidate changes the shape admission and native/
 clipboard versions as stated here; their historical test notes are not P36h passes.
@@ -94,7 +97,7 @@ ellipse orientation, scaling/skew/resize/rotation handles, images, clip/layers a
 reaction/electron semantics are not supplied. The broader P36 acceptance remains
 open; no original-application rendering or Automation parity is established.
 
-## Inspected source and authored checks; execution pending
+## Source and authored check scope
 
 - Domain: `crates/domain/src/scene.rs`, `document.rs`, `scene/transform.rs`;
   `crates/domain/tests/ellipse.rs` authors reversed/zero/coincident cases,
@@ -118,7 +121,38 @@ open; no original-application rendering or Automation parity is established.
   harness for preview-only creation, SVG radii/stroke/hit behavior at zoom,
   width inheritance/override, corner editing/handles, transforms, clipboard and
   native persistence. `test:browser:graphic-ellipse` registration or script content
-  does not establish a successful P36h browser run.
+  alone does not establish a successful P36h browser run. Actual completed
+  browser executions are recorded separately below.
 
-No pass count or review disposition follows from reading these files. Execution
-and delivery results will be appended only with their actual source/log/CI head.
+## Completed execution and review evidence
+
+The documentation correction read existing agent execution logs under
+`/tmp/chemifree-work/` and the #213 body. These are local run records, not new
+executions by this documentation agent or a substitute for full/CI success.
+
+| Record | Confirmed completed scope |
+| --- | --- |
+| `p36h-rust-targeted.log` and #213 body | Isolated Rust clippy passed, followed by 117 focused tests, with zero failures and final sandbox exit 0. Groups: domain ellipse4/scene23/scene_fragment10/selection_transform11; application ellipse3/operations11/scene_clipboard unit14; provider ellipse_format4/migration35; HTTP ellipse1; CLI ellipse1. This is focused coverage, not the whole Rust workspace run. |
+| `p36h-web-gate-2.log` | Isolated lint (`eslint --max-warnings 0`), typecheck, full client command and production web build passed, sandbox exit 0. Every client group has zero failures, including all 13 ellipse client cases. |
+| `p36h-ellipse-browser.log` | Service-backed ellipse, Graphic creation and native clipboard-integration browser checks passed, sandbox exit 0. Ellipse covers SVG stroke/hit, reversed/zero axes, creation/endpoint/move/order, graph/stereo retention, styled v4 and native27 roundtrip. Creation exercises preview/cancel/pan/stale/restart; clipboard integration includes existing graph and styled graphic forests. |
+| `p36h-web-regression.log` | Ellipse, graphic endpoint, line-width, scene-order, selection-rotation and general browser smoke passed, sandbox exit 0. General smoke records no skipped steps and no uncaught browser errors. |
+| `p36h-web-mutation.log` with `p36h-web-mutation.sh` | Four intentional client mutations (v4 admission, legacy ellipse admission, omitted width, canonical output choice) failed as expected. Restored source passed all 13 client cases. A radius-clamp renderer mutation then failed the zero-axis `rx` assertion; restored renderer passed the ellipse browser, final sandbox exit 0. These mutant failures are sensitivity evidence, not unresolved production test failures. |
+| `p36h-ellipse-final.log` | A final restored-source ellipse browser run passed, sandbox exit 0. |
+| `p36h-conformance-record.log` | The separate record-generation run completed 110 conformance cases: 110 passed, zero failed/not run, sandbox exit 0. This confirms that run only; it does not complete the later full isolated validation. |
+
+The #213 body records an independent fresh-context subagent review of
+`4e56f5eca0fd1f67a3ab5267404eadbe64c7613c` on 2026-11-07 UTC with no findings.
+That exact reviewed commit is distinct from the rebased head reviewed by Codex; this
+correction claims no new independent review of its documentation.
+
+Codex reviewed `66d9bdcc41` on 2026-11-07 UTC and raised
+[P2: reconcile completed verification](https://github.com/EunhakChoi/chemifree/pull/213#discussion_r4500134789):
+this record and README still labelled completed checks and independent review
+pending. This documentation change addresses that finding by distinguishing the
+completed evidence above from remaining full/CI work. It reruns none of the
+checks and does not claim an additional Codex approval or thread resolution.
+
+Full isolated local validation and current PR CI are still in progress/pending
+per the parent handoff. No full-local pass, PR-CI pass, merge or post-merge main-CI
+success is established by the focused logs. P36's broader acceptance and the
+limitations above remain open.
