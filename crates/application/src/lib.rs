@@ -53,6 +53,7 @@ mod repository;
 mod scene_clipboard;
 pub mod smiles;
 mod stereo_projection;
+pub mod svg;
 pub mod transport_base64;
 mod turns;
 

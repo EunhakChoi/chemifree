@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="154pt" height="175.32pt" viewBox="-70 -24 154 175.32">
+<g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<line x1="0" y1="2.2" x2="26" y2="-2.2"/>
+<line x1="0" y1="-2.2" x2="26" y2="2.2"/>
+<line x1="0" y1="36.6" x2="26" y2="36.6"/>
+<line x1="0" y1="40" x2="26" y2="40"/>
+<line x1="0" y1="43.4" x2="26" y2="43.4"/>
+<line x1="20" y1="130" x2="10" y2="147.32"/>
+<line x1="15.4" y1="131.96" x2="9.4" y2="142.36" stroke-dasharray="2.5 2"/>
+<line x1="10" y1="147.32" x2="-10" y2="147.32"/>
+<line x1="6" y1="144.32" x2="-6" y2="144.32" stroke-dasharray="2.5 2"/>
+<line x1="-10" y1="147.32" x2="-20" y2="130"/>
+<line x1="-9.4" y1="142.36" x2="-15.4" y2="131.96" stroke-dasharray="2.5 2"/>
+<line x1="-20" y1="130" x2="-10" y2="112.68"/>
+<line x1="-15.4" y1="128.04" x2="-9.4" y2="117.64" stroke-dasharray="2.5 2"/>
+<line x1="-10" y1="112.68" x2="10" y2="112.68"/>
+<line x1="-6" y1="115.68" x2="6" y2="115.68" stroke-dasharray="2.5 2"/>
+<line x1="10" y1="112.68" x2="20" y2="130"/>
+<line x1="9.4" y1="117.64" x2="15.4" y2="128.04" stroke-dasharray="2.5 2"/>
+<line x1="68.1" y1="-8.1" x2="80" y2="-20"/>
+<polyline points="78.94,-15.4 80,-20 75.4,-18.94"/>
+<line x1="-40" y1="0" x2="-66" y2="0" stroke-dasharray="0.1 2.2"/>
+<polyline points="-40,40 -42.89,38 -45.78,42 -48.67,38 -51.56,42 -54.44,38 -57.33,42 -60.22,38 -63.11,42 -66,40"/>
+</g>
+<g fill="#000000" font-family="sans-serif">
+<text x="60" y="0" text-anchor="middle" dominant-baseline="central" xml:space="preserve"><tspan font-size="12" font-weight="500">N</tspan></text>
+</g>
+</g>
+</svg>

@@ -1,0 +1,3222 @@
+{
+  "cases": [
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a1",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a2",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": -15.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "O",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a3",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 52.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          }
+        ],
+        "bonds": [
+          {
+            "begin": "a1",
+            "end": "a2",
+            "id": "b1",
+            "mark": null,
+            "order": "single",
+            "query": null
+          },
+          {
+            "begin": "a2",
+            "end": "a3",
+            "id": "b2",
+            "mark": null,
+            "order": "single",
+            "query": null
+          }
+        ],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": -15.0
+                },
+                {
+                  "atom": "a3",
+                  "x": 52.0,
+                  "y": 0.0
+                }
+              ]
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": -15.0
+              },
+              "a3": {
+                "x": 52.0,
+                "y": 0.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 26.0,
+                  "y1": 0.0,
+                  "y2": -15.0
+                }
+              ],
+              "b2": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 26.0,
+                  "x2": 43.72,
+                  "y1": -15.0,
+                  "y2": -4.78
+                }
+              ]
+            },
+            "instance": "s1",
+            "labels": {
+              "a3": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.560000000000002,
+                  "x": -6.280000000000001,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.560000000000002,
+                  "x": -5.280000000000001,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "chain-bare-vertices"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a1",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a2",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a3",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 40.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a4",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 40.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a5",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 20.0,
+              "y": 130.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a6",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 10.0,
+              "y": 147.32
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a7",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": -10.0,
+              "y": 147.32
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a8",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": -20.0,
+              "y": 130.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a9",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": -10.0,
+              "y": 112.68
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a10",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 10.0,
+              "y": 112.68
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "N",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a11",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 60.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a12",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 80.0,
+              "y": -20.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a13",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": -40.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a14",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": -66.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a15",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": -40.0,
+              "y": 40.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a16",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": -66.0,
+              "y": 40.0
+            },
+            "query": null,
+            "radical": "none"
+          }
+        ],
+        "bonds": [
+          {
+            "begin": "a1",
+            "end": "a2",
+            "id": "b1",
+            "mark": {
+              "kind": "crossed"
+            },
+            "order": "double",
+            "query": null
+          },
+          {
+            "begin": "a3",
+            "end": "a4",
+            "id": "b2",
+            "mark": null,
+            "order": "triple",
+            "query": null
+          },
+          {
+            "begin": "a5",
+            "end": "a6",
+            "id": "b3",
+            "mark": null,
+            "order": "aromatic",
+            "query": null
+          },
+          {
+            "begin": "a6",
+            "end": "a7",
+            "id": "b4",
+            "mark": null,
+            "order": "aromatic",
+            "query": null
+          },
+          {
+            "begin": "a7",
+            "end": "a8",
+            "id": "b5",
+            "mark": null,
+            "order": "aromatic",
+            "query": null
+          },
+          {
+            "begin": "a8",
+            "end": "a9",
+            "id": "b6",
+            "mark": null,
+            "order": "aromatic",
+            "query": null
+          },
+          {
+            "begin": "a9",
+            "end": "a10",
+            "id": "b7",
+            "mark": null,
+            "order": "aromatic",
+            "query": null
+          },
+          {
+            "begin": "a10",
+            "end": "a5",
+            "id": "b8",
+            "mark": null,
+            "order": "aromatic",
+            "query": null
+          },
+          {
+            "begin": "a11",
+            "end": "a12",
+            "id": "b9",
+            "mark": null,
+            "order": "dative",
+            "query": null
+          },
+          {
+            "begin": "a13",
+            "end": "a14",
+            "id": "b10",
+            "mark": null,
+            "order": "query",
+            "query": {
+              "kind": "list",
+              "orders": [
+                "single",
+                "double"
+              ]
+            }
+          },
+          {
+            "begin": "a15",
+            "end": "a16",
+            "id": "b11",
+            "mark": null,
+            "order": "unknown",
+            "query": null
+          }
+        ],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a3",
+                  "x": 0.0,
+                  "y": 40.0
+                },
+                {
+                  "atom": "a4",
+                  "x": 26.0,
+                  "y": 40.0
+                },
+                {
+                  "atom": "a5",
+                  "x": 20.0,
+                  "y": 130.0
+                },
+                {
+                  "atom": "a6",
+                  "x": 10.0,
+                  "y": 147.32
+                },
+                {
+                  "atom": "a7",
+                  "x": -10.0,
+                  "y": 147.32
+                },
+                {
+                  "atom": "a8",
+                  "x": -20.0,
+                  "y": 130.0
+                },
+                {
+                  "atom": "a9",
+                  "x": -10.0,
+                  "y": 112.68
+                },
+                {
+                  "atom": "a10",
+                  "x": 10.0,
+                  "y": 112.68
+                },
+                {
+                  "atom": "a11",
+                  "x": 60.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a12",
+                  "x": 80.0,
+                  "y": -20.0
+                },
+                {
+                  "atom": "a13",
+                  "x": -40.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a14",
+                  "x": -66.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a15",
+                  "x": -40.0,
+                  "y": 40.0
+                },
+                {
+                  "atom": "a16",
+                  "x": -66.0,
+                  "y": 40.0
+                }
+              ]
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "a10": {
+                "x": 10.0,
+                "y": 112.68
+              },
+              "a11": {
+                "x": 60.0,
+                "y": 0.0
+              },
+              "a12": {
+                "x": 80.0,
+                "y": -20.0
+              },
+              "a13": {
+                "x": -40.0,
+                "y": 0.0
+              },
+              "a14": {
+                "x": -66.0,
+                "y": 0.0
+              },
+              "a15": {
+                "x": -40.0,
+                "y": 40.0
+              },
+              "a16": {
+                "x": -66.0,
+                "y": 40.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": 0.0
+              },
+              "a3": {
+                "x": 0.0,
+                "y": 40.0
+              },
+              "a4": {
+                "x": 26.0,
+                "y": 40.0
+              },
+              "a5": {
+                "x": 20.0,
+                "y": 130.0
+              },
+              "a6": {
+                "x": 10.0,
+                "y": 147.32
+              },
+              "a7": {
+                "x": -10.0,
+                "y": 147.32
+              },
+              "a8": {
+                "x": -20.0,
+                "y": 130.0
+              },
+              "a9": {
+                "x": -10.0,
+                "y": 112.68
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 26.0,
+                  "y1": 2.2,
+                  "y2": -2.2
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 26.0,
+                  "y1": -2.2,
+                  "y2": 2.2
+                }
+              ],
+              "b10": [
+                {
+                  "pattern": "dotted",
+                  "shape": "line",
+                  "x1": -40.0,
+                  "x2": -66.0,
+                  "y1": 0.0,
+                  "y2": 0.0
+                }
+              ],
+              "b11": [
+                {
+                  "points": [
+                    {
+                      "x": -40.0,
+                      "y": 40.0
+                    },
+                    {
+                      "x": -42.89,
+                      "y": 38.0
+                    },
+                    {
+                      "x": -45.78,
+                      "y": 42.0
+                    },
+                    {
+                      "x": -48.67,
+                      "y": 38.0
+                    },
+                    {
+                      "x": -51.56,
+                      "y": 42.0
+                    },
+                    {
+                      "x": -54.44,
+                      "y": 38.0
+                    },
+                    {
+                      "x": -57.33,
+                      "y": 42.0
+                    },
+                    {
+                      "x": -60.22,
+                      "y": 38.0
+                    },
+                    {
+                      "x": -63.11,
+                      "y": 42.0
+                    },
+                    {
+                      "x": -66.0,
+                      "y": 40.0
+                    }
+                  ],
+                  "shape": "polyline"
+                }
+              ],
+              "b2": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 26.0,
+                  "y1": 36.6,
+                  "y2": 36.6
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 26.0,
+                  "y1": 40.0,
+                  "y2": 40.0
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 26.0,
+                  "y1": 43.4,
+                  "y2": 43.4
+                }
+              ],
+              "b3": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 20.0,
+                  "x2": 10.0,
+                  "y1": 130.0,
+                  "y2": 147.32
+                },
+                {
+                  "pattern": "dashed",
+                  "shape": "line",
+                  "x1": 15.4,
+                  "x2": 9.4,
+                  "y1": 131.96,
+                  "y2": 142.36
+                }
+              ],
+              "b4": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 10.0,
+                  "x2": -10.0,
+                  "y1": 147.32,
+                  "y2": 147.32
+                },
+                {
+                  "pattern": "dashed",
+                  "shape": "line",
+                  "x1": 6.0,
+                  "x2": -6.0,
+                  "y1": 144.32,
+                  "y2": 144.32
+                }
+              ],
+              "b5": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": -10.0,
+                  "x2": -20.0,
+                  "y1": 147.32,
+                  "y2": 130.0
+                },
+                {
+                  "pattern": "dashed",
+                  "shape": "line",
+                  "x1": -9.4,
+                  "x2": -15.4,
+                  "y1": 142.36,
+                  "y2": 131.96
+                }
+              ],
+              "b6": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": -20.0,
+                  "x2": -10.0,
+                  "y1": 130.0,
+                  "y2": 112.68
+                },
+                {
+                  "pattern": "dashed",
+                  "shape": "line",
+                  "x1": -15.4,
+                  "x2": -9.4,
+                  "y1": 128.04,
+                  "y2": 117.64
+                }
+              ],
+              "b7": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": -10.0,
+                  "x2": 10.0,
+                  "y1": 112.68,
+                  "y2": 112.68
+                },
+                {
+                  "pattern": "dashed",
+                  "shape": "line",
+                  "x1": -6.0,
+                  "x2": 6.0,
+                  "y1": 115.68,
+                  "y2": 115.68
+                }
+              ],
+              "b8": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 10.0,
+                  "x2": 20.0,
+                  "y1": 112.68,
+                  "y2": 130.0
+                },
+                {
+                  "pattern": "dashed",
+                  "shape": "line",
+                  "x1": 9.4,
+                  "x2": 15.4,
+                  "y1": 117.64,
+                  "y2": 128.04
+                }
+              ],
+              "b9": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 68.1,
+                  "x2": 80.0,
+                  "y1": -8.1,
+                  "y2": -20.0
+                },
+                {
+                  "points": [
+                    {
+                      "x": 78.94,
+                      "y": -15.4
+                    },
+                    {
+                      "x": 80.0,
+                      "y": -20.0
+                    },
+                    {
+                      "x": 75.4,
+                      "y": -18.94
+                    }
+                  ],
+                  "shape": "polyline"
+                }
+              ]
+            },
+            "instance": "s1",
+            "labels": {
+              "a11": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.200000000000001,
+                  "x": -6.1,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.200000000000001,
+                  "x": -5.1,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "N",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "bond-orders"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a1",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a2",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a3",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 40.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a4",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 40.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a5",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 80.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a6",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 80.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a7",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 120.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "N",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a8",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 120.0
+            },
+            "query": null,
+            "radical": "none"
+          }
+        ],
+        "bonds": [
+          {
+            "begin": "a1",
+            "end": "a2",
+            "id": "b1",
+            "mark": {
+              "kind": "wedge",
+              "narrow": "begin"
+            },
+            "order": "single",
+            "query": null
+          },
+          {
+            "begin": "a3",
+            "end": "a4",
+            "id": "b2",
+            "mark": {
+              "kind": "hash",
+              "narrow": "end"
+            },
+            "order": "single",
+            "query": null
+          },
+          {
+            "begin": "a5",
+            "end": "a6",
+            "id": "b3",
+            "mark": {
+              "kind": "wavy"
+            },
+            "order": "single",
+            "query": null
+          },
+          {
+            "begin": "a7",
+            "end": "a8",
+            "id": "b4",
+            "mark": {
+              "kind": "wedge",
+              "narrow": "begin"
+            },
+            "order": "single",
+            "query": null
+          }
+        ],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a3",
+                  "x": 0.0,
+                  "y": 40.0
+                },
+                {
+                  "atom": "a4",
+                  "x": 26.0,
+                  "y": 40.0
+                },
+                {
+                  "atom": "a5",
+                  "x": 0.0,
+                  "y": 80.0
+                },
+                {
+                  "atom": "a6",
+                  "x": 26.0,
+                  "y": 80.0
+                },
+                {
+                  "atom": "a7",
+                  "x": 0.0,
+                  "y": 120.0
+                },
+                {
+                  "atom": "a8",
+                  "x": 26.0,
+                  "y": 120.0
+                }
+              ]
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": 0.0
+              },
+              "a3": {
+                "x": 0.0,
+                "y": 40.0
+              },
+              "a4": {
+                "x": 26.0,
+                "y": 40.0
+              },
+              "a5": {
+                "x": 0.0,
+                "y": 80.0
+              },
+              "a6": {
+                "x": 26.0,
+                "y": 80.0
+              },
+              "a7": {
+                "x": 0.0,
+                "y": 120.0
+              },
+              "a8": {
+                "x": 26.0,
+                "y": 120.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "points": [
+                    {
+                      "x": 0.0,
+                      "y": 0.0
+                    },
+                    {
+                      "x": 26.0,
+                      "y": -2.0
+                    },
+                    {
+                      "x": 26.0,
+                      "y": 2.0
+                    }
+                  ],
+                  "shape": "polygon"
+                }
+              ],
+              "b2": [
+                {
+                  "segments": [
+                    [
+                      {
+                        "x": 24.65,
+                        "y": 40.6
+                      },
+                      {
+                        "x": 24.65,
+                        "y": 39.4
+                      }
+                    ],
+                    [
+                      {
+                        "x": 21.95,
+                        "y": 40.6
+                      },
+                      {
+                        "x": 21.95,
+                        "y": 39.4
+                      }
+                    ],
+                    [
+                      {
+                        "x": 19.25,
+                        "y": 40.6
+                      },
+                      {
+                        "x": 19.25,
+                        "y": 39.4
+                      }
+                    ],
+                    [
+                      {
+                        "x": 16.55,
+                        "y": 40.73
+                      },
+                      {
+                        "x": 16.55,
+                        "y": 39.27
+                      }
+                    ],
+                    [
+                      {
+                        "x": 13.85,
+                        "y": 40.93
+                      },
+                      {
+                        "x": 13.85,
+                        "y": 39.07
+                      }
+                    ],
+                    [
+                      {
+                        "x": 11.15,
+                        "y": 41.14
+                      },
+                      {
+                        "x": 11.15,
+                        "y": 38.86
+                      }
+                    ],
+                    [
+                      {
+                        "x": 8.45,
+                        "y": 41.35
+                      },
+                      {
+                        "x": 8.45,
+                        "y": 38.65
+                      }
+                    ],
+                    [
+                      {
+                        "x": 5.75,
+                        "y": 41.56
+                      },
+                      {
+                        "x": 5.75,
+                        "y": 38.44
+                      }
+                    ],
+                    [
+                      {
+                        "x": 3.05,
+                        "y": 41.77
+                      },
+                      {
+                        "x": 3.05,
+                        "y": 38.23
+                      }
+                    ],
+                    [
+                      {
+                        "x": 0.35,
+                        "y": 41.97
+                      },
+                      {
+                        "x": 0.35,
+                        "y": 38.03
+                      }
+                    ]
+                  ],
+                  "shape": "stripes"
+                }
+              ],
+              "b3": [
+                {
+                  "amplitude": 1.8,
+                  "from": {
+                    "x": 0.0,
+                    "y": 80.0
+                  },
+                  "halfWaves": 7,
+                  "shape": "wave",
+                  "to": {
+                    "x": 26.0,
+                    "y": 80.0
+                  }
+                }
+              ],
+              "b4": [
+                {
+                  "points": [
+                    {
+                      "x": 0.0,
+                      "y": 120.0
+                    },
+                    {
+                      "x": 17.9,
+                      "y": 118.62
+                    },
+                    {
+                      "x": 17.9,
+                      "y": 121.38
+                    }
+                  ],
+                  "shape": "polygon"
+                }
+              ]
+            },
+            "instance": "s1",
+            "labels": {
+              "a8": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.200000000000001,
+                  "x": -6.1,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.200000000000001,
+                  "x": -5.1,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "N",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "stereo-marks"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [
+          {
+            "attachment_points": [],
+            "charge": 1,
+            "element": "N",
+            "hydrogens": {
+              "count": 3,
+              "mode": "specified"
+            },
+            "id": "a1",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "count": 3,
+              "mode": "specified"
+            },
+            "id": "a2",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 30.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a3",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 60.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a4",
+            "isotope": 13,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 40.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": -2,
+            "element": "O",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a5",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 80.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "unknown"
+            },
+            "id": "a6",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 30.0,
+              "y": 80.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "[N,O,S,P]",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a7",
+            "isotope": null,
+            "kind": "query",
+            "position": {
+              "x": 0.0,
+              "y": 120.0
+            },
+            "query": {
+              "elements": [
+                "N",
+                "O",
+                "S",
+                "P"
+              ],
+              "kind": "list",
+              "negated": false
+            },
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "![N,O]",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a8",
+            "isotope": null,
+            "kind": "query",
+            "position": {
+              "x": 30.0,
+              "y": 120.0
+            },
+            "query": {
+              "elements": [
+                "N",
+                "O"
+              ],
+              "kind": "list",
+              "negated": true
+            },
+            "radical": "none"
+          }
+        ],
+        "bonds": [
+          {
+            "begin": "a2",
+            "end": "a3",
+            "id": "b1",
+            "mark": null,
+            "order": "single",
+            "query": null
+          }
+        ],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 30.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a3",
+                  "x": 60.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a4",
+                  "x": 0.0,
+                  "y": 40.0
+                },
+                {
+                  "atom": "a5",
+                  "x": 0.0,
+                  "y": 80.0
+                },
+                {
+                  "atom": "a6",
+                  "x": 30.0,
+                  "y": 80.0
+                },
+                {
+                  "atom": "a7",
+                  "x": 0.0,
+                  "y": 120.0
+                },
+                {
+                  "atom": "a8",
+                  "x": 30.0,
+                  "y": 120.0
+                }
+              ]
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "all",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "a2": {
+                "x": 30.0,
+                "y": 0.0
+              },
+              "a3": {
+                "x": 60.0,
+                "y": 0.0
+              },
+              "a4": {
+                "x": 0.0,
+                "y": 40.0
+              },
+              "a5": {
+                "x": 0.0,
+                "y": 80.0
+              },
+              "a6": {
+                "x": 30.0,
+                "y": 80.0
+              },
+              "a7": {
+                "x": 0.0,
+                "y": 120.0
+              },
+              "a8": {
+                "x": 30.0,
+                "y": 120.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 37.92,
+                  "x2": 52.08,
+                  "y1": 0.0,
+                  "y2": 0.0
+                }
+              ]
+            },
+            "instance": "s1",
+            "labels": {
+              "a1": {
+                "box": {
+                  "height": 22.2,
+                  "width": 31.08,
+                  "x": -6.1,
+                  "y": -11.6
+                },
+                "chunkBox": {
+                  "height": 20.2,
+                  "width": 29.08,
+                  "x": -5.1,
+                  "y": -10.6
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "N",
+                    "weight": 500
+                  },
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "H",
+                    "weight": 500
+                  },
+                  {
+                    "shift": 4.0,
+                    "size": 8.0,
+                    "text": "3",
+                    "weight": 400
+                  },
+                  {
+                    "shift": -5.0,
+                    "size": 8.0,
+                    "text": "+",
+                    "weight": 400
+                  }
+                ],
+                "x": 9.44
+              },
+              "a2": {
+                "box": {
+                  "height": 20.0,
+                  "width": 25.919999999999998,
+                  "x": -19.999999999999996,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 18.0,
+                  "width": 23.919999999999998,
+                  "x": -18.999999999999996,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "H",
+                    "weight": 500
+                  },
+                  {
+                    "shift": 4.0,
+                    "size": 8.0,
+                    "text": "3",
+                    "weight": 400
+                  },
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "C",
+                    "weight": 500
+                  }
+                ],
+                "x": -7.039999999999999
+              },
+              "a3": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 11.84,
+                  "x": -5.92,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 9.84,
+                  "x": -4.92,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "C",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              },
+              "a4": {
+                "box": {
+                  "height": 21.0,
+                  "width": 21.6,
+                  "x": -15.68,
+                  "y": -11.6
+                },
+                "chunkBox": {
+                  "height": 19.0,
+                  "width": 19.6,
+                  "x": -14.68,
+                  "y": -10.6
+                },
+                "runs": [
+                  {
+                    "shift": -5.0,
+                    "size": 8.0,
+                    "text": "13",
+                    "weight": 400
+                  },
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "C",
+                    "weight": 500
+                  }
+                ],
+                "x": -4.88
+              },
+              "a5": {
+                "box": {
+                  "height": 21.0,
+                  "width": 22.560000000000002,
+                  "x": -6.280000000000001,
+                  "y": -11.6
+                },
+                "chunkBox": {
+                  "height": 19.0,
+                  "width": 20.560000000000002,
+                  "x": -5.280000000000001,
+                  "y": -10.6
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "O",
+                    "weight": 500
+                  },
+                  {
+                    "shift": -5.0,
+                    "size": 8.0,
+                    "text": "2−",
+                    "weight": 400
+                  }
+                ],
+                "x": 5.0
+              },
+              "a6": {
+                "box": {
+                  "height": 20.0,
+                  "width": 25.439999999999998,
+                  "x": -5.92,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 18.0,
+                  "width": 23.439999999999998,
+                  "x": -4.92,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "C",
+                    "weight": 500
+                  },
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "H",
+                    "weight": 500
+                  },
+                  {
+                    "shift": 4.0,
+                    "size": 8.0,
+                    "text": "?",
+                    "weight": 400
+                  }
+                ],
+                "x": 6.799999999999999
+              },
+              "a7": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 61.63999999999999,
+                  "x": -30.82,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 59.63999999999999,
+                  "x": -29.82,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "[N,O,S,…]",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              },
+              "a8": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 37.63999999999999,
+                  "x": -18.82,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 35.63999999999999,
+                  "x": -17.82,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "![N,O]",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "labels"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a1",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "O",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a2",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          }
+        ],
+        "bonds": [
+          {
+            "begin": "a1",
+            "end": "a2",
+            "id": "b1",
+            "mark": null,
+            "order": "double",
+            "query": null
+          }
+        ],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": 0.0
+                }
+              ]
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 18.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 2.4
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": 0.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 12.36,
+                  "y1": -4.4,
+                  "y2": -4.4
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 12.36,
+                  "y1": 4.4,
+                  "y2": 4.4
+                }
+              ]
+            },
+            "instance": "s1",
+            "labels": {
+              "a2": {
+                "box": {
+                  "height": 28.199999999999996,
+                  "width": 22.080000000000002,
+                  "x": -11.040000000000001,
+                  "y": -14.099999999999998
+                },
+                "chunkBox": {
+                  "height": 25.199999999999996,
+                  "width": 19.080000000000002,
+                  "x": -9.540000000000001,
+                  "y": -12.599999999999998
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 18.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "settings-wide-serif"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "N",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a1",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "O",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a2",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a3",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 40.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a4",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 40.0
+            },
+            "query": null,
+            "radical": "none"
+          }
+        ],
+        "bonds": [
+          {
+            "begin": "a1",
+            "end": "a2",
+            "id": "b1",
+            "mark": null,
+            "order": "single",
+            "query": null
+          },
+          {
+            "begin": "a3",
+            "end": "a4",
+            "id": "b2",
+            "mark": null,
+            "order": "aromatic",
+            "query": null
+          }
+        ],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a3",
+                  "x": 0.0,
+                  "y": 40.0
+                },
+                {
+                  "atom": "a4",
+                  "x": 26.0,
+                  "y": 40.0
+                }
+              ]
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "monospace",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 6.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": 0.0
+              },
+              "a3": {
+                "x": 0.0,
+                "y": 40.0
+              },
+              "a4": {
+                "x": 26.0,
+                "y": 40.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 4.6,
+                  "x2": 21.4,
+                  "y1": 0.0,
+                  "y2": 0.0
+                }
+              ],
+              "b2": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 26.0,
+                  "y1": 40.0,
+                  "y2": 40.0
+                },
+                {
+                  "pattern": "dashed",
+                  "shape": "line",
+                  "x1": 4.0,
+                  "x2": 22.0,
+                  "y1": 43.0,
+                  "y2": 43.0
+                }
+              ]
+            },
+            "instance": "s1",
+            "labels": {
+              "a1": {
+                "box": {
+                  "height": 9.399999999999999,
+                  "width": 5.2,
+                  "x": -2.5999999999999996,
+                  "y": -4.699999999999999
+                },
+                "chunkBox": {
+                  "height": 8.399999999999999,
+                  "width": 4.2,
+                  "x": -2.0999999999999996,
+                  "y": -4.199999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 6.0,
+                    "text": "N",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              },
+              "a2": {
+                "box": {
+                  "height": 9.399999999999999,
+                  "width": 5.2,
+                  "x": -2.5999999999999996,
+                  "y": -4.699999999999999
+                },
+                "chunkBox": {
+                  "height": 8.399999999999999,
+                  "width": 4.2,
+                  "x": -2.0999999999999996,
+                  "y": -4.199999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 6.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "monospace-small"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a1",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "O",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a2",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          }
+        ],
+        "bonds": [
+          {
+            "begin": "a1",
+            "end": "a2",
+            "id": "b1",
+            "mark": null,
+            "order": "double",
+            "query": null
+          }
+        ],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": 0.0
+                }
+              ]
+            },
+            {
+              "id": "s2",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 80.0,
+                  "y": 40.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 106.0,
+                  "y": 40.0
+                }
+              ]
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            },
+            {
+              "id": "s2",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1",
+            "s2"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": 0.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": -2.2,
+                  "y2": -2.2
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": 2.2,
+                  "y2": 2.2
+                }
+              ]
+            },
+            "instance": "s1",
+            "labels": {
+              "a2": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.560000000000002,
+                  "x": -6.280000000000001,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.560000000000002,
+                  "x": -5.280000000000001,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          },
+          {
+            "atoms": {
+              "a1": {
+                "x": 80.0,
+                "y": 40.0
+              },
+              "a2": {
+                "x": 106.0,
+                "y": 40.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 80.0,
+                  "x2": 97.72,
+                  "y1": 37.8,
+                  "y2": 37.8
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 80.0,
+                  "x2": 97.72,
+                  "y1": 42.2,
+                  "y2": 42.2
+                }
+              ]
+            },
+            "instance": "s2",
+            "labels": {
+              "a2": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.560000000000002,
+                  "x": -6.280000000000001,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.560000000000002,
+                  "x": -5.280000000000001,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "two-instances"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a1",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "O",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a2",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          }
+        ],
+        "bonds": [
+          {
+            "begin": "a1",
+            "end": "a2",
+            "id": "b1",
+            "mark": null,
+            "order": "double",
+            "query": null
+          }
+        ],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": 0.0
+                }
+              ]
+            },
+            {
+              "id": "s2",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 80.0,
+                  "y": 40.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 106.0,
+                  "y": 40.0
+                }
+              ]
+            }
+          ],
+          "objects": [
+            {
+              "id": "s2",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            },
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1",
+            "s2"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {
+              "a1": {
+                "x": 80.0,
+                "y": 40.0
+              },
+              "a2": {
+                "x": 106.0,
+                "y": 40.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 80.0,
+                  "x2": 97.72,
+                  "y1": 37.8,
+                  "y2": 37.8
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 80.0,
+                  "x2": 97.72,
+                  "y1": 42.2,
+                  "y2": 42.2
+                }
+              ]
+            },
+            "instance": "s2",
+            "labels": {
+              "a2": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.560000000000002,
+                  "x": -6.280000000000001,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.560000000000002,
+                  "x": -5.280000000000001,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          },
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": 0.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": -2.2,
+                  "y2": -2.2
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": 2.2,
+                  "y2": 2.2
+                }
+              ]
+            },
+            "instance": "s1",
+            "labels": {
+              "a2": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.560000000000002,
+                  "x": -6.280000000000001,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.560000000000002,
+                  "x": -5.280000000000001,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "scene-object-order"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [],
+        "bonds": [],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 0,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": []
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {},
+            "bonds": {},
+            "instance": "s1",
+            "labels": {}
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "empty"
+    }
+  ],
+  "table": "chemifree-label-advance-1"
+}

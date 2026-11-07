@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="120.28pt" height="66.8pt" viewBox="-4 -13.4 120.28 66.8">
+<g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<line x1="80" y1="37.8" x2="97.72" y2="37.8"/>
+<line x1="80" y1="42.2" x2="97.72" y2="42.2"/>
+</g>
+<g fill="#000000" font-family="sans-serif">
+<text x="106" y="40" text-anchor="middle" dominant-baseline="central" xml:space="preserve"><tspan font-size="12" font-weight="500">O</tspan></text>
+</g>
+</g>
+<g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<line x1="0" y1="-2.2" x2="17.72" y2="-2.2"/>
+<line x1="0" y1="2.2" x2="17.72" y2="2.2"/>
+</g>
+<g fill="#000000" font-family="sans-serif">
+<text x="26" y="0" text-anchor="middle" dominant-baseline="central" xml:space="preserve"><tspan font-size="12" font-weight="500">O</tspan></text>
+</g>
+</g>
+</svg>

@@ -1529,7 +1529,8 @@
    "acceptance": "고정 폰트·locale에서 glyph·bounds·Unicode·선폭·겹침·다중 장면을 대조하고 파일 생성과 시각 정확성을 따로 판정한다.",
    "kind": "core",
    "id": "P38",
-   "status": "planned",
+   "status": "in_progress",
+   "note": "P38a1 renderer core only; no export path yet",
    "layers": [
     "presentation",
     "logic",
