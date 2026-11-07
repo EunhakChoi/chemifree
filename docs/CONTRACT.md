@@ -687,7 +687,8 @@ Earlier P36a–i shape/schema/version statements describe those slices. This cur
 profile supersedes their no-curve/native28/clipboard5 boundaries without reusing
 their verification results. P36 stays in_progress; Rust executor final log records clippy/71 focused tests and five detected
 mutations with restored-source passes; the documentation agent only read it.
-Web/full/reviews/CI results remain pending. See [P36j record](verification/p36j-spline.md).
+Targeted web checks and the independent review are complete; full isolated
+validation and CI remain pending. See [P36j record](verification/p36j-spline.md).
 
 ## Bounded closed polygon profile (P36i candidate)
 
