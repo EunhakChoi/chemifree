@@ -1,3 +1,4 @@
+import { embeddedPngMetadata, MAX_DOCUMENT_IMAGE_PIXELS } from '@/lib/png-image'
 /** Hand-maintained mirror of the v1 document contract in crates/application/src/contract.rs. */
 import { API_VERSION } from '@/lib/contract'
 import { sceneClipboardCopyMatches, sceneClipboardCutHasIncoming, sceneClipboardCutMatches, sceneClipboardPasteMapping } from '@/lib/scene-clipboard-contract'
@@ -118,6 +119,7 @@ export function graphicPointCountValid(shape: SceneGraphicShape, count: number):
 export type SceneObject =
   | { kind: 'instance'; id: string; parent: string | null; molecule: string }
   | { kind: 'group'; id: string; parent: string | null; children: string[] }
+  | { kind: 'image'; id: string; parent: string | null; mime_type: 'image/png'; data_base64: string; origin: Position; size_pt: Position; pixel_width: number; pixel_height: number }
   | { kind: 'caption'; id: string; parent: string | null; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
   | { kind: 'graphic'; id: string; parent: string | null; shape: GraphicShape; points: [Position, Position]; line_width_pt?: number | null }
   | { kind: 'graphic'; id: string; parent: string | null; shape: 'spline'; points: [Position, Position, Position, Position]; line_width_pt?: number | null }
@@ -738,6 +740,8 @@ export type Command =
   | { op: 'set_fragment_display_text'; instance: string; anchor: string; text: string }
   | { op: 'set_fragment_display_runs'; instance: string; anchor: string; runs: FragmentDisplayRun[] }
   | { op: 'expand_fragment'; instance: string; anchor: string }
+  | { op: 'add_image'; mime_type: 'image/png'; data_base64: string; origin: Position; size_pt: Position; parent?: string; index?: number }
+  | { op: 'update_image_geometry'; object: string; origin: Position; size_pt: Position }
   | { op: 'add_caption'; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[]; parent?: string; index?: number }
   | { op: 'update_caption'; object: string; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
   | { op: 'add_graphic'; shape: GraphicShape; points: [Position, Position]; parent?: string; index?: number }
@@ -1170,6 +1174,14 @@ function isSceneObject(value: unknown): value is SceneObject {
       return typeof value.molecule === 'string'
     case 'group':
       return isStringArray(value.children)
+    case 'image': {
+      const metadata = value.mime_type === 'image/png' ? embeddedPngMetadata(value.data_base64) : null
+      return metadata !== null && value.pixel_width === metadata.pixelWidth && value.pixel_height === metadata.pixelHeight &&
+        isRecord(value.origin) && isFiniteNumber(value.origin.x) && isFiniteNumber(value.origin.y) &&
+        isRecord(value.size_pt) && isFiniteNumber(value.size_pt.x) && isFiniteNumber(value.size_pt.y) && value.size_pt.x > 0 && value.size_pt.y > 0 &&
+        Math.abs(value.origin.x) <= 100_000 && Math.abs(value.origin.y) <= 100_000 &&
+        Math.abs(value.origin.x + value.size_pt.x) <= 100_000 && Math.abs(value.origin.y + value.size_pt.y) <= 100_000
+    }
     case 'caption':
       return (value.alignment === 'left' || value.alignment === 'center' || value.alignment === 'right') && isRecord(value.anchor) && isFiniteNumber(value.anchor.x) && isFiniteNumber(value.anchor.y) && validCaptionRuns(value.runs)
     case 'graphic':
@@ -1200,6 +1212,7 @@ function isSceneTree(document: Record<string, unknown>, atoms: AtomView[], bonds
       !Array.isArray(scene.references) || !scene.references.every(isSceneReference) ||
       !Array.isArray(scene.instances) || !isSelection(selection) || !isRecord(document.molecule)) return false
   const sceneObjects = scene.objects
+  if (sceneObjects.reduce((total, object) => total + (object.kind === 'image' ? object.pixel_width * object.pixel_height : 0), 0) > MAX_DOCUMENT_IMAGE_PIXELS) return false
   const objects = new Map(sceneObjects.map((object) => [object.id, object]))
   if (objects.size !== sceneObjects.length) return false
   const visited = new Set<string>()

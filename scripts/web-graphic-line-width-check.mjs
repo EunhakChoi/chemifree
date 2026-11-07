@@ -236,9 +236,9 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   await waitRevision(beforeQueue.revision+1)
   assert.equal(writes.length,queueWrites+1)
   assert.equal((await graphicAt(line.id)).line_width_pt,10)
-  stage='native 29 save/reopen preserves explicit and inherited graphic widths'
+  stage='native 30 save/reopen preserves explicit and inherited graphic widths'
   await button('Save widths').click();await page.waitForFunction(()=>JSON.parse(document.querySelector('[aria-label="Width snapshot"]').textContent).session.unsaved_changes===false)
-  const native=JSON.parse(readFileSync(join(work,'documents',id+'.json'),'utf8'));assert.equal(native.format_version,29)
+  const native=JSON.parse(readFileSync(join(work,'documents',id+'.json'),'utf8'));assert.equal(native.format_version,30)
   const stored=(await snapshot()).document
   await page.reload();await button('Select line').click()
   assert.deepEqual((await snapshot()).document.scene,stored.scene)

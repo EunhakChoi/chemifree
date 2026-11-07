@@ -1,3 +1,4 @@
+import { imageCorners } from '@/editor/image'
 import type { ArrangementMode, Command, DocumentView, Position, SelectionTransform } from '@/lib/document-contract'
 import { selectionTransform } from '@/editor/selection-geometry'
 
@@ -49,6 +50,9 @@ export function sceneGeometry(document: DocumentView, selected: ReadonlySet<stri
       switch (object.kind) {
         case 'caption':
           hasCaptions = true
+          break
+        case 'image':
+          points.push(...imageCorners(object))
           break
         case 'graphic':
           points.push(...object.points)

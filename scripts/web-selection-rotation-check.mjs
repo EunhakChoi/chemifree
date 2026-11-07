@@ -184,12 +184,12 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   assert.equal(writes.length,deleteWrites+1);assert.equal((await snapshot()).document.scene.objects.some((object)=>object.id==='s3'),false)
   await button('Undo rotation').click();await revision(deleteBefore.revision+2)
   assert.deepEqual((await snapshot()).document.scene,deleteBefore.scene)
-  stage='document changes reset the draft and native 29 retains rotated geometry and style'
+  stage='document changes reset the draft and native 30 retains rotated geometry and style'
   await selected('Select line',['s3'])
   const persisted=await rotate('22.5');geometryOnly(persisted.before,persisted.after,{x:150,y:100},22.5,['s3'])
   await button('Save rotation').click();await page.waitForFunction(()=>JSON.parse(document.querySelector('[aria-label="Rotation snapshot"]').textContent).session.unsaved_changes===false)
   const saved=(await snapshot()).document
-  assert.equal(JSON.parse(readFileSync(join(work,'documents',id+'.json'),'utf8')).format_version,29)
+  assert.equal(JSON.parse(readFileSync(join(work,'documents',id+'.json'),'utf8')).format_version,30)
   await input().fill('33');await button('Open empty').click();await page.waitForFunction((id)=>window.rotationHarness.editor.current?.document.id===id,otherId);assert.equal(await input().inputValue(),'');assert.equal(await button('Rotate').isDisabled(),true)
   await button('Open rotation').click();await page.waitForFunction((id)=>window.rotationHarness.editor.current?.document.id===id,id);await idle()
   const exited=once(api,'exit');api.kill('SIGTERM');await exited

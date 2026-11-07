@@ -134,7 +134,7 @@ export function sceneClipboardCopyMatches(
     const selected = included || wanted.has(id)
     if (!included && selected) expectedRoots.push(id)
     if (selected) {
-      if (object.kind === 'instance' || object.kind === 'caption') return false
+      if (object.kind === 'instance' || object.kind === 'caption' || object.kind === 'image') return false
       if (object.kind === 'group') objects.push({ kind: object.kind, id, children: object.children })
       else objects.push({ kind: object.kind, id, shape: object.shape, points: object.points, line_width_pt: object.line_width_pt ?? null })
     }

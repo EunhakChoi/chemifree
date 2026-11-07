@@ -1,3 +1,4 @@
+import { imageCreationCommands, type ImageCreation } from '@/editor/image'
 import { splineCreationCommands, type SplineCreation } from '@/editor/spline'
 import { polygonCreationCommands, type PolygonCreation } from '@/editor/polygon'
 import { graphicCreationCommands, type GraphicCreation } from '@/editor/graphic-creation'
@@ -1092,6 +1093,15 @@ export function useDocumentEditor() {
         }),
       [run, setCurrent, refreshList],
     ),
+    createImage: useCallback((creation: ImageCreation) => {
+      const frozen: ImageCreation = { ...creation, origin: { ...creation.origin }, sizePt: { ...creation.sizePt } }
+      const pressed = new Set(selectionRef.current)
+      return mutate((document, restartedFrom) => {
+        if (restartedFrom || frozen.serviceGeneration !== serviceGenerationRef.current) return null
+        const commands = imageCreationCommands(document.document, frozen)
+        return commands ? client.transact(frozen.documentId, frozen.revision, commands, { before: selectionSnapshot(pressed, document.document) }) : null
+      })
+    }, [mutate]),
     createSpline: useCallback((creation: SplineCreation) => {
       const frozen: SplineCreation = { ...creation, points: creation.points.map((point) => ({ ...point })) }
       const pressed = new Set(selectionRef.current)
@@ -1136,12 +1146,12 @@ export function useDocumentEditor() {
         return mutate((document, restartedFrom) => {
           if (typeof edit === 'function') {
             const commands = edit(document.document)
-            if (restartedFrom && commands?.some((command) => command.op === 'contract_fragment' || command.op === 'set_fragment_display_text' || command.op === 'set_fragment_display_runs' || command.op === 'expand_fragment' || command.op === 'update_spline_points' || command.op === 'update_polygon_vertices' || command.op === 'update_graphic_points' || command.op === 'set_graphic_line_width')) return null
+            if (restartedFrom && commands?.some((command) => command.op === 'contract_fragment' || command.op === 'set_fragment_display_text' || command.op === 'set_fragment_display_runs' || command.op === 'expand_fragment' || command.op === 'update_image_geometry' || command.op === 'update_spline_points' || command.op === 'update_polygon_vertices' || command.op === 'update_graphic_points' || command.op === 'set_graphic_line_width')) return null
             return commands?.length ? client.transact(id(), revision(document), commands, snapshots(document.document)) : null
           }
           if (!edit.length || shown?.id !== document.document.id) return null
           if (restartedFrom) {
-            if (edit.some((command) => command.op === 'contract_fragment' || command.op === 'set_fragment_display_text' || command.op === 'set_fragment_display_runs' || command.op === 'expand_fragment' || command.op === 'update_spline_points' || command.op === 'update_polygon_vertices' || command.op === 'update_graphic_points' || command.op === 'set_graphic_line_width')) return null
+            if (edit.some((command) => command.op === 'contract_fragment' || command.op === 'set_fragment_display_text' || command.op === 'set_fragment_display_runs' || command.op === 'expand_fragment' || command.op === 'update_image_geometry' || command.op === 'update_spline_points' || command.op === 'update_polygon_vertices' || command.op === 'update_graphic_points' || command.op === 'set_graphic_line_width')) return null
             // Built on an older view than the one the restarted service matched: it lapses.
             if (restartedFrom.document.revision !== shown.revision) return null
             return client.transact(shown.id, revision(document), edit, snapshots(document.document))
