@@ -1,6 +1,6 @@
 # P35q retained fragment display script-run candidate
 
-Current evidence: [the completion audit](p35-completion-audit.md) records #203 merge84ef063, final head bdc331f and successful check/browser PR CI42320918256, along with actual Codex/independent review findings and fixes. Implementation-session pending wording below is historical. Post-merge main CI remains pending and P35 stays in_progress until the parent records the final gate; this documentation work reran no checks.
+Current evidence: [the completion audit](p35-completion-audit.md) records #203 merge84ef063, final head bdc331f and successful check/browser PR CI42320918256, along with actual Codex/independent review findings and fixes. Implementation-session pending wording below is historical. Post-merge main CI42322504482 also passes; the audit records bounded P35 done while preserving its limitations. This documentation work reran no checks.
 
 This follow-up candidate adds explicit baseline/subscript/superscript runs to an
 existing retained fragment display. `set_fragment_display_runs` requires instance,

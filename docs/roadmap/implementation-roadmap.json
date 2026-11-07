@@ -1414,7 +1414,7 @@
    "acceptance": "한글·결합 문자·긴 텍스트·run 경계와 codec 인덱스를 검사한다. 텍스트 수정이 원자 의미를 바꾸는 경우를 명시한다.",
    "kind": "core",
    "id": "P35",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "presentation",
     "logic",
@@ -1424,7 +1424,34 @@
     "P11",
     "P12"
    ],
-   "note": "P35 audit at merged main84ef063 (#203): P35a–n/#185 provide caption multi-style Unicode runs/script/alignment and chemical-label typography; #201 editable retained-Et text/reset, #202 explicit eligible retained-fragment contraction/text/expansion and #203 ordered baseline/subscript/superscript runs resolve the former fixed-Et-only/no-abbreviation-editor gap. The recorded user decision retains real graph/IDs/states/stereo/coordinates; display text/scripts never define chemistry, unlike typed atom-state edits. Native v25 strict runs/v24 baseline migration/current-history-draft/archive,128 UTF-8 byte fragment limits, measured SVG bounds, caption long-text/run and separate CDX byte-index/encoding evidence are documented. #201 final bfb54d7 CI42311153640 and #202 final8d7efbe CI42316586336 passed check/browser. #203 merged84ef063 from final head bdc331f; PR CI42320918256 passed check/browser, with actual review findings/fixes and catalog correction recorded in docs/verification/p35-completion-audit.md. Earlier timeout/pending snapshots are historical. The evidence supports the unchanged bounded editing/storage acceptance under the approved graph-preserving display policy, with no remaining product gap identified within that profile. Per-atom arbitrary rich text, nickname atom union/dictionary/parser, external caption/display roundtrip, multiline/bidi controls and cross-run shaping guarantees remain unsupported and do not imply general RENDER-01/STYLE-01 completion. Post-merge main CI for84ef063 and documentation integration remain pending; this audit reran no checks. P35 stays in_progress and done promotion is deferred until the parent records those gates."
+   "note": "Bounded P35 is done against the unchanged roadmap editing/storage scope and acceptance under the recorded graph-preserving display decision. P35a–n/#185 provide caption multi-style Unicode runs/script/alignment and chemical-label typography; #201 editable Et text/reset, #202 explicit eligible real-fragment contraction/text/expansion and #203 ordered baseline/subscript/superscript runs resolve the fixed-Et-only gap. Typed atom-state edits can change chemistry; literal display text/scripts retain real graph/IDs/states/stereo/coordinates and scientific results. Unicode/combining/ZWJ, bounded long text, ordered run boundaries, CDX byte-index/encoding, measured SVG bounds and native v25/v24 migration/history/draft/archive have documented source/regression evidence. #203 final head bdc331f passed check/browser PR CI42320918256 and merge84ef063 passed post-merge main CI42322504482; actual Codex/independent findings/fixes, earlier failures and #201/#202 CI remain in docs/verification/p35-completion-audit.md. General RENDER-01/STYLE-01 remain incomplete; arbitrary atom rich runs/nickname atom union/dictionary/parser/external caption/display roundtrip, multiline/bidi controls and cross-run shaping guarantees remain unsupported. This completion documentation has separate integration/review/CI gates and reran no product checks. Rebase onto #204 main26962b6 preserves P36a; that change has separate pending post-merge main CI and P36 remains in_progress.",
+   "delivered": {
+    "prs": [
+     184,
+     185,
+     187,
+     188,
+     189,
+     190,
+     191,
+     192,
+     193,
+     194,
+     195,
+     196,
+     197,
+     198,
+     199,
+     201,
+     202,
+     203
+    ],
+    "merge_commit": "84ef063a8f39a859b575c9fe3cdd5ce674f40397",
+    "pr_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/42320918256",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/42322504482",
+    "main_ci_status": "success",
+    "scope": "bounded roadmap editing/storage acceptance under the approved graph-preserving display decision; general rendering/scientific requirement completion is not claimed"
+   }
   },
   {
    "phase": "editor",
@@ -1452,7 +1479,7 @@
     "P32",
     "P35"
    ],
-   "note": "P36a is an unverified bounded candidate for update_graphic_points on an existing line/arrow/rectangle: exactly two finite document points within inclusive±100000 pt, reversed/coincident points allowed, unchanged points no-op. Shape/ID/group/parent/order/references and chemical graph/placement/stereo/settings remain intact. Shared atomic transaction/revision/replay/Undo/Redo and existing native v25 scene history apply without schema/version change. The actual Graphic endpoints form captures document/revision/target/points, rejects stale queued targets and invalid/busy/IME submissions, and does not automatically resend unknown edits into a restarted process. This adds no resize handles, new shapes, reaction/electron semantics, images, clipping, layers or graphic styles/layout. Rust0650f7a and web66eac34 source were inspected; tests/build/browser, Codex and independent fresh review, and PR CI remain pending. P36 stays in_progress; this does not complete its broader original scope. docs/verification/p36a-graphic-points.md. P36b at79434f2 adds two canvas endpoint handles only for one explicit noncoincident graphic in Select; directly selected grouped children work but groups/mixed/multiple selections have no handles. Actual inverse SVG transform respects prior pan/zoom; pointer delta retains press offset and opposite endpoint. Beyond the existing3px threshold, move is local preview only; valid release queues one existing update_graphic_points. Cancel/lost capture/blur/Escape/Fit/Reset discard preview, document/revision/selection/tool/exact-target changes invalidate the gesture and queue, and unknown edits are not automatically resent after service restart. Coincident points use the numeric form. Existing bounded coordinates/rounding, atomic Undo/history/shape/group/reference/graph retention and native v25 remain; no command/schema change or general bounding-box/group/rotation resize controls are added. P36a #204 merge pending is distinct from P36b full checks, both reviews and PR CI pending; in-progress general smoke is not a pass. P36 stays in_progress. docs/verification/p36b-graphic-endpoint-drag.md."
+   "note": "P36a is an unverified bounded candidate for update_graphic_points on an existing line/arrow/rectangle: exactly two finite document points within inclusive±100000 pt, reversed/coincident points allowed, unchanged points no-op. Shape/ID/group/parent/order/references and chemical graph/placement/stereo/settings remain intact. Shared atomic transaction/revision/replay/Undo/Redo and existing native v25 scene history apply without schema/version change. The actual Graphic endpoints form captures document/revision/target/points, rejects stale queued targets and invalid/busy/IME submissions, and does not automatically resend unknown edits into a restarted process. This adds no resize handles, new shapes, reaction/electron semantics, images, clipping, layers or graphic styles/layout. Rust0650f7a and web66eac34 source were inspected; tests/build/browser, Codex and independent fresh review, and PR CI remain pending. P36 stays in_progress; this does not complete its broader original scope. docs/verification/p36a-graphic-points.md. P36b at79434f2 adds two canvas endpoint handles only for one explicit noncoincident graphic in Select; directly selected grouped children work but groups/mixed/multiple selections have no handles. Actual inverse SVG transform respects prior pan/zoom; pointer delta retains press offset and opposite endpoint. Beyond the existing3px threshold, move is local preview only; valid release queues one existing update_graphic_points. Cancel/lost capture/blur/Escape/Fit/Reset discard preview, document/revision/selection/tool/exact-target changes invalidate the gesture and queue, and unknown edits are not automatically resent after service restart. Coincident points use the numeric form. Existing bounded coordinates/rounding, atomic Undo/history/shape/group/reference/graph retention and native v25 remain; no command/schema change or general bounding-box/group/rotation resize controls are added. P36a #204 merge pending is distinct from P36b full checks, both reviews and PR CI pending; in-progress general smoke is not a pass. P36 stays in_progress. docs/verification/p36b-graphic-endpoint-drag.md. Delivery follow-up: P36a #204 merged26962b695ab2924370aecb63f0e231485e1cda04; its separate post-merge main CI remains pending in the parent handoff. Earlier implementation-session verification wording is historical; no #204 main success or whole P36 completion is claimed."
   },
   {
    "phase": "editor",

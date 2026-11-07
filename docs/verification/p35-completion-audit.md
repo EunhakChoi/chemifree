@@ -1,14 +1,18 @@
 # P35 completion evidence audit
 
-P35 remains `in_progress` pending post-merge main CI and the parent's final
-state change. This audit now covers merged main `84ef063` (#203). Editable Et
-text (#201), explicit retained-fragment displays (#202) and fragment script runs
-(#203) have shipped with successful final-head PR `check`/`browser` CI. The
-earlier `f29195a` audit's "fixed Et only, no abbreviation text editor" conclusion
-is superseded. The evidence supports the bounded editing/storage acceptance under
-the recorded graph-preserving decision; the remaining delivery gate is post-merge
-main CI, whose success is not claimed here. This audit changes no product behavior
-and ran no tests, builds, browser checks or cargo checks.
+Bounded P35 is `done` against the unchanged roadmap editing/storage scope and
+acceptance under the recorded graph-preserving display decision. #203 merged as
+`84ef063`; final-head PR CI 42320918256 and post-merge main CI 42322504482 both
+passed `check` and `browser`. Editable Et text (#201), explicit fragment displays
+(#202) and script runs (#203) resolve the earlier fixed-Et-only gap. This does
+not complete general RENDER-01/STYLE-01 or the unsupported behaviors below.
+
+This documentation branch was rebased onto main `26962b6` (#204), preserving
+P36a graphic-point documentation. #204's post-merge main CI is still pending in
+the parent handoff; no success is claimed for that separate change. This audit
+changes no product behavior and ran no tests, builds, browser checks or cargo
+checks. Its own documentation integration/review/CI are separate from the verified
+P35 delivery evidence.
 
 The candidate/pending statements in the P35a–q and P34i implementation records,
 and their copied README/CONTRACT/HANDOFF notes, describe those implementation
@@ -53,8 +57,9 @@ and `expression` is still not implemented as those graph atom kinds: this produc
 stores separate display metadata over real atoms. That distinction remains an
 explicit compatibility boundary, not a new arbitrary atom union or parser added
 by this audit. The acceptance assessment below uses that recorded decision and
-the unchanged roadmap wording, while the parent retains the final state change
-until post-merge main CI succeeds.
+the unchanged roadmap wording. With successful post-merge main CI now recorded,
+that bounded roadmap row can be marked done without expanding its scientific or
+compatibility claims.
 
 ## Implemented acceptance evidence
 
@@ -98,9 +103,11 @@ per-atom arbitrary rich text, or universal rich-run styling/alignment for every
 label kind. Those broader unsupported behaviors remain below; it does not claim
 full legacy rendering compatibility or completion of RENDER-01/STYLE-01.
 
-Recommendation: mark bounded P35 complete only after successful post-merge main
-CI and integration checks are recorded. This commit deliberately leaves its
-status `in_progress`; it does not pre-approve an unfinished main run.
+Decision: mark bounded P35 `done`. Final-head PR CI and post-merge main CI both
+pass, and the acceptance evidence above identifies no remaining product gap
+within the approved bounded profile. This completion documentation still requires
+its own integration checks, reviews and CI; those do not turn #204 or any broader
+scientific/rendering requirement into completed work.
 
 ## Boundaries retained
 
@@ -133,7 +140,7 @@ multi-style runs remain independently implemented as above. Native v25 requires
 runs without top-level text, v24 requires text without runs and migrates every
 current/history/draft display to one baseline run; exact-byte archives precede
 replacement/recovery, and future v26 refuses untouched. These merged rules have
-passing PR CI; post-merge main CI remains separate.
+passing PR and post-merge main CI.
 
 Caption transforms/arrange/graphics
 clipboard refuse the whole unsupported request. Drawing exports report caption
@@ -195,7 +202,7 @@ fixed in `411a773`. Its off-screen browser click failure was fixed in the test.
 These dispositions come from the merged PR bodies; they are not new reviews of
 this audit draft.
 
-## #203 merged evidence and remaining main-CI gate
+## #203 merged evidence and post-merge main CI
 
 Read-only PR metadata confirms #203 merged as
 `84ef063a8f39a859b575c9fe3cdd5ce674f40397` at 2026-11-07 01:09:37 UTC.
@@ -223,11 +230,17 @@ conformance at the 15-minute limit. `e21b47b` raised that limit to 25 minutes;
 the successful final-head run supersedes the old pending snapshot, without
 turning that timeout into a pass.
 
-Post-merge main CI for `84ef063` is pending in the parent handoff and is not
-claimed successful here. Record that run's final result separately from PR CI
-before the parent promotes bounded P35 to done. Later documentation integration
-checks and this documentation PR's own review/CI remain separate gates. The
-roadmap remains `in_progress` until those required final results are reconciled.
+[Post-merge main CI run 42322504482](https://github.com/EunhakChoi/chemifree/actions/runs/42322504482)
+for `84ef063` passed both `check` and `browser`; the job results were read directly
+for this update. This is separate from final-head PR run 42320918256, not an audit
+rerun. Together with the source/acceptance and review dispositions above, it
+supports the bounded P35 `done` decision.
+
+Main `26962b6` later merged P36a through #204. Its own post-merge main CI remains
+pending in the parent handoff. P36 remains `in_progress`; neither the #203 pass
+nor this documentation-only rebase proves #204's main run successful. This
+completion documentation's own integration checks, reviews and CI also remain
+separate from already verified product delivery.
 
 ## Documentation integration checks still required
 
