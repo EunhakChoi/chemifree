@@ -314,7 +314,14 @@ export const LABEL_FONTS: readonly LabelFont[] = ['sans-serif', 'serif', 'monosp
 export const CARBON_LABELS: readonly CarbonLabels[] = ['default', 'all']
 export const DISPLAY_UNITS: readonly DisplayUnit[] = ['pt', 'mm', 'cm', 'in']
 
-export interface FragmentDisplayView { instance: string; anchor: string; members: string[]; text: string }
+export interface FragmentDisplayRun { text: string; script: 'baseline' | 'subscript' | 'superscript' }
+
+export interface FragmentDisplayView { instance: string; anchor: string; members: string[]; text: string; runs?: FragmentDisplayRun[] }
+
+/** Historical snapshots have plain text; new snapshots preserve every run boundary. */
+export function fragmentDisplayRuns(item: FragmentDisplayView): FragmentDisplayRun[] {
+  return item.runs ?? [{ text: item.text, script: 'baseline' }]
+}
 
 export interface AbbreviationView { instance: string; anchor: string; terminal: string; display_label: string }
 
@@ -711,6 +718,7 @@ export type Command =
   | { op: 'expand_ethyl'; instance: string; anchor: string }
   | { op: 'contract_fragment'; instance: string; anchor: string; members: string[]; text: string }
   | { op: 'set_fragment_display_text'; instance: string; anchor: string; text: string }
+  | { op: 'set_fragment_display_runs'; instance: string; anchor: string; runs: FragmentDisplayRun[] }
   | { op: 'expand_fragment'; instance: string; anchor: string }
   | { op: 'add_caption'; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[]; parent?: string; index?: number }
   | { op: 'update_caption'; object: string; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
@@ -1255,6 +1263,19 @@ function isAbbreviations(document: Record<string, unknown>, atoms: AtomView[], b
   return true
 }
 
+/** Nonempty scalar runs share the display label byte and single-line profile. */
+export function validFragmentDisplayRuns(value: unknown): value is FragmentDisplayRun[] {
+  if (!Array.isArray(value) || value.length === 0) return false
+  const texts: string[] = []
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.text !== 'string' || item.text.length === 0 ||
+      (item.script !== 'baseline' && item.script !== 'subscript' && item.script !== 'superscript') ||
+      /[\p{Cc}\u2028\u2029\uD800-\uDFFF]/u.test(item.text)) return false
+    texts.push(item.text)
+  }
+  return validDisplayLabel(texts.join(''))
+}
+
 /** Validate retained fragment metadata before any rendering can hide atoms. */
 function isFragmentDisplays(document: Record<string, unknown>, atoms: AtomView[], bonds: BondView[]): boolean {
   const value = document.fragment_displays
@@ -1273,6 +1294,7 @@ function isFragmentDisplays(document: Record<string, unknown>, atoms: AtomView[]
   }
   for (const item of value) {
     if (!isRecord(item) || item.instance !== placement.id || typeof item.anchor !== 'string' || !validDisplayLabel(item.text) ||
+      (item.runs !== undefined && (!validFragmentDisplayRuns(item.runs) || item.runs.map((run) => run.text).join('') !== item.text)) ||
       !Array.isArray(item.members) || item.members.length === 0 || !item.members.every((id): id is string => typeof id === 'string')) return false
     const members = new Set(item.members)
     if (members.size !== item.members.length || !members.has(item.anchor)) return false

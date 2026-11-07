@@ -17,7 +17,7 @@
  *
  * Nothing here computes chemistry: inferred hydrogens are not counted and add nothing.
  */
-import type { AtomView, CarbonLabels, DocumentSettings, LabelFont, LabelStyle as ChemicalLabelStyle, LabelWeight, QueryAtom } from '@/lib/document-contract'
+import type { FragmentDisplayRun, AtomView, CarbonLabels, DocumentSettings, LabelFont, LabelStyle as ChemicalLabelStyle, LabelWeight, QueryAtom } from '@/lib/document-contract'
 
 /** A rectangle in document points; `x`, `y` is its top-left corner. */
 export interface Box {
@@ -27,7 +27,7 @@ export interface Box {
   height: number
 }
 
-export type LabelPart = 'isotope' | 'symbol' | 'hydrogens' | 'hydrogen-count' | 'charge' | 'attachment' | 'radical'
+export type LabelPart = 'isotope' | 'symbol' | 'hydrogens' | 'hydrogen-count' | 'charge' | 'attachment' | 'radical' | 'fragment'
 
 /** One run of text within a chunk; `shift` is its vertical middle relative to the chunk's line. */
 export interface LabelRun {
@@ -632,6 +632,20 @@ export function compactLabel(text: string, style: Readonly<LabelStyle>, measured
   return {
     shadow: style.shadow, chunks: [content], marks: [], dots: [], font: style.font,
     box: { x: content.box.x - padding, y: content.box.y - padding, width: content.box.width + 2 * padding, height: content.box.height + 2 * padding },
+  }
+}
+
+/** Literal script runs follow the chemical label's existing size and shift ratios. */
+export function fragmentLabel(runs: readonly FragmentDisplayRun[], style: Readonly<LabelStyle>): AtomLabel {
+  const scale = style.size / LABEL_SIZE
+  const parts = runs.map((item) => run(item.text,
+    item.script === 'baseline' ? style.size : SMALL_SIZE * scale,
+    item.script === 'subscript' ? 4 * scale : item.script === 'superscript' ? -5 * scale : 0,
+    'fragment', style.weight === 'bold' ? 700 : 500, style.style, style.outline))
+  const content = chunk(style.font, 'text', 'middle', 0, 0, parts, style.metrics, 1, style.underline, style.shadow, true)
+  return {
+    shadow: style.shadow, chunks: [content], marks: [], dots: [], font: style.font,
+    box: { x: content.box.x - scale, y: content.box.y - scale, width: content.box.width + 2 * scale, height: content.box.height + 2 * scale },
   }
 }
 

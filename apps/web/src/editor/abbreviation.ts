@@ -1,15 +1,15 @@
 /** Presentation of retained graphs; this projection never becomes document state. */
-import type { AbbreviationView, DocumentView } from '@/lib/document-contract'
+import { fragmentDisplayRuns, type FragmentDisplayRun, type AbbreviationView, type DocumentView } from '@/lib/document-contract'
 import { compactLabel, type AtomLabel, type LabelStyle } from '@/editor/label'
 
 export function abbreviationsIn(document: DocumentView, instance: string | null): AbbreviationView[] {
   return (document.abbreviations ?? []).filter((item) => item.instance === instance)
 }
 
-export function compactDisplaysIn(document: DocumentView, instance: string | null): Array<{ anchor: string; members: string[]; text: string; ethyl: boolean }> {
+export function compactDisplaysIn(document: DocumentView, instance: string | null): Array<{ anchor: string; members: string[]; text: string; ethyl: boolean; runs?: FragmentDisplayRun[] }> {
   return [
     ...abbreviationsIn(document, instance).map((item) => ({ anchor: item.anchor, members: [item.anchor, item.terminal], text: item.display_label, ethyl: true })),
-    ...(document.fragment_displays ?? []).filter((item) => item.instance === instance).map((item) => ({ anchor: item.anchor, members: item.members, text: item.text, ethyl: false })),
+    ...(document.fragment_displays ?? []).filter((item) => item.instance === instance).map((item) => ({ anchor: item.anchor, members: item.members, text: item.text, ethyl: false, runs: fragmentDisplayRuns(item) })),
   ]
 }
 
