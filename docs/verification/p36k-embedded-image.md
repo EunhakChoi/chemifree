@@ -1,12 +1,13 @@
 # P36k embedded PNG image candidate
 
 This record describes the evolving P36k source and its bounded contract. The
-documentation pass inspected source and consulted the Rust/web owners; it ran no
-product tests, builds or browser checks. Compilation corrections and authored
-checks are still in progress. Rust/frontend execution, mutations, full isolated
-validation, independent/Codex review and PR/main CI are pending. No pass count,
-merged delivery or renderer/format equivalence is claimed. P36 stays
-`in_progress`; earlier P36 slice results are not P36k evidence.
+documentation pass inspected source, consulted the Rust/web owners and directly
+read the five execution logs listed below; it ran no product tests, builds or
+browser checks. Focused execution passed, but independent review of `eb40cfa`
+found a P2 history-replay pixel-limit bypass. Its fix and regression verification
+remain pending. Full integrated validation, Codex review and PR/main CI remain
+pending; no merged delivery, latest-head full pass or renderer/format equivalence
+is claimed. P36 stays `in_progress`; earlier slice results are not P36k evidence.
 
 ## Implemented source boundary
 
@@ -42,7 +43,8 @@ The encoded bytes remain immutable and can be shared by geometry/history states.
 
 Canonical padded base64, every chunk CRC, complete compressed row data and PNG
 decode, and IEND/EOF must validate. Only IHDR/IDAT/IEND and valid pre-IDAT
-sRGB/gAMA/pHYs metadata are admitted. APNG, palette/grayscale/16-bit/interlaced
+sRGB/gAMA/pHYs metadata are admitted. Coexisting sRGB/gAMA requires gAMA 45455
+regardless of chunk order. APNG, palette/grayscale/16-bit/interlaced
 profiles, ICC/text or unknown chunks, truncation and trailing bytes are refused.
 No metadata-to-physical-size conversion or color-equivalence guarantee is made.
 
@@ -73,14 +75,31 @@ exports report omitted scene rendering under existing loss rules.
 
 ## Verification status and handoff
 
-At documentation time the Rust owner reported first-pass source and five PNG
-validation tests authored, with exhaustive-match/clippy corrections in progress;
-that is not a compile or test pass. The web owner is implementing client/browser
-coverage. The existing native/version fixtures were adjusted separately in
-`a9c49f2`; that commit alone establishes no executed result.
+The following logs were read directly under `/tmp/chemifree-work/`. Counts refer
+to the commands actually logged, not complete workspace coverage. The logs do
+not embed a source SHA for every command; the web owner identifies the final
+image browser's backend as `eb40cfa`, with web source/test commits `691a03f` and
+`69f35eb`. These results precede the outstanding replay-limit correction and
+cannot establish its behavior.
 
-All execution results and review dispositions remain pending until actual logs
-and exact tested/reviewed commits are supplied. The parent owns final integrated
-validation under the shared 6 GiB sandbox lock. This documentation adds no new
-feature authorization: the user requested stopping after this image slice is
-finished, so further feature work needs a new request.
+| Log | Confirmed result and scope |
+| --- | --- |
+| `p36k-rust-final.log` | Workspace/all-targets clippy with warnings denied passed. There were 73 distinct focused tests: image API1/application4/CLI1/domain6; provider image_format5/png_image6; operations11; domain caption_budget5/polygon6/scene23/spline5. Six intentional mutations were detected: full raster validation, exact zlib, current pixels, history pixels, native29 image admission and immutable discarded history. The restored image/provider group of 23 tests passed again. Final sandbox exit0. These are focused tests, not the full workspace test suite or proof against the later review finding. |
+| `p36k-web-gate.log` | Lint with zero-warning policy, typecheck, the complete registered client command (including image7/7) and production web build passed; sandbox exit0. The build retained its large-chunk warning. |
+| `p36k-web-browser-3.log` | Image, scene-order, native clipboard integration, graphic-point editing, graphic creation and general smoke browsers passed; sandbox exit0. General smoke recorded no skipped steps and no uncaught browser errors. This run preceded the final color-metadata browser extension. |
+| `p36k-image-final.log` | Three intentional client mutations were detected: reading an oversized file, accepting an oversized IHDR and doubling the current pixel budget. Restored image client7/7 and the image browser passed; sandbox exit0. The owner identifies this browser as covering both sRGB/gAMA mismatch orders and ordinary graphic Copy when an image is present but unselected. |
+| `p36k-ts-skill-gate.log` | Helper lint and types passed. Format failed because npm returned `ENOTCACHED`; helper exit1. No successful formatter result is claimed. |
+
+Independent review of `eb40cfa` found P2: image pixel limits could be bypassed
+through history replay. The responsible owner is correcting the shared guard and
+adding regression coverage. Fix disposition and regression execution remain
+pending; earlier pixel-budget tests and mutations did not close this path. The
+limits stated above describe the intended contract while this finding is open.
+There is no claim that review passed without findings or that a newer fix has
+passed merely because the earlier focused commands did.
+
+The parent owns final integrated validation under the shared 6 GiB sandbox lock.
+Codex review, full integrated checks and CI remain pending. The existing native
+fixture commit `a9c49f2` alone supplies no execution evidence. This documentation
+adds no new feature authorization: the user requested stopping after this image
+slice is finished, so further feature work needs a new request.

@@ -548,6 +548,10 @@ rotation/reflection and image clipboard copying are refused. There is no URL
 fetching, OCR or image-to-chemistry conversion. Native30 stores image objects;
 older headers forbid them, including history-only states. Scientific graphs stay
 unchanged and external exports report omitted scene rendering. P36 remains
-`in_progress`; source and checks are still being completed, with execution,
-reviews and CI pending. This is not general image-format or renderer parity.
+`in_progress`. Focused Rust clippy/tests and mutations, web lint/typecheck/client/
+build and image/regression browsers passed in the recorded runs. Independent
+review of `eb40cfa` found a P2: image pixel limits could be bypassed through
+history replay. Its fix and regression validation are pending, as are full
+integrated validation, Codex review and CI. These focused passes do not close
+that finding or establish general image-format or renderer parity.
 See [P36k record](docs/verification/p36k-embedded-image.md).

@@ -647,6 +647,7 @@ It checks canonical padded base64, signature, chunk structure and every CRC,
 IHDR/profile/dimensions, the exact zlib row-byte count/checksum/end position, a
 complete PNG frame decode, final empty IEND and EOF. The bounded chunk whitelist
 is IHDR/IDAT/IEND plus valid, unrepeated pre-IDAT sRGB/gAMA/pHYs scalar metadata.
+When sRGB and gAMA both occur, gAMA must be 45455 regardless of chunk order.
 Unknown chunks, palette/grayscale/16-bit/interlaced profiles, ICC/text metadata,
 APNG controls anywhere in the file, truncation and trailing data are refused.
 Original verified PNG bytes are retained; no re-encoding or color-equivalence
@@ -699,8 +700,12 @@ the captured image identity/source and rejects stale/no-op edits. Existing
 uncertain-outcome reconciliation applies without automatic replay into a new
 process. URLs, JPEG/GIF/SVG, raster replacement, crop, rotation/reflection,
 interactive resize handles, image clipboard transport, OCR and image-to-graph
-conversion remain unsupported. Source/check implementation, execution, reviews
-and CI remain pending as detailed in the [P36k record](verification/p36k-embedded-image.md).
+conversion remain unsupported. Focused Rust/web execution and mutations are
+recorded in the [P36k record](verification/p36k-embedded-image.md). Independent
+review of `eb40cfa` found that history replay could bypass image pixel limits;
+the fix and regression verification remain pending. The pixel limits above are
+the intended contract, not a claim that every replayed state already enforces
+them. Full integrated validation, Codex review and CI remain pending.
 
 ## Single open cubic spline profile (P36j candidate)
 

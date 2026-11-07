@@ -1,5 +1,13 @@
 # Chemifree 새 세션 인계
 
+## P36k embedded PNG 이미지 후보 (P2 수정·통합 검증 대기)
+
+- 로컬 static/noninterlaced RGB/RGBA8 PNG를 명시 origin/positive size(pt)로 삽입한다. source128KiB, edge2048, image1,048,576px, current occurrence4,194,304px, unique history67,108,864px 정책이다. canonical base64·모든 chunkCRC·exact zlib·완전 decode·IEND/EOF를 검사하며 sRGB/gAMA/pHYs만 추가 허용한다. sRGB/gAMA 동시 존재 시 두 순서 모두 gAMA45455여야 한다. URL/OCR/chemical recognition은 없다.
+- image는 immutable bytes+axis-aligned rectangle다. transparent pixels 포함 전체 rectangle hit/Fit/marquee/arrangement, aspect ratio 자유, move/group/order/ref/delete/geometry/Undo/persistence 경로를 쓴다. angle0 포함 rotation/reflection은 image_unsupported, image subtree Copy/Cut 준비는 image_clipboard_unsupported로 전체 거절한다. 외부 구조 export는 graph를 유지하고 scene rendering loss를 보고한다.
+- native30 current/history/draft, old1–29 image 금지·future31, exact old byte archive와 shared48MiB/8MiB/physical64MiB 정책이다. 이미지 pixel 제한의 **이력 replay 우회 P2**가 독립 리뷰 `eb40cfa`에서 발견됐다. 담당자가 공통 guard 수정·회귀 검증 중이며 아직 pending이다. 정책이 모든 replay 상태에서 보장됐다고 주장하지 않는다.
+- 문서 agent가 `/tmp/chemifree-work/p36k-rust-final.log`, `p36k-web-gate.log`, `p36k-web-browser-3.log`, `p36k-image-final.log`, `p36k-ts-skill-gate.log`를 직접 읽었다. Rust clippy/집중73건·6 mutations 검출·복원 image/provider23건, web lint/typecheck/client/build, image·order·clipboard integration·endpoint·creation·general browsers, web3 mutations 검출·복원 client7/7 및 최종 image browser가 로그상 통과했다. TS helper lint/types PASS이나 formatter는 ENOTCACHED로 실패(exit1)하여 통과 주장이 없다. 이 결과는 P2 수정 전 범위이며 최신 fix 검증·full·Codex review·CI는 pending이다. [P36k 기록](verification/p36k-embedded-image.md).
+- P36은 in_progress다. 사용자 요청에 따라 **P36k 이미지 기능 마무리 후 중단**한다. 이 기능의 수정·검증·리뷰 마무리 외 새 기능/다음 P36 slice는 시작하지 않으며 별도 요청이 필요하다.
+
 ## P36j single open cubic spline 후보 (검사 대기)
 
 - 정확히 P0,C1,C2,P3 순서의 open stroke-only cubic1개다. P0/P3 endpoints·C1/C2 explicit controls이며 interpolation/fit/closing point를 추론하지 않는다. finite±100000pt·repeated/degenerate 그대로, SVG M…C…·fill/head/close 없음이다. single4/open profile은 공개 명세의 일반 spline이 아닌 Chemifree bounded 선택이다.
