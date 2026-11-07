@@ -527,22 +527,9 @@ fn recorded_stereo(
         .collect();
     let mut turns = vec![None; plans.len()];
     let mut retained = BTreeMap::new();
-    let mut requests = Vec::new();
     let mut losses = Vec::new();
     for (key, state) in graph.stereo().iter() {
-        if let (StereoKey::DoubleBond(bond), StereoState::DoubleBond(state)) = (key, state) {
-            match link_of_bond.get(&bond) {
-                Some(&link) => requests.push(Request {
-                    bond,
-                    link,
-                    state: *state,
-                }),
-                None => losses.push(stereo_loss(
-                    "stereo_configuration",
-                    format!("bonds[{bond}]"),
-                    "This double-bond configuration belongs to a bond that is not in the drawing.",
-                )),
-            }
+        if let (StereoKey::DoubleBond(_), StereoState::DoubleBond(_)) = (key, state) {
             continue;
         }
         let supported = match (key, state) {
@@ -597,6 +584,8 @@ fn recorded_stereo(
                 "This configuration is not a supported tetrahedral center; unknown and lone-pair configurations are not written."));
         }
     }
+    let (requests, double_bond_losses) = double_bond_requests(graph.stereo().iter(), &link_of_bond);
+    losses.extend(double_bond_losses);
     if plans.len() + links.len() + retained.len() > MAX_COMMANDS {
         return Err(fail(SmilesCode::CommandLimit));
     }
@@ -758,6 +747,37 @@ fn recorded_stereo(
     }
     rendered.parsed = parsed;
     Ok((rendered, losses))
+}
+
+/// The double-bond configurations among `records` as placement requests, and a loss for each
+/// configuration of a bond the drawing does not have. The requests are in bond-identifier order:
+/// placement is greedy in the order of the requests and the bond identifiers decide which of two
+/// conflicting configurations is kept, so the order does not depend on the order of `records`.
+fn double_bond_requests<'a>(
+    records: impl IntoIterator<Item = (StereoKey, &'a StereoState)>,
+    link_of_bond: &HashMap<BondId, usize>,
+) -> (Vec<Request>, Vec<Loss>) {
+    let mut requests = Vec::new();
+    let mut losses = Vec::new();
+    for (key, state) in records {
+        let (StereoKey::DoubleBond(bond), StereoState::DoubleBond(state)) = (key, state) else {
+            continue;
+        };
+        match link_of_bond.get(&bond) {
+            Some(&link) => requests.push(Request {
+                bond,
+                link,
+                state: *state,
+            }),
+            None => losses.push(stereo_loss(
+                "stereo_configuration",
+                format!("bonds[{bond}]"),
+                "This double-bond configuration belongs to a bond that is not in the drawing.",
+            )),
+        }
+    }
+    requests.sort_by_key(|request| request.bond);
+    (requests, losses)
 }
 
 /// Places the directional bonds of `requests` on the text `rendered`, judging each end and ring
@@ -1072,14 +1092,16 @@ mod tests {
         }
     }
 
-    /// `CC=CC=CC` as a drawing in which only the first double bond (b2) is stored, trans.
-    fn one_configured_bond() -> MoleculeGraph {
+    /// `text` as a drawing in which the double bonds listed are stored trans. Each entry is
+    /// `(index, begin, end)`: the bond's position among the text's bonds, counted from zero, and
+    /// the text atoms, counted from zero, that its two ends are configured against.
+    fn drawing_with_trans_bonds(text: &str, stored: &[(usize, usize, usize)]) -> MoleculeGraph {
         use chemifree_domain::document::{
             AtomRef, BondRef, Command, Document, DocumentId, NewAtomPositions, Point,
         };
         use chemifree_domain::stereo::{BondConfiguration, Relation, SlotRef};
 
-        let read = reader::parse("CC=CC=CC").unwrap().read;
+        let read = reader::parse(text).unwrap().read;
         let id = |index: usize| AtomRef::Id(AtomId::from_serial(index as u32 + 1).unwrap());
         let mut commands: Vec<Command> = read
             .atoms
@@ -1095,17 +1117,26 @@ mod tests {
             end: id(bond.end),
             order: bond.order.clone(),
         }));
-        commands.push(Command::SetBondConfiguration {
-            bond: BondRef::Created(read.atoms.len() + 1),
-            configuration: Some(BondConfiguration::Relative {
-                begin_neighbor: SlotRef::Atom(id(0)),
-                end_neighbor: SlotRef::Atom(id(3)),
-                relation: Relation::OppositeSides,
-            }),
-        });
+        commands.extend(
+            stored
+                .iter()
+                .map(|&(index, begin, end)| Command::SetBondConfiguration {
+                    bond: BondRef::Created(read.atoms.len() + index),
+                    configuration: Some(BondConfiguration::Relative {
+                        begin_neighbor: SlotRef::Atom(id(begin)),
+                        end_neighbor: SlotRef::Atom(id(end)),
+                        relation: Relation::OppositeSides,
+                    }),
+                }),
+        );
         let mut document = Document::new(DocumentId::parse("readback").unwrap(), "R").unwrap();
         document.apply(&commands).unwrap();
         MoleculeGraph::from_document(&document)
+    }
+
+    /// `CC=CC=CC` as a drawing in which only the first double bond (b2) is stored, trans.
+    fn one_configured_bond() -> MoleculeGraph {
+        drawing_with_trans_bonds("CC=CC=CC", &[(1, 0, 3)])
     }
 
     fn refused_reason(place: impl Fn(&Marking<'_>) -> Placement) -> (SmilesCode, String) {
@@ -1159,6 +1190,67 @@ mod tests {
         });
         assert_eq!(code, SmilesCode::ReadbackMismatch);
         assert!(reason.contains("double-bond configuration"), "{reason}");
+    }
+
+    #[test]
+    fn a_configuration_on_a_bond_that_is_not_double_is_left_out_with_a_loss() {
+        // A drawing never stores a configuration on a bond that is not double, but a graph copy
+        // can have a bond order changed after it was taken: the stored b2 becomes single here.
+        let mut graph = one_configured_bond();
+        let configured = BondId::from_serial(2).unwrap();
+        for (bond, data) in graph.bonds_mut() {
+            if bond == configured {
+                data.order = BondOrder::Single;
+            }
+        }
+        let written = recorded(
+            &graph,
+            &StereoGroupTable::default(),
+            double_bond_write::place,
+        )
+        .expect("a configuration on a bond that is not double is left out, not refused");
+        assert_eq!(written.text, "CCCC=CC");
+        let consent: Vec<(&str, &str)> = written
+            .losses
+            .iter()
+            .filter(|loss| loss.consent == LossConsent::Required)
+            .map(|loss| (loss.feature.as_str(), loss.source_path.as_str()))
+            .collect();
+        assert_eq!(consent, [("stereo_configuration", "bonds[b2]")]);
+        assert!(
+            written.losses.iter().any(|loss| loss
+                .reason
+                .contains("the bond is not a double bond in the written text")),
+            "{:?}",
+            written.losses
+        );
+    }
+
+    #[test]
+    fn requests_are_in_bond_identifier_order_whatever_order_the_records_come_in() {
+        // Three stored double bonds, b2, b4 and b6, all trans.
+        let graph = drawing_with_trans_bonds("CC=CC=CC=CC", &[(1, 0, 3), (3, 2, 5), (5, 4, 7)]);
+        let link_of_bond: HashMap<BondId, usize> = graph
+            .bonds()
+            .enumerate()
+            .map(|(link, (bond, _))| (bond, link))
+            .collect();
+        let records: Vec<(StereoKey, &StereoState)> = graph.stereo().iter().collect();
+        assert_eq!(records.len(), 3, "each stored configuration is one record");
+        let serials = |requests: &[Request]| -> Vec<u32> {
+            requests
+                .iter()
+                .map(|request| request.bond.serial())
+                .collect()
+        };
+        let (in_order, _) = double_bond_requests(records.iter().copied(), &link_of_bond);
+        let (reversed, _) = double_bond_requests(records.iter().rev().copied(), &link_of_bond);
+        assert_eq!(serials(&in_order), [2, 4, 6]);
+        assert_eq!(
+            serials(&reversed),
+            [2, 4, 6],
+            "the records given in reverse order"
+        );
     }
 
     #[test]

@@ -21,9 +21,9 @@
 //!   contradict marks already placed, or when they would also state something else: a double
 //!   bond that is marked at both ends is read as configured, so it must be a configuration that
 //!   is stored, not yet omitted, and agrees with the marks.
-//! - Also omitted: an unknown state, and whatever the reader would refuse (a cumulated bond, an
-//!   end it does not read, a ring of fewer than eight atoms: [`Topology::write_fault`]), and an
-//!   end with no neighbour that a mark can sit on.
+//! - Also omitted: an unknown state, a bond that is not double in the written text, whatever the
+//!   reader would refuse (a cumulated bond, an end it does not read, a ring of fewer than eight
+//!   atoms: [`Topology::write_fault`]), and an end with no neighbour that a mark can sit on.
 //!
 //! The result is never trusted: the writer reads the finished text back and requires exactly
 //! the retained configurations.
@@ -252,6 +252,9 @@ impl Placer<'_> {
     /// Why the request cannot be written whatever else is written, when it cannot.
     fn screen(&self, index: usize) -> Result<(), String> {
         let request = &self.input.requests[index];
+        if self.input.links[request.link].order != BondOrder::Double {
+            return Err("the bond is not a double bond in the written text".into());
+        }
         let DoubleBondState::Relative {
             begin_ref, end_ref, ..
         } = request.state
@@ -331,7 +334,9 @@ impl Placer<'_> {
     fn attempt(&mut self, index: usize) -> Result<(), String> {
         let request = &self.input.requests[index];
         let link = &self.input.links[request.link];
-        // The end written first states its side first; the order is only for determinism.
+        // The ends are taken in the order the text reaches them. Where nothing fixes the sides,
+        // the first end chooses them (see below), so the choice follows the text, not the end the
+        // drawing names as the bond's begin.
         let mut ends = [(link.begin, link.end), (link.end, link.begin)];
         ends.sort_by_key(|&(atom, _)| self.input.position[atom]);
         let [(first, first_partner), (second, second_partner)] = ends;
@@ -369,7 +374,10 @@ impl Placer<'_> {
                 (Some(one), None) => (one, follows(one, wanted)),
                 (None, Some(other)) => (follows(other, wanted), other),
                 (None, None) => {
-                    // Nothing fixes the sides: the first mark in the text is a `/`.
+                    // Nothing fixes the sides yet, so the first end's neighbour is put on
+                    // `Side::Up` when the text writes it after that end and on `Side::Down` when
+                    // before. That writes the mark on the bond between them as `/`; the other
+                    // choice states the same configuration with both of its marks reversed.
                     let one = if self.input.position[first] < self.input.position[first_neighbor] {
                         Side::Up
                     } else {
