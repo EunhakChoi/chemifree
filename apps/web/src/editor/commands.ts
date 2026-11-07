@@ -49,6 +49,7 @@ function referencedIds(command: Command): string[] {
     case 'move_instance':
     case 'delete_instance':
       return [command.instance]
+    case 'update_graphic_points':
     case 'update_caption':
       return [command.object]
     case 'add_caption':

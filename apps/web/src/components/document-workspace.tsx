@@ -1,3 +1,4 @@
+import { GraphicPointsPanel } from '@/components/graphic-points-panel'
 import { FragmentDisplayPanel } from '@/components/fragment-display-panel'
 import { AbbreviationPanel } from '@/components/abbreviation-panel'
 import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react'
@@ -1402,6 +1403,7 @@ function SceneControls({ document, editor, activePlacement }: { document: Docume
           <Button key={shape} size="sm" variant="outline" onClick={() => add(shape)}>Add {shape}</Button>
         ))}
       </div>
+      <GraphicPointsPanel document={document} editor={editor} />
       <Button size="sm" variant="outline" disabled={!link || Boolean(alreadyLinked)} onClick={() => {
         if (link) void editor.apply((latest) => stillApplicable([{ op: 'add_reference', ...link }], latest))
       }}>Add reference</Button>

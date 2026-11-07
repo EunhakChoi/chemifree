@@ -93,6 +93,8 @@ jobs:
         run: npm run test:browser:clipboard-integration
       - name: Et display, hidden hit, whole-pair movement and native roundtrip
         run: npm run test:browser:abbreviation
+      - name: Graphic endpoint form, retained scene structure and native roundtrip
+        run: npm run test:browser:graphic-points
       - name: Retained fragment display, Unicode geometry and native roundtrip
         run: npm run test:browser:fragment-display
       - name: Custom display text and measured Unicode ink
