@@ -708,7 +708,17 @@ and replayed state. A regression rejects both undo- and redo-only over-limit
 states without rewriting the native bytes. Follow-up clippy and 52 focused tests
 passed. Codex review of `5ea2107` in
 [PR #216](https://github.com/EunhakChoi/chemifree/pull/216) completed without
-findings; full integrated validation and CI remain pending.
+findings. #216 merged as `7bec5ea`. A later Codex review of `f69f8de` left one
+unresolved P2: an image ordered before a molecule instance is drawn after the
+global chemical label-shadow group and can cover that instance's shadow; this is
+a known limitation, not a fix. The merge commit's main CI run 42350215647 failed
+in a spline cancellation browser test; #217 (`4198438`) fixed the test and main
+run 42353217355 succeeded. A caption-shadow pixel check failed once in #217's CI
+and passed on rerun; its cause is not determined. The closing record is in the
+[P36k record](verification/p36k-embedded-image.md#merge-and-main-ci-closing-record).
+P36a–k are all merged (#204, #206–#208, #210–#216) while P36 stays `in_progress`;
+earlier per-slice "pending" notes in this section are historical, and no further
+P36 slice starts without an explicit request.
 
 ## Single open cubic spline profile (P36j candidate)
 
@@ -1042,7 +1052,7 @@ adds polygon admission to the P36d width/P36h ellipse profiles. Existing externa
 The historical P36c slice added no shapes beyond line/arrow/rectangle, curve/electron/reaction-arrow
 semantics, images, clipping, layers, style controls, automatic layout or group
 insertion gesture. P36 stays `in_progress`. P36c #207 merged as `afe6410`; its
-post-merge main run42329036170 is pending separately from P36d web/full/review/CI.
+post-merge main run42329036170 failed in the browser job and #209 followed.
 Implementation-session execution notes remain historical.
 Creation-preview, endpoint-preview and ordinary-movement return-path defects were
 reproduced and fixed during review follow-up; their separate commits and added
@@ -1095,9 +1105,9 @@ loss, rather than claiming styled-graphic roundtrip. Colours, dashes, fills,
 arrowhead controls, broader shapes/layout and scientific arrow meaning remain
 outside this slice. P36 stays `in_progress`. The parent reports 27 targeted Rust
 tests passed for `e6e3b45`; this documentation work reran none. Web/full checks,
-reviews and PR CI remain pending. Preceding P36c #207 merged as `afe6410`, with
+reviews and PR CI remain pending. Preceding P36c #207 merged as `afe6410`; its
 [post-merge main run42329036170](https://github.com/EunhakChoi/chemifree/actions/runs/42329036170)
-pending separately. See [the P36d record](verification/p36d-graphic-line-width.md).
+failed in the browser job and #209 followed. See [the P36d record](verification/p36d-graphic-line-width.md).
 
 ### Styled graphic forest clipboard (P36e candidate)
 

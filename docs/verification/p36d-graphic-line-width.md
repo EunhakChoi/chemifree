@@ -90,7 +90,7 @@ the list above is broader intended regression scope and is not a count of that
 run. Web/full results, Codex/independent review findings/dispositions and current
 PR CI remain pending. Preceding P36c #207 merged `afe6410`; its
 [post-merge main run42329036170](https://github.com/EunhakChoi/chemifree/actions/runs/42329036170)
-is pending separately in the parent handoff. This documentation work reran no
+later completed with failure in the browser job (checked with `gh run list`); #209 followed. P36d itself merged as #208 (`53e7437`) with successful main run 42333431290. This documentation work reran no
 product tests/builds/browser checks and claims neither P36d merge nor full P36
 completion. Colour/dash/fill/arrowhead controls, general graphic styles/images,
 clipping/layers/layout and external equivalence remain outside this slice.

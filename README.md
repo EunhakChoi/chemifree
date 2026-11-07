@@ -1,6 +1,6 @@
 # Chemifree
 
-Bounded P35 is done against the roadmap editing/storage scope under the approved graph-preserving display decision: captions, typed atom labels and editable Et/fragment text/script runs have documented acceptance evidence. #203 merged84ef063; final-head PR CI42320918256 and post-merge main CI42322504482 passed check/browser. General scientific/rendering requirements and unsupported arbitrary atom rich text, dictionaries/parsers and external caption/display roundtrip remain incomplete. Later implementation-session pending notes are historical; see the [completion audit](docs/verification/p35-completion-audit.md) for exact source, CI and review dispositions. P36a #204 is merged26962b6, with its separate main CI still pending and P36 in progress; this completion documentation has its own integration/review/CI gates.
+Bounded P35 is done against the roadmap editing/storage scope under the approved graph-preserving display decision: captions, typed atom labels and editable Et/fragment text/script runs have documented acceptance evidence. #203 merged84ef063; final-head PR CI42320918256 and post-merge main CI42322504482 passed check/browser. General scientific/rendering requirements and unsupported arbitrary atom rich text, dictionaries/parsers and external caption/display roundtrip remain incomplete. Later implementation-session pending notes are historical; see the [completion audit](docs/verification/p35-completion-audit.md) for exact source, CI and review dispositions. P36a #204 is merged26962b6 (its main CI run 42323974348 succeeded) and P36 remains in progress; P36a–k are merged through #216/#217, see the [P36 status in the handoff](docs/HANDOFF.ko.md); this completion documentation has its own integration/review/CI gates.
 
 
 An independently authored, open-source chemical drawing workspace for humans and agents.
@@ -424,8 +424,8 @@ or chemistry changes. Pan/zoom coordinates, cancellation and captured document,
 revision, shape and service guards keep stale previews from silently committing
 or replaying after restart. Native v25 and existing graphic/format limits remain;
 no new shapes, styles, layers or scientific arrow semantics are added. P36 stays
-`in_progress`. Preceding #206 is merged with passing PR CI42324595907; its
-post-merge main run42325796411 is pending separately from P36c full checks/reviews/CI.
+`in_progress`. Preceding #206 is merged with passing PR CI42324595907 and
+successful post-merge main run42325796411.
 See [P36c record](docs/verification/p36c-graphic-creation.md).
 
 P36d adds candidate per-graphic `line_width_pt`: an explicit finite0.1–10 pt
@@ -438,7 +438,7 @@ archives. P36d initially refused explicit widths in v2; P36e adds a v3 graphics 
 that preserves them. Resetting to document width remains an explicit choice that
 may change appearance, not a Copy/Cut prerequisite. P36 stays `in_progress`.
 The parent reports27 targeted Rust cases passed at e6e3b45; web/full/reviews/CI
-remain pending. Preceding #207 merged afe6410, with main run42329036170 pending.
+remain pending. Preceding #207 merged afe6410; its main run42329036170 failed in the browser job and #209 followed.
 See [P36d record](docs/verification/p36d-graphic-line-width.md).
 
 P36e adds a candidate styled-graphics clipboard profile: all-inherited forests
@@ -554,6 +554,13 @@ review of `eb40cfa` found a P2: image pixel limits could be bypassed through
 history replay. The shared replay-state guard and a regression now address that
 finding; follow-up clippy and 52 focused tests passed. Codex review of
 `5ea2107` in [PR #216](https://github.com/EunhakChoi/chemifree/pull/216) completed
-without findings. Full integrated validation and CI remain pending. These focused
-passes do not establish general image-format or renderer parity.
+without findings. #216 merged as `7bec5ea`; a later Codex review of `f69f8de` left
+an unresolved P2 (an image ordered before a molecule instance can cover that
+instance's label shadow), recorded as a known limitation. The merge commit's main
+CI run 42350215647 failed in a spline cancellation browser test; follow-up #217
+(`4198438`) fixed the test and main run 42353217355 succeeded. A caption-shadow
+pixel check also failed once in #217's CI and passed on rerun; its cause is not
+determined. P36 stays `in_progress` and stops here: no further P36 slice starts
+without an explicit request. These focused passes do not establish general
+image-format or renderer parity.
 See [P36k record](docs/verification/p36k-embedded-image.md).
