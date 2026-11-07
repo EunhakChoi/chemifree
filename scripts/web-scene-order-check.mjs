@@ -180,7 +180,7 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   stage='nontrivial root and group order survives native save/restart and paints in that order'
   await selected('Select root group',['s11']);await move('First','s11',0);await selected('Select child arrow',['s6']);await move('First','s6',0)
   await button('Save order').click();await page.waitForFunction(()=>JSON.parse(document.querySelector('[aria-label="Order snapshot"]').textContent).session.unsaved_changes===false)
-  const saved=(await snapshot()).document;assert.equal(JSON.parse(readFileSync(join(work,'documents',id+'.json'),'utf8')).format_version,27)
+  const saved=(await snapshot()).document;assert.equal(JSON.parse(readFileSync(join(work,'documents',id+'.json'),'utf8')).format_version,28)
   const exited=once(api,'exit');api.kill('SIGTERM');await exited
   api=spawn(resolve(metadata.target_directory,'debug',process.platform==='win32'?'chemifree-api.exe':'chemifree-api'),['--port',new URL(base).port],{env,stdio:['ignore','ignore','pipe']})
   await new Promise((ready,reject)=>{const timer=setTimeout(()=>reject(new Error('Replacement API did not start')),15000);api.once('error',(error)=>{clearTimeout(timer);reject(error)});api.stderr.on('data',(data)=>{const line=data.toString();log+=line;if(line.includes('listening on ')){clearTimeout(timer);ready()}})})

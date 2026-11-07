@@ -64,7 +64,7 @@ export function sceneOnlySelection(document: DocumentView, selected: ReadonlySet
   return new Set(document.scene?.objects?.filter((object) => selected.has(object.id)).map((object) => object.id) ?? [])
 }
 
-/** Inclusive containment of active-placement atom centers and complete two-point graphic geometry. */
+/** Inclusive containment of active-placement atom centers and complete graphic vertex geometry. */
 export function marqueeSelection(document: DocumentView, instance: string | null, start: Position, end: Position, pressed: ReadonlySet<string>, additive: boolean, dragged: boolean): Set<string> {
   const selected = additive ? new Set(pressed) : new Set<string>()
   if (!dragged) return selected

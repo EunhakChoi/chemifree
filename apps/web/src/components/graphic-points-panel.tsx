@@ -1,9 +1,10 @@
+import { PolygonVerticesForm } from '@/components/polygon-vertices-form'
 import { useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { graphicLineWidth, graphicLineWidthCommands, parseGraphicLineWidth } from '@/editor/graphic-line-width'
-import { graphicPointsCommands, parseGraphicCoordinate, type GraphicObject } from '@/editor/graphic-points'
+import { graphicPointsCommands, parseGraphicCoordinate, type GraphicObject, type TwoPointGraphicObject } from '@/editor/graphic-points'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import { settingsOf, type DocumentView, type Position } from '@/lib/document-contract'
 
@@ -14,14 +15,14 @@ export function GraphicPointsPanel({ document, editor }: { document: DocumentVie
   return <section aria-label="Graphic endpoints" className="flex flex-col gap-2">
     {graphic
       ? <div key={`${document.id}:${JSON.stringify(graphic)}`} className="flex flex-col gap-3">
-          <GraphicPointsForm document={document} graphic={graphic} editor={editor} />
+          {graphic.shape === 'polygon' ? <PolygonVerticesForm document={document} graphic={graphic} editor={editor} /> : <GraphicPointsForm document={document} graphic={graphic} editor={editor} />}
           {editor.selection.size === 1 && <GraphicLineWidthForm document={document} graphic={graphic} editor={editor} />}
         </div>
-      : <p className="text-xs text-muted-foreground">Select one line, arrow, rectangle or ellipse to edit its endpoints and line width.</p>}
+      : <p className="text-xs text-muted-foreground">Select one graphic to edit its points and line width.</p>}
   </section>
 }
 
-function GraphicPointsForm({ document, graphic, editor }: { document: DocumentView; graphic: GraphicObject; editor: DocumentEditor }) {
+function GraphicPointsForm({ document, graphic, editor }: { document: DocumentView; graphic: TwoPointGraphicObject; editor: DocumentEditor }) {
   const id = useId()
   const [values, setValues] = useState(() => graphic.points.flatMap((point) => [String(point.x), String(point.y)]))
   const [composing, setComposing] = useState(false)

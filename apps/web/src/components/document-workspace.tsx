@@ -122,6 +122,7 @@ import {
   type DocumentSummary,
   type DocumentView,
   type GraphicShape,
+  type SceneGraphicShape,
   type InstanceView,
   type RingSize,
   type RingPattern,
@@ -581,7 +582,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [tool, setTool] = useState<Tool>('bond')
   const [element, setElement] = useState('C')
   const [bondKind, setBondKind] = useState<DrawnKind>('single')
-  const [graphicShape, setGraphicShape] = useState<GraphicShape | null>(null)
+  const [graphicShape, setGraphicShape] = useState<SceneGraphicShape | null>(null)
   const [ringSize, setRingSize] = useState<RingSize>(6)
   const [ringPattern, setRingPattern] = useState<RingPattern>('single')
   const [ringMode, setRingMode] = useState<'independent' | 'attach'>('independent')
@@ -881,6 +882,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             graphicShape={graphicShape}
             serviceGeneration={editor.serviceGeneration}
             onGraphicCreate={(creation) => void editor.createGraphic(creation)}
+            onPolygonCreate={(creation) => void editor.createPolygon(creation)}
             onGraphicPoints={(edit) => void editor.apply((latest) => graphicPointsCommands(latest, edit))}
             onCommands={(commands, before) => void editor.apply(
               (latest) => latest.id === document.id ? stillApplicable(commands, latest) : null,
