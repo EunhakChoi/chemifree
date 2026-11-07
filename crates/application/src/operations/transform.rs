@@ -133,6 +133,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         GraphicShape::Ellipse => GraphicShapeDto::Ellipse,
                         GraphicShape::Arrow => GraphicShapeDto::Arrow,
                         GraphicShape::Polygon => GraphicShapeDto::Polygon,
+                        GraphicShape::Spline => GraphicShapeDto::Spline,
                     },
                     before: target.before.points.iter().copied().map(position).collect(),
                     after: target.after.points.iter().copied().map(position).collect(),

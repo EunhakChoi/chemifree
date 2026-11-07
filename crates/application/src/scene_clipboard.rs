@@ -54,7 +54,7 @@ enum ObjectData {
         id: String,
         shape: GraphicShapeDto,
         points: Vec<PointData>,
-        // Outer None is omission in v2; Some(None) is explicit inheritance in v3–v5.
+        // Outer None is omission in v2; Some(None) is explicit inheritance in v3–v6.
         #[serde(
             default,
             skip_serializing_if = "Option::is_none",
@@ -80,10 +80,10 @@ fn graphic_width(
 ) -> Result<Option<f64>, ApplicationError> {
     let width = match (version, field) {
         (2, None) => None,
-        (3..=5, Some(width)) => width,
+        (3..=6, Some(width)) => width,
         _ => {
             return Err(invalid(
-                "Graphic line_width_pt is forbidden in clipboard v2 and required in v3–v5.",
+                "Graphic line_width_pt is forbidden in clipboard v2 and required in v3–v6.",
             ));
         }
     };
@@ -126,7 +126,7 @@ fn invalid(message: impl Into<String>) -> ApplicationError {
 fn unsupported() -> ApplicationError {
     clipboard::refusal(
         "clipboard_format_unsupported",
-        "Expected chemifree.clipboard version 2, 3, 4 or 5 with kind graphics",
+        "Expected chemifree.clipboard version 2, 3, 4, 5 or 6 with kind graphics",
     )
 }
 
@@ -169,6 +169,7 @@ fn byte_limit() -> ApplicationError {
 /// Refuses an invalid domain fragment or text exceeding the native clipboard byte limit.
 pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
     fragment.validate().map_err(domain_refusal)?;
+    let spline = fragment.objects.iter().any(|entry| matches!(&entry.object, SceneObject::Graphic(graphic) if graphic.shape == GraphicShape::Spline));
     let polygon = fragment.objects.iter().any(|entry| matches!(&entry.object, SceneObject::Graphic(graphic) if graphic.shape == GraphicShape::Polygon));
     let ellipse = fragment.objects.iter().any(|entry| matches!(&entry.object, SceneObject::Graphic(graphic) if graphic.shape == GraphicShape::Ellipse));
     let styled = fragment.objects.iter().any(|entry| matches!(&entry.object, SceneObject::Graphic(graphic) if graphic.line_width_pt.is_some()));
@@ -183,6 +184,7 @@ pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
                     GraphicShape::Rectangle => GraphicShapeDto::Rectangle,
                     GraphicShape::Ellipse => GraphicShapeDto::Ellipse,
                     GraphicShape::Polygon => GraphicShapeDto::Polygon,
+                    GraphicShape::Spline => GraphicShapeDto::Spline,
                 },
                 points: graphic
                     .points
@@ -192,7 +194,8 @@ pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
                         y: point.y(),
                     })
                     .collect(),
-                line_width_pt: (styled || ellipse || polygon).then_some(graphic.line_width_pt),
+                line_width_pt: (styled || ellipse || polygon || spline)
+                    .then_some(graphic.line_width_pt),
             },
             SceneObject::Group { children } => ObjectData::Group {
                 id: entry.id.to_string(),
@@ -229,7 +232,9 @@ pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
         .collect::<Result<Vec<_>, ApplicationError>>()?;
     let payload = Payload {
         format: "chemifree.clipboard".into(),
-        version: if polygon {
+        version: if spline {
+            6
+        } else if polygon {
             5
         } else if ellipse {
             4
@@ -263,7 +268,7 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
     let value =
         crate::json::parse_strict(text.as_bytes()).map_err(|error| invalid(error.to_string()))?;
     let header = Header::deserialize(&value).map_err(|error| invalid(error.to_string()))?;
-    if header.format != "chemifree.clipboard" || !matches!(header.version, 2..=5) {
+    if header.format != "chemifree.clipboard" || !matches!(header.version, 2..=6) {
         return Err(unsupported());
     }
     let kind = KindHeader::deserialize(&value).map_err(|error| invalid(error.to_string()))?;
@@ -284,6 +289,9 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
                 if shape == GraphicShapeDto::Ellipse && payload.version < 4 {
                     return Err(invalid("Ellipse graphics require clipboard v4."));
                 }
+                if shape == GraphicShapeDto::Spline && payload.version < 6 {
+                    return Err(invalid("Spline graphics require clipboard v6."));
+                }
                 if shape == GraphicShapeDto::Polygon && payload.version < 5 {
                     return Err(invalid("Polygon graphics require clipboard v5."));
                 }
@@ -297,6 +305,7 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
                             GraphicShapeDto::Rectangle => GraphicShape::Rectangle,
                             GraphicShapeDto::Ellipse => GraphicShape::Ellipse,
                             GraphicShapeDto::Polygon => GraphicShape::Polygon,
+                            GraphicShapeDto::Spline => GraphicShape::Spline,
                         },
                         points: points
                             .into_iter()
@@ -473,7 +482,7 @@ mod tests {
     #[test]
     fn unsupported_headers_are_classified_before_any_version_specific_body() {
         for unsupported in [
-            json!({"format":"chemifree.clipboard","version":6,"future_body":{"commands":[1,2]}}),
+            json!({"format":"chemifree.clipboard","version":7,"future_body":{"commands":[1,2]}}),
             json!({"format":"chemifree.clipboard","version":u64::MAX,"future":true}),
             json!({"format":"another.format","version":2,"kind":"graphics","unknown":null}),
             json!({"format":"chemifree.clipboard","version":2,"kind":"molecules","new_body":[]}),

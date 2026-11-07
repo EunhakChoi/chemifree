@@ -31,7 +31,8 @@ pub enum ObjectArrangement {
 }
 
 /// Geometry-only page-coordinate bounds. Atom positions and graphic points count; fonts,
-/// labels, stroke width, arrowheads and other rendered extents do not.
+/// labels, stroke width, arrowheads and other rendered extents do not. Cubic splines use
+/// all four stored defining points: a conservative control-point box, not curve extrema.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bounds {
     pub left: f64,

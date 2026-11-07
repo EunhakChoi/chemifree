@@ -2,7 +2,7 @@
 //!
 //! The page holds an ordered containment tree of scene objects: molecule scene instances (each
 //! draws the document's chemical graph with one position per atom), groups (which contain other
-//! objects), and simple graphics (a line, rectangle, ellipse, arrow, or polygon). Every object
+//! objects), and simple graphics (a line, rectangle, ellipse, arrow, polygon, or spline). Each object
 //! has exactly one parent, the page or a group, and its place among that parent's children is
 //! its drawing order.
 //! All kinds share one identifier space (`s1`, `s2`, …) that is never reused.
@@ -73,6 +73,8 @@ pub enum GraphicShape {
     Arrow,
     /// An ordered, closed, stroke-only path with bounded vertices.
     Polygon,
+    /// A single open cubic Bézier in P0, C1, C2, P3 order; no interpolation semantics.
+    Spline,
 }
 
 /// A simple graphic. It records geometry only; it has no chemical meaning.
@@ -81,13 +83,14 @@ pub struct Graphic {
     /// None inherits the document line width dynamically; Some is an explicit point value.
     pub line_width_pt: Option<f64>,
     pub shape: GraphicShape,
-    /// Exactly two endpoints/corners for the original shapes, or 3–64 ordered polygon vertices.
+    /// Exactly two endpoints/corners for the original shapes, 3–64 ordered polygon vertices, or four cubic defining points.
     pub points: Vec<Point>,
 }
 
 impl Graphic {
     pub(crate) fn validate(&self) -> Result<(), EditError> {
         let valid_count = match self.shape {
+            GraphicShape::Spline => self.points.len() == 4,
             GraphicShape::Polygon => (3..=MAX_POLYGON_VERTICES).contains(&self.points.len()),
             _ => self.points.len() == 2,
         };
@@ -302,6 +305,8 @@ pub enum SceneError {
     GraphicCommandMismatch,
     /// A polygon-bearing edit cannot fit the shared variable-size persistence budget.
     PolygonPersistenceLimit,
+    /// A spline-bearing edit cannot fit the shared variable-size persistence budget.
+    SplinePersistenceLimit,
     /// This operation cannot preserve a caption.
     CaptionUnsupported,
     /// A command names a scene object that does not exist.
@@ -346,12 +351,13 @@ pub enum SceneError {
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 29] = [
         Self::CaptionInvalid,
         Self::CaptionPersistenceLimit,
         Self::GraphicGeometryInvalid,
         Self::GraphicCommandMismatch,
         Self::PolygonPersistenceLimit,
+        Self::SplinePersistenceLimit,
         Self::CaptionUnsupported,
         Self::AbbreviationInvalid,
         Self::FragmentDisplayInvalid,
@@ -385,6 +391,7 @@ impl SceneError {
             Self::GraphicGeometryInvalid => "graphic_geometry_invalid",
             Self::GraphicCommandMismatch => "graphic_command_mismatch",
             Self::PolygonPersistenceLimit => "polygon_persistence_limit",
+            Self::SplinePersistenceLimit => "spline_persistence_limit",
             Self::CaptionUnsupported => "caption_unsupported",
             Self::AbbreviationInvalid => "abbreviation_invalid",
             Self::FragmentDisplayInvalid => "fragment_display_invalid",
