@@ -286,6 +286,27 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   const small=await handle(line.id,0).boundingBox()
   await page.mouse.move(small.x+small.width/2,small.y+small.height/2)
   await page.mouse.down();await page.mouse.move(small.x+small.width/2+1,small.y+small.height/2+1);await page.mouse.up()
+  stage='round-trip endpoint drags restore geometry below threshold before release'
+  for(const index of [0,1])for(const pixels of [1,2]){
+    const before=(await snapshot()).document
+    const count=writes.length
+    const point=fixed[index]
+    const previewed=structuredClone(fixed);previewed[index]={x:point.x+15,y:point.y+10}
+    await beginEndpoint(line.id,index,previewed[index]);await expectPainted(line.id,previewed)
+    const origin=await screenPoint(point)
+    await page.mouse.move(origin.x+pixels,origin.y,{steps:4})
+    await page.waitForFunction(({target,index,point})=>{
+      const ink=document.querySelector('[data-scene-object="'+target+'"] line.stroke-foreground')
+      return Number(ink?.getAttribute('x'+(index+1)))===point.x&&Number(ink?.getAttribute('y'+(index+1)))===point.y
+    },{target:line.id,index,point},{timeout:5000})
+    assert.equal(await canvas.evaluate((svg)=>svg.hasPointerCapture(window.graphicPointerId)),true,'returning below threshold does not cancel endpoint ownership')
+    await expectPainted(line.id,fixed)
+    assert.deepEqual((await snapshot()).document,before,'round-trip endpoint preview never commits')
+    assert.equal(writes.length,count)
+    await page.mouse.up();await idle()
+    assert.deepEqual((await snapshot()).document,before,'release below threshold is a no-op')
+    assert.equal(writes.length,count,'round-trip endpoint release sends no transaction')
+  }
   for(const cancel of ['escape','pointercancel','lostcapture']) {
     stage='endpoint cancel via '+cancel
     await beginEndpoint(line.id,0,{x:fixed[0].x+15,y:fixed[0].y+10})

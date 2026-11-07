@@ -639,8 +639,8 @@ export function StructureCanvas({
     }
     if (!active) return
     if (distance({ x: event.clientX, y: event.clientY }, active.start) < DRAG_THRESHOLD) {
-      // A release here creates nothing; discard any preview from an earlier excursion.
-      if (gesture.kind === 'graphic-create') setPreview(null)
+      // A release here makes no edit; discard earlier creation or endpoint previews.
+      if (gesture.kind === 'graphic-create' || gesture.kind === 'endpoint') setPreview(null)
       return
     }
     if (gesture.kind === 'graphic-create') {
