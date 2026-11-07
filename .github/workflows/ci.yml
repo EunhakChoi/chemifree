@@ -95,6 +95,8 @@ jobs:
         run: npm run test:browser:clipboard-integration
       - name: Et display, hidden hit, whole-pair movement and native roundtrip
         run: npm run test:browser:abbreviation
+      - name: Arbitrary selection rotation, captured scope and atomic refusal
+        run: npm run test:browser:selection-rotation
       - name: Graphic line width override, inheritance and styled clipboard
         run: npm run test:browser:graphic-line-width
       - name: Graphic creation tool, press-time context and page roots

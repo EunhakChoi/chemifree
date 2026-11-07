@@ -1,3 +1,4 @@
+import { SelectionRotationForm } from '@/components/selection-rotation-form'
 import { GraphicToolControls } from '@/components/graphic-tool-controls'
 import { graphicPointsCommands } from '@/editor/graphic-points'
 import { GraphicPointsPanel } from '@/components/graphic-points-panel'
@@ -1473,6 +1474,7 @@ function SceneControls({ document, editor, activePlacement }: { document: Docume
             </Button>
           ))}
         </div>
+        <SelectionRotationForm key={document.id} document={document} editor={editor} activePlacement={activePlacement} />
         <p className="text-xs text-muted-foreground">Transforms keep stored stereo configurations and bond marks. The transformed drawing may disagree with them; use the stereo inspection to check.</p>
       </div>
       <div className="flex flex-wrap gap-1">
