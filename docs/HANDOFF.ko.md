@@ -7,6 +7,14 @@ P35a–n과 Et 표시 #185는 병합되었고 각 PR의 check/browser CI가 통�
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P35q retained fragment display script runs 후보
+
+- 기존 display에 `set_fragment_display_runs`로 전체 `[{text,script}]`를 명시 교체한다. script는 baseline/subscript/superscript만 허용한다. 각 run nonempty·전체 nonblank single line·합계128 UTF-8 bytes이며 별도32-run 제한은 없다(최대128 nonempty runs). control/line separator·빈 run/list·초과 text·잘못된 wire 타입을 거절한다. 입력 run 경계/문자열은 merge/normalize하지 않는다.
+- `contract_fragment`/`set_fragment_display_text`는 정확히 하나의 baseline run으로 설정한다. 같은 concatenated text라도 기존 script/run 경계가 있으면 baseline reset 편집이며 Undo로 복원한다. snapshot은 text=run 정확한 연결과 runs를 모두 제공한다. 이전 snapshot의 runs 생략은 baseline으로 읽되 mismatch/invalid runs는 거절한다.
+- 모든 run은 document label style을 상속하며 small-size/vertical shift와 실제 SVG shared trim/fit/hit/selection bounds를 적용한다. 실제 UI는 run add/remove·script·Apply와 IME gate·plain text baseline reset 경고를 제공한다. run 사이 shaping은 보장하지 않아 결합 문자/emoji sequence를 한 run에 두도록 안내한다. text/script는 화학 추론 없이 retained graph와 모든 과학 계산을 그대로 둔다.
+- native v25 current/history는 runs 필수·top-level text 금지다. v24는 text 필수·runs 금지이며 history-only도 엄격히 검사해 모든 current/undo/redo text를 baseline1개로 migration한다. v1–23 empty map migration과 정확한 old document/draft bytes의 first overwrite/recovery archive를 유지하며 future v26은 untouched 거절한다. baseline1개는 v24 admission weight를 보존하고 추가 run별64 bytes metadata를 기존 current48MiB/history8MiB·physical64MiB 한도에 포함한다.
+- P35p shape/overlap/reveal/geometry·export rendering loss·native clipboard/Cut/template 교차 거절을 유지한다. 일반 nickname dictionary·text-to-graph·external run roundtrip·per-run font/color/weight/style override는 없다. P35는 `in_progress`; 실행·두 리뷰는 대기이며 이 문서 작업은 성공 증거를 주장하지 않는다. [P35q 기록](verification/p35q-fragment-display-runs.md).
+
 ## P35p 명시 retained-graph fragment display 후보
 
 - `contract_fragment`는 existing member IDs·instance·anchor·plain text를 명시해 화면만 축약한다. `set_fragment_display_text`로 문자열을 바꾸고 `expand_fragment`로 원래 좌표를 드러낸다. 문자열은 nonempty 한 줄·최대128 UTF-8 bytes이며 null/reset dictionary·화학 해석은 없다. 실제 graph/ID/state/stereo/좌표와 모든 과학 계산을 보존한다.

@@ -1,11 +1,11 @@
-//! v24 fragment metadata is strict in current/history states and absent in older archives.
+//! v25 fragment runs is strict in current/history states and absent in older archives.
 
 use std::fs;
 
-use chemifree_application::{DocumentRepository, Draft};
+use chemifree_application::{DocumentRepository, Draft, DraftRecoveryTarget};
 use chemifree_domain::document::{
-    Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, MAX_ATOMS, NewAtomPositions,
-    ObjectId, Point,
+    Atom, AtomId, AtomRef, BondOrder, Command, Document, DocumentId, FragmentDisplayRun, MAX_ATOMS,
+    NewAtomPositions, ObjectId, Point,
 };
 use chemifree_domain::element::Element;
 use chemifree_providers::{FileDocumentRepository, MAX_DOCUMENT_BYTES};
@@ -89,7 +89,7 @@ fn current_file_and_draft_round_trip_both_history_sides_and_unicode() {
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/fragment-native.json");
     let raw: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(raw["format_version"], 24);
+    assert_eq!(raw["format_version"], 25);
     assert_eq!(
         raw["document"]["fragment_displays"][0]["members"],
         json!(["a2", "a3", "a4"])
@@ -106,10 +106,10 @@ fn current_file_and_draft_round_trip_both_history_sides_and_unicode() {
     repo.release_draft(doc.id());
     let mut reopened = repo.load(doc.id()).unwrap().unwrap();
     reopened.redo().unwrap();
-    assert_eq!(reopened.fragment_displays().next().unwrap().1.text, "OMe");
+    assert_eq!(reopened.fragment_displays().next().unwrap().1.text(), "OMe");
     reopened.undo().unwrap();
     assert_eq!(
-        reopened.fragment_displays().next().unwrap().1.text,
+        reopened.fragment_displays().next().unwrap().1.text(),
         "iPr 한 e\u{301} 🧪"
     );
 }
@@ -143,8 +143,16 @@ fn malformed_current_history_and_future_headers_refuse_without_rewriting_bytes()
         "/history/redo/0/fragment_displays/0/before",
     ] {
         for (field, value) in [
-            ("text", json!("\n")),
-            ("text", json!("한".repeat(43))),
+            ("runs", json!([{ "text": "\n", "script": "baseline" }])),
+            (
+                "runs",
+                json!([{ "text": "한".repeat(43), "script": "baseline" }]),
+            ),
+            ("runs", json!([])),
+            ("runs", json!([{ "text": "", "script": "baseline" }])),
+            ("runs", json!([{ "text": "C", "script": "unknown" }])),
+            ("runs", json!([{ "text": "C" }])),
+            ("text", json!("old-field-smuggling")),
             ("members", json!([])),
             ("members", json!(["a2", "a2"])),
             ("members", json!(["a3", "a4"])),
@@ -161,7 +169,7 @@ fn malformed_current_history_and_future_headers_refuse_without_rewriting_bytes()
         }
     }
     let mut future = template.clone();
-    future["format_version"] = json!(25);
+    future["format_version"] = json!(26);
     variants.push(future);
     for raw in variants {
         for draft in [false, true] {
@@ -215,7 +223,7 @@ fn v23_migrates_empty_and_archives_exact_original_but_refuses_even_empty_smuggli
     repo.save(&loaded, Some(loaded.revision())).unwrap();
     assert_eq!(fs::read(repo.migrated_path(doc.id(), 23)).unwrap(), bytes);
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 24);
+    assert_eq!(rewritten["format_version"], 25);
     assert_eq!(v23(rewritten), old);
 }
 
@@ -261,6 +269,26 @@ fn maximum_member_lists_and_text_history_fit_native_file_and_draft_reservations(
         ))])
         .unwrap();
     }
+    // Each text byte is its own explicit run: no independent run-count admission limit.
+    for index in 0..100 {
+        let runs: Vec<_> = (0..128)
+            .map(|run| FragmentDisplayRun {
+                text: "\\".into(),
+                script: if (index + run) % 2 == 0 {
+                    chemifree_domain::scene::CaptionScript::Superscript
+                } else {
+                    chemifree_domain::scene::CaptionScript::Subscript
+                },
+            })
+            .collect();
+        doc.apply(&[Command::SetFragmentDisplayRuns {
+            instance: instance(),
+            anchor: atom(2),
+            runs,
+        }])
+        .unwrap();
+    }
+    assert_eq!(doc.fragment_displays().next().unwrap().1.runs.len(), 128);
     assert_eq!(
         doc.fragment_displays().next().unwrap().1.members.len(),
         MAX_ATOMS - 1
@@ -282,6 +310,158 @@ fn maximum_member_lists_and_text_history_fit_native_file_and_draft_reservations(
     let bytes = fs::read(root.path().join("drafts/maximum-fragment.json")).unwrap();
     assert!(bytes.len() <= doc.persistence_weight());
     assert!((bytes.len() as u64) < MAX_DOCUMENT_BYTES);
+    assert_eq!(repo.claim_draft(doc.id()), Ok(Some(Ok(draft))));
+    repo.release_draft(doc.id());
+}
+
+fn v24(mut raw: Value) -> Value {
+    fn plain(value: &mut Value) {
+        match value {
+            Value::Object(object) => {
+                if object.contains_key("members") && object.contains_key("runs") {
+                    let runs = object.remove("runs").unwrap();
+                    let text: String = runs
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|run| run["text"].as_str().unwrap())
+                        .collect();
+                    object.insert("text".into(), json!(text));
+                }
+                for value in object.values_mut() {
+                    plain(value);
+                }
+            }
+            Value::Array(values) => {
+                for value in values {
+                    plain(value);
+                }
+            }
+            _ => {}
+        }
+    }
+    plain(&mut raw);
+    raw["format_version"] = json!(24);
+    raw
+}
+
+#[test]
+fn v24_plain_text_migrates_current_and_both_history_sides_and_archives_exact_file_and_draft() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = drawing();
+    doc.apply(&[contract()]).unwrap();
+    doc.apply(&[label("OMe")]).unwrap();
+    doc.undo().unwrap();
+    repo.save(&doc, None).unwrap();
+    let path = root.path().join("documents/fragment-native.json");
+    let current: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let old = v24(current.clone());
+    let bytes = serde_json::to_vec_pretty(&old).unwrap();
+    fs::write(&path, &bytes).unwrap();
+    let loaded = repo.load(doc.id()).unwrap().unwrap();
+    assert_eq!(loaded, doc);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    for location in [
+        "/document/fragment_displays/0",
+        "/history/undo/2/fragment_displays/0/after",
+        "/history/redo/0/fragment_displays/0/before",
+    ] {
+        let mut malformed = old.clone();
+        malformed
+            .pointer_mut(location)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert("runs".into(), json!([]));
+        fs::write(&path, serde_json::to_vec(&malformed).unwrap()).unwrap();
+        assert!(repo.load(doc.id()).is_err());
+    }
+    fs::write(&path, &bytes).unwrap();
+    repo.save(&loaded, Some(loaded.revision())).unwrap();
+    assert_eq!(fs::read(repo.migrated_path(doc.id(), 24)).unwrap(), bytes);
+    let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(rewritten, current);
+    let draft = Draft {
+        document: doc.clone(),
+        base_revision: doc.revision(),
+        saved_at_ms: 42,
+    };
+    repo.write_draft(&draft).unwrap();
+    repo.release_draft(doc.id());
+    let path = root.path().join("drafts/fragment-native.json");
+    let raw: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let bytes = serde_json::to_vec_pretty(&v24(raw)).unwrap();
+    fs::write(&path, &bytes).unwrap();
+    assert_eq!(repo.claim_draft(doc.id()), Ok(Some(Ok(draft))));
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    repo.prepare_draft_for_recovery(
+        doc.id(),
+        DraftRecoveryTarget::Original {
+            base_revision: doc.revision(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(repo.migrated_draft_path(doc.id(), 24)).unwrap(),
+        bytes
+    );
+    repo.release_draft(doc.id());
+}
+
+#[test]
+fn rich_scripts_round_trip_file_draft_and_both_history_sides_without_flat_text_storage() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc = drawing();
+    doc.apply(&[contract()]).unwrap();
+    let runs = vec![
+        FragmentDisplayRun {
+            text: "C".into(),
+            script: chemifree_domain::scene::CaptionScript::Baseline,
+        },
+        FragmentDisplayRun {
+            text: "3".into(),
+            script: chemifree_domain::scene::CaptionScript::Subscript,
+        },
+        FragmentDisplayRun {
+            text: "+".into(),
+            script: chemifree_domain::scene::CaptionScript::Superscript,
+        },
+    ];
+    doc.apply(&[Command::SetFragmentDisplayRuns {
+        instance: instance(),
+        anchor: atom(2),
+        runs: runs.clone(),
+    }])
+    .unwrap();
+    doc.apply(&[label("reset")]).unwrap();
+    doc.undo().unwrap();
+    repo.save(&doc, None).unwrap();
+    let path = root.path().join("documents/fragment-native.json");
+    let raw: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert!(
+        raw["document"]["fragment_displays"][0]
+            .get("text")
+            .is_none()
+    );
+    assert_eq!(
+        raw["document"]["fragment_displays"][0]["runs"],
+        json!([{"text":"C","script":"baseline"},{"text":"3","script":"subscript"},{"text":"+","script":"superscript"}])
+    );
+    let mut loaded = repo.load(doc.id()).unwrap().unwrap();
+    assert_eq!(loaded, doc);
+    loaded.redo().unwrap();
+    assert_eq!(loaded.fragment_displays().next().unwrap().1.text(), "reset");
+    loaded.undo().unwrap();
+    assert_eq!(loaded.fragment_displays().next().unwrap().1.runs, runs);
+    let draft = Draft {
+        document: doc.clone(),
+        base_revision: doc.revision(),
+        saved_at_ms: 42,
+    };
+    repo.write_draft(&draft).unwrap();
+    repo.release_draft(doc.id());
     assert_eq!(repo.claim_draft(doc.id()), Ok(Some(Ok(draft))));
     repo.release_draft(doc.id());
 }

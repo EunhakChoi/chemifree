@@ -3,7 +3,8 @@
 use chemifree_domain::clipboard::{self, FragmentError};
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondRef, Command, Document, DocumentId,
-    EditError, FragmentDisplay, NewAtomPositions, ObjectId, Point, PositionKey, Vector,
+    EditError, FragmentDisplay, FragmentDisplayRun, NewAtomPositions, ObjectId, Point, PositionKey,
+    Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::graph::MoleculeGraph;
@@ -128,7 +129,7 @@ fn named_and_unicode_displays_keep_the_exact_graph_coordinates_ids_and_identity(
                 .code,
             identity
         );
-        assert_eq!(doc.fragment_displays().next().unwrap().1.text, label);
+        assert_eq!(doc.fragment_displays().next().unwrap().1.text(), label);
         assert_eq!(Document::restore(doc.to_parts()).unwrap(), doc);
         doc.undo().unwrap();
         assert_eq!(doc.fragment_displays().count(), 0);
@@ -150,7 +151,7 @@ fn text_edit_is_explicit_and_never_guesses_a_graph_or_a_default() {
     assert_eq!(doc.to_parts().atoms, graph.atoms);
     assert_eq!(doc.to_parts().bonds, graph.bonds);
     doc.undo().unwrap();
-    assert_eq!(doc.fragment_displays().next().unwrap().1.text, "iPr");
+    assert_eq!(doc.fragment_displays().next().unwrap().1.text(), "iPr");
     doc.redo().unwrap();
     for invalid in [
         "".to_owned(),
@@ -393,7 +394,10 @@ fn malformed_current_and_trimmed_history_metadata_cannot_be_restored() {
     let mut invalid = parts.undo.last().unwrap().clone();
     invalid.fragment_displays[0].1.after = Some(FragmentDisplay {
         members: vec![atom(2)],
-        text: "\n".into(),
+        runs: vec![FragmentDisplayRun {
+            text: "\n".into(),
+            script: chemifree_domain::scene::CaptionScript::Baseline,
+        }],
     });
     // An invalid oldest record would otherwise be discarded by count retention.
     parts.undo.splice(0..0, std::iter::repeat_n(invalid, 101));
@@ -485,4 +489,124 @@ fn unrelated_stereo_is_preserved_and_boundary_neighbor_marks_reveal_the_display(
     assert_eq!(doc.fragment_displays().count(), 0);
     doc.undo().unwrap();
     assert_eq!(doc.fragment_displays().count(), 1);
+}
+
+fn run(text: &str, script: chemifree_domain::scene::CaptionScript) -> FragmentDisplayRun {
+    FragmentDisplayRun {
+        text: text.into(),
+        script,
+    }
+}
+fn set_runs(runs: Vec<FragmentDisplayRun>) -> Command {
+    Command::SetFragmentDisplayRuns {
+        instance: instance(),
+        anchor: atom(2),
+        runs,
+    }
+}
+
+#[test]
+fn explicit_scripts_are_preserved_in_history_and_plain_text_resets_to_one_baseline_run() {
+    use chemifree_domain::scene::CaptionScript;
+    let mut doc = branched();
+    doc.apply(&[contract(&[2, 3, 4], "C3H7+")]).unwrap();
+    let graph = doc.to_parts();
+    let runs = vec![
+        run("C", CaptionScript::Baseline),
+        run("3", CaptionScript::Subscript),
+        run("H", CaptionScript::Baseline),
+        run("7", CaptionScript::Subscript),
+        run("+", CaptionScript::Superscript),
+    ];
+    doc.apply(&[set_runs(runs.clone())]).unwrap();
+    let display = doc.fragment_displays().next().unwrap().1;
+    assert_eq!(display.text(), "C3H7+");
+    assert_eq!(display.runs, runs);
+    assert_eq!(doc.to_parts().atoms, graph.atoms);
+    assert_eq!(doc.to_parts().bonds, graph.bonds);
+    assert_eq!(doc.to_parts().positions, graph.positions);
+    assert_eq!(doc.to_parts().stereo, graph.stereo);
+    doc.apply(&[text("C3H7+")]).unwrap();
+    assert_eq!(
+        doc.fragment_displays().next().unwrap().1.runs,
+        vec![run("C3H7+", CaptionScript::Baseline)]
+    );
+    doc.undo().unwrap();
+    assert_eq!(doc.fragment_displays().next().unwrap().1.runs, runs);
+    doc.redo().unwrap();
+    assert_eq!(doc.fragment_displays().next().unwrap().1.runs.len(), 1);
+    assert_eq!(Document::restore(doc.to_parts()).unwrap(), doc);
+}
+
+#[test]
+fn run_budget_uses_total_utf8_bytes_and_nonempty_runs_without_an_independent_count_limit() {
+    use chemifree_domain::scene::CaptionScript;
+    let mut doc = branched();
+    doc.apply(&[contract(&[2, 3, 4], "iPr")]).unwrap();
+    let runs: Vec<_> = (0..128)
+        .map(|i| {
+            run(
+                "x",
+                if i % 2 == 0 {
+                    CaptionScript::Baseline
+                } else {
+                    CaptionScript::Superscript
+                },
+            )
+        })
+        .collect();
+    doc.apply(&[set_runs(runs.clone())]).unwrap();
+    assert_eq!(doc.fragment_displays().next().unwrap().1.runs, runs);
+    for invalid in [
+        vec![],
+        vec![run("", CaptionScript::Baseline)],
+        vec![
+            run(" ", CaptionScript::Baseline),
+            run("\t", CaptionScript::Subscript),
+        ],
+        vec![
+            run("a", CaptionScript::Baseline),
+            run("b\nc", CaptionScript::Superscript),
+        ],
+        vec![
+            run(&"한".repeat(42), CaptionScript::Subscript),
+            run("abc", CaptionScript::Baseline),
+        ],
+        vec![run("x", CaptionScript::Baseline); 129],
+    ] {
+        let before = doc.clone();
+        let failure = doc
+            .apply(&[
+                Command::Rename {
+                    title: "rollback".into(),
+                },
+                set_runs(invalid),
+            ])
+            .unwrap_err();
+        assert_eq!(failure.error, EditError::DisplayLabelInvalid);
+        assert_eq!(doc, before);
+    }
+    let unicode = vec![
+        run(&"한".repeat(42), CaptionScript::Subscript),
+        run(" x", CaptionScript::Baseline),
+    ];
+    doc.apply(&[set_runs(unicode.clone())]).unwrap();
+    assert_eq!(doc.fragment_displays().next().unwrap().1.runs, unicode);
+}
+
+#[test]
+fn malformed_runs_in_discarded_history_are_rejected_before_retention() {
+    use chemifree_domain::scene::CaptionScript;
+    let mut doc = branched();
+    doc.apply(&[contract(&[2, 3, 4], "iPr")]).unwrap();
+    let mut parts = doc.to_parts();
+    let mut malformed = parts.undo.last().unwrap().clone();
+    malformed.fragment_displays[0]
+        .1
+        .after
+        .as_mut()
+        .unwrap()
+        .runs = vec![run("", CaptionScript::Baseline)];
+    parts.undo.splice(0..0, std::iter::repeat_n(malformed, 101));
+    assert!(Document::restore(parts).is_err());
 }

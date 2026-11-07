@@ -12,6 +12,7 @@ function referencedIds(command: Command): string[] {
   switch (command.op) {
     case 'contract_fragment':
       return [command.instance, command.anchor, ...command.members]
+    case 'set_fragment_display_runs':
     case 'set_fragment_display_text':
     case 'expand_fragment':
       return [command.instance, command.anchor]

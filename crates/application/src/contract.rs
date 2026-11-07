@@ -6,8 +6,8 @@ use std::fmt;
 
 use chemifree_domain::document::{
     Atom, AtomEdit, AtomId, AtomRef, BondId, BondOrder, BondRef, BondTo, Command, Document,
-    GroupId, GroupRef, MAX_CHARGE, MIN_CHARGE, MOLECULE_ID, NewAtomPositions, ObjectId, PAGE_ID,
-    Point, RingPattern, RingSize, Vector,
+    FragmentDisplayRun, GroupId, GroupRef, MAX_CHARGE, MIN_CHARGE, MOLECULE_ID, NewAtomPositions,
+    ObjectId, PAGE_ID, Point, RingPattern, RingSize, Vector,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
@@ -609,6 +609,11 @@ pub enum CommandDto {
         instance: String,
         anchor: String,
         text: String,
+    },
+    SetFragmentDisplayRuns {
+        instance: String,
+        anchor: String,
+        runs: Vec<FragmentDisplayRunDto>,
     },
     ExpandFragment {
         instance: String,
@@ -1286,6 +1291,25 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             instance: instance_id(instance)?,
             anchor: atom_id(anchor)?,
             text: text.clone(),
+        },
+        CommandDto::SetFragmentDisplayRuns {
+            instance,
+            anchor,
+            runs,
+        } => Command::SetFragmentDisplayRuns {
+            instance: instance_id(instance)?,
+            anchor: atom_id(anchor)?,
+            runs: runs
+                .iter()
+                .map(|run| FragmentDisplayRun {
+                    text: run.text.clone(),
+                    script: match run.script {
+                        CaptionScriptDto::Baseline => CaptionScript::Baseline,
+                        CaptionScriptDto::Subscript => CaptionScript::Subscript,
+                        CaptionScriptDto::Superscript => CaptionScript::Superscript,
+                    },
+                })
+                .collect(),
         },
         CommandDto::ExpandFragment { instance, anchor } => Command::ExpandFragment {
             instance: instance_id(instance)?,
@@ -1968,6 +1992,15 @@ pub struct FragmentDisplayView {
     pub anchor: String,
     pub members: Vec<String>,
     pub text: String,
+    pub runs: Vec<FragmentDisplayRunDto>,
+}
+
+/// Fragment runs inherit document label style and vary only their baseline treatment.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FragmentDisplayRunDto {
+    pub text: String,
+    pub script: CaptionScriptDto,
 }
 
 /// The two real graph atoms represented by a per-placement Et label.
@@ -2562,7 +2595,19 @@ impl DocumentResponse {
                         instance: key.instance.to_string(),
                         anchor: key.atom.to_string(),
                         members: display.members.iter().map(ToString::to_string).collect(),
-                        text: display.text.clone(),
+                        text: display.text(),
+                        runs: display
+                            .runs
+                            .iter()
+                            .map(|run| FragmentDisplayRunDto {
+                                text: run.text.clone(),
+                                script: match run.script {
+                                    CaptionScript::Baseline => CaptionScriptDto::Baseline,
+                                    CaptionScript::Subscript => CaptionScriptDto::Subscript,
+                                    CaptionScript::Superscript => CaptionScriptDto::Superscript,
+                                },
+                            })
+                            .collect(),
                     })
                     .collect(),
                 abbreviations: document

@@ -32,7 +32,13 @@ fn text_weight(text: &str) -> usize {
 }
 
 fn fragment_display_weight(display: &FragmentDisplay) -> usize {
-    128 + ids_weight(display.members.len()) + text_weight(&display.text)
+    // One baseline run fits v24's fixed reservation. Extra runs reserve their full
+    // text/script JSON metadata while preserving every legacy admission weight.
+    let bytes: usize = display.runs.iter().map(|run| run.text.len()).sum();
+    128 + ids_weight(display.members.len())
+        + 128
+        + bytes * 2
+        + display.runs.len().saturating_sub(1) * 64
 }
 
 fn ids_weight(count: usize) -> usize {
@@ -103,6 +109,9 @@ fn changed_weight<K, T>(changes: &[(K, Change<Option<T>>)], weight: impl Fn(&T) 
 // Both history sides use the same reservation, and any current/history fragment display
 // activates the existing byte budgets. Empty field keys fit the existing envelopes, so
 // old documents retain their admission weights and the physical 64 MiB bound is unchanged.
+// v25's first text/script run fits that existing fixed fragment reservation; each
+// additional nonempty run reserves 64 metadata bytes beyond its escaped UTF-8 text.
+// Admission and physical weights use the same run reservation, so the bound remains.
 // This leaves >5 MiB reserve; the 4 KiB envelope already covers document/draft metadata.
 pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) -> usize {
     sets.into_iter().fold(0_usize, |total, set| {

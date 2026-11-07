@@ -71,7 +71,7 @@ fn replay_save_reopen_recovery_and_undo_retain_metadata_and_exact_graph() {
         send(&app, "contract-once", "document.transaction", parameters),
         result
     );
-    let display = json!([{"instance":"s1","anchor":"a2","members":["a2","a3","a4"],"text":"iPr"}]);
+    let display = json!([{"instance":"s1","anchor":"a2","members":["a2","a3","a4"],"text":"iPr","runs":[{"text":"iPr","script":"baseline"}]}]);
     assert_eq!(result["result"]["document"]["fragment_displays"], display);
     for field in [
         "atoms",
@@ -162,6 +162,13 @@ fn arbitrary_text_keeps_scientific_results_and_all_exports_write_the_complete_gr
     );
     assert_eq!(mislabeled["outcome"], "ok", "{mislabeled}");
     assert_eq!(inspect(&app), science);
+    let rich = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":3,"commands":[{"op":"set_fragment_display_runs","instance":"s1","anchor":"a2","runs":[{"text":"C","script":"baseline"},{"text":"3","script":"subscript"},{"text":"H7","script":"baseline"},{"text":"+","script":"superscript"}]}]}),
+    );
+    assert_eq!(rich["outcome"], "ok", "{rich}");
+    assert_eq!(inspect(&app), science);
     let formula = call(
         &app,
         "chem.properties",
@@ -233,4 +240,73 @@ fn invalid_commands_and_native_copy_overlaps_refuse_atomically() {
         assert_eq!(edited["outcome"], "error", "{edited}");
         assert_eq!(snapshot(&app, &id), before);
     }
+}
+
+#[test]
+fn rich_run_edit_replays_as_one_transaction_and_plain_text_resets_scripts() {
+    let (app, _root, id) = setup();
+    call(&app, "document.transaction", contract(&id));
+    let original = snapshot(&app, &id);
+    let runs = json!([{"text":"C","script":"baseline"},{"text":"3","script":"subscript"},{"text":"H","script":"baseline"},{"text":"7","script":"subscript"},{"text":"+","script":"superscript"}]);
+    let parameters = json!({"document_id":id,"expected_revision":2,"commands":[{"op":"set_fragment_display_runs","instance":"s1","anchor":"a2","runs":runs}]});
+    let result = send(
+        &app,
+        "rich-once",
+        "document.transaction",
+        parameters.clone(),
+    );
+    assert_eq!(result["outcome"], "ok", "{result}");
+    assert_eq!(
+        send(&app, "rich-once", "document.transaction", parameters),
+        result
+    );
+    assert_eq!(
+        result["result"]["document"]["fragment_displays"][0]["text"],
+        "C3H7+"
+    );
+    assert_eq!(
+        result["result"]["document"]["fragment_displays"][0]["runs"],
+        runs
+    );
+    for field in ["atoms", "bonds", "scene", "stereo", "settings"] {
+        assert_eq!(
+            result["result"]["document"][field],
+            original["document"][field]
+        );
+    }
+    for invalid in [
+        json!([]),
+        json!([{"text":"x"}]),
+        json!([{"text":"x","script":"unknown"}]),
+        json!([{"text":"x","script":"baseline","color":"red"}]),
+        json!([{"text":"","script":"baseline"}]),
+        json!([{"text":"a\nb","script":"baseline"}]),
+    ] {
+        let before = snapshot(&app, &id);
+        let result = call(
+            &app,
+            "document.transaction",
+            json!({"document_id":id,"expected_revision":3,"commands":[{"op":"set_fragment_display_runs","instance":"s1","anchor":"a2","runs":invalid}]}),
+        );
+        assert_eq!(result["outcome"], "error", "{result}");
+        assert_eq!(snapshot(&app, &id), before);
+    }
+    let reset = call(
+        &app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":3,"commands":[{"op":"set_fragment_display_text","instance":"s1","anchor":"a2","text":"C3H7+"}]}),
+    );
+    assert_eq!(
+        reset["result"]["document"]["fragment_displays"][0]["runs"],
+        json!([{"text":"C3H7+","script":"baseline"}])
+    );
+    let undo = call(
+        &app,
+        "history.undo",
+        json!({"document_id":id,"expected_revision":4}),
+    );
+    assert_eq!(
+        undo["result"]["document"]["fragment_displays"][0]["runs"],
+        runs
+    );
 }

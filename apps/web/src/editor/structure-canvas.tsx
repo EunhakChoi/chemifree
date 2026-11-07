@@ -44,7 +44,7 @@ import {
   type Hit,
   type Stroke,
 } from '@/editor/geometry'
-import { atomLabel, atomName, labelStyleOf, measureChemicalLabels, placed, type AtomLabel, type Box, type LabelChunk, type LabelMetrics } from '@/editor/label'
+import { atomLabel, atomName, fragmentLabel, labelStyleOf, measureChemicalLabels, placed, type AtomLabel, type Box, type LabelChunk, type LabelMetrics } from '@/editor/label'
 
 export type { DrawnOrder } from '@/editor/bond-gestures'
 
@@ -339,7 +339,8 @@ export function StructureCanvas({
       const left = leaningRight(view)
       const labels = new Map<string, AtomLabel | null>(view.atoms.map((atom) => {
         const compact = compactAnchors.get(atom.id)
-        return [atom.id, compact ? ethylLabel(style, compact.text, !compact.ethyl) : layoutOf(atom, left.has(atom.id))]
+        if (!compact) return [atom.id, layoutOf(atom, left.has(atom.id))]
+        return [atom.id, compact.runs ? fragmentLabel(compact.runs, style) : ethylLabel(style, compact.text)]
       }))
       const sides = bondSides(view, index, rings)
       const frame =
