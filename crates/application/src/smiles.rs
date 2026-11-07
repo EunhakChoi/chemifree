@@ -7,7 +7,7 @@
 
 use chemifree_domain::document::{Atom, AtomId, BondOrder};
 use chemifree_domain::graph::MoleculeGraph;
-use chemifree_domain::stereo::Turn;
+use chemifree_domain::stereo::{Relation, Turn};
 use chemifree_domain::stereo_group::{GroupKind, StereoGroupTable};
 use serde::{Deserialize, Serialize};
 
@@ -162,7 +162,13 @@ codes! {
     StereoClassUnsupported = "stereo_class_unsupported", Unsupported, "Only the tetrahedral marks @ and @@ are read; @TH, @AL, @SP, @TB and @OH classes are not supported.";
     StereoCenterUnsupportedHere = "stereo_center_unsupported_here", Unsupported, "The drawing cannot hold a tetrahedral configuration on this atom.";
     StereoNeighborCount = "stereo_neighbor_count", Unsupported, "A tetrahedral mark needs four neighbours counting one bracket hydrogen: three or four bonds.";
-    DirectionalBondUnsupported = "directional_bond_unsupported", Unsupported, "The directional bonds / and \\ (double bond configuration) are not read yet.";
+    DirectionalBondUnsupported = "directional_bond_unsupported", Unsupported, "A directional bond / or \\ on a ring-closure digit or on an aromatic bond is not read.";
+    DirectionalBondConflict = "directional_bond_conflict", Chemistry, "Two directional bonds at one end of a double bond place their atoms on the same side.";
+    DirectionalBondIncomplete = "directional_bond_incomplete", Syntax, "A double bond needs a directional bond / or \\ at both ends; this one has them at one end only.";
+    DirectionalBondWithoutDoubleBond = "directional_bond_without_double_bond", Syntax, "A directional bond / or \\ must be next to a double bond.";
+    DirectionalBondSmallRing = "directional_bond_small_ring", Unsupported, "A double bond in a ring of fewer than eight atoms has no cis/trans configuration here.";
+    DirectionalBondCumulated = "directional_bond_cumulated", Unsupported, "A directional bond next to a cumulated double bond is not read.";
+    DirectionalBondEndUnsupported = "directional_bond_end_unsupported", Unsupported, "A double-bond configuration is read only for C=C, C=N and N=N ends with at most two other neighbours.";
     CxsmilesMalformed = "cxsmiles_malformed", Syntax, "The CXSMILES block is not well formed: a bar, comma separated fields, a closing bar.";
     CxsmilesAtomOutOfRange = "cxsmiles_atom_out_of_range", Syntax, "A CXSMILES atom index is beyond the atoms of the SMILES text.";
     CxsmilesFieldUnsupported = "cxsmiles_field_unsupported", Unsupported, "Only the stereo group fields a:, o<n>: and &<n>: of a CXSMILES block are read.";
@@ -303,10 +309,26 @@ pub struct SmilesGroup {
     pub span: Span,
 }
 
+/// The configuration of one double bond that `/` and `\` marks state: a neighbour of each end
+/// and whether the two lie on the same side, which is the form `set_bond_configuration` takes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SmilesDoubleBond {
+    /// Index into [`SmilesRead::bonds`] of the double bond.
+    pub bond: usize,
+    /// An atom (index into [`SmilesRead::atoms`]) bonded to the bond's `begin` atom.
+    pub begin_neighbor: usize,
+    /// An atom bonded to the bond's `end` atom.
+    pub end_neighbor: usize,
+    pub relation: Relation,
+    /// The first mark that states this configuration.
+    pub span: Span,
+}
+
 /// What a SMILES text states about stereo, beyond its graph.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SmilesStereo {
     pub centers: Vec<SmilesCenter>,
+    pub double_bonds: Vec<SmilesDoubleBond>,
     pub groups: Vec<SmilesGroup>,
 }
 

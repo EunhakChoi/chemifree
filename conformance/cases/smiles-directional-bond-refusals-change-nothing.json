@@ -1,0 +1,273 @@
+{
+  "id": "smiles-directional-bond-refusals-change-nothing",
+  "title": "A SMILES directional bond the drawing cannot place (one end only, no double bond, conflicting marks, a ring of fewer than eight atoms, a cumulated double bond, an unsupported end, a ring-closure digit or an aromatic bond) is refused with its code, family and position, and the document stays empty",
+  "requirements": [
+    "CODEC-05",
+    "CODEC-06",
+    "STEREO-01"
+  ],
+  "axis": "encoding",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r0",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C/C=C",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "directional_bond_incomplete",
+            "details": {
+              "class": "syntax",
+              "family": "malformed_input",
+              "offset": 1
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r1",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F/CC",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "directional_bond_without_double_bond",
+            "details": {
+              "class": "syntax",
+              "family": "malformed_input",
+              "offset": 1
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r2",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C/C(\\F)=C/C",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "directional_bond_conflict",
+            "details": {
+              "class": "chemistry",
+              "family": "invalid_chemistry",
+              "offset": 4
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r3",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C1C/C=C\\CCC1",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "directional_bond_small_ring",
+            "details": {
+              "class": "unsupported",
+              "family": "unsupported_feature",
+              "offset": 3
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r4",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F/C=C=C/F",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "directional_bond_cumulated",
+            "details": {
+              "class": "unsupported",
+              "family": "unsupported_feature",
+              "offset": 1
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r5",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "F/P=C/F",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "directional_bond_end_unsupported",
+            "details": {
+              "class": "unsupported",
+              "family": "unsupported_feature",
+              "offset": 1
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r6",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C/1=C/CCCCCCC1",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "directional_bond_unsupported",
+            "details": {
+              "class": "unsupported",
+              "family": "unsupported_feature",
+              "offset": 1
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "r7",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "c1ccc/cc1",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "directional_bond_unsupported",
+            "details": {
+              "class": "unsupported",
+              "family": "unsupported_feature",
+              "offset": 5
+            }
+          }
+        ]
+      },
+      "document": "d"
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 0,
+          "atoms": [],
+          "bonds": [],
+          "stereo": {
+            "atoms": [],
+            "bonds": [],
+            "groups": []
+          }
+        }
+      }
+    }
+  ]
+}

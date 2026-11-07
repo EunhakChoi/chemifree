@@ -810,7 +810,7 @@
         },
         {
           "id": "CODEC-05.smiles-stereo-read",
-          "summary": "SMILES tetrahedral marks @ and @@ of bracket atoms are read as stored configurations with no bond mark (neighbour order after OpenSMILES: preceding atom, bracket hydrogen, ring labels in the order written, then branches and chain), in the same transaction as the atoms; marks the drawing cannot hold (a lone pair as the fourth position, an aromatic atom, other neighbour counts, a charged or hypervalent atom), the @TH, @AL, @SP, @TB and @OH classes and the directional bonds / and \\ are refused with a code, a closed diagnostic family and the span, never dropped. Checked by hand-worked neighbour orders, respellings giving one configuration, and a hand-run RDKit comparison of CIP labels (RDKit 2026.09.1). Recorded output also writes supported stereo; this part records the reader evidence.",
+          "summary": "SMILES tetrahedral marks @ and @@ of bracket atoms are read as stored configurations with no bond mark (neighbour order after OpenSMILES: preceding atom, bracket hydrogen, ring labels in the order written, then branches and chain), in the same transaction as the atoms; marks the drawing cannot hold (a lone pair as the fourth position, an aromatic atom, other neighbour counts, a charged or hypervalent atom), and the @TH, @AL, @SP, @TB and @OH classes are refused with a code, a closed diagnostic family and the span, never dropped. Checked by hand-worked neighbour orders, respellings giving one configuration, and a hand-run RDKit comparison of CIP labels (RDKit 2026.09.1). Recorded output also writes supported stereo; this part records the reader evidence.",
           "status": "implemented",
           "implementation": [
             "crates/providers/src/smiles/stereo.rs",
@@ -821,6 +821,23 @@
           "evidence": [
             "case:smiles-stereo-read-configuration-and-groups",
             "case:smiles-stereo-read-refusals-change-nothing",
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
+          "id": "CODEC-05.smiles-directional-read",
+          "summary": "SMILES directional bonds / and \\ beside a double bond are read as stored double-bond configurations with no bond mark (a mark is relative to the atom written before it; each double bond is read from its own marked neighbours; C=C, C=N and N=N ends; rings of at least eight atoms), in the same transaction as the atoms and counted toward the 500-command bound. A double bond whose only marks also serve a fully marked neighbouring double bond states nothing. Marks the reader cannot place are refused with their own code, closed family and the span of the mark, never dropped: directional_bond_conflict, _incomplete, _without_double_bond, _small_ring, _cumulated, _end_unsupported, and directional_bond_unsupported narrowed to a ring-closure digit or aromatic bond. Checked by hand-derived reader tests, application import tests and two conformance cases, and by a hand-run RDKit 2026.09.1 comparison of 3D-measured cis/trans and E/Z labels. Read side only: no / or \\ is written (P29c2b) and a stored configuration still needs stereo_configuration consent on SMILES export.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/smiles/double_bonds.rs",
+            "crates/providers/src/smiles/reader.rs",
+            "crates/application/src/smiles.rs",
+            "crates/application/src/operations/smiles.rs"
+          ],
+          "evidence": [
+            "case:smiles-directional-bond-read-configuration",
+            "case:smiles-directional-bond-refusals-change-nothing",
             "check:check:rust"
           ],
           "followups": []
@@ -843,7 +860,7 @@
         },
         {
           "id": "CODEC-05.rest",
-          "summary": "Unsupported stereo writing, the directional bonds / and \\ on read, the @TH, @AL, @SP, @TB and @OH classes and every CXSMILES field other than the three stereo group fields, query SMILES, reaction SMILES, InChI import and other line notations remain open. Directional bond reading/writing is the explicitly deferred P29c2 scope; lone-pair fourth-position SMILES marks remain refused. InChI import and dedicated UI remain unsupported and are outside the completed bounded generator; broader text import/export UX is tracked by P48.",
+          "summary": "Unsupported stereo writing (including writing the directional bonds / and \\), the @TH, @AL, @SP, @TB and @OH classes and every CXSMILES field other than the three stereo group fields, query SMILES, reaction SMILES, InChI import and other line notations remain open. Directional bond reading is CODEC-05.smiles-directional-read; writing them is the deferred P29c2b scope; lone-pair fourth-position SMILES marks remain refused. InChI import and dedicated UI remain unsupported and are outside the completed bounded generator; broader text import/export UX is tracked by P48.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

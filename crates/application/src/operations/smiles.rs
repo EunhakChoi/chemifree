@@ -6,11 +6,11 @@
 use chemifree_domain::chemistry::VALENCE_MODEL;
 use std::collections::HashSet;
 
-use chemifree_domain::document::{AtomRef, Command, NewAtomPositions, Point};
+use chemifree_domain::document::{AtomRef, BondRef, Command, NewAtomPositions, Point};
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::identity::CHEMICAL_MODEL_ID;
 use chemifree_domain::states::AttachmentPoints;
-use chemifree_domain::stereo::{AtomConfiguration, SlotRef};
+use chemifree_domain::stereo::{AtomConfiguration, BondConfiguration, SlotRef};
 
 use super::import::{ImportFormat, ImportRequest, Staged};
 use super::interchange::{consent_diagnostic, export_consent_refusal, needs_consent};
@@ -196,8 +196,9 @@ struct SmilesImportFormat<'a> {
 }
 
 /// The commands of the whole import: atoms on a grid below `target`'s atoms, the bonds, the
-/// configurations the text's tetrahedral marks state (no marks: the atoms have no coordinates
-/// that could show them) and the enhanced stereo groups its CXSMILES block lists.
+/// configurations the text's tetrahedral marks and its `/` and `\` marks state (no bond marks:
+/// the atoms have no coordinates that could show them) and the enhanced stereo groups its
+/// CXSMILES block lists.
 fn import_commands(
     read: &SmilesRead,
     source: &str,
@@ -215,6 +216,17 @@ fn import_commands(
             configuration: Some(AtomConfiguration::Tetrahedral {
                 neighbors: center.slots.map(created),
                 turn: center.turn,
+            }),
+        });
+    }
+    // The bond commands follow the atom commands, so a bond's command index is after all atoms.
+    for double_bond in &read.stereo.double_bonds {
+        commands.push(Command::SetBondConfiguration {
+            bond: BondRef::Created(read.atoms.len() + double_bond.bond),
+            configuration: Some(BondConfiguration::Relative {
+                begin_neighbor: SlotRef::Atom(AtomRef::Created(double_bond.begin_neighbor)),
+                end_neighbor: SlotRef::Atom(AtomRef::Created(double_bond.end_neighbor)),
+                relation: double_bond.relation,
             }),
         });
     }
@@ -705,6 +717,7 @@ mod group_fault_tests {
             losses: Vec::new(),
             stereo: SmilesStereo {
                 centers: Vec::new(),
+                double_bonds: Vec::new(),
                 groups: vec![SmilesGroup {
                     kind: GroupKind::Or,
                     number: Some(1),

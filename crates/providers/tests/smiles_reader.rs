@@ -174,8 +174,13 @@ fn valid_but_unsupported_text_is_unsupported_not_syntax() {
     for (text, code, offset, length) in [
         ("[C@H](F)Cl", SmilesCode::StereoNeighborCount, 2, 1),
         ("[C@@H](F)Cl", SmilesCode::StereoNeighborCount, 2, 2),
-        ("F/C=C/F", SmilesCode::DirectionalBondUnsupported, 1, 1),
-        ("F\\C=C\\F", SmilesCode::DirectionalBondUnsupported, 1, 1),
+        (
+            "C/1=C/CCCCCCC1",
+            SmilesCode::DirectionalBondUnsupported,
+            1,
+            1,
+        ),
+        ("c1ccc/cc1", SmilesCode::DirectionalBondUnsupported, 5, 1),
         ("*", SmilesCode::WildcardUnsupported, 0, 1),
         ("[*]", SmilesCode::WildcardUnsupported, 1, 1),
         ("C$C", SmilesCode::QuadrupleBondUnsupported, 1, 1),

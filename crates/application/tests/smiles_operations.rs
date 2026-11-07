@@ -391,7 +391,7 @@ fn errors_name_the_offending_part_in_bytes_and_in_characters() {
         "aromatic_system_unsupported"
     );
     assert!(aromatic["diagnostics"][0]["details"]["reason"].is_string());
-    let stereo = preview(&application, "bad5", &id, 0, "F/C=C/F");
+    let stereo = preview(&application, "bad5", &id, 0, "F/P=C/F");
     assert_eq!(stereo["diagnostics"][0]["details"]["class"], "unsupported");
     let limit = preview(&application, "bad6", &id, 0, &"C".repeat(300));
     assert_eq!(limit["diagnostics"][0]["details"]["class"], "limit");
