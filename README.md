@@ -406,3 +406,13 @@ schema change. The UI guards invalid/IME input and stale queued geometry edits.
 Resize handles, new shapes, images, clipping, layers and graphic styles remain
 outside this slice. P36 is `in_progress`; checks, both reviews and PR CI are
 pending. See [P36a record](docs/verification/p36a-graphic-points.md).
+
+P36b adds candidate canvas endpoint handles for exactly one explicitly selected,
+noncoincident line, arrow or rectangle in Select mode. Actual SVG screen-to-document
+coordinates respect pan/zoom and preserve the pointer's press offset; dragging
+previews locally and valid release sends one existing endpoint-update command.
+Cancellation, stale document/revision/selection/target and service restart do not
+silently commit or retry the drag. Coincident points use the numeric form. No
+schema change or general resize/group/rotation handles are added. P36 remains
+`in_progress`; prior P36a PR #204 merge and P36b full checks/reviews/CI are separate
+pending gates. See [P36b record](docs/verification/p36b-graphic-endpoint-drag.md).

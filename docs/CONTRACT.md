@@ -645,12 +645,53 @@ or replaced target lapses the edit instead of overwriting newer geometry. An
 unconfirmed endpoint edit is not automatically resent into a restarted process.
 The canvas paints the new stored geometry using the existing renderer.
 
-This slice does not add resize/endpoint drag handles, new shapes, curved or
+This P36a slice does not add endpoint drag handles; P36b adds the bounded canvas
+gesture below. It does not add general resize controls, new shapes, curved or
 reaction/electron arrows, scientific glyphs, images, clipping, layers, graphic
 style controls or automatic layout. Existing object movement/group/transform and
 format-loss policies remain binding. P36 remains `in_progress`; authored checks,
 both required reviews and PR CI are pending. See
 [the P36a record](verification/p36a-graphic-points.md).
+
+### Single-graphic canvas endpoint drag (P36b candidate)
+
+In Select mode, exactly one explicitly selected, noncoincident line, arrow or
+rectangle exposes two endpoint handles. A directly selected grouped child is
+eligible; a group, ancestor/descendant union, multiple or mixed graph/scene
+selection is not. Coincident points remain valid stored geometry but expose no
+ambiguous overlapping handles; use the existing numeric endpoint form instead.
+This is a pointer gesture; the numeric form retains the coordinate entry path.
+
+Press captures the document ID/revision, exact graphic, chosen point and pointer
+position. Screen coordinates use the actual SVG inverse screen transform, so
+prior pan/zoom is accounted for; missing, singular or nonfinite transforms refuse
+an edit. The pointer delta preserves the press offset within the handle. Only
+the chosen endpoint moves; the opposite stored point stays exact. Coordinates
+retain the canvas's existing rounding and finite inclusive±100000 pt bounds,
+without snapping or clamping. Space/middle-button pan takes precedence at press.
+View navigation remains local and is not saved as graphic geometry.
+
+Pointer movement beyond the existing 3-pixel threshold paints a local preview
+through the normal graphic renderer and sends no transaction. On valid release,
+the parent queues one captured `update_graphic_points` command; the shared P36a
+validation and ordinary Undo/Redo apply. A click/subthreshold movement, unchanged
+coordinates, invalid final bounds or cancelled gesture produces no geometry
+change. Point ordering, shape, ID, grouping, references and chemistry stay intact.
+
+Escape on the canvas, pointercancel, lost capture, blur, Fit or Reset discards
+the preview and releases capture. Document/revision, selection, target geometry
+or kind, group membership or tool changes invalidate the press context. The
+queued callback checks document/revision/exact target again before posting.
+Unknown edits are not automatically resent into a restarted service; the normal
+reconciliation/reload path applies. The gesture uses existing native v25 scene
+state/history, with no new command, schema, migration or scientific semantics.
+
+No bounding-box resize, aspect lock, multi-object/group handles, rotation handles,
+new shapes, image controls, clipping, layers, styles or reaction/electron arrow
+meaning is added. P36 stays `in_progress`. P36a PR #204 merge is pending separately
+from P36b's full checks, both reviews and PR CI. No successful full verification
+or merge is asserted by this candidate record; see
+[the P36b record](verification/p36b-graphic-endpoint-drag.md).
 
 ## Effective selection scope and movement (P32a)
 
