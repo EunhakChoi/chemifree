@@ -659,6 +659,10 @@ pub enum CommandDto {
         #[serde(default)]
         index: Option<usize>,
     },
+    UpdateGraphicPoints {
+        object: String,
+        points: [PointDto; 2],
+    },
     Group {
         objects: Vec<String>,
     },
@@ -1373,6 +1377,10 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             },
             parent: parent.as_deref().map(instance_id).transpose()?,
             index: *index,
+        },
+        CommandDto::UpdateGraphicPoints { object, points } => Command::UpdateGraphicPoints {
+            object: instance_id(object)?,
+            points: [point(points[0])?, point(points[1])?],
         },
         CommandDto::Group { objects } => Command::Group {
             objects: objects
