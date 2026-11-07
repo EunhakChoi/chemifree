@@ -1,5 +1,12 @@
 # Chemifree 새 세션 인계
 
+## P36e styled graphics clipboard v3 후보
+
+- 기존 graphics Copy/Cut/Paste는 nullable width를 보존한다. included forest 전부 상속이면 기존 width field 없는 v2, explicit override1개라도 있으면 모든 graphic에 required nullable line_width_pt를 넣은 v3를 쓴다. 문서값과 같은 숫자도 explicit이며 outside width는 version 선택에 영향 없다.
+- v2는 null까지 field 금지, v3는 각 graphic 필수·null 또는 finite0.1–10 pt이며 group에는 width field가 없다. all-null v3 입력은 허용하지만 다시 Copy하면 v2다. v2-only reader의 v3 호환은 주장하지 않으며 silent downgrade/reset은 없다. strict unknown/duplicate/header/tree/ref/setting·64KiB·500-command 한도는 유지한다.
+- P36d 당시 styled subtree refusal/reset-before-copy는 historical 정책이며 현행 후보는 v3 보존이다. UI는 width별 inherited/override를 표시하고 Copy/Cut preservation을 안내한다. Use document width는 선택적 상속 reset으로 남으며 외형이 바뀔 수 있다. Cut의 exact source/process/incoming-ref와 write-before-delete·uncertainty/Undo 원자성, Paste fresh IDs/group/ref/offset·selection·exact settings match는 유지한다.
+- graph v1·native v26/migration·문서 settings·chemical graph/placement/stereo·external loss는 불변이다. P36은 `in_progress`; web c9cdf4cf와 변경 중 Rust/tests source를 대조했으나 Rust/browser/full/review/CI 실행 성공을 이 문서에서 주장하지 않는다. [P36e 기록](verification/p36e-styled-graphics-clipboard.md). 아래 P36d의 refusal 문구는 그 구현 당시 경계다.
+
 ## P36d per-graphic line width 후보
 
 - `set_graphic_line_width`는 existing line/arrow/rectangle의 필수 nullable `line_width_pt`만 바꾼다. finite0.1–10 pt 또는 null=document width 동적 상속이다. 명시 숫자가 현재 document 값과 같아도 override이며 이후 document 변경을 따르지 않는다. null reset은 effective 값이 같아도 metadata 편집이다. 새 graphics는 상속하며 add_graphic은 width 입력을 받지 않는다.
