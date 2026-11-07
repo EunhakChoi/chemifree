@@ -82,7 +82,7 @@ impl FormatText {
         }
         if let Some(limits) = connected.smiles {
             let limit = describe_limit(limits.max_input_bytes);
-            refused.push("SMILES tetrahedral marks (@, @@), directional bonds (/, \\) beside supported double bonds and CXSMILES stereo groups are read, but other stereo classes, other CXSMILES fields, query atoms and reaction SMILES are refused on read, and recorded SMILES writes supported tetrahedral configurations and stereo groups but no directional bonds; stereo it cannot represent requires loss consent");
+            refused.push("SMILES tetrahedral marks (@, @@), directional bonds (/, \\) beside supported double bonds and CXSMILES stereo groups are read, but other stereo classes, other CXSMILES fields, query atoms and reaction SMILES are refused on read, and recorded SMILES writes supported tetrahedral configurations, stored double-bond configurations as directional bonds (/, \\) where the reader reads them back, and stereo groups; stereo it cannot represent requires loss consent");
             names.push("SMILES".to_owned());
             read_write.push(format!("SMILES text (a bounded OpenSMILES subset of at most {limit} and {} nested branches, written in recorded or canonical form)", limits.max_branch_depth));
             import.push(format!("append one SMILES string (at most {limit})"));

@@ -1,0 +1,155 @@
+{
+  "id": "smiles-directional-bond-write-recorded",
+  "title": "Recorded SMILES writes a stored double-bond configuration as / and \\ with no consent: Cl\\C=C/F (cis) is written Cl/C=C\\F and C/C=C\\C=C/C keeps both configurations through one shared mark",
+  "requirements": [
+    "CODEC-05",
+    "STEREO-01"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "ap",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "Cl\\C=C/F",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0
+      },
+      "document": "d",
+      "capture": {
+        "digest1": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "ac",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "Cl\\C=C/F",
+          "expected_revision": 0,
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1
+      },
+      "document": "d",
+      "substitute": {
+        "/parameters/preview_digest": "digest1"
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "w1",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "model_id": "chemifree-smiles-1",
+        "result": {
+          "content": "Cl/C=C\\F",
+          "style": "recorded"
+        }
+      }
+    },
+    {
+      "call": "create",
+      "bind": "e"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "bp",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C/C=C\\C=C/C",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0
+      },
+      "document": "e",
+      "capture": {
+        "digest2": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "bc",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C/C=C\\C=C/C",
+          "expected_revision": 0,
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1
+      },
+      "document": "e",
+      "substitute": {
+        "/parameters/preview_digest": "digest2"
+      }
+    },
+    {
+      "call": "operation",
+      "document": "e",
+      "request": {
+        "contract": 1,
+        "request_id": "w2",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded"
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "content": "C/C=C\\C=C/C",
+          "style": "recorded"
+        }
+      }
+    }
+  ]
+}

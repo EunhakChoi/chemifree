@@ -63,6 +63,8 @@ P22는 한정된 CDXML rich 문서와 손실 동의 기반 단일 그래프 투�
 P29c는 SMILES·CXSMILES 입체 읽기만 더한다: CODEC-05.smiles-stereo-read(`@`·`@@`를 표 없는 저장 배치로, 거절은 코드·계열·span과 함께), STEREO-01.cxsmiles-groups-read(`a:`·`o<n>:`·`&<n>:`를 향상된 입체 그룹으로, 문법 근거는 공개 RDKit Book 예시뿐이고 기능 명세에는 CXSMILES가 없다). 증거는 적합성 사례 두 개와 `cargo test`이며 RDKit 대조(`scripts/verify-smiles-stereo-rdkit.py`)는 수동이라 근거로 세지 않는다. 이중결합 방향 `/`·`\` 읽기와 쓰기 및 남은 입체 형식은 CODEC-05.rest·STEREO-01.rest에 남는다.
 P29c2a는 방향 결합 `/`·`\` 읽기만 더한다: CODEC-05.smiles-directional-read(저장 이중결합 배치, 표시 없음; 놓을 수 없는 표시는 코드·계열·span과 함께 거절). 증거는 적합성 사례 두 개와 `cargo test`이며 RDKit 2026.09.1 대조는 수동이라 근거로 세지 않는다. `/`·`\` 쓰기(P29c2b)는 CODEC-05.rest에 남는다.
 
+P29c2b는 기록형 SMILES의 방향 결합 `/`·`\` 쓰기를 더한다: CODEC-05.smiles-directional-write(not_implemented에서 implemented로, P21 후속 제거). 증거는 적합성 사례 두 개(`smiles-directional-bond-write-recorded`, `smiles-directional-bond-write-omissions`)와 `npm run check`가 실행하는 `cargo test`이며, RDKit 2026.09.1 대조(`verify-smiles-stereo-rdkit.py`)는 수동이라 근거에 넣지 않았다. 쓸 수 없는 배치는 동의가 필요한 `stereo_configuration` 손실이고 canonical은 여전히 입체를 쓰지 않는다. 입체성 판정과 다른 프로그램과의 동등성은 주장하지 않는다.
+
 P29e는 기존 CODEC-01·CODEC-02·STEREO-01 부분의 범위에 제한된 CDXML/CDX 도면 내보내기를 더한다. 확인된 typed carrier 네 개와 엄격한 opaque 보존, 첫 배치의 표시·실제 출력 위치에서 유도하는 그룹, 1–127 번호 정규화와 손실 동의를 검사한다. 도면이 향상 입체 표시 가시성을 저장하지 않으므로 출력 그룹 구성원의 `0445=true`는 보존이 아니라 명시적 선택이며, 그룹을 쓸 때 한 번의 `enhanced_stereo_display`(`normalized`·`rendering`, 동의 불필요)로 보고한다. 배치·그룹 왕복 검사는 이 가시성 설정을 포함하지 않는다. 검증은 export 연산 7개, import 연산 34개, carrier 제공자 5개, application 단위 25개다. 추적 근거는 기존 `check:check:rust`이며 이 개수 자체를 새 적합성 사례로 세지 않는다. P29는 `in_progress`이고 방향 결합 SMILES와 전체 형식 호환은 미완료다.
 
 P29f는 기존 CODEC-01·CODEC-02의 제한된 도면 export에 웹 패널을 연결한다. 명시적 손실 동의 전 다운로드 없음, 도면·형식·service generation 변경 시 미리보기·제안 무효화, 내려받기 직전 snapshot·바이트·손실 재검증과 CDX 바이너리 저장을 검사 대상으로 둔다. 구현 경로와 `check:test:client`를 기존 부분에 더하며 부분 상태·개수와 공개 선언 수는 바꾸지 않는다. P29f npm run check·브라우저 smoke와 Codex·독립 subagent 리뷰 두 건은 완료했다. P29g는 아래의 제한된 프로필 근거를 확인한다.
@@ -87,7 +89,7 @@ P33k의 `test:browser:clipboard-integration`은 production panel/hook/client→�
 
 Instance 복제·enhanced-stereo-group graph 복사·global shortcut·custom MIME·external Cut·Windows/OLE는 bounded P33 밖이다. 이 완료는 형식 전체/모든 내부 객체의 clipboard 지원을 뜻하지 않는다. 기존 conformance 보고서 집계는 재실행 없이 유지한다. CODEC-06.rest·OPS-01.rest·OPS-02.rest의 open follow-up에서는 완료된 P33을 제거한다. 고급 형식/통합 파일·text UX는 기존 codec 후속과 P48, 전문 객체의 포함/선택은 P72, 정리·키보드 UI는 P47/P85, 전문 scene/reaction 변경 집합은 해당 기존 후속에 남긴다. 선언된 native 복제/shortcut 제한에 새 구현 약속을 임의로 부여하지 않는다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 112개(implemented 62, partial 13, unverified 3, not_implemented 34) · conformance 사례 112개(passed 112: accept 81·reject 31, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 112개(implemented 63, partial 13, unverified 3, not_implemented 33) · conformance 사례 114개(passed 114: accept 83·reject 31, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

@@ -1,7 +1,7 @@
 """Compare SMILES stereo reading and recorded writing with an independent RDKit.
 
-Covers tetrahedral marks and CXSMILES groups (P29c) and the directional bonds `/` and `\\`
-read as double-bond configurations (P29c2a).
+Covers tetrahedral marks and CXSMILES groups (P29c), the directional bonds `/` and `\\`
+read as double-bond configurations (P29c2a) and written by the recorded writer (P29c2b).
 
 Hand-run, like verify-v3000-rdkit.py; not part of `npm run check`. Build the CLI and pass its
 absolute path:
@@ -30,10 +30,18 @@ on the stored configurations, with the same letter. A fixture lists how many dou
 Chemifree must store; a one-sided double bond served by its neighbour (`C/C=C/C=CC`) stores
 none and RDKit must not label it either. Embedding tries a fixed list of seeds; a stored double
 bond that no seed embeds is a FAILURE, never a note, so the summary line counts every geometry
-comparison made and none can be skipped quietly. Exports of a fixture with stored
-double bonds must be refused as `loss_consent_required` for `stereo_configuration`: the writers
-write no `/` or `\\` yet. Refusal fixtures also print what RDKit makes of the text (it reads
-and ignores many of them), which is information, not an oracle.
+comparison made and none can be skipped quietly.
+
+Writing (P29c2b). For every accepted fixture the recorded export must need no consent, RDKit must
+parse it, the cis/trans RDKit measures in 3D on the exported text must equal the stored relation
+for every stored double bond (atoms mapped back through `atom_order`; a bond that cannot be
+embedded or mapped is a FAILURE), RDKit's E/Z labels and CIP centre labels of the export must
+equal those of the input, and RDKit's isomeric SMILES of the export must equal that of the input
+(both parsed with hydrogens kept, so atom order does not matter). Write-only cases (`WRITE_CASES`)
+build a drawing with commands whose configuration the marks cannot state and check the consent
+loss, the exact text, and that RDKit reads exactly the configurations that were kept, each with
+the stored relation. Refusal fixtures also print what RDKit makes of the text (it reads and
+ignores many of them), which is information, not an oracle.
 
 CIP labels exercise Chemifree's CIP rules 1a to 3, so a fixture whose RDKit label needs a later
 rule is listed under `rdkit_only` and compared on RDKit's side alone.
@@ -130,6 +138,11 @@ FIXTURES = [
     Fixture("C(C)(/F)=C/F", double_bonds=1),
     Fixture("C1=CC=CC=C1/C=C/F", double_bonds=1),
     Fixture("Cl/C=C\\F", double_bonds=1),
+    Fixture("C/C=C/C=C/C=C/C", double_bonds=3),
+    Fixture("C/C=C\\C=C/C=C\\C", double_bonds=3),
+    Fixture("F/C=C/C=C/C=C/F", double_bonds=3),
+    Fixture("C/C=C/C(C)=C/C", double_bonds=2),
+    Fixture("C1CC/C=C\\C=C/CC1", double_bonds=2),  # nine atoms, two conjugated ring bonds
     Fixture("C/C=C", refused="directional_bond_incomplete"),
     Fixture("C/C=CC", refused="directional_bond_incomplete"),
     Fixture("F/CC", refused="directional_bond_without_double_bond"),
@@ -255,6 +268,9 @@ def _stored_double_bonds(
     for item in document["stereo"]["bonds"]:
         begin, end = ends[item["bond"]]
         configuration = item["configuration"]
+        if configuration["kind"] != "relative":
+            # An unknown configuration states no cis/trans relation to compare.
+            continue
         found[(min(begin, end), max(begin, end))] = {
             "begin": begin,
             "end": end,
@@ -301,6 +317,7 @@ def _rdkit(text: str) -> dict[str, Any]:
         "groups": groups,
         "bond_labels": bond_labels,
         "mol": mol,
+        "isomeric": rdkit.Chem.MolToSmiles(mol, isomericSmiles=True),
     }
 
 
@@ -314,6 +331,8 @@ class Tally:
     information (not oracle) notes printed about refused texts."""
 
     compared: int = 0
+    written_compared: int = 0
+    exported: int = 0
     notes: list[str] = field(default_factory=list)
 
 
@@ -386,17 +405,209 @@ def _check_double_bonds(
     return failures
 
 
-def _check_consent(fixture: Fixture, written: dict[str, Any]) -> list[str]:
-    """A recorded export of a stored double bond is refused until the loss is accepted."""
-    diagnostics = written.get("diagnostics") or [{}]
-    first = diagnostics[0]
-    if (
-        written["outcome"] != "error"
-        or first.get("code") != "loss_consent_required"
-        or first["details"]["features"] != ["stereo_configuration"]
-    ):
-        return [f"{fixture.text}: recorded export should need stereo_configuration consent: {written}"]
-    return []
+def _exported_path(
+    info: dict[str, Any], position: dict[int, int]
+) -> tuple[int, int, int, int]:
+    """The four atoms of a stored double bond, as positions in the exported text."""
+    return (
+        position[info["begin_neighbor"]],
+        position[info["begin"]],
+        position[info["end"]],
+        position[info["end_neighbor"]],
+    )
+
+
+def _check_exported_double_bonds(
+    fixture_text: str,
+    stored: dict[tuple[int, int], dict[str, Any]],
+    order: list[int],
+    reread: dict[str, Any],
+    theirs: dict[str, Any],
+    tally: Tally,
+) -> list[str]:
+    """Compares the stored double bonds with RDKit's reading of the exported text.
+
+    `order[k]` is the input atom written at position k of the export. RDKit measures, in 3D on the
+    exported molecule, the side of the same two neighbours Chemifree stored; that must be the
+    stored relation. RDKit's E/Z labels of the export, mapped back, must be those of the input.
+    """
+    failures: list[str] = []
+    position = {atom: index for index, atom in enumerate(order)}
+    for pair, info in stored.items():
+        same_side, detail = _rdkit_same_side(reread["mol"], _exported_path(info, position))
+        if same_side is None:
+            failures.append(f"{fixture_text}: exported bond {pair} not compared: {detail}")
+            continue
+        tally.written_compared += 1
+        if same_side != info["same_side"]:
+            failures.append(
+                f"{fixture_text}: exported bond {pair} stored same_side={info['same_side']}, "
+                f"RDKit geometry of the export same_side={same_side} ({detail})"
+            )
+    exported_labels = {
+        (min(order[a], order[b]), max(order[a], order[b])): label
+        for (a, b), label in reread["bond_labels"].items()
+    }
+    if exported_labels != theirs["bond_labels"]:
+        failures.append(
+            f"{fixture_text}: RDKit E/Z labels of the export {exported_labels}, "
+            f"of the input {theirs['bond_labels']}"
+        )
+    return failures
+
+
+@dataclass(frozen=True)
+class WriteCase:
+    """A drawing built with commands, whose recorded export must keep `kept` configurations."""
+
+    text: str
+    commands: tuple[dict[str, Any], ...]
+    content: str
+    # Source paths of the stereo_configuration consent losses, in order.
+    lost: tuple[str, ...]
+    # The bonds (text atom pairs) RDKit must see as double-bond stereo in the export.
+    kept: tuple[tuple[int, int], ...]
+
+
+def _relative(bond: str, begin: str, end: str, relation: str) -> dict[str, Any]:
+    return {
+        "op": "set_bond_configuration",
+        "bond": bond,
+        "configuration": {
+            "kind": "relative",
+            "begin_neighbor": begin,
+            "end_neighbor": end,
+            "relation": relation,
+        },
+    }
+
+
+WRITE_CASES = [
+    # The middle double bond is not stored, and the second outer one would mark it at both ends.
+    WriteCase(
+        "CC=CC=CC=CC",
+        (
+            _relative("b2", "a1", "a4", "opposite_sides"),
+            _relative("b6", "a5", "a8", "opposite_sides"),
+        ),
+        "C/C=C/C=CC=CC",
+        ("bonds[b6]",),
+        ((1, 2),),
+    ),
+    # An unknown middle bond is left out too.
+    WriteCase(
+        "CC=CC=CC=CC",
+        (
+            _relative("b2", "a1", "a4", "opposite_sides"),
+            {"op": "set_bond_configuration", "bond": "b4", "configuration": {"kind": "unknown"}},
+            _relative("b6", "a5", "a8", "same_side"),
+        ),
+        "C/C=C/C=CC=CC",
+        ("bonds[b4]", "bonds[b6]"),
+        ((1, 2),),
+    ),
+    # All three stored: written whole.
+    WriteCase(
+        "CC=CC=CC=CC",
+        (
+            _relative("b2", "a1", "a4", "opposite_sides"),
+            _relative("b4", "a3", "a6", "same_side"),
+            _relative("b6", "a5", "a8", "opposite_sides"),
+        ),
+        "C/C=C/C=C\\C=C\\C",
+        (),
+        ((1, 2), (3, 4), (5, 6)),
+    ),
+    # A seven-atom ring: the reader would refuse the marks, so nothing is written.
+    WriteCase(
+        "C1CC=CCCC1",
+        (_relative("b3", "a2", "a5", "same_side"),),
+        "C1CC=CCCC1",
+        ("bonds[b3]",),
+        (),
+    ),
+    # An end whose only other neighbour is a ring-closure digit.
+    WriteCase(
+        "C1=CCCCCCC1",
+        (_relative("b1", "a8", "a3", "same_side"),),
+        "C1=CCCCCCC1",
+        ("bonds[b1]",),
+        (),
+    ),
+]
+
+
+def _write_case(session: Session, case: WriteCase, tally: Tally) -> list[str]:
+    """Builds the drawing, exports it recorded with consent, and compares with RDKit."""
+    failures: list[str] = []
+    created = session.ask("document.create", {})
+    document = created["result"]["document"]["id"]
+    base = {
+        "document_id": document,
+        "expected_revision": 0,
+        "format": "smiles",
+        "source": case.text,
+    }
+    preview = session.ask("document.import", {**base, "preview": True})
+    done = session.ask(
+        "document.import",
+        {**base, "preview_digest": preview["result"]["preview_digest"], "accept_loss": True},
+    )
+    stored = session.ask(
+        "document.transaction",
+        {"document_id": document, "expected_revision": done["document_revision"],
+         "commands": list(case.commands)},
+    )
+    if stored["outcome"] == "error":
+        return [f"{case.text}: the commands were refused: {stored}"]
+    request = {"document_id": document, "format": "smiles", "style": "recorded"}
+    exported = session.ask("document.export", request)
+    if case.lost:
+        found = (exported.get("diagnostics") or [{}])[0]
+        if found.get("code") != "loss_consent_required":
+            return [f"{case.text}: expected a consent request: {exported}"]
+        paths = tuple(loss["source_path"] for loss in found["details"]["losses"])
+        if paths != case.lost:
+            failures.append(f"{case.text}: lost {paths}, expected {case.lost}")
+        exported = session.ask(
+            "document.export", {**request, "accepted_losses": found["details"]["loss_digest"]}
+        )
+    elif exported["outcome"] == "error":
+        return [f"{case.text}: expected no consent: {exported}"]
+    content = exported["result"]["content"]
+    if content != case.content:
+        failures.append(f"{case.text}: wrote {content!r}, expected {case.content!r}")
+    theirs = _rdkit(content)
+    if not theirs["parsed"]:
+        return [*failures, f"{case.text}: RDKit does not read the export {content!r}"]
+    seen = {
+        (min(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()),
+         max(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()))
+        for bond in theirs["mol"].GetBonds()
+        if bond.GetStereo() != rdkit.Chem.BondStereo.STEREONONE
+    }
+    if seen != set(case.kept):
+        failures.append(f"{case.text}: RDKit sees stereo on {sorted(seen)}, expected {sorted(case.kept)}")
+    snapshot = session.ask("document.snapshot", {"document_id": document})
+    cip = session.ask("chem.cip", {"document_id": document, "scope": "stored"})
+    every = _stored_double_bonds(snapshot, cip)
+    # Only the configurations kept are in the text, so compare those, in the export's own atoms.
+    order = [int(atom[1:]) - 1 for atom in exported["result"]["atom_order"]]
+    position = {atom: index for index, atom in enumerate(order)}
+    for pair, info in every.items():
+        if pair not in set(case.kept):
+            continue
+        same_side, detail = _rdkit_same_side(theirs["mol"], _exported_path(info, position))
+        if same_side is None:
+            failures.append(f"{case.text}: bond {pair} not compared: {detail}")
+            continue
+        tally.written_compared += 1
+        if same_side != info["same_side"]:
+            failures.append(
+                f"{case.text}: kept bond {pair} stored same_side={info['same_side']}, RDKit "
+                f"geometry of the export same_side={same_side} ({detail})"
+            )
+    return failures
 
 
 def _check(session: Session, tally: Tally) -> list[str]:
@@ -434,9 +645,6 @@ def _check(session: Session, tally: Tally) -> list[str]:
             )
         failures.extend(_check_double_bonds(fixture, ours, theirs, tally))
         written = ours["written"]
-        if ours["double_bonds"]:
-            failures.extend(_check_consent(fixture, written))
-            continue
         if written["outcome"] not in ("ok", "partial"):
             failures.append(
                 f"{fixture.text}: recorded export refused: {written}"
@@ -464,9 +672,22 @@ def _check(session: Session, tally: Tally) -> list[str]:
                 f"{result['content']!r} as "
                 f"labels {labels}, groups {groups}; expected {theirs}"
             )
+        if reread["isomeric"] != theirs["isomeric"]:
+            failures.append(
+                f"{fixture.text}: RDKit isomeric SMILES of the export {reread['isomeric']!r} "
+                f"differs from the input's {theirs['isomeric']!r}"
+            )
+        tally.exported += 1
+        failures.extend(
+            _check_exported_double_bonds(
+                fixture.text, ours["double_bonds"], order, reread, theirs, tally
+            )
+        )
         _LOGGER.info(
             "%s: %s groups=%s", fixture.text, ours["labels"], ours["groups"]
         )
+    for case in WRITE_CASES:
+        failures.extend(_write_case(session, case, tally))
     for spellings in RESPELLINGS:
         results = [_chemifree(session, text)["labels"] for text in spellings]
         # The stereocenter is the one labeled atom; the label is a property of the molecule.
@@ -494,9 +715,13 @@ def main(argv: list[str]) -> int:
     for failure in failures:
         _LOGGER.error("FAIL %s", failure)
     _LOGGER.info(
-        "%d fixtures, %d double-bond geometry comparisons, %d failures",
+        "%d fixtures, %d double-bond geometry comparisons, %d exports compared with isomeric "
+        "SMILES, %d exported double-bond geometry comparisons, %d write cases, %d failures",
         len(FIXTURES) + len(RESPELLINGS),
         tally.compared,
+        tally.exported,
+        tally.written_compared,
+        len(WRITE_CASES),
         len(failures),
     )
     return 1 if failures else 0

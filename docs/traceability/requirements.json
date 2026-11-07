@@ -844,13 +844,21 @@
         },
         {
           "id": "CODEC-05.smiles-directional-write",
-          "summary": "Writing the directional bonds / and \\ for a stored double-bond configuration (the deferred P29c2b scope) is not implemented: the SMILES writers write no / or \\, and a drawing with a stored double-bond configuration still needs stereo_configuration consent to export, with the accepted text carrying no mark. Tracked with the SMILES output work of P21.",
-          "status": "not_implemented",
-          "implementation": [],
-          "evidence": [],
-          "followups": [
-            "P21"
-          ]
+          "summary": "The recorded SMILES writer writes a stored double-bond configuration as the directional bonds / and \\ (P29c2b): the fewest marks that state it (one marked single bond at each end of the double bond, reusing a bond another written double bond already marks and never marking a ring-closure digit), the symbol computed from the order the text is actually written in, configurations placed greedily in bond-id order. A configuration is left out with a consent-required stereo_configuration loss (bonds[bN], dropped, stereo) and a reason when it is unknown, when the reader would refuse the text (cumulated or aromatic ends, other elements or charges, bracket hydrogens counted, a ring of fewer than eight atoms), when an end has no markable neighbour, or when the marks it needs contradict marks already written or would also state a configuration for another double bond that is not stored. Every text is read back and must state exactly the retained configurations, else readback_mismatch. Canonical SMILES still writes no stereo and keeps its consent loss. Checked by hand against RDKit 2026.09.1 (cis/trans of the exported text and isomeric SMILES equal to the input's) on a fixed fixture list; no wider equivalence with another program is claimed, and whether a stored configuration is stereogenic is not checked.",
+          "status": "implemented",
+          "implementation": [
+            "crates/providers/src/smiles/double_bond_write.rs",
+            "crates/providers/src/smiles/double_bonds.rs",
+            "crates/providers/src/smiles/emit.rs",
+            "crates/providers/src/smiles/writer.rs",
+            "apps/web/src/components/smiles-panel.tsx"
+          ],
+          "evidence": [
+            "case:smiles-directional-bond-write-recorded",
+            "case:smiles-directional-bond-write-omissions",
+            "check:check:rust"
+          ],
+          "followups": []
         },
         {
           "id": "CODEC-05.inchi",

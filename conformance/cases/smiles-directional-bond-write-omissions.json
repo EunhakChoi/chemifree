@@ -1,0 +1,298 @@
+{
+  "id": "smiles-directional-bond-write-omissions",
+  "title": "Recorded SMILES leaves out a double-bond configuration whose marks would also state an unstored neighbour or sit in a ring of fewer than eight atoms, as a consent-required stereo_configuration loss bound to the output",
+  "requirements": [
+    "CODEC-05",
+    "STEREO-01"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "ap",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "CC=CC=CC=CC",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0
+      },
+      "document": "d",
+      "capture": {
+        "digest1": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "ac",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "CC=CC=CC=CC",
+          "expected_revision": 0,
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1
+      },
+      "document": "d",
+      "substitute": {
+        "/parameters/preview_digest": "digest1"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_configuration",
+          "bond": "b2",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a1",
+            "end_neighbor": "a4",
+            "relation": "opposite_sides"
+          }
+        },
+        {
+          "op": "set_bond_configuration",
+          "bond": "b6",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a5",
+            "end_neighbor": "a8",
+            "relation": "opposite_sides"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "refused",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "loss_consent_required",
+            "details": {
+              "features": [
+                "stereo_configuration"
+              ]
+            }
+          }
+        ]
+      },
+      "capture": {
+        "digest3": "/diagnostics/0/details/loss_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "accepted",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded",
+          "accepted_losses": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "content": "C/C=C/C=CC=CC",
+          "style": "recorded"
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "stereo_configuration",
+              "source_path": "bonds[b6]",
+              "disposition": "dropped",
+              "semantic_impact": "stereo"
+            }
+          ]
+        }
+      },
+      "substitute": {
+        "/parameters/accepted_losses": "digest3"
+      }
+    },
+    {
+      "call": "create",
+      "bind": "e"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "bp",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C1CC=CCCC1",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0
+      },
+      "document": "e",
+      "capture": {
+        "digest2": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "bc",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C1CC=CCCC1",
+          "expected_revision": 0,
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1
+      },
+      "document": "e",
+      "substitute": {
+        "/parameters/preview_digest": "digest2"
+      }
+    },
+    {
+      "call": "transact",
+      "document": "e",
+      "expected_revision": 1,
+      "commands": [
+        {
+          "op": "set_bond_configuration",
+          "bond": "b3",
+          "configuration": {
+            "kind": "relative",
+            "begin_neighbor": "a2",
+            "end_neighbor": "a5",
+            "relation": "same_side"
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 2
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "e",
+      "request": {
+        "contract": 1,
+        "request_id": "refused2",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded"
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "loss_consent_required",
+            "details": {
+              "features": [
+                "stereo_configuration"
+              ]
+            }
+          }
+        ]
+      },
+      "capture": {
+        "digest4": "/diagnostics/0/details/loss_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "document": "e",
+      "request": {
+        "contract": 1,
+        "request_id": "accepted2",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "smiles",
+          "style": "recorded",
+          "accepted_losses": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "result": {
+          "content": "C1CC=CCCC1",
+          "style": "recorded"
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "stereo_configuration",
+              "source_path": "bonds[b3]",
+              "disposition": "dropped",
+              "semantic_impact": "stereo"
+            }
+          ]
+        }
+      },
+      "substitute": {
+        "/parameters/accepted_losses": "digest4"
+      }
+    }
+  ]
+}

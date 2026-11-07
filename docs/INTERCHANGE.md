@@ -189,10 +189,9 @@ reported 0 problems for 23 drawing fixtures and 0 failures for 24 SMILES fixture
 its supported V3000 core/marks/group comparison agreed, except that it skips the
 unrecognized negative `STERAC-128` collection. It did not independently parse CDXML/CDX
 output. See the table's linked checks for the exact evidence and exclusions.
-SMILES directional bonds `/` and `\` are read as double-bond configurations (P29c2a, read only) but not written (P29c2b); bracket marks with
+SMILES directional bonds `/` and `\` are read as double-bond configurations (P29c2a) and written by the recorded writer where the reader reads them back (P29c2b; the others are consent-required losses, canonical SMILES writes none); bracket marks with
 a lone-pair fourth position remain refused, and recorded export requires consent to
-omit a stored lone-pair configuration. P29 is `done` for this documented bounded profile. The P29c2b write side remains an unimplemented
-follow-up under the open P21 roadmap row. Other stereo classes/CX fields, stereo canonical
+omit a stored lone-pair configuration. P29 is `done` for this documented bounded profile. Other stereo classes/CX fields, stereo canonical
 output, CDXML/CDX E/Z derivation and full scene interoperability remain unsupported;
 this is not a claim of full chemical or format compatibility.
 

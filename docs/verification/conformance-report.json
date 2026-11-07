@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 32,
+  "suite_version": 33,
   "results": [
     {
       "id": "caption-shadow-history",
@@ -1336,6 +1336,34 @@
       "case_sha256": "ace773844c42a66350194ace20f294ebe050250013b904521c185017b55ece64"
     },
     {
+      "id": "smiles-directional-bond-write-recorded",
+      "title": "Recorded SMILES writes a stored double-bond configuration as / and \\ with no consent: Cl\\C=C/F (cis) is written Cl/C=C\\F and C/C=C\\C=C/C keeps both configurations through one shared mark",
+      "requirements": [
+        "CODEC-05",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "f126fef299e40f86c30c657fd4235bcbd9796df04f41eb0d1e78bb100ec262e2"
+    },
+    {
+      "id": "smiles-directional-bond-write-omissions",
+      "title": "Recorded SMILES leaves out a double-bond configuration whose marks would also state an unstored neighbour or sit in a ring of fewer than eight atoms, as a consent-required stereo_configuration loss bound to the output",
+      "requirements": [
+        "CODEC-05",
+        "STEREO-01"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "da860368899204bf023eee0aec885bc5533d794dedc74ca9cefed3f964668b28"
+    },
+    {
       "id": "cdxml-drawing-export-stereo-groups-round-trip",
       "title": "CDXML drawing export preserves wedge-derived clockwise configurations and absolute/and/or partitions, reserves And 1 while renumbering And -3 to 2 and Or 128 to 1, leaves the source unchanged, and imports into a copy that survives reopening",
       "requirements": [
@@ -1535,7 +1563,7 @@
   ],
   "counts": {
     "accept": {
-      "passed": 81,
+      "passed": 83,
       "failed": 0,
       "not_run": 0
     },
@@ -1545,7 +1573,7 @@
       "not_run": 0
     },
     "total": {
-      "passed": 112,
+      "passed": 114,
       "failed": 0,
       "not_run": 0
     }
