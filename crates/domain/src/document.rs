@@ -72,10 +72,11 @@ pub const MAX_EDIT_REVISION: u64 = MAX_REVISION - 1;
 /// Entity changes kept across all history entries. With the entity limits this bounds the
 /// stored history, so a saved document stays within what storage providers read back.
 pub const HISTORY_CHANGE_LIMIT: usize = 100_000;
-/// Current-state admission budget when captions or custom display labels exist in content or history.
+/// Shared current-state admission budget when variable-sized text or polygons exist in content or history.
+/// The caption-era public constant name is retained for compatibility.
 /// Physical encoding also reserves per-run metadata; see persistence_weight.
 pub const CAPTION_CONTENT_WEIGHT_LIMIT: usize = 48 * 1024 * 1024;
-/// Whole-history admission budget for caption/display-label-bearing documents. The latest edit must
+/// Shared whole-history admission budget for variable-sized text or polygons. The latest edit must
 /// fit by itself; older undo entries make room. Runs without shadow retain v16 admission
 /// weights; physical encoding reserves at most 6/5 of history admission.
 pub const CAPTION_HISTORY_WEIGHT_LIMIT: usize = 8 * 1024 * 1024;
@@ -552,6 +553,18 @@ pub enum Command {
         parent: Option<ObjectId>,
         index: Option<usize>,
     },
+    /// Adds a closed stroke-only polygon.
+    AddPolygon {
+        vertices: Vec<Point>,
+        line_width_pt: Option<f64>,
+        parent: Option<ObjectId>,
+        index: Option<usize>,
+    },
+    /// Replaces every vertex of an existing polygon.
+    UpdatePolygonVertices {
+        object: ObjectId,
+        vertices: Vec<Point>,
+    },
     /// Replaces only an existing graphic's two points; shape, identity and links stay intact.
     UpdateGraphicPoints {
         object: ObjectId,
@@ -730,6 +743,9 @@ pub enum EditError {
     DisplayLabelInvalid,
     CaptionInvalid,
     CaptionPersistenceLimit,
+    GraphicGeometryInvalid,
+    GraphicCommandMismatch,
+    PolygonPersistenceLimit,
     CaptionUnsupported(ObjectId),
     EmptyTransaction,
     TooManyCommands,
@@ -842,6 +858,9 @@ impl EditError {
             Self::DisplayLabelInvalid => SceneError::DisplayLabelInvalid,
             Self::CaptionInvalid => SceneError::CaptionInvalid,
             Self::CaptionPersistenceLimit => SceneError::CaptionPersistenceLimit,
+            Self::GraphicGeometryInvalid => SceneError::GraphicGeometryInvalid,
+            Self::GraphicCommandMismatch => SceneError::GraphicCommandMismatch,
+            Self::PolygonPersistenceLimit => SceneError::PolygonPersistenceLimit,
             Self::CaptionUnsupported(_) => SceneError::CaptionUnsupported,
             Self::UnknownObject(_) => SceneError::ObjectUnknown,
             Self::ObjectKindMismatch { .. } => SceneError::ObjectKindMismatch,
@@ -1011,6 +1030,9 @@ impl fmt::Display for EditError {
             Self::TransformEllipseUnsupported(object) => write!(formatter,
                 "ellipse {object} requires an exact quarter-turn rotation; arbitrary angles cannot be represented by its two axis-aligned bounding-box corners"
             ),
+            Self::GraphicGeometryInvalid => formatter.write_str("Graphic point count does not match its shape: polygons require 3–64 vertices; other shapes require exactly two points."),
+            Self::GraphicCommandMismatch => formatter.write_str("Polygon geometry requires its dedicated polygon command; two-point commands accept only two-point shapes."),
+            Self::PolygonPersistenceLimit => formatter.write_str("The polygon-bearing edit exceeds the shared variable-size persistence budget; reduce vertices or transaction size."),
             Self::CaptionPersistenceLimit => formatter.write_str("The text edit exceeds the persistence budget; reduce text or transaction size."),
             Self::DisplayLabelInvalid => formatter.write_str("Display label needs non-whitespace single-line Unicode text, at most 128 UTF-8 bytes; text does not define chemistry."),
             Self::FragmentDisplayInvalid => formatter.write_str("Fragment display needs disjoint connected acyclic neutral default element members, one unmarked single boundary at the anchor, no local stereo, and one explicit placement; display text does not define chemistry."),
@@ -1566,7 +1588,7 @@ impl Content {
             }
             for graphic in &scope.graphics {
                 if let SceneObject::Graphic(graphic) = self.scene.get(*graphic)? {
-                    points.extend(graphic.points);
+                    points.extend(graphic.points.iter().copied());
                 }
             }
             let bounds =
@@ -1593,8 +1615,8 @@ impl Content {
             }
             for graphic in &unit.scope.graphics {
                 if let SceneObject::Graphic(graphic) = self.scene.get(*graphic)? {
-                    for point in graphic.points {
-                        unit.translated(point)?;
+                    for point in &graphic.points {
+                        unit.translated(*point)?;
                     }
                 }
             }
@@ -1645,10 +1667,11 @@ impl Content {
                 let after = Graphic {
                     line_width_pt: before.line_width_pt,
                     shape: before.shape,
-                    points: [
-                        prepared.point(before.points[0], pivot)?,
-                        prepared.point(before.points[1], pivot)?,
-                    ],
+                    points: before
+                        .points
+                        .iter()
+                        .map(|point| prepared.point(*point, pivot))
+                        .collect::<Result<_, _>>()?,
                 };
                 graphics.push(TransformedGraphic {
                     object: *object,
@@ -2645,6 +2668,9 @@ impl Draft {
                 parent,
                 index,
             } => {
+                if graphic.shape == GraphicShape::Polygon {
+                    return Err(EditError::GraphicCommandMismatch);
+                }
                 graphic.validate()?;
                 let id = self.allocate_object()?;
                 self.content.scene.insert(
@@ -2654,6 +2680,36 @@ impl Draft {
                     *index,
                 )?;
                 created = Created::Object(id);
+            }
+            Command::AddPolygon {
+                vertices,
+                line_width_pt,
+                parent,
+                index,
+            } => {
+                let graphic = Graphic {
+                    shape: GraphicShape::Polygon,
+                    points: vertices.clone(),
+                    line_width_pt: *line_width_pt,
+                };
+                graphic.validate()?;
+                let id = self.allocate_object()?;
+                self.content
+                    .scene
+                    .insert(id, SceneObject::Graphic(graphic), *parent, *index)?;
+                created = Created::Object(id);
+            }
+            Command::UpdatePolygonVertices { object, vertices } => {
+                self.content.scene.require(*object, ObjectKind::Graphic)?;
+                if let Some(SceneObject::Graphic(graphic)) =
+                    self.content.scene.objects.get_mut(object)
+                {
+                    if graphic.shape != GraphicShape::Polygon {
+                        return Err(EditError::GraphicCommandMismatch);
+                    }
+                    graphic.points = vertices.clone();
+                    graphic.validate()?;
+                }
             }
             Command::SetGraphicLineWidth {
                 object,
@@ -2672,7 +2728,10 @@ impl Draft {
                 if let Some(SceneObject::Graphic(graphic)) =
                     self.content.scene.objects.get_mut(object)
                 {
-                    graphic.points = *points;
+                    if graphic.shape == GraphicShape::Polygon {
+                        return Err(EditError::GraphicCommandMismatch);
+                    }
+                    graphic.points = points.to_vec();
                 }
             }
             Command::Group { objects } => {
@@ -3135,14 +3194,14 @@ impl Document {
                  entry's selection after nor the nearest redo entry's selection before",
             ));
         }
-        let caption_budget = content.has_variable_text()
-            || undo.iter().chain(&redo).any(ChangeSet::has_variable_text);
+        let variable_size_budget = content.has_variable_size()
+            || undo.iter().chain(&redo).any(ChangeSet::has_variable_size);
         // Editing keeps undo + redo within the limits (undo and redo only move entries between
         // them). A stored history beyond them, e.g. written under looser limits, is trimmed the
         // way editing trims: oldest undo entries first, then the farthest redo entries.
         while undo.len() + redo.len() > HISTORY_LIMIT
             || history_size(&undo) + history_size(&redo) > HISTORY_CHANGE_LIMIT
-            || (caption_budget
+            || (variable_size_budget
                 && persistence::history_weight(undo.iter().chain(&redo))
                     > CAPTION_HISTORY_WEIGHT_LIMIT)
         {
@@ -3156,7 +3215,7 @@ impl Document {
         {
             selection.clone_from(&next.selection.before);
         }
-        if caption_budget
+        if variable_size_budget
             && content.caption_admission_weight(&selection) > CAPTION_CONTENT_WEIGHT_LIMIT
         {
             return Err(invalid("caption content exceeds the admission budget"));
@@ -3470,8 +3529,8 @@ impl Document {
     /// Checks a geometry-only transform of the authoritative selected union without editing.
     /// Positive angles rotate clockwise in page coordinates; horizontal reflection mirrors
     /// about y=pivot.y, vertical reflection about x=pivot.x. Quarter turns are exact affine
-    /// mappings. Arbitrary rotations are supported for atom positions, lines and arrows;
-    /// any selected rectangle, including descendants and degenerate rectangles, requires
+    /// mappings. Arbitrary rotations are supported for atom positions, lines, arrows and polygons;
+    /// any selected rectangle or ellipse, including descendants and degenerate geometry, requires
     /// an exact quarter turn. Diagonal/angled reflection is outside this bounded profile.
     /// Stored stereo remains unchanged, and may disagree with the transformed picture.
     ///
@@ -3623,21 +3682,25 @@ impl Document {
                 group_notes: Vec::new(),
             });
         }
-        let caption_budget = draft.content.has_variable_text()
-            || changes.has_variable_text()
+        let variable_size_budget = draft.content.has_variable_size()
+            || changes.has_variable_size()
             || self
                 .undo
                 .iter()
                 .chain(&self.redo)
-                .any(ChangeSet::has_variable_text);
-        if caption_budget
+                .any(ChangeSet::has_variable_size);
+        if variable_size_budget
             && (draft
                 .content
                 .caption_admission_weight(&changes.selection.after)
                 > CAPTION_CONTENT_WEIGHT_LIMIT
                 || changes.history_admission_weight() > CAPTION_HISTORY_WEIGHT_LIMIT)
         {
-            return Err(whole(EditError::CaptionPersistenceLimit));
+            return Err(whole(if changes.has_polygon() {
+                EditError::PolygonPersistenceLimit
+            } else {
+                EditError::CaptionPersistenceLimit
+            }));
         }
         let cleared: Vec<StereoKey> = draft
             .cascaded
@@ -3666,7 +3729,7 @@ impl Document {
         self.redo.clear();
         while self.undo.len() > HISTORY_LIMIT
             || history_size(&self.undo) > HISTORY_CHANGE_LIMIT
-            || (caption_budget
+            || (variable_size_budget
                 && persistence::history_weight(&self.undo) > CAPTION_HISTORY_WEIGHT_LIMIT)
         {
             self.undo.pop_front();

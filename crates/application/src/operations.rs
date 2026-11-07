@@ -571,7 +571,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 59] = [
+const TRANSACTION_PARTS: [Entry; 61] = [
     runs("attach_ring", "Connects a fresh regular carbon ring to an existing atom along an explicit direction in the only placement (size 5 or 6, default 6; pattern single by default, or explicit kekule for size 6). Connector stays single. Ordinary bond-addition stereo clearing and group notes apply. No fusion, aromaticity inference or layout."),
 
     runs(
@@ -646,6 +646,8 @@ const TRANSACTION_PARTS: [Entry; 59] = [
         "update_graphic_points",
         "Replaces exactly two points of an existing line, rectangle, ellipse, or arrow, preserving its shape, identity, parent, and references. Coordinates use the existing finite point bounds; coincident and reversed points remain supported.",
     ),
+    runs("add_polygon", "Adds a closed stroke-only polygon with 3–64 ordered bounded vertices; repeated, collinear, crossing and degenerate geometry is retained."),
+    runs("update_polygon_vertices", "Replaces every vertex of an existing polygon, retaining its identity, width, parent and references."),
     runs("set_graphic_line_width", "Sets a graphic's explicit finite 0.1–10 pt line width, or restores dynamic document inheritance with null. Shape, geometry, identity, hierarchy, references and chemical graph are retained."),
     runs("group", "Groups sibling scene objects in drawing order."),
     runs("ungroup", "Removes a group and keeps its children."),
@@ -773,6 +775,8 @@ const TRANSACTION_PARTS: [Entry; 59] = [
     .carried_out_by(&[
         "add_graphic",
         "update_graphic_points",
+        "add_polygon",
+        "update_polygon_vertices",
         "set_graphic_line_width",
         "add_caption",
         "update_caption",

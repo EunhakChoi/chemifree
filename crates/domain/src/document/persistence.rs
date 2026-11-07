@@ -1,9 +1,9 @@
 //! Conservative persistence weights, independent of a serializer. Providers verify that
-//! their stored document and draft representations fit these reservations. Text-bearing
-//! histories use a byte-oriented budget because one object can contain substantial text.
+//! their stored document and draft representations fit these reservations. Variable-sized
+//! histories use a byte-oriented budget because text and polygon vertices vary in size.
 
 use super::{Change, ChangeSet, Content, Document, FragmentDisplay};
-use crate::scene::{SceneObject, Selection};
+use crate::scene::{GraphicShape, SceneObject, Selection};
 use crate::stereo_group::StereoGroup;
 
 // Each reservation includes field/identifier overhead. Identifiers need at most 11 ASCII
@@ -56,8 +56,12 @@ fn admission_object_weight(object: &SceneObject) -> usize {
 fn object_weight_with(object: &SceneObject, admission: bool) -> usize {
     match object {
         SceneObject::Instance => 128,
+        // Each polygon vertex reserves two finite coordinate lexemes and JSON field overhead.
+        SceneObject::Graphic(graphic) if graphic.shape == GraphicShape::Polygon => {
+            256 + 96 * graphic.points.len()
+        }
         // Native v26's width field still fits this reservation: at most 244 JSON
-        // bytes for id/state, the longest shape and five <=25-byte f64 lexemes.
+        // bytes for id/state, the longest two-point shape and five <=25-byte f64 lexemes.
         // Keeping it unchanged preserves every old current/history admission limit.
         SceneObject::Graphic(_) => 256,
         SceneObject::Group { children } => 128 + ids_weight(children.len()),
@@ -115,6 +119,9 @@ fn changed_weight<K, T>(changes: &[(K, Change<Option<T>>)], weight: impl Fn(&T) 
 // v25's first text/script run fits that existing fixed fragment reservation; each
 // additional nonempty run reserves 64 metadata bytes beyond its escaped UTF-8 text.
 // Admission and physical weights use the same run reservation, so the bound remains.
+// v28 polygons reserve 256 + 96 bytes per vertex for admission and physical encoding.
+// Current or history-only polygons activate these budgets; original two-point graphics
+// retain their exact 256-byte weight. Polygon reservations do not increase the bound.
 // This leaves >5 MiB reserve; the 4 KiB envelope already covers document/draft metadata.
 pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) -> usize {
     sets.into_iter().fold(0_usize, |total, set| {
@@ -122,15 +129,16 @@ pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) 
     })
 }
 
+fn variable_size_object(object: &SceneObject) -> bool {
+    matches!(object, SceneObject::Caption(_))
+        || matches!(object, SceneObject::Graphic(graphic) if graphic.shape == GraphicShape::Polygon)
+}
+
 impl Content {
-    pub(super) fn has_variable_text(&self) -> bool {
+    pub(super) fn has_variable_size(&self) -> bool {
         !self.fragment_displays.is_empty()
             || !self.display_labels.is_empty()
-            || self
-                .scene
-                .objects
-                .values()
-                .any(|object| matches!(object, SceneObject::Caption(_)))
+            || self.scene.objects.values().any(variable_size_object)
     }
 
     pub(super) fn persistence_weight(&self, selection: &Selection) -> usize {
@@ -183,14 +191,22 @@ impl Content {
 }
 
 impl ChangeSet {
-    pub(super) fn has_variable_text(&self) -> bool {
+    pub(super) fn has_polygon(&self) -> bool {
+        self.objects.iter().any(|(_, change)| {
+            [&change.before, &change.after].into_iter().flatten().any(|object| {
+                matches!(object, SceneObject::Graphic(graphic) if graphic.shape == GraphicShape::Polygon)
+            })
+        })
+    }
+
+    pub(super) fn has_variable_size(&self) -> bool {
         !self.fragment_displays.is_empty()
             || !self.display_labels.is_empty()
             || self.objects.iter().any(|(_, change)| {
                 [&change.before, &change.after]
                     .into_iter()
                     .flatten()
-                    .any(|object| matches!(object, SceneObject::Caption(_)))
+                    .any(variable_size_object)
             })
     }
 
@@ -237,7 +253,7 @@ impl ChangeSet {
 impl Document {
     /// Conservative persistence reservation for current content and both history stacks.
     /// This is neither memory usage nor an exact serialized size; providers must verify
-    /// that their encoding fits it. Caption-bearing accepted states reserve at most
+    /// that their encoding fits it. States with variable-sized text or polygons reserve at most
     /// 61,434,842 bytes (48 MiB + 1,024,000 + 8 MiB × 6/5 + 12,864), below the 64 MiB
     /// native limit, including fixed file/draft envelopes.
     #[must_use]
