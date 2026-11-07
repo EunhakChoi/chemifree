@@ -17,7 +17,7 @@ export function GraphicPointsPanel({ document, editor }: { document: DocumentVie
           <GraphicPointsForm document={document} graphic={graphic} editor={editor} />
           {editor.selection.size === 1 && <GraphicLineWidthForm document={document} graphic={graphic} editor={editor} />}
         </div>
-      : <p className="text-xs text-muted-foreground">Select one line, arrow or rectangle to edit its endpoints and line width.</p>}
+      : <p className="text-xs text-muted-foreground">Select one line, arrow, rectangle or ellipse to edit its endpoints and line width.</p>}
   </section>
 }
 
@@ -48,7 +48,7 @@ function GraphicPointsForm({ document, graphic, editor }: { document: DocumentVi
         </Field>
       })}
     </FieldGroup>
-    <FieldDescription id={`${id}-help`}>Edit the two points of {graphic.id} ({graphic.shape}) in document coordinates. Use finite decimal values from −100000 to 100000 pt. Reversed or coincident points are allowed. Group membership and references are retained. Drag distinct endpoints on the canvas, or use this form for coincident endpoints.</FieldDescription>
+    <FieldDescription id={`${id}-help`}>Edit the two points of {graphic.id} ({graphic.shape}) in document coordinates. Use finite decimal values from −100000 to 100000 pt. Rectangles and ellipses use opposite corners. Reversed or coincident points are allowed; zero-axis ellipses have no visible stroke, so use scene selection and this form. Group membership and references are retained. Drag distinct endpoints on the canvas, or use this form for coincident endpoints.</FieldDescription>
     <Button type="submit" variant="outline" size="sm" disabled={editor.busy || composing || !valid || unchanged}>Apply graphic endpoints</Button>
   </form>
 }

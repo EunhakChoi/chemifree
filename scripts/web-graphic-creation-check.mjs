@@ -130,8 +130,8 @@ createRoot(document.getElementById('root')).render(<Harness/> )
     // SVG getBBox excludes stroke: horizontal/vertical line groups can have a zero dimension.
     await page.locator('[data-graphic-create-preview="'+shape+'"]').waitFor({state:'attached'})
     const [a,b]=points
-    const expected=shape==='rectangle'?{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.abs(a.x-b.x),height:Math.abs(a.y-b.y)}:{x1:a.x,y1:a.y,x2:b.x,y2:b.y}
-    const mark=preview().locator(shape==='rectangle'?'rect.stroke-foreground':'line.stroke-foreground')
+    const expected=shape==='ellipse'?{cx:(a.x+b.x)/2,cy:(a.y+b.y)/2,rx:Math.abs(a.x-b.x)/2,ry:Math.abs(a.y-b.y)/2}:shape==='rectangle'?{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.abs(a.x-b.x),height:Math.abs(a.y-b.y)}:{x1:a.x,y1:a.y,x2:b.x,y2:b.y}
+    const mark=preview().locator(shape==='ellipse'?'ellipse.stroke-foreground':shape==='rectangle'?'rect.stroke-foreground':'line.stroke-foreground')
     for(const [name,value] of Object.entries(expected))assert.equal(Number(await mark.getAttribute(name)),value,'preview '+shape+' '+name)
     const ink=await mark.evaluate((mark)=>({stroke:getComputedStyle(mark).stroke,width:Number.parseFloat(getComputedStyle(mark).strokeWidth)}))
     assert.notEqual(ink.stroke,'none','preview has painted stroke')
@@ -142,7 +142,7 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   async function waitRevision(revision){await page.waitForFunction((revision)=>JSON.parse(document.querySelector('[aria-label="Creation snapshot"]').textContent).document.revision===revision,revision);await idle()}
   stage='explicit shape choice before canvas creation'
   await page.goto('http://127.0.0.1:5173/graphic-creation-check')
-  await page.getByText('Choose Line, Arrow or Rectangle before drawing.',{exact:false}).waitFor()
+  await page.getByText('Choose Line, Arrow, Rectangle or Ellipse before drawing.',{exact:false}).waitFor()
   await button('Select existing group').click()
   const beforeChoice=(await snapshot()).document
   const beforeChoiceWrites=writes.length
@@ -153,7 +153,7 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   await button('Reset zoom (100%)').click();await button('Zoom in').click();await button('Zoom in').click()
   stage='shape previews over existing atoms, bonds and graphics have no side effects'
   const added=[]
-  for(const [shape,points] of [['line',[{x:0,y:0},{x:30,y:0}]],['arrow',[{x:25,y:45},{x:10,y:40}]],['rectangle',[{x:90,y:80},{x:60,y:40}]]]){
+  for(const [shape,points] of [['line',[{x:0,y:0},{x:30,y:0}]],['arrow',[{x:25,y:45},{x:10,y:40}]],['rectangle',[{x:90,y:80},{x:60,y:40}]],['ellipse',[{x:100,y:60},{x:140,y:80}]]]){
     await choose(shape)
     const before=(await snapshot()).document
     const beforeWrites=writes.length
@@ -184,7 +184,7 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   await page.mouse.move(at.x,at.y);await page.mouse.down();await page.mouse.move(at.x+1,at.y+1);await page.mouse.up()
   assert.equal(writes.length,beforeCancelWrites)
   stage='round-trip graphic drags clear preview below threshold before release'
-  for(const shape of ['line','arrow','rectangle']){
+  for(const shape of ['line','arrow','rectangle','ellipse']){
     await choose(shape)
     for(const pixels of [1,2]){
       const before=(await snapshot()).document
@@ -287,7 +287,7 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   await page.getByText('No document open').waitFor()
   await page.locator('li[data-document-id="'+id+'"]').getByRole('button',{name:'Open',exact:true}).click()
   await page.getByRole('button',{name:'Graphic',exact:true}).click()
-  await page.getByText('Choose Line, Arrow or Rectangle before drawing.',{exact:false}).waitFor()
+  await page.getByText('Choose Line, Arrow, Rectangle or Ellipse before drawing.',{exact:false}).waitFor()
   await choose('rectangle')
   const beforeReal=(await(await fetch(base+'/api/v1/documents/'+id)).json()).document
   await begin({x:0,y:0},{x:30,y:20});await previewPoints('rectangle',[{x:0,y:0},{x:30,y:20}])
@@ -298,6 +298,12 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   assert.deepEqual(response.request().postDataJSON().commands,[{op:'add_graphic',shape:'rectangle',points:[{x:0,y:0},{x:30,y:20}]}])
   assert.equal(real.revision,beforeReal.revision+1)
   graphUnchanged(real)
+  await choose('ellipse')
+  await begin({x:50,y:0},{x:80,y:20});await previewPoints('ellipse',[{x:50,y:0},{x:80,y:20}])
+  const ellipseCommit=page.waitForResponse((response)=>response.request().method()==='POST'&&response.url().endsWith('/transactions'))
+  await page.mouse.up();const ellipseResponse=await ellipseCommit;assert.equal(ellipseResponse.status(),200)
+  assert.deepEqual(ellipseResponse.request().postDataJSON().commands,[{op:'add_graphic',shape:'ellipse',points:[{x:50,y:0},{x:80,y:20}]}])
+  graphUnchanged((await ellipseResponse.json()).document)
   const native=JSON.parse(readFileSync(join(work,'documents',id+'.json'),'utf8'))
   assert.ok(native.document.objects.some((object)=>object.state.kind==='graphic'))
   assert.deepEqual(errors,[])

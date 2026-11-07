@@ -101,6 +101,8 @@ jobs:
         run: npm run test:browser:selection-rotation
       - name: Graphic line width override, inheritance and styled clipboard
         run: npm run test:browser:graphic-line-width
+      - name: Ellipse stroke, opposite corners and v4 clipboard
+        run: npm run test:browser:graphic-ellipse
       - name: Graphic creation tool, press-time context and page roots
         run: npm run test:browser:graphic-creation
       - name: Graphic endpoint form, retained scene structure and native roundtrip

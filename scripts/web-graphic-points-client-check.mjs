@@ -14,8 +14,10 @@ test('graphic coordinates accept the existing finite decimal point boundary with
 
 test('graphic edits capture exactly one graphic, preserving point order, shape, group and references', () => {
   const document=sceneCutSource().document
+  document.scene.roots.push('s8')
+  document.scene.objects.push({kind:'graphic',id:'s8',parent:null,shape:'ellipse',points:[{x:30,y:40},{x:10,y:20}],line_width_pt:null})
   const before=structuredClone(document)
-  for (const shape of ['line','arrow','rectangle']) {
+  for (const shape of ['line','arrow','rectangle','ellipse']) {
     const graphic=document.scene.objects.find((object)=>object.kind==='graphic'&&object.shape===shape)
     const points=[{x:100000,y:-100000},{x:-100000,y:100000}]
     const edit={documentId:document.id,revision:document.revision,graphic,points}

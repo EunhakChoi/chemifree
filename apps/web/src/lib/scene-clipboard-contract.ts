@@ -5,7 +5,7 @@ type GraphicObject = Extract<SceneObject, { kind: 'graphic' | 'group' }>
 type PayloadObject = (Omit<Extract<GraphicObject, { kind: 'graphic' }>, 'parent' | 'line_width_pt'> & { line_width_pt: number | null }) | Omit<Extract<GraphicObject, { kind: 'group' }>, 'parent'>
 
 interface GraphicPayload {
-  version: 2 | 3
+  version: 2 | 3 | 4
   settings: DocumentSettings
   roots: string[]
   objects: PayloadObject[]
@@ -66,10 +66,10 @@ function payloadOf(text: string): GraphicPayload | null {
     return null
   }
   if (!record(value) || !exactKeys(value, ['format', 'version', 'kind', 'settings', 'roots', 'objects', 'references']) ||
-      value.format !== 'chemifree.clipboard' || (value.version !== 2 && value.version !== 3) || value.kind !== 'graphics' || !record(value.settings) ||
+      value.format !== 'chemifree.clipboard' || (value.version !== 2 && value.version !== 3 && value.version !== 4) || value.kind !== 'graphics' || !record(value.settings) ||
       !ids(value.roots) || value.roots.length === 0 || !Array.isArray(value.objects) || value.objects.length > 1000 ||
       !Array.isArray(value.references) || value.references.length > 4096 || value.objects.length + value.references.length > 500) return null
-  // SettingsDto defaults only these newer label fields in legacy v2/v3 payloads.
+  // SettingsDto defaults only these newer label fields in legacy graphics payloads.
   const settings = { label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, ...value.settings }
   if (!isDocumentSettings(settings)) return null
   const objects: PayloadObject[] = []
@@ -77,9 +77,9 @@ function payloadOf(text: string): GraphicPayload | null {
     if (!record(item) || !objectId(item.id) || objects.some((prior) => prior.id === item.id)) return null
     if (item.kind === 'group' && exactKeys(item, ['kind', 'id', 'children']) && ids(item.children) && item.children.length >= 2) {
       objects.push({ kind: 'group', id: item.id, children: item.children })
-    } else if (item.kind === 'graphic' && exactKeys(item, value.version === 3 ? ['kind', 'id', 'shape', 'points', 'line_width_pt'] : ['kind', 'id', 'shape', 'points']) &&
+    } else if (item.kind === 'graphic' && exactKeys(item, value.version !== 2 ? ['kind', 'id', 'shape', 'points', 'line_width_pt'] : ['kind', 'id', 'shape', 'points']) &&
         (value.version === 2 || item.line_width_pt === null || (typeof item.line_width_pt === 'number' && Number.isFinite(item.line_width_pt) && item.line_width_pt >= SETTING_RANGES.line_width_pt[0] && item.line_width_pt <= SETTING_RANGES.line_width_pt[1])) &&
-        (item.shape === 'line' || item.shape === 'arrow' || item.shape === 'rectangle') &&
+        (item.shape === 'line' || item.shape === 'arrow' || item.shape === 'rectangle' || (value.version === 4 && item.shape === 'ellipse')) &&
         Array.isArray(item.points) && item.points.length === 2 && point(item.points[0]) && point(item.points[1])) {
       objects.push({ kind: 'graphic', id: item.id, shape: item.shape, points: [item.points[0], item.points[1]], line_width_pt: typeof item.line_width_pt === 'number' ? item.line_width_pt : null })
     } else return null
@@ -143,7 +143,8 @@ export function sceneClipboardCopyMatches(
   if (!scene.roots.every((root) => visit(root, false))) return false
   const included = new Set(objects.map((object) => object.id))
   const references = (scene.references ?? []).filter((reference) => included.has(reference.source))
-  const version = objects.some((object) => object.kind === 'graphic' && object.line_width_pt !== null) ? 3 : 2
+  const version = objects.some((object) => object.kind === 'graphic' && object.shape === 'ellipse') ? 4
+    : objects.some((object) => object.kind === 'graphic' && object.line_width_pt !== null) ? 3 : 2
   return payload.version === version && equal(roots, expectedRoots) && equal(payload.roots, expectedRoots) &&
     equal(copied.objects, objects.map((object) => object.id)) && equal(payload.objects, objects) && sameReferences(payload.references, references)
 }
