@@ -1,3 +1,5 @@
+import { SplineDraftControls } from '@/components/spline-draft-controls'
+import { appendSplinePoint, splineDraftCurrent, splinePoints, SPLINE_POINT_NAMES, type SplineCreation } from '@/editor/spline'
 import { PolygonDraftControls } from '@/components/polygon-draft-controls'
 import { appendPolygonVertex, polygonDraftCurrent, polygonVerticesValid, type PolygonCreation } from '@/editor/polygon'
 import { graphicLineWidth } from '@/editor/graphic-line-width'
@@ -67,6 +69,7 @@ const DRAG_THRESHOLD = 3
  */
 type Drag =
   | { kind: 'graphic-create'; start: Position; creation: GraphicCreation }
+  | { kind: 'spline-point'; start: Position; creation: SplineCreation }
   | { kind: 'polygon-vertex'; start: Position; creation: PolygonCreation }
   | ({ kind: 'endpoint' } & GraphicEndpointGesture)
   | { kind: 'attach'; start: Position; atom: string; instance: string | null; size: RingSize; pattern: RingPattern }
@@ -141,6 +144,7 @@ interface StructureCanvasProps {
   graphicShape?: SceneGraphicShape | null
   serviceGeneration?: number
   onGraphicCreate?: (creation: GraphicCreation) => void
+  onSplineCreate?: (creation: SplineCreation) => void
   onPolygonCreate?: (creation: PolygonCreation) => void
   onCommands: (commands: Command[], selectionBefore?: ReadonlySet<string>) => void
   /** A stereo-mark gesture, built from the document on screen; the parent sends it to the latest. */
@@ -189,6 +193,7 @@ export function StructureCanvas({
   graphicShape = null,
   serviceGeneration = 0,
   onGraphicCreate,
+  onSplineCreate,
   onPolygonCreate,
   onMark,
   rings = [],
@@ -204,11 +209,14 @@ export function StructureCanvas({
   const setDrag = (next: Drag | null) => { drag.current = next }
   const [interacting, setInteracting] = useState(false)
   const [preview, setPreview] = useState<Preview>(null)
-  const polygonContext = JSON.stringify([document.id, document.revision, tool, graphicShape, serviceGeneration])
-  const [draftContext, setDraftContext] = useState(polygonContext)
+  const graphicDraftContext = JSON.stringify([document.id, document.revision, tool, graphicShape, serviceGeneration])
+  const [draftContext, setDraftContext] = useState(graphicDraftContext)
+  const [splineDraft, setSplineDraft] = useState<SplineCreation | null>(null)
   const [polygonDraft, setPolygonDraft] = useState<PolygonCreation | null>(null)
   // Reset before rendering a changed editing context so returning to the tool cannot revive a draft.
-  if (draftContext !== polygonContext) { setDraftContext(polygonContext); setPolygonDraft(null) }
+  if (draftContext !== graphicDraftContext) { setDraftContext(graphicDraftContext); setPolygonDraft(null); setSplineDraft(null) }
+  const activeSpline = splineDraft && tool === 'graphic' && splineDraftCurrent(document, graphicShape, serviceGeneration, splineDraft) ? splineDraft : null
+  const activeSplinePoints = activeSpline && splinePoints(activeSpline.points)
   const activePolygon = polygonDraft && tool === 'graphic' && polygonDraftCurrent(document, graphicShape, serviceGeneration, polygonDraft) ? polygonDraft : null
   const [hover, setHover] = useState<Located | null>(null)
   const selectedGeometry = selectionGeometry(document, selection, activePlacement)
@@ -462,12 +470,13 @@ export function StructureCanvas({
   const cancelExpiredGraphic = useEffectEvent(() => {
     const gesture = drag.current
     if (gesture?.kind === 'endpoint' && (tool !== 'select' || !graphicEndpointCurrent(document, selection, gesture))) cancelPointer()
+    if (gesture?.kind === 'spline-point' && (tool !== 'graphic' || !splineDraftCurrent(document, graphicShape, serviceGeneration, gesture.creation))) cancelPointer()
     if (gesture?.kind === 'polygon-vertex' && (tool !== 'graphic' || !polygonDraftCurrent(document, graphicShape, serviceGeneration, gesture.creation))) cancelPointer()
     if (gesture?.kind === 'graphic-create' && (tool !== 'graphic' || !graphicCreationCurrent(document, graphicShape, serviceGeneration, gesture.creation))) cancelPointer()
   })
   useEffect(() => { cancelExpiredGraphic() }, [document, selection, tool, graphicShape, serviceGeneration])
 
-  const cancelFromWindow = useEffectEvent(() => { cancelPointer(); setPolygonDraft(null) })
+  const cancelFromWindow = useEffectEvent(() => { cancelPointer(); setPolygonDraft(null); setSplineDraft(null) })
 
   useEffect(() => {
     function onBlur() { space.current = false; cancelFromWindow() }
@@ -519,7 +528,7 @@ export function StructureCanvas({
       space.current = true
       return
     }
-    if (key === 'escape') { cancelPointer(); setPolygonDraft(null); return }
+    if (key === 'escape') { cancelPointer(); setPolygonDraft(null); setSplineDraft(null); return }
     if (pointer.current) return
     if (key === '+' || key === '=') zoom(1.25)
     else if (key === '-') zoom(0.8)
@@ -596,6 +605,10 @@ export function StructureCanvas({
     const point = toDocument(event)
     if (!point) return
     if (tool === 'graphic') {
+      if (graphicShape === 'spline') {
+        if (onSplineCreate && graphicPointValid(point)) setDrag({ kind: 'spline-point', start: point, creation: { documentId: document.id, revision: document.revision, serviceGeneration, points: [] } })
+        return
+      }
       if (graphicShape === 'polygon') {
         if (onPolygonCreate && graphicPointValid(point)) setDrag({ kind: 'polygon-vertex', start: point, creation: { documentId: document.id, revision: document.revision, serviceGeneration, vertices: [] } })
         return
@@ -698,6 +711,12 @@ export function StructureCanvas({
     // document and drops them if what they name is gone.
     if (active.pan || !gesture || !point) return
     const dragged = distance({ x: event.clientX, y: event.clientY }, active.start) >= DRAG_THRESHOLD
+    if (gesture.kind === 'spline-point') {
+      if (!dragged && tool === 'graphic' && splineDraftCurrent(document, graphicShape, serviceGeneration, gesture.creation) && graphicPointValid(gesture.start)) {
+        setSplineDraft((current) => appendSplinePoint(current && splineDraftCurrent(document, graphicShape, serviceGeneration, current) ? current : gesture.creation, gesture.start))
+      }
+      return
+    }
     if (gesture.kind === 'polygon-vertex') {
       if (!dragged && tool === 'graphic' && polygonDraftCurrent(document, graphicShape, serviceGeneration, gesture.creation) && graphicPointValid(gesture.start)) {
         setPolygonDraft((current) => appendPolygonVertex(current && polygonDraftCurrent(document, graphicShape, serviceGeneration, current) ? current : gesture.creation, gesture.start))
@@ -751,6 +770,7 @@ export function StructureCanvas({
 
   function gestureCommands(gesture: Drag, point: Position, dragged: boolean): Command[] {
     switch (gesture.kind) {
+      case 'spline-point':
       case 'polygon-vertex':
       case 'graphic-create':
       case 'endpoint':
@@ -896,7 +916,8 @@ export function StructureCanvas({
   const drawInstance = (drawing: Drawing) => (
     <g key={drawing.id ?? 'atoms'} data-instance={drawing.id ?? undefined}>
       {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
-      <g className="fill-primary/15 stroke-primary/40">
+      {/* Decorative chemical highlights must not become transient pointer targets. */}
+      <g className="fill-primary/15 stroke-primary/40" pointerEvents="none">
         {drawing.view.bonds
           .filter((bond) => (drawing.id === activePlacement && selection.has(bond.id)) || (selectedGeometry?.positions.get(drawing.id)?.has(bond.begin) && selectedGeometry.positions.get(drawing.id)?.has(bond.end)) || hovered(drawing, 'bond', bond.id))
           .map((bond) => {
@@ -928,7 +949,16 @@ export function StructureCanvas({
   )
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2" onKeyDownCapture={(event) => { if (event.key === 'Escape' && activePolygon) { event.preventDefault(); event.stopPropagation(); cancelPointer(); setPolygonDraft(null) } }}>
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2" onKeyDownCapture={(event) => { if (event.key === 'Escape' && (activePolygon || activeSpline)) { event.preventDefault(); event.stopPropagation(); cancelPointer(); setPolygonDraft(null); setSplineDraft(null) } }}>
+      {tool === 'graphic' && graphicShape === 'spline' && <SplineDraftControls count={activeSpline?.points.length ?? 0} available={Boolean(onSplineCreate)} onFinish={() => {
+        if (!activeSpline || !onSplineCreate || !splinePoints(activeSpline.points)) return
+        cancelPointer()
+        setSplineDraft(null)
+        onSplineCreate(activeSpline)
+      }} onRemove={() => {
+        cancelPointer()
+        setSplineDraft((current) => current && splineDraftCurrent(document, graphicShape, serviceGeneration, current) && current.points.length > 1 ? { ...current, points: current.points.slice(0, -1) } : null)
+      }} onCancel={() => { cancelPointer(); setSplineDraft(null) }} />}
       {tool === 'graphic' && graphicShape === 'polygon' && <PolygonDraftControls count={activePolygon?.vertices.length ?? 0} available={Boolean(onPolygonCreate)} onFinish={() => {
         if (!activePolygon || !onPolygonCreate || !polygonVerticesValid(activePolygon.vertices)) return
         cancelPointer()
@@ -937,7 +967,7 @@ export function StructureCanvas({
       }} onRemove={() => {
         cancelPointer()
         setPolygonDraft((current) => current && polygonDraftCurrent(document, graphicShape, serviceGeneration, current) && current.vertices.length > 1 ? { ...current, vertices: current.vertices.slice(0, -1) } : null)
-      }} onCancel={() => { cancelPointer(); setPolygonDraft(null) }} />}
+      }} onCancel={() => { cancelPointer(); setPolygonDraft(null); setSplineDraft(null) }} />}
       <div role="toolbar" aria-label="Canvas view" className="flex flex-wrap items-center gap-1">
         <Button size="sm" variant="outline" disabled={interacting} onClick={() => zoom(1.25)}>Zoom in</Button>
         <Button size="sm" variant="outline" disabled={interacting} onClick={() => zoom(0.8)}>Zoom out</Button>
@@ -1026,6 +1056,11 @@ export function StructureCanvas({
         const drawing = drawings.find((item) => item.id === object.id)
         return drawing ? drawInstance(drawing) : null
       }) : drawings.map(drawInstance)}
+      {activeSpline && <g data-editor-overlay="" data-spline-draft="" pointerEvents="none">
+        {activeSplinePoints && <SceneGraphic object={{ kind: 'graphic', id: 'spline-preview', parent: null, shape: 'spline', points: activeSplinePoints }} selected={false} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} />}
+        <polyline points={activeSpline.points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" className="stroke-muted-foreground" strokeWidth={unitsPerPixel} strokeDasharray={`${3 * unitsPerPixel} ${3 * unitsPerPixel}`} />
+        {activeSpline.points.map((point, index) => <circle key={index} data-spline-draft-point={index} cx={point.x} cy={point.y} r={3 * unitsPerPixel} className="fill-primary" role="img" aria-label={`Draft spline ${SPLINE_POINT_NAMES[index]}`} />)}
+      </g>}
       {activePolygon && <g data-editor-overlay="" data-polygon-draft="" pointerEvents="none">
         {activePolygon.vertices.length >= 3
           ? <SceneGraphic object={{ kind: 'graphic', id: 'polygon-preview', parent: null, shape: 'polygon', points: activePolygon.vertices }} selected={false} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} />
@@ -1093,6 +1128,16 @@ function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPer
   onPointerDown?: (event: PointerEvent<SVGGElement>) => void
 }) {
   const lineWidth = graphicLineWidth(object, documentLineWidth)
+  if (object.shape === 'spline') {
+    const [p0, c1, c2, p3] = object.points
+    const d = `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${p3.x} ${p3.y}`
+    const underlay = graphicUnderlay(lineWidth, unitsPerPixel)
+    return <g data-scene-object={object.id} onPointerDown={onPointerDown} strokeLinecap="round" strokeLinejoin="round">
+      <path d={d} fill="none" stroke="transparent" strokeWidth={Math.max(10 * unitsPerPixel, lineWidth)} />
+      {selected && <path d={d} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
+      <path d={d} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
+    </g>
+  }
   if (object.shape === 'polygon') {
     const points = object.points.map((point) => `${point.x},${point.y}`).join(' ')
     const underlay = graphicUnderlay(lineWidth, unitsPerPixel)

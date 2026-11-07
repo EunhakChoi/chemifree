@@ -28,7 +28,7 @@ for(const [name,change]of[
  ['range',(p)=>{p.objects[1].line_width_pt=10.01}],
  ['unknown radius',(p)=>{p.objects[1].rx=4}],
  ['group width',(p)=>{p.objects[0].line_width_pt=null}],
- ['future version',(p)=>{p.version=6}],
+ ['future version',(p)=>{p.version=7}],
  ['unrecognized shape',(p)=>{p.objects[1].shape='circle'}],
 ])test(`ellipse v4 strictly rejects ${name}`,()=>{
  const value=ellipseCopy();change(value.payload);assert.equal(matches(value),false);assert.equal(sceneClipboardGraphicStyles(JSON.stringify(value.payload)),null)

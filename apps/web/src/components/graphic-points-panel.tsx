@@ -1,3 +1,4 @@
+import { SplinePointsForm } from '@/components/spline-points-form'
 import { PolygonVerticesForm } from '@/components/polygon-vertices-form'
 import { useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -12,10 +13,10 @@ import { settingsOf, type DocumentView, type Position } from '@/lib/document-con
 export function GraphicPointsPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
   const chosen = document.scene?.objects?.filter((object) => editor.selection.has(object.id)) ?? []
   const graphic = chosen.length === 1 && chosen[0].kind === 'graphic' ? chosen[0] : null
-  return <section aria-label="Graphic endpoints" className="flex flex-col gap-2">
+  return <section aria-label="Graphic geometry" className="flex flex-col gap-2">
     {graphic
       ? <div key={`${document.id}:${JSON.stringify(graphic)}`} className="flex flex-col gap-3">
-          {graphic.shape === 'polygon' ? <PolygonVerticesForm document={document} graphic={graphic} editor={editor} /> : <GraphicPointsForm document={document} graphic={graphic} editor={editor} />}
+          {graphic.shape === 'spline' ? <SplinePointsForm document={document} graphic={graphic} editor={editor} /> : graphic.shape === 'polygon' ? <PolygonVerticesForm document={document} graphic={graphic} editor={editor} /> : <GraphicPointsForm document={document} graphic={graphic} editor={editor} />}
           {editor.selection.size === 1 && <GraphicLineWidthForm document={document} graphic={graphic} editor={editor} />}
         </div>
       : <p className="text-xs text-muted-foreground">Select one graphic to edit its points and line width.</p>}

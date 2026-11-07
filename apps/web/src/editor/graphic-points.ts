@@ -2,6 +2,7 @@ import { isGraphicShape, type Command, type DocumentView, type Position, type Sc
 
 export type GraphicObject = Extract<SceneObject, { kind: 'graphic' }>
 export type TwoPointGraphicObject = Extract<GraphicObject, { shape: GraphicShape }>
+export type SplineGraphicObject = Extract<GraphicObject, { shape: 'spline' }>
 export type PolygonGraphicObject = Extract<GraphicObject, { shape: 'polygon' }>
 
 export function graphicPointValid(point: Position): boolean {
@@ -37,7 +38,7 @@ export function graphicPointsCommands(latest: DocumentView, edit: GraphicPointsE
 export function selectedGraphic(document: DocumentView, selected: ReadonlySet<string>): TwoPointGraphicObject | null {
   if (selected.size !== 1) return null
   const object = document.scene?.objects?.find((item) => selected.has(item.id))
-  if (!object || object.kind !== 'graphic' || object.shape === 'polygon') return null
+  if (!object || object.kind !== 'graphic' || object.shape === 'polygon' || object.shape === 'spline') return null
   return object.points[0].x === object.points[1].x && object.points[0].y === object.points[1].y ? null : object
 }
 
@@ -48,15 +49,19 @@ export interface GraphicEndpointGesture {
 }
 
 /** Whole-object preview geometry shared by the stroke and its endpoint handles. */
+export function translatedGraphicPoints(points: readonly [Position, Position, Position, Position], delta: Position): [Position, Position, Position, Position]
 export function translatedGraphicPoints(points: readonly [Position, Position], delta: Position): [Position, Position]
 export function translatedGraphicPoints(points: readonly Position[], delta: Position): Position[]
 export function translatedGraphicPoints(points: readonly Position[], delta: Position): Position[] {
   return points.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y }))
 }
 
-/** Whole-object translation retains every polygon vertex and all graphic metadata. */
+/** Whole-object translation retains every defining point and all graphic metadata. */
 export function translatedGraphicObject(object: GraphicObject, delta: Position): GraphicObject {
-  return object.shape === 'polygon'
+  // Each branch retains the shape's tuple cardinality through the overloads.
+  return object.shape === 'spline'
+    ? { ...object, points: translatedGraphicPoints(object.points, delta) }
+    : object.shape === 'polygon'
     ? { ...object, points: translatedGraphicPoints(object.points, delta) }
     : { ...object, points: translatedGraphicPoints(object.points, delta) }
 }
