@@ -1,10 +1,11 @@
 # P36g same-parent scene order boundary candidate
 
-Source inspection covers the current scene-order web draft based on `ea9b2f1f`.
-P36f PR #211 remains open in the parent handoff; its presence in branch ancestry
-does not establish a merge. Browser verification is in progress, while browser/
-full/review/CI results remain pending. This documentation pass ran no product
-tests/builds or browser checks. P36 stays `in_progress` against its broader scope.
+The current [PR #212](https://github.com/EunhakChoi/chemifree/pull/212) candidate
+head is `25d440c0`, based on main `d1920be8` (merged P36f #211). Its completed
+frontend checks and independent review are recorded below; full isolated checks
+and current PR CI remain pending. This documentation update read existing
+execution logs and PR metadata and ran no product tests/builds or browser checks.
+P36 stays `in_progress` against its broader scope; #212 is not recorded as merged.
 
 Scene First/Last moves a selected scene object directly to the beginning/end of
 its existing parent's sibling list, reducing repeated Earlier/Later presses.
@@ -56,7 +57,7 @@ API/catalog/native document/draft v26/provider formats and clipboard/external
 loss policies remain unchanged. This adds no batch/multi-object boundary command,
 new grouping/reparent control, layer model, geometry edit or scientific meaning.
 
-Authored/inspected checks, not successful execution evidence:
+Scope exercised by the frontend checks recorded below:
 
 - `web-scene-order-client-check.mjs`: one scene object with accompanying graph
   IDs, root/nested group boundaries, subtree target, no-op, latest siblings after
@@ -68,9 +69,35 @@ Authored/inspected checks, not successful execution evidence:
   deletion/document staleness and native26 save/restart/reopen. Its restart step
   tests persisted order, not a new unknown-request replay policy.
 - Client registration joins `test:client`; `test:browser:scene-order` is
-  registered in npm/CI. Written assertions or registration do not establish the
-  currently pending browser/full/review/CI outcome.
+  registered in npm/CI. The local executions below establish their stated web
+  scope, not successful full isolated checks or GitHub CI.
 
-Existing bounded P32/P33 delivery is not reclassified by this candidate. P36f
-#211 integration remains separate and open; this record claims neither that
-merge nor successful P36g delivery or completion of broader P36.
+## Completed frontend execution and review evidence
+
+The following existing frontend-agent logs under `/tmp/chemifree-work/` were
+read for this documentation correction. They are local execution records, not
+new runs by the documentation agent or committed CI artifacts. The PR body
+independently records the same completed frontend scope.
+
+| Local log | Confirmed result and scope |
+| --- | --- |
+| `p36g-web-gate.log` | Isolated web lint, typecheck, complete client command and web build passed; sandbox exit 0. Every recorded client group has zero failures, including all 9 scene-order client cases. |
+| `p36g-order-browser.log` | Real-backend production Scene First/Last/browser scenario passed; sandbox exit 0. It covers root/group/subtree order and DOM painting sequence, queued siblings/selection, parent/document/deletion staleness, no-op/history and native persistence. |
+| `p36g-web-regression.log` | Selection-rotation browser regression and general browser smoke passed; sandbox exit 0. General smoke records `skipped_steps: []` and no uncaught browser errors. This is not a full Rust/conformance/traceability execution. |
+| `p36g-mutation-2.log` | Semantic mutations produced expected failures for parent/document/index/no-op checks and the browser's captured-target assertion (`s2` versus captured `s3`). Restored source then passed all 9 client cases and the production scene-order browser, ending with sandbox exit 0. The intentional mutant failures are distinct from the restored implementation's passing results. |
+
+An independent fresh-context subagent reviewed
+`3667f852b2f2efde5b305b107a5e413f57911a2f` on 2026-11-07 UTC and reported no
+findings, as recorded in the #212 body. That reviewed head is identified
+separately from the current rebased PR head; no new independent review of this
+documentation correction is implied.
+
+Codex P2 on #212 identified this record's stale claim that already completed
+frontend gates/browser checks and review were still unexecuted or in progress.
+This update reconciles that finding using the named logs and current PR body.
+It changes only this verification document and reruns none of those checks.
+
+Full isolated checks and current GitHub CI remain pending in the parent/PR
+handoff. No success for those gates or merged #212 delivery follows from the
+completed web logs. Existing bounded P32/P33 delivery and merged predecessor
+#211 are not reclassified, and broader P36 remains `in_progress`.
