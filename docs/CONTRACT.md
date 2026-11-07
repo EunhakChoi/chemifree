@@ -910,6 +910,48 @@ Public API/catalog/native26/provider formats are unchanged. P36 remains
 `in_progress`; tests, reviews and CI are pending. A browser check currently in
 progress is not a pass. See [the P36f record](verification/p36f-selection-rotation.md).
 
+### Same-parent scene order boundaries (P36g candidate)
+
+Scene **First**/**Last** buttons move one selected scene object directly to the
+beginning/end of its current parent's sibling list, avoiding repeated
+Earlier/Later presses. Index 0 is earlier in ordinary scene painting order and
+the final index later, within that parent. This introduces no separate layer,
+global z-index, reparenting or overlay-order system.
+
+The condition is exactly one selected scene object, not exactly one selected ID.
+Accompanying valid atom/bond IDs remain in the ordinary selection/history and
+are not reorder targets. Graph-only or multiple scene-object selections have no
+boundary action; selecting both ancestor and descendant is not silently reduced
+to one. A selected group moves as one subtree with its internal child order,
+geometry, styles and references intact. Root objects use page roots; a grouped
+object uses only that group's children. Existing scene object kinds retain their
+ordinary `reorder` eligibility.
+
+Press captures document ID, object ID, parent (including null for page root) and
+the requested boundary. It does not freeze revision, sibling count or geometry.
+When queued, the callback checks the same document/object/parent and calculates
+index 0 or `latest siblings.length - 1` from the latest same-parent list, under
+the latest revision. Earlier additions/removals/reorders can change that index;
+later live selection cannot redirect the target. At the shown boundary the
+button is disabled, and reaching it in an earlier queued edit skips the command
+as a no-op. Singleton sibling lists likewise produce no boundary edit.
+
+A different document, deleted target, changed parent, missing/non-group parent
+or missing sibling membership lapses the action. It does not follow a root into
+a newly created group or substitute another object/index. The ordinary editor
+mutation/restart reconciliation policy applies; no service-generation capture or
+special no-replay rule is added.
+
+Each effective action submits one existing `reorder` command. Normal atomic
+validation, selection-aware Undo/Redo, request replay and save/reopen apply.
+Only the sibling list and its canonical depth-first scene traversal order change;
+IDs, geometry, graph/placements/stereo, style/width, containment and references
+remain. Public API/catalog/native26/provider formats are unchanged. Multi-object
+boundary moves, layer visibility/locking/blending, new grouping/reparent controls and
+new scientific semantics are outside this slice. P36 stays `in_progress`.
+Browser/full/review/CI results are pending; preceding P36f #211 is open, not a
+confirmed merged dependency. See [the P36g record](verification/p36g-scene-order.md).
+
 ## Effective selection scope and movement (P32a)
 
 The bounded P32 delivery is complete; see the [completion evidence](verification/p32-selection-completion.md). `document.selection_scope` is a read-only operation taking `{ document_id, selection, instance? }` and returning `{ snapshot, effective: { objects, positions, graphics } }` with the exact document revision. A selection has `objects`, `atoms` and `bonds` arrays, each defaulting to empty; repeated IDs are deduplicated. IDs must already exist; these fields do not resolve transaction-local `$N` references. Results are ordered by domain identifier, with `positions` containing unique `{ instance, atom }` pairs in instance-then-atom order. It changes no geometry, stored selection, revision, dirty state or history; repeating a request inspects the current snapshot rather than replaying a previous result.
@@ -1850,7 +1892,7 @@ Transaction body: `{ "request_id": string, "expected_revision": number, "command
 | `update_graphic_points` | `object`, exactly two `points` | Replaces an existing graphic's two stored points while retaining shape, containment and references; [P36a bounds and atomicity](#existing-graphic-point-editing-p36a-candidate) |
 | `group` | `objects` | Groups at least two distinct siblings, preserving their order; the group occupies the first selected sibling's position |
 | `ungroup` | `group` | Removes the group, promoting its children in order |
-| `reorder` | `object`, `index` | Moves an object among its siblings |
+| `reorder` | `object`, `index` | Moves an object within its existing parent's siblings; [P36g First/Last queue semantics](#same-parent-scene-order-boundaries-p36g-candidate) |
 | `delete_objects` | `objects`, `mode: subtree | object_only` | Deletes subtrees or only the named objects, promoting surviving children; at least one instance remains |
 | `transform_selection` | `selection`, `pivot: { x, y }`, `transform`, optional `instance` | Geometry-only checked rotation/reflection of the effective union; [axes, angles and rectangle limits](#selection-rotation-and-reflection-p32c) |
 | `arrange_objects` | `objects`, `mode` | Rigid alignment/distribution of outermost selected scene units; [modes and bounds](#scene-object-alignment-and-distribution-p32b) |

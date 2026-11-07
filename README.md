@@ -460,3 +460,13 @@ geometry-only graph/stereo/width/reference behavior remain unchanged. Custom
 pivot and rotation-drag controls are not added. P36 stays `in_progress`;
 tests/reviews/CI remain pending while browser verification is in progress.
 See [P36f record](docs/verification/p36f-selection-rotation.md).
+
+P36g adds candidate Scene **First**/**Last** buttons for one selected scene
+object, preserving accompanying atom/bond selections. A group moves with its
+subtree within the same parent; these are sibling-order controls, without new
+layers or reparenting. Captured document/object/parent remain fixed while the
+queue computes the boundary from latest siblings; existing boundaries are no-ops
+and stale/deleted/reparented targets lapse. Ordinary revision, selection history,
+restart reconciliation, API and native26 rules remain. P36 stays `in_progress`;
+browser/full/reviews/CI are pending. See
+[P36g record](docs/verification/p36g-scene-order.md).
