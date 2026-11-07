@@ -3,16 +3,37 @@
 use std::collections::BTreeSet;
 
 use super::{
-    Atom, AtomId, ChangeSet, Command, Content, EditError, FragmentDisplay, MAX_ATOMS, PositionKey,
+    Atom, AtomId, ChangeSet, Command, Content, EditError, FragmentDisplay, FragmentDisplayRun,
+    MAX_ATOMS, PositionKey,
 };
 use crate::scene::Selection;
 use crate::states::AtomKind;
 use crate::stereo::StereoKey;
 
+/// The byte budget bounds both text and the number of nonempty runs without a second limit.
+pub(super) fn validate_runs(runs: &[FragmentDisplayRun]) -> Result<(), EditError> {
+    let mut bytes = 0usize;
+    let mut nonblank = false;
+    for run in runs {
+        bytes = bytes.saturating_add(run.text.len());
+        if run.text.is_empty()
+            || !crate::scene::valid_caption_run_text(&run.text)
+            || bytes > super::abbreviation::MAX_DISPLAY_LABEL_BYTES
+        {
+            return Err(EditError::DisplayLabelInvalid);
+        }
+        nonblank |= run.text.chars().any(|ch| !ch.is_whitespace());
+    }
+    if !nonblank {
+        return Err(EditError::DisplayLabelInvalid);
+    }
+    Ok(())
+}
+
 impl FragmentDisplay {
     /// Validate local data even when a history entry will be discarded by retention.
     fn validate_shape(&self, anchor: AtomId) -> Result<BTreeSet<AtomId>, EditError> {
-        super::abbreviation::validate_display_label(&self.text)?;
+        validate_runs(&self.runs)?;
         let members: BTreeSet<AtomId> = self.members.iter().copied().collect();
         if members.is_empty()
             || members.len() > MAX_ATOMS

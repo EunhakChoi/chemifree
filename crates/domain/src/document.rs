@@ -435,6 +435,12 @@ pub enum Command {
         anchor: AtomId,
         text: String,
     },
+    /// Changes explicit text runs only; script never defines chemistry.
+    SetFragmentDisplayRuns {
+        instance: ObjectId,
+        anchor: AtomId,
+        runs: Vec<FragmentDisplayRun>,
+    },
     /// Reveals a retained fragment graph and its original coordinates.
     ExpandFragment {
         instance: ObjectId,
@@ -1102,7 +1108,32 @@ pub struct Change<T> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FragmentDisplay {
     pub members: Vec<AtomId>,
+    pub runs: Vec<FragmentDisplayRun>,
+}
+
+/// Explicit display-script treatment, independent of chemical interpretation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FragmentDisplayRun {
     pub text: String,
+    pub script: scene::CaptionScript,
+}
+
+impl FragmentDisplay {
+    /// Plain text operations reset script treatment to one baseline run.
+    pub fn plain(members: Vec<AtomId>, text: String) -> Self {
+        Self {
+            members,
+            runs: vec![FragmentDisplayRun {
+                text,
+                script: scene::CaptionScript::Baseline,
+            }],
+        }
+    }
+
+    /// Concatenated display text, never a chemical definition.
+    pub fn text(&self) -> String {
+        self.runs.iter().map(|run| run.text.as_str()).collect()
+    }
 }
 
 /// The exact difference made by one transaction; applied backward to undo and forward to redo.
@@ -2214,10 +2245,7 @@ impl Draft {
                     instance: *instance,
                     atom: *anchor,
                 };
-                let display = FragmentDisplay {
-                    members: members.clone(),
-                    text: text.clone(),
-                };
+                let display = FragmentDisplay::plain(members.clone(), text.clone());
                 self.content.check_fragment_display(key, &display)?;
                 let mut display = display;
                 display.members.sort_unstable();
@@ -2239,7 +2267,27 @@ impl Draft {
                     .fragment_displays
                     .get_mut(&key)
                     .ok_or(EditError::FragmentDisplayInvalid)?;
-                display.text.clone_from(text);
+                display.runs = vec![FragmentDisplayRun {
+                    text: text.clone(),
+                    script: scene::CaptionScript::Baseline,
+                }];
+            }
+            Command::SetFragmentDisplayRuns {
+                instance,
+                anchor,
+                runs,
+            } => {
+                fragment_display::validate_runs(runs)?;
+                let key = PositionKey {
+                    instance: *instance,
+                    atom: *anchor,
+                };
+                let display = self
+                    .content
+                    .fragment_displays
+                    .get_mut(&key)
+                    .ok_or(EditError::FragmentDisplayInvalid)?;
+                display.runs.clone_from(runs);
             }
             Command::ExpandFragment { instance, anchor } => {
                 self.content.require_instance(*instance)?;

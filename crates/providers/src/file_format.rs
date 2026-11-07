@@ -1,7 +1,8 @@
-//! Chemifree document file format, version 24 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 25 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
+//! Version 25 stores fragment display runs; v24 text migrates to one baseline run in current/history.
 //! Version 24 adds explicit fragment_displays; versions 1–23 migrate as empty, including history.
 //! Version 23 adds cosmetic display_labels; versions 1–22 retain default Et, including history.
 //! Version 22 adds label_shadow; versions 1–21 migrate as false, including history.
@@ -34,7 +35,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 24. Other versions
+//! so they read with none. Reading never writes; the next write is version 25. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -42,7 +43,8 @@ use std::collections::BTreeSet;
 use chemifree_application::{Draft, DraftInfo};
 use chemifree_domain::document::{
     Atom, AtomId, Bond, BondId, BondOrder, Change, ChangeSet, Document, DocumentId, DocumentParts,
-    FragmentDisplay, GroupId, MOLECULE_ID, ObjectId, PAGE_ID, Point, PositionKey,
+    FragmentDisplay, FragmentDisplayRun, GroupId, MOLECULE_ID, ObjectId, PAGE_ID, Point,
+    PositionKey,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
@@ -63,9 +65,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 24;
+const FORMAT_VERSION: u32 = 25;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 24;
+const DRAFT_FORMAT_VERSION: u32 = 25;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -80,7 +82,7 @@ const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Current v24 scene/history: groups, styled/aligned captions, and Et display maps.
+/// Current v25 scene/history: groups, styled/aligned captions, and Et display maps.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -409,14 +411,27 @@ struct StoredFragmentDisplay {
     instance: String,
     anchor: String,
     members: Vec<String>,
-    text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runs: Option<Vec<StoredFragmentDisplayRun>>,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct StoredFragmentDisplayState {
     members: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runs: Option<Vec<StoredFragmentDisplayRun>>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredFragmentDisplayRun {
     text: String,
+    script: StoredCaptionScript,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -433,7 +448,21 @@ struct StoredFragmentDisplayChange {
 fn stored_fragment_display(display: &FragmentDisplay) -> StoredFragmentDisplayState {
     StoredFragmentDisplayState {
         members: display.members.iter().map(ToString::to_string).collect(),
-        text: display.text.clone(),
+        text: None,
+        runs: Some(
+            display
+                .runs
+                .iter()
+                .map(|run| StoredFragmentDisplayRun {
+                    text: run.text.clone(),
+                    script: match run.script {
+                        CaptionScript::Baseline => StoredCaptionScript::Baseline,
+                        CaptionScript::Subscript => StoredCaptionScript::Subscript,
+                        CaptionScript::Superscript => StoredCaptionScript::Superscript,
+                    },
+                })
+                .collect(),
+        ),
     }
 }
 
@@ -446,10 +475,26 @@ fn read_fragment_display(display: StoredFragmentDisplayState) -> Result<Fragment
     // Lists may arrive in any order. Sorting preserves duplicates for domain rejection
     // and makes current/history sides compare by the same canonical representation.
     members.sort_unstable();
-    Ok(FragmentDisplay {
-        members,
-        text: display.text,
-    })
+    match (display.text, display.runs) {
+        (Some(text), None) => Ok(FragmentDisplay::plain(members, text)),
+        (None, Some(runs)) => Ok(FragmentDisplay {
+            members,
+            runs: runs
+                .into_iter()
+                .map(|run| FragmentDisplayRun {
+                    text: run.text,
+                    script: match run.script {
+                        StoredCaptionScript::Baseline => CaptionScript::Baseline,
+                        StoredCaptionScript::Subscript => CaptionScript::Subscript,
+                        StoredCaptionScript::Superscript => CaptionScript::Superscript,
+                    },
+                })
+                .collect(),
+        }),
+        _ => Err(
+            "Fragment display requires exactly one version-appropriate text representation.".into(),
+        ),
+    }
 }
 
 /// Cosmetic strings are separate from the existing graph membership history.
@@ -1357,6 +1402,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    TwentyFour,
     TwentyThree,
     TwentyTwo,
     TwentyOne,
@@ -1392,6 +1438,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        24 => Ok(Version::TwentyFour),
         23 => Ok(Version::TwentyThree),
         22 => Ok(Version::TwentyTwo),
         21 => Ok(Version::TwentyOne),
@@ -1417,7 +1464,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, and \
              {current}"
         )),
     }
@@ -1469,7 +1516,8 @@ fn stored(document: &Document) -> Current {
                 instance: key.instance.to_string(),
                 anchor: key.atom.to_string(),
                 members: display.members.iter().map(ToString::to_string).collect(),
-                text: display.text.clone(),
+                text: None,
+                runs: stored_fragment_display(display).runs,
             })
             .collect(),
         display_labels: parts
@@ -1581,7 +1629,7 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
     Ok(probe.document.revision)
 }
 
-/// The earlier version of a document file this build reads (1 to 23), which a save
+/// The earlier version of a document file this build reads (1 to 24), which a save
 /// replaces only after keeping a copy of it; `None` otherwise.
 pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
     earlier(version(bytes, FORMAT, FORMAT_VERSION, "document"))
@@ -1601,6 +1649,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
         Ok(Version::Fourteen) => Some(14),
+        Ok(Version::TwentyFour) => Some(24),
         Ok(Version::TwentyThree) => Some(23),
         Ok(Version::TwentyTwo) => Some(22),
         Ok(Version::TwentyOne) => Some(21),
@@ -1621,7 +1670,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
     }
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1 to 23 file
+/// Parses and fully validates a stored document, including its history; a version 1 to 24 file
 /// is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let format = version(bytes, FORMAT, FORMAT_VERSION, "document")?;
@@ -1630,6 +1679,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     check_settings_fields(bytes, format)?;
     let parts = match format {
         Version::Current
+        | Version::TwentyFour
         | Version::TwentyThree
         | Version::TwentyTwo
         | Version::TwentyOne
@@ -1681,7 +1731,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1 to 23 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1 to 24 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let format = version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")?;
     check_abbreviation_fields(bytes, format)?;
@@ -1689,6 +1739,7 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     check_settings_fields(bytes, format)?;
     let (parts, base_revision, saved_at_ms) = match format {
         Version::Current
+        | Version::TwentyFour
         | Version::TwentyThree
         | Version::TwentyTwo
         | Version::TwentyOne
@@ -1758,6 +1809,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     let current = matches!(
         format,
         Version::Current
+            | Version::TwentyFour
             | Version::TwentyThree
             | Version::TwentyTwo
             | Version::TwentyOne
@@ -1784,18 +1836,54 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
             .ok_or("missing history stack")?;
         states.extend(entries);
     }
-    if states
-        .iter()
-        .any(|state| state.get("fragment_displays").is_some() != (format == Version::Current))
-    {
+    if states.iter().any(|state| {
+        state.get("fragment_displays").is_some()
+            != matches!(format, Version::Current | Version::TwentyFour)
+    }) {
         return Err(
-            "fragment_displays are required in v24 and forbidden in v1–23, including history."
+            "fragment_displays are required in v24+ and forbidden in v1–23, including history."
                 .into(),
         );
     }
+    let check_display = |display: &serde_json::Value| -> Result<(), String> {
+        if display.is_null() {
+            return Ok(());
+        }
+        let rich = format == Version::Current;
+        if display.get("runs").is_some() != rich
+            || display.get("text").is_some() == rich
+            || (rich && !display["runs"].is_array())
+            || (!rich && !display["text"].is_string())
+        {
+            return Err("Fragment display requires runs without text in v25; v24 requires text without runs, including history.".into());
+        }
+        Ok(())
+    };
+    for (index, state) in states.iter().enumerate() {
+        if let Some(displays) = state
+            .get("fragment_displays")
+            .and_then(serde_json::Value::as_array)
+        {
+            for display in displays {
+                if index == 0 {
+                    check_display(display)?;
+                } else {
+                    if let Some(before) = display.get("before") {
+                        check_display(before)?;
+                    }
+                    if let Some(after) = display.get("after") {
+                        check_display(after)?;
+                    }
+                }
+            }
+        }
+    }
     if states.iter().any(|state| {
         state.get("display_labels").is_some()
-            != matches!(format, Version::Current | Version::TwentyThree)
+            != matches!(
+                format,
+                Version::Current | Version::TwentyFour | Version::TwentyThree
+            )
     }) {
         return Err(
             "display_labels are required in v23+ and forbidden in v1–22, including history.".into(),
@@ -1821,6 +1909,7 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
     let current = matches!(
         format,
         Version::Current
+            | Version::TwentyFour
             | Version::TwentyThree
             | Version::TwentyTwo
             | Version::TwentyOne
@@ -1832,11 +1921,12 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_weight").is_some() != current
             || (current && !matches!(settings["label_weight"].as_str(), Some("normal" | "bold")))
         {
-            return Err("label_weight is required as normal or bold in v18–24 and forbidden in v1–17, including history.".into());
+            return Err("label_weight is required as normal or bold in v18–25 and forbidden in v1–17, including history.".into());
         }
         let styled = matches!(
             format,
             Version::Current
+                | Version::TwentyFour
                 | Version::TwentyThree
                 | Version::TwentyTwo
                 | Version::TwentyOne
@@ -1846,11 +1936,12 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_style").is_some() != styled
             || (styled && !matches!(settings["label_style"].as_str(), Some("normal" | "italic")))
         {
-            return Err("label_style is required as normal or italic in v19–24 and forbidden in v1–18, including history.".into());
+            return Err("label_style is required as normal or italic in v19–25 and forbidden in v1–18, including history.".into());
         }
         let underlined = matches!(
             format,
             Version::Current
+                | Version::TwentyFour
                 | Version::TwentyThree
                 | Version::TwentyTwo
                 | Version::TwentyOne
@@ -1859,25 +1950,29 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_underline").is_some() != underlined
             || (underlined && !settings["label_underline"].is_boolean())
         {
-            return Err("label_underline is required as a boolean in v20–24 and forbidden in v1–19, including history.".into());
+            return Err("label_underline is required as a boolean in v20–25 and forbidden in v1–19, including history.".into());
         }
         let outlined = matches!(
             format,
-            Version::Current | Version::TwentyThree | Version::TwentyTwo | Version::TwentyOne
+            Version::Current
+                | Version::TwentyFour
+                | Version::TwentyThree
+                | Version::TwentyTwo
+                | Version::TwentyOne
         );
         if settings.get("label_outline").is_some() != outlined
             || (outlined && !settings["label_outline"].is_boolean())
         {
-            return Err("label_outline is required as a boolean in v21–24 and forbidden in v1–20, including history.".into());
+            return Err("label_outline is required as a boolean in v21–25 and forbidden in v1–20, including history.".into());
         }
         let shadowed = matches!(
             format,
-            Version::Current | Version::TwentyThree | Version::TwentyTwo
+            Version::Current | Version::TwentyFour | Version::TwentyThree | Version::TwentyTwo
         );
         if settings.get("label_shadow").is_some() != shadowed
             || (shadowed && !settings["label_shadow"].is_boolean())
         {
-            return Err("label_shadow is required as a boolean in v22–24 and forbidden in v1–21, including history.".into());
+            return Err("label_shadow is required as a boolean in v22–25 and forbidden in v1–21, including history.".into());
         }
         Ok(())
     };
@@ -1975,6 +2070,7 @@ fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(),
     if matches!(
         format,
         Version::Current
+            | Version::TwentyFour
             | Version::TwentyThree
             | Version::TwentyTwo
             | Version::TwentyOne
@@ -2045,6 +2141,7 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
                     read_fragment_display(StoredFragmentDisplayState {
                         members: entry.members,
                         text: entry.text,
+                        runs: entry.runs,
                     })?,
                 ))
             })
