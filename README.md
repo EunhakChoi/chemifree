@@ -527,5 +527,11 @@ create replay into a replacement process; numeric edits replace all four points.
 This single open cubic is a Chemifree choice within a broader public spline spec.
 Earlier no-curve/version statements are historical slice descriptions. P36 stays
 `in_progress`. The Rust executor’s final log records clippy/71 focused tests and
-five detected mutations with restored-source passes; this documentation did not
-execute checks. Web/full/reviews/CI results remain pending. See [P36j record](docs/verification/p36j-spline.md).
+five detected mutations with restored-source passes. Final web lint/typecheck/
+client/build, spline/polygon/ellipse/creation/endpoint and general browser checks
+passed, including the actual workspace focus/underlay regression; three web
+mutations were detected and restored checks passed. The parent reports independent
+review `1d28c6d` with no findings. The separate formatter attempt hit `ENOTCACHED`
+and did not pass. Full isolated validation, Codex review and CI remain pending;
+this documentation ran no product checks. See
+[P36j record](docs/verification/p36j-spline.md) for exact scope and evidence.

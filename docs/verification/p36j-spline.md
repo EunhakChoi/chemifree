@@ -1,9 +1,10 @@
 # P36j single open cubic spline candidate
 
 This record describes current P36j code and authored checks. The Rust executor's
-completed clippy/71 focused tests and mutation evidence are recorded below from
-its existing log. Web/full checks, both reviews and PR/main CI results remain
-pending until evidenced. This documentation pass reads source/logs and runs no
+completed clippy/71 focused tests, final web checks, mutations and independent
+review are recorded below from existing logs and the parent review handoff.
+Full isolated validation, Codex review and PR/main CI remain pending. This
+documentation pass reads source/logs and runs no
 product tests/builds/browser checks. P36 stays `in_progress`.
 Earlier P36a–i no-curve/version descriptions record their own historical slices;
 this candidate adds the bounded spline/native29/graphics clipboard6 profiles.
@@ -143,7 +144,7 @@ or general rendering equivalence is supplied. Broader P36 remains incomplete.
   canonical/strict profiles and graph retention. Registration/source is not
   evidence of successful client/browser/full runs.
 
-## Completed focused Rust execution; remaining gates pending
+## Completed focused execution and independent review
 
 The Rust executor reports final verification in
 `/tmp/chemifree-work/p36j-rust-final.log`; the documentation agent read that
@@ -162,7 +163,35 @@ ending `P36J FINAL VERIFICATION AND FIVE PRIVATE MUTATIONS PASSED` and sandbox
 exit 0. These mutant failures are sensitivity evidence, not unresolved production
 failures. This is focused Rust execution, not a full workspace/full-local pass.
 
-Web/client/browser, full isolated validation, both reviews and PR/main CI remain
-pending in this handoff. Existing web log filenames alone are not evidence of
-completed checks; no web result is inferred here. No merge or broader P36
-completion follows from the focused Rust result.
+The existing web records under `/tmp/chemifree-work/` were also read; no checks
+were rerun for this documentation correction:
+
+| Record | Confirmed result and scope |
+| --- | --- |
+| `p36j-web-final.log` | Lint (`eslint --max-warnings 0`), typecheck, full client command and production build passed. Every client group has zero failures, including all 6 spline cases. Service-backed spline, polygon, ellipse, Graphic creation, endpoint and general browser smoke passed; final sandbox exit 0. Spline covers explicit P0/C1/C2/P3, open cubic SVG/hit, defining-point bounds, numeric editing/move/rotation, grouped styled v6 and native29 restart. General smoke reports no skipped steps and no uncaught browser errors. |
+| `p36j-web-mutation.log` | Three intentional mutations were detected: accepting a five-point spline snapshot, truncating spline movement to two points, and accepting spline under legacy v5. Restored source passed all 6 spline client cases, sandbox exit 0. These detected mutations are sensitivity evidence, not unresolved production failures. |
+| `p36j-polygon-underlay-proof.log` | A focused real-workspace baseline failed while the second chemical-content click hit a transient underlay, blurred the SVG and left the draft count at 1. The fixed regression then retains SVG focus, captures the remaining points and passes, sandbox exit 0. The renderer's chemical selection underlay now has `pointerEvents="none"`. This is evidence of a reproduced pointer/focus defect and its fix, rather than a claim every transient-overlay interaction is covered. |
+
+The final spline browser uses actual workspace controls over chemical content and
+asserts SVG keyboard focus after each click; it does not pre-focus between those
+workspace clicks to hide the defect. Its successful final run therefore includes
+the relevant focus/underlay regression in addition to the separate baseline/fix
+proof. Existing polygon and other creation regressions also passed in that final
+web run; their broader historical delivery status is not reclassified here.
+
+The separate `p36j-ts-skill-gate.log` reports lint/types PASS but format FAIL:
+its offline Prettier invocations failed with npm `ENOTCACHED`, final sandbox
+exit 1. This records an unavailable formatter package/cache, not a completed
+format check or evidence that files satisfy formatter rules. The later standard
+web gate passes do not turn that formatter result into success.
+
+The parent review handoff records a fresh-context independent subagent review of
+`1d28c6d1cf0703f5d9a1b22c861353d5241964b6` with no findings. That exact pre-rebase
+commit exists in the local history and is identified separately from the rebased
+candidate. This documentation agent did not perform or rerun that review, and
+no new independent review of this correction is implied.
+
+Full isolated local validation and current PR/main CI remain pending/not yet
+established in this handoff; Codex review is also pending. No full-local pass,
+CI success, merge or broader P36 completion follows from these focused results.
+P36 remains `in_progress` with its documented limitations.
