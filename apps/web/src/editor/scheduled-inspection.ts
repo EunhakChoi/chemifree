@@ -41,14 +41,13 @@ export interface Asked {
 }
 
 /**
- * What a change of source means for the scheduler: `stop` when nothing is asked on its own
- * (a wait that has not started is dropped), `keep` for a repeat of what was already asked about
- * (a reread, say), else `ask`.
+ * Keep an unchanged source, including a pending manual check while automatic asking is off.
+ * A changed inactive source stops a pending wait; a changed active source asks again.
  */
 export function askDecision(before: Asked | null, next: Asked): 'stop' | 'keep' | 'ask' {
-  if (!next.active) return 'stop'
-  const repeat = before !== null && before.active && before.generation === next.generation && samePropertySnapshot(before.document, next.document)
-  return repeat ? 'keep' : 'ask'
+  const repeat = before !== null && before.active === next.active && before.generation === next.generation && samePropertySnapshot(before.document, next.document)
+  if (repeat) return 'keep'
+  return next.active ? 'ask' : 'stop'
 }
 
 export class InspectionRunner<T> {
@@ -110,7 +109,9 @@ export class InspectionRunner<T> {
     const scheduler = this.scheduler
     if (scheduler === null) return
     const next = { document: source.document, generation: source.generation, active: source.active && source.allowed }
-    const decision = askDecision(this.asked, next)
+    // An unchanged manual-mode render must keep Check now's pending timer.
+    // Losing eligibility still cancels it, even if automatic checking was already off.
+    const decision = source.allowed ? askDecision(this.asked, next) : 'stop'
     const wasActive = this.asked?.active ?? false
     this.asked = next
     if (decision === 'stop') {

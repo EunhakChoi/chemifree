@@ -24,6 +24,7 @@
     "test:client": "node scripts/web-client-check.mjs && node scripts/web-fragment-display-client-check.mjs && node scripts/web-graphic-points-client-check.mjs && node scripts/web-graphic-creation-client-check.mjs",
     "test:contracts": "node scripts/contract-smoke.mjs",
     "test:browser": "node scripts/browser-smoke.mjs",
+    "test:browser:stereo-manual": "node scripts/web-stereo-manual-check.mjs",
     "test:browser:routes": "node scripts/browser-route-race.mjs",
     "test:browser:clipboard": "node scripts/web-native-clipboard-check.mjs",
     "test:browser:clipboard-integration": "node scripts/web-native-clipboard-integration-check.mjs",
