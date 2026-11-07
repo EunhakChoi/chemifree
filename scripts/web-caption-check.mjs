@@ -36,7 +36,7 @@ async function captionDiagnostics(target) {
         })),
         captions: [...document.querySelectorAll('[data-caption-text]')].map((text) => ({
           id: text.getAttribute('data-caption-text'), text: text.textContent,
-          ink: box(text.getBBox()), hit: text.parentElement.querySelector('rect') ? box(text.parentElement.querySelector('rect').getBBox()) : null,
+          ink: box(text.getBBox()), hit: text.parentElement.querySelector(':scope > rect') ? box(text.parentElement.querySelector(':scope > rect').getBBox()) : null,
           pixels: box(text.getBoundingClientRect()), font: getComputedStyle(text).fontFamily,
           spans: [...text.querySelectorAll('tspan')].map((span) => ({ script: span.dataset.captionScript, y: span.getAttribute('y'), size: span.getAttribute('font-size'), ink: box(span.getBBox()) })),
         })),
@@ -142,11 +142,93 @@ createRoot(document.getElementById('root')).render(<Harness />)
   browser = await chromium.launch({ executablePath: process.env.CHEMIFREE_BROWSER, headless: true })
   page = await browser.newPage()
   page.on('pageerror', (error) => errors.push(error.message))
+  await page.addInitScript(() => {
+    // The hit box is the first child of the caption group; underline and shadow rectangles are
+    // nested deeper. Every check reads it through this one selector.
+    window.captionHitBox = (text) => text.parentElement.querySelector(':scope > rect')
+    // The canvas reports a caption as measured only while its hit box was measured for the
+    // document and viewport that are painted.
+    window.captionMeasuredNow = (text) => {
+      const canvas = text.ownerSVGElement
+      return canvas.dataset.captionBoundsReady === 'true' && canvas.dataset.captionMeasuredViewBox === canvas.getAttribute('viewBox') &&
+        window.captionHitBox(text) !== null
+    }
+    window.clickButton = (name) => {
+      const matches = [...document.querySelectorAll('button')].filter((control) => control.textContent === name)
+      if (matches.length !== 1) throw new Error(`expected one "${name}" button, found ${matches.length}`)
+      if (matches[0].disabled) throw new Error(`the "${name}" button is disabled`)
+      matches[0].click()
+    }
+    // Lets a check keep the canvas in a pending measurement. Frames requested while holding wait
+    // for release, then run in request order on real frames with real timestamps. Inert otherwise.
+    const held = new Map()
+    const released = new Map()
+    let nextHeld = 1_000_000_000
+    let holding = false
+    const frame = window.requestAnimationFrame.bind(window)
+    const cancel = window.cancelAnimationFrame.bind(window)
+    window.requestAnimationFrame = (callback) => {
+      if (!holding) return frame(callback)
+      held.set(nextHeld, callback)
+      return nextHeld++
+    }
+    window.cancelAnimationFrame = (handle) => {
+      if (held.delete(handle)) return
+      cancel(released.get(handle) ?? handle)
+      released.delete(handle)
+    }
+    window.holdAnimationFrames = () => { holding = true }
+    window.releaseAnimationFrames = () => {
+      holding = false
+      for (const [handle, callback] of held) {
+        released.set(handle, frame((timestamp) => { released.delete(handle); callback(timestamp) }))
+      }
+      held.clear()
+    }
+  })
   const button = (name) => page.getByRole('button', { name, exact: true })
+  // Interval polling keeps this wait independent of animation frames, which the regression stage holds.
   const waitForCaptionMeasurement = () => page.waitForFunction(() => {
     const canvas = document.querySelector('[data-structure-canvas]')
     return canvas?.dataset.captionBoundsReady === 'true' && canvas.dataset.captionMeasuredViewBox === canvas.getAttribute('viewBox')
-  })
+  }, undefined, { polling: 50 })
+  // A draft autosave reply arrives one second after an edit. It replaces the document object
+  // with identical content, which unmounts the caption hit box and clears readiness until the
+  // next frame measures again. Waiting for readiness and then reading leaves a gap in which that
+  // can happen, so the reader checks window.captionMeasuredNow in the same page task as its
+  // geometry reads and returns null when the canvas is between measurements.
+  const measuredRead = async (read, argument) => {
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline) {
+      const result = await page.locator('[data-caption-text]').evaluate(read, argument)
+      if (result !== null) return result
+      await waitForCaptionMeasurement()
+    }
+    throw new Error('the caption was never observed in a measured state')
+  }
+  // Fit sizes the view from the hit boxes of the shown document. While a replaced document is
+  // unmeasured those are absent and fit would leave the caption outside the view, so the click
+  // happens in the same page task as the measured check. React applies the click after that task
+  // and the product exposes no fit-applied signal, so the strongest observable condition is that
+  // the view encloses the hit box fit was sized from. A fit that left the view unchanged is
+  // indistinguishable from one not yet applied, but then the unchanged view already encloses it.
+  const fitWhenMeasured = (text) => {
+    if (!window.captionMeasuredNow(text)) return null
+    window.clickButton('Fit drawing')
+    return true
+  }
+  const fitMeasured = async () => {
+    await measuredRead(fitWhenMeasured)
+    await page.waitForFunction(() => {
+      const text = document.querySelector('[data-caption-text]')
+      const hit = text && window.captionHitBox(text)?.getBBox()
+      if (!hit) return false
+      const view = text.ownerSVGElement.viewBox.baseVal, slack = 0.001
+      return view.x <= hit.x + slack && view.y <= hit.y + slack && view.x + view.width >= hit.x + hit.width - slack && view.y + view.height >= hit.y + hit.height - slack
+    }, undefined, { polling: 50 }).catch((error) => { throw new Error('Fit drawing never produced a view that encloses the caption hit box', { cause: error }) })
+  }
+  const assertBounds = (hit, expected, label) => assert.ok(hit.every((value, index) => Math.abs(value - expected[index]) < 0.001),
+    `${label}: hit box [${hit}] expected [${expected}]`)
   const snapshot = async () => JSON.parse(await page.getByLabel('Caption snapshot', { exact: true }).textContent())
   const caption = async () => (await snapshot()).document.scene.objects.find((object) => object.kind === 'caption')
   // Measurement readiness describes the painted document. An in-flight edit can
@@ -268,11 +350,11 @@ createRoot(document.getElementById('root')).render(<Harness />)
   assert.equal(await page.locator('[data-structure-canvas]').getAttribute('viewBox'), beforeCreateViewBox, 'creating a caption preserves the chosen viewport')
   // The new baseline is at y=0, so its ascenders can be above the existing frame.
   // Editing does not auto-fit: use the same explicit control offered by the product.
-  await button('Fit drawing').click()
+  await fitMeasured()
   await page.waitForFunction(() => {
     const group = document.querySelector('[data-caption]')
     const text = group?.querySelector('[data-caption-text]')
-    const hit = group?.querySelector('rect')
+    const hit = text && window.captionHitBox(text)
     if (!text || !hit) return false
     const ink = text.getBBox()
     const box = hit.getBBox()
@@ -302,10 +384,10 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await waitForCaptionMeasurement()
     assert.deepEqual(await glyphMetrics(), plain, `underline leaves all character advances and anchor fixed: ${sample}`)
     assert.deepEqual((await caption()).runs, plainSnapshot.runs.map((run) => ({ ...run, underline: true })))
-    await button('Fit drawing').click()
+    await fitMeasured()
     await page.waitForFunction(() => {
       const text = document.querySelector('[data-caption-text]')
-      const hit = text?.parentElement.querySelector('rect')?.getBBox()
+      const hit = (text && window.captionHitBox(text))?.getBBox()
       if (!text || !hit) return false
       const view = text.ownerSVGElement.viewBox.baseVal
       return [...text.parentElement.querySelectorAll('[data-caption-underline]')].every((line) => {
@@ -377,9 +459,10 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await waitForCaptionMeasurement()
     assert.deepEqual(await glyphMetrics(), plain, `outline retains all advances and fixed anchor: ${sample}`)
     assert.deepEqual((await caption()).runs, original.runs.map((run, index) => ({ ...run, outline: true, underline: index === 0 })))
-    await button('Fit drawing').click()
+    await fitMeasured()
     await waitForCaptionMeasurement()
-    const outline = await page.locator('[data-caption-text]').evaluate((node) => {
+    const outline = await measuredRead((node) => {
+      if (!window.captionMeasuredNow(node)) return null
       const ink = node.getBBox()
       let left = ink.x, top = ink.y, right = ink.x + ink.width, bottom = ink.y + ink.height
       const runs = [...node.querySelectorAll('tspan')].map((span) => {
@@ -395,9 +478,10 @@ createRoot(document.getElementById('root')).render(<Harness />)
         left = Math.min(left, underline.x); top = Math.min(top, underline.y)
         right = Math.max(right, underline.x + underline.width); bottom = Math.max(bottom, underline.y + underline.height)
       }
-      const hit = node.parentElement.querySelector('rect').getBBox(), view = node.ownerSVGElement.viewBox.baseVal
+      const hit = window.captionHitBox(node).getBBox(), view = node.ownerSVGElement.viewBox.baseVal
       return { runs, expected: [left - 2, top - 2, right - left + 4, bottom - top + 4], hit: [hit.x, hit.y, hit.width, hit.height],
         fits: view.x <= hit.x && view.y <= hit.y && view.x + view.width >= hit.x + hit.width && view.y + view.height >= hit.y + hit.height,
+        view: [view.x, view.y, view.width, view.height],
         underline: { fill: getComputedStyle(node.parentElement.querySelector('[data-caption-underline]')).fill, stroke: getComputedStyle(node.parentElement.querySelector('[data-caption-underline]')).stroke } }
     })
     for (const run of outline.runs) {
@@ -408,8 +492,8 @@ createRoot(document.getElementById('root')).render(<Harness />)
     assert.deepEqual(outline.runs.slice(0, 2).map((run) => run.stroke), ['rgb(42, 123, 205)', 'rgb(0, 0, 0)'])
     assert.equal(outline.underline.fill, 'rgb(42, 123, 205)', 'underline stays filled while glyphs are hollow')
     assert.equal(outline.underline.stroke, 'none')
-    outline.hit.forEach((value, index) => assert.ok(Math.abs(value - outline.expected[index]) < 0.001, `stroke participates in hit/selection bounds: ${sample}`))
-    assert.equal(outline.fits, true, `fit encloses full stroke: ${sample}`)
+    assertBounds(outline.hit, outline.expected, `stroke participates in hit/selection bounds: ${JSON.stringify(sample)}`)
+    assert.equal(outline.fits, true, `fit encloses full stroke: ${JSON.stringify(sample)} hit box [${outline.hit}] viewBox [${outline.view}]`)
     if (sample === 'H') {
       await button('Clear caption selection').click()
       assert.equal(await button('Edit selected caption…').isDisabled(), true)
@@ -449,9 +533,10 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await waitForCaptionEdit(plainRevision, shadowRuns)
     assert.deepEqual(await glyphMetrics(), metrics, 'shadow preserves shaped advances and anchor')
     assert.deepEqual((await caption()).runs, before.runs.map((run, index) => ({ ...run, shadow: true, outline: index === 0, underline: index === 0 })))
-    await button('Fit drawing').click()
+    await fitMeasured()
     await waitForCaptionMeasurement()
-    const evidence = await page.locator('[data-caption-text]').evaluate((text) => {
+    const evidence = await measuredRead((text) => {
+      if (!window.captionMeasuredNow(text)) return null
       const ink = text.getBBox()
       let left = ink.x, top = ink.y, right = ink.x + ink.width, bottom = ink.y + ink.height
       for (const span of text.children) {
@@ -466,10 +551,11 @@ createRoot(document.getElementById('root')).render(<Harness />)
         left = Math.min(left, line.x); top = Math.min(top, line.y)
         right = Math.max(right, line.x + line.width + 1); bottom = Math.max(bottom, line.y + line.height + 1)
       }
-      const shadow = text.parentElement.querySelector('[data-caption-shadow-text]'), hit = text.parentElement.querySelector('rect').getBBox(), view = text.ownerSVGElement.viewBox.baseVal
+      const shadow = text.parentElement.querySelector('[data-caption-shadow-text]'), hit = window.captionHitBox(text).getBBox(), view = text.ownerSVGElement.viewBox.baseVal
       return { hit: [hit.x, hit.y, hit.width, hit.height], expected: [left - 2, top - 2, right - left + 4, bottom - top + 4], transform: shadow.parentElement.getAttribute('transform'), opacity: shadow.parentElement.getAttribute('opacity'),
         colors: [...shadow.children].map((span) => getComputedStyle(span).stroke === 'none' ? getComputedStyle(span).fill : getComputedStyle(span).stroke),
-        fits: view.x <= hit.x && view.y <= hit.y && view.x + view.width >= hit.x + hit.width && view.y + view.height >= hit.y + hit.height }
+        fits: view.x <= hit.x && view.y <= hit.y && view.x + view.width >= hit.x + hit.width && view.y + view.height >= hit.y + hit.height,
+        view: [view.x, view.y, view.width, view.height] }
     })
     const composition = await page.locator('[data-caption-text]').evaluate(async (text) => {
       const layer = text.parentElement.querySelector('[data-caption-shadow-layer]')
@@ -509,8 +595,8 @@ createRoot(document.getElementById('root')).render(<Harness />)
     assert.equal(composition.before, true, 'all shadow ink paints before every foreground glyph and underline')
     assert.ok(composition.maximumAlpha >= 80 && composition.maximumAlpha <= 90, 'the complete shadow layer composites once at .35, including descender/underline overlap')
     assert.equal(evidence.transform, 'translate(1 1)'); assert.equal(evidence.opacity, '0.35')
-    evidence.hit.forEach((value, index) => assert.ok(Math.abs(value - evidence.expected[index]) < 0.001, "shadow ink bounds: " + sample))
-    assert.equal(evidence.fits, true)
+    assertBounds(evidence.hit, evidence.expected, `shadow ink bounds: ${JSON.stringify(sample)}`)
+    assert.equal(evidence.fits, true, `fit encloses shadow ink: ${JSON.stringify(sample)} hit box [${evidence.hit}] viewBox [${evidence.view}]`)
     if (sample === 'H') {
       await button('Clear caption selection').click()
       const point = await page.locator('[data-caption-text] tspan').first().evaluate((span) => {
@@ -530,6 +616,39 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await waitForCaptionEdit(shadowRevision, before.runs)
     assert.deepEqual((await caption()).runs, before.runs)
   }
+  stage = 'caption ink is read only while the current document is measured'
+  await waitForCaptionMeasurement()
+  // Reproduce the state a draft autosave reply creates: a same-content document object, the
+  // hit box unmounted and measurement pending. Held frames keep it pending. The reload runs from
+  // the page because Playwright's own actionability checks wait for frames.
+  assert.equal(await button('Reload caption drawing').count(), 1, 'the harness offers one reload control')
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((control) => control.textContent === 'Reload caption drawing' && !control.disabled), undefined, { polling: 50 })
+  try {
+    await page.evaluate(() => {
+      window.holdAnimationFrames()
+      window.clickButton('Reload caption drawing')
+    })
+    await page.waitForFunction(() => document.querySelector('[data-structure-canvas]').dataset.captionBoundsReady === 'false' && document.querySelector('[data-caption-text]').parentElement.querySelector(':scope > rect') === null, undefined, { polling: 50 })
+    const unmeasured = await page.locator('[data-caption-text]').evaluate((text) => ({ measured: window.captionMeasuredNow(text), hasHitBox: window.captionHitBox(text) !== null }))
+    assert.deepEqual(unmeasured, { measured: false, hasHitBox: false }, 'a replaced document has no hit box and is not measured until a frame runs')
+    const hitAndInk = (text) => {
+      if (!window.captionMeasuredNow(text)) return null
+      const hit = window.captionHitBox(text).getBBox(), ink = text.getBBox()
+      return { hit: [hit.x, hit.y, hit.width, hit.height], expected: [ink.x - 2, ink.y - 2, ink.width + 4, ink.height + 4] }
+    }
+    assert.equal(await page.locator('[data-caption-text]').evaluate(hitAndInk), null, 'no geometry is read from a canvas between measurements')
+    const heldViewBox = await page.locator('[data-structure-canvas]').getAttribute('viewBox')
+    assert.equal(await page.locator('[data-caption-text]').evaluate(fitWhenMeasured), null, 'fit is not requested from a canvas between measurements')
+    assert.equal(await page.locator('[data-structure-canvas]').getAttribute('viewBox'), heldViewBox)
+    const pendingRead = measuredRead(hitAndInk)
+    await page.evaluate(() => window.releaseAnimationFrames())
+    const settled = await pendingRead
+    assertBounds(settled.hit, settled.expected, 'plain caption hit box after the replaced document is measured')
+  } finally {
+    // A failed assertion must not leave later frame work held.
+    await page.evaluate(() => window.releaseAnimationFrames())
+  }
+
   await button('Select caption').click()
   await button('Edit selected caption…').click()
   const readiness = JSON.parse(await page.locator('[data-caption-readiness-probe]').textContent())
@@ -541,7 +660,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await button('Apply caption').click()
   await page.waitForFunction((text) => document.querySelector('[data-caption-text] tspan')?.textContent === text, text)
   await waitForCaptionMeasurement()
-  await button('Fit drawing').click()
+  await fitMeasured()
   const scriptY = await page.locator('[data-caption-text] tspan').evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute('y'))))
   assert.deepEqual(scriptY, [0, 6, -5])
   stage = 'whole-caption alignment shifts all script chunks and includes edge spaces'
@@ -585,7 +704,7 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await page.waitForFunction(() => {
     const text = document.querySelector('[data-caption-text]')
     if (text?.firstElementChild?.getAttribute('font-weight') !== 'normal' || text.firstElementChild.getAttribute('font-style') !== 'italic') return false
-    const hit = text.parentElement.querySelector('rect')?.getBBox()
+    const hit = window.captionHitBox(text)?.getBBox()
     const ink = text.getBBox()
     return text.ownerSVGElement.dataset.captionBoundsReady === 'true' && hit && hit.x <= ink.x && hit.y <= ink.y && hit.x + hit.width >= ink.x + ink.width && hit.y + hit.height >= ink.y + ink.height
   })
