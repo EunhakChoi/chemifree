@@ -97,7 +97,7 @@ Native graph version 1 and graphic-forest versions 2/3 are separate profiles and
 
 The catalog lists 40 operations, with 30 executable in the default profile.
 
-The scene can also contain ordered groups and simple line, rectangle, arrow, and candidate axis-aligned ellipse and closed polygon graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Each document owns its style (bond length and width, label font and size, carbon labels, and display unit); style changes are undoable. Data-directory preferences separately hold the theme, defaults copied into newly created documents, and mass-result display decimal places. **Document style** and **Preferences** edit these settings in the web UI; general numeric precision and NMR preferences remain unavailable.
+The scene can also contain ordered groups and simple line, rectangle, arrow, and candidate axis-aligned ellipse, closed polygon and single open cubic spline graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Each document owns its style (bond length and width, label font and size, carbon labels, and display unit); style changes are undoable. Data-directory preferences separately hold the theme, defaults copied into newly created documents, and mass-result display decimal places. **Document style** and **Preferences** edit these settings in the web UI; general numeric precision and NMR preferences remain unavailable.
 
 If preferences could not be read when the page started, open **Preferences** and choose **Retry preferences** after the local service is available; a successful read applies the saved theme.
 
@@ -511,3 +511,21 @@ Independent review of `13cebd5` and Codex review of `f1a7978` reported no findin
 Full isolated local validation and CI remain in progress; no merge/main-CI success
 is claimed. See [P36i record](docs/verification/p36i-polygon.md) for exact evidence
 and limits.
+
+
+P36j adds a bounded **Spline** candidate: exactly P0,C1,C2,P3 defining one open
+stroke-only cubic Bézier. Controls are explicit, without fitting/interpolation;
+repeated/degenerate definitions stay exact. Bounds/Fit/marquee/arrangement and
+transform pivot use all four stored points, a conservative box rather than exact
+curve extrema or stroke-ink bounds. Dedicated add/update commands retain old
+shape cardinalities. Native29/clipboard6 strictly preserve the definition/history
+and reject it under older profiles, with canonical older output when no spline
+is copied. Shared byte/undo budgets, typed spline/polygon/caption errors, graph
+preservation and export rendering losses remain. Four-click draft writes only
+on explicit Finish, with existing stale/restart guards and no automatic unknown-
+create replay into a replacement process; numeric edits replace all four points.
+This single open cubic is a Chemifree choice within a broader public spline spec.
+Earlier no-curve/version statements are historical slice descriptions. P36 stays
+`in_progress`. The Rust executor’s final log records clippy/71 focused tests and
+five detected mutations with restored-source passes; this documentation did not
+execute checks. Web/full/reviews/CI results remain pending. See [P36j record](docs/verification/p36j-spline.md).

@@ -1,5 +1,15 @@
 # Chemifree 새 세션 인계
 
+## P36j single open cubic spline 후보 (검사 대기)
+
+- 정확히 P0,C1,C2,P3 순서의 open stroke-only cubic1개다. P0/P3 endpoints·C1/C2 explicit controls이며 interpolation/fit/closing point를 추론하지 않는다. finite±100000pt·repeated/degenerate 그대로, SVG M…C…·fill/head/close 없음이다. single4/open profile은 공개 명세의 일반 spline이 아닌 Chemifree bounded 선택이다.
+- Fit/marquee/arrangement/transform pivot은 네 defining points AABB를 쓴다. conservative centerline box이지 실제 curve extrema/ink bounds가 아니며 controls가 곡선 밖이면 더 넓다. hit는 실제 path stroke다. 모든4점 move/임의각/reflection은 가능하지만 ellipse/rectangle mixed refusal는 남고 graph/stereo/shape/width/IDs/group/order/refs를 보존한다.
+- add_spline(points4,parent?,index?)/update_spline_points(object,points4)는 별도이고 public add width는 상속이다. old shapes exact2/polygon3–64 유지, command mixing은 graphic_command_mismatch·stored count는 graphic_geometry_invalid·typed wrong array는 invalid_request다. shared atomic/no-op/replay/Undo를 쓴다.
+- Graphic Spline4클릭 local draft→explicit Finish page-root1개; fifth click 무시·Remove last/Cancel, numeric8coords 전체 Apply. doc/revision/tool/shape/observed-generation 및 Escape/window cancel은 draft 폐기. 첫 click context/Finish copied points를 queue에서 검증하고 reconciled restart unknown create를 새 process에 자동 replay하지 않는다. edit도 기존 no-replay guard다. persisted recovery draft/control drag/curve tangent handles는 아니다.
+- native29 old1–28 current/history-only spline 금지·retention 전 cardinality 검사, polygon28/ellipse27/width26 strict·exact old doc/draft archives·future30 유지. spline640=256+96*4/current-history-only shared48MiB/8MiB·physical64MiB/older undo trim. overbudget changed polygon 우선 polygon_persistence_limit, 아니면 changed spline spline_persistence_limit, 아니면 기존 caption_persistence_limit; spline 존재만으로 caption 코드 변경 안 함.
+- clipboard selectedforest spline6>polygon5>ellipse4>explicit3>inherit2, nullable width3–6필수/2금지·old2–5 spline금지·future7. v6 old-shape input 후 recopy canonical2–5 가능; oldconsumer/downgrade/curve approximation 미지원. graph1/settings/ref/Cut/limits/fresh IDs/offset 유지, scientific graph 불변·export scene_object rendering loss다.
+- P36 in_progress; source/authored tests와 Rust 실행자 p36j-rust-final.log를 읽었다. clippy/집중71건·5 mutations 검출·복원후 재검사 통과가 기록됐으며 문서 agent 실행은 아니다. web/full/양 리뷰/CI는 pending. 기존 P36a–i no-curves/native/clipboard는 당시 범위이며 과거 pass를 P36j로 쓰지 않는다. multi-segment/closed/quadratic/arc/fill/heads/tight extrema/handle drag/scale-skew/snap/images/clip/layers/scientific symbols 미구현. [P36j 기록](verification/p36j-spline.md).
+
 ## P36i closed stroke-only polygon 후보 (최종 검사 대기)
 
 - ordered3–64 vertices의 closed stroke-only scene graphic이다. finite·inclusive±100000pt, 반복/collinear/self-crossing/coincident/zero-area·마지막 first 반복을 그대로 보존하며 implicit last→first edge 외 점을 합성하지 않는다.64는 공개 명세가 아닌 Chemifree 내부 budget 선택이다. chemistry/regular polygon/area/winding 의미는 없다.
