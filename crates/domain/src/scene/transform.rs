@@ -86,7 +86,7 @@ impl PreparedTransform {
         })
     }
 
-    pub(crate) fn supports_rectangle(self) -> bool {
+    pub(crate) fn supports_axis_aligned(self) -> bool {
         !matches!(self, Self::Rotation { .. })
     }
 

@@ -10,7 +10,7 @@ const {graphicPointValid}=await import('../apps/web/src/editor/graphic-points.ts
 test('graphic creation freezes exact ordered points and adds only a page-root graphic',()=>{
  const document=sceneCutSource().document
  const original=structuredClone(document)
- for(const shape of ['line','arrow','rectangle']){
+ for(const shape of ['line','arrow','rectangle','ellipse']){
   const creation={documentId:document.id,revision:document.revision,serviceGeneration:2,shape,points:[{x:100000,y:-100000},{x:-100000,y:100000}]}
   const commands=graphicCreationCommands(document,creation)
   assert.deepEqual(commands,[{op:'add_graphic',shape,points:creation.points}])

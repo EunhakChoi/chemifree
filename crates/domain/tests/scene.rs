@@ -467,6 +467,7 @@ fn every_scene_reason_code_is_distinct_and_stable() {
             "arrangement_center_unstable",
             "transform_invalid_angle",
             "transform_rectangle_unsupported",
+            "transform_ellipse_unsupported",
         ]
     );
 }

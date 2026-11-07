@@ -80,10 +80,10 @@ fn graphic_width(
 ) -> Result<Option<f64>, ApplicationError> {
     let width = match (version, field) {
         (2, None) => None,
-        (3, Some(width)) => width,
+        (3 | 4, Some(width)) => width,
         _ => {
             return Err(invalid(
-                "Graphic line_width_pt is forbidden in clipboard v2 and required in v3.",
+                "Graphic line_width_pt is forbidden in clipboard v2 and required in v3/v4.",
             ));
         }
     };
@@ -126,7 +126,7 @@ fn invalid(message: impl Into<String>) -> ApplicationError {
 fn unsupported() -> ApplicationError {
     clipboard::refusal(
         "clipboard_format_unsupported",
-        "Expected chemifree.clipboard version 2 or 3 with kind graphics",
+        "Expected chemifree.clipboard version 2, 3 or 4 with kind graphics",
     )
 }
 
@@ -169,6 +169,7 @@ fn byte_limit() -> ApplicationError {
 /// Refuses an invalid domain fragment or text exceeding the native clipboard byte limit.
 pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
     fragment.validate().map_err(domain_refusal)?;
+    let ellipse = fragment.objects.iter().any(|entry| matches!(&entry.object, SceneObject::Graphic(graphic) if graphic.shape == GraphicShape::Ellipse));
     let styled = fragment.objects.iter().any(|entry| matches!(&entry.object, SceneObject::Graphic(graphic) if graphic.line_width_pt.is_some()));
     let mut objects = Vec::with_capacity(fragment.objects.len());
     for entry in &fragment.objects {
@@ -179,12 +180,13 @@ pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
                     GraphicShape::Line => GraphicShapeDto::Line,
                     GraphicShape::Arrow => GraphicShapeDto::Arrow,
                     GraphicShape::Rectangle => GraphicShapeDto::Rectangle,
+                    GraphicShape::Ellipse => GraphicShapeDto::Ellipse,
                 },
                 points: graphic.points.map(|point| PointData {
                     x: point.x(),
                     y: point.y(),
                 }),
-                line_width_pt: styled.then_some(graphic.line_width_pt),
+                line_width_pt: (styled || ellipse).then_some(graphic.line_width_pt),
             },
             SceneObject::Group { children } => ObjectData::Group {
                 id: entry.id.to_string(),
@@ -221,7 +223,13 @@ pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
         .collect::<Result<Vec<_>, ApplicationError>>()?;
     let payload = Payload {
         format: "chemifree.clipboard".into(),
-        version: if styled { 3 } else { 2 },
+        version: if ellipse {
+            4
+        } else if styled {
+            3
+        } else {
+            2
+        },
         kind: "graphics".into(),
         settings: contract::settings_view(&fragment.settings),
         roots: fragment.roots.iter().map(ToString::to_string).collect(),
@@ -247,7 +255,7 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
     let value =
         crate::json::parse_strict(text.as_bytes()).map_err(|error| invalid(error.to_string()))?;
     let header = Header::deserialize(&value).map_err(|error| invalid(error.to_string()))?;
-    if header.format != "chemifree.clipboard" || !matches!(header.version, 2 | 3) {
+    if header.format != "chemifree.clipboard" || !matches!(header.version, 2..=4) {
         return Err(unsupported());
     }
     let kind = KindHeader::deserialize(&value).map_err(|error| invalid(error.to_string()))?;
@@ -265,6 +273,9 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
                 points,
                 line_width_pt,
             } => {
+                if shape == GraphicShapeDto::Ellipse && payload.version < 4 {
+                    return Err(invalid("Ellipse graphics require clipboard v4."));
+                }
                 let [first, second] = points;
                 FragmentObject {
                     id: object_id(&id)?,
@@ -274,6 +285,7 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
                             GraphicShapeDto::Line => GraphicShape::Line,
                             GraphicShapeDto::Arrow => GraphicShape::Arrow,
                             GraphicShapeDto::Rectangle => GraphicShape::Rectangle,
+                            GraphicShapeDto::Ellipse => GraphicShape::Ellipse,
                         },
                         points: [
                             Point::new(first.x, first.y)
@@ -449,7 +461,7 @@ mod tests {
     #[test]
     fn unsupported_headers_are_classified_before_any_version_specific_body() {
         for unsupported in [
-            json!({"format":"chemifree.clipboard","version":4,"future_body":{"commands":[1,2]}}),
+            json!({"format":"chemifree.clipboard","version":5,"future_body":{"commands":[1,2]}}),
             json!({"format":"chemifree.clipboard","version":u64::MAX,"future":true}),
             json!({"format":"another.format","version":2,"kind":"graphics","unknown":null}),
             json!({"format":"chemifree.clipboard","version":2,"kind":"molecules","new_body":[]}),

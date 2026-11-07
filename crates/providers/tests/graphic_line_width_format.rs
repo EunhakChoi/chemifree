@@ -79,7 +79,7 @@ fn widths_round_trip_both_history_sides_drafts_and_null_reset() {
     doc.apply(&[set(None)]).unwrap();
     doc.undo().unwrap();
     let raw = save_template(&root, &repo, &doc);
-    assert_eq!(raw["format_version"], 26);
+    assert_eq!(raw["format_version"], 27);
     assert_eq!(raw["document"]["objects"][1]["state"]["line_width_pt"], 0.1);
     assert_eq!(repo.load(doc.id()).unwrap(), Some(doc.clone()));
     let mut reopened = repo.load(doc.id()).unwrap().unwrap();
@@ -157,7 +157,7 @@ fn current_and_history_fields_are_required_and_invalid_values_refuse_without_rew
         }
     }
     let mut future = template;
-    future["format_version"] = json!(27);
+    future["format_version"] = json!(28);
     let path = root.path().join("documents/width-native.json");
     let bytes = serde_json::to_vec(&future).unwrap();
     fs::write(&path, &bytes).unwrap();

@@ -130,6 +130,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     shape: match target.before.shape {
                         GraphicShape::Line => GraphicShapeDto::Line,
                         GraphicShape::Rectangle => GraphicShapeDto::Rectangle,
+                        GraphicShape::Ellipse => GraphicShapeDto::Ellipse,
                         GraphicShape::Arrow => GraphicShapeDto::Arrow,
                     },
                     before: target.before.points.map(position),

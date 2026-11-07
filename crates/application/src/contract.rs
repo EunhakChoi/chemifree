@@ -301,6 +301,7 @@ pub struct ImportSettingsRequest {
 pub enum GraphicShapeDto {
     Line,
     Rectangle,
+    Ellipse,
     Arrow,
 }
 
@@ -1377,6 +1378,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
                 shape: match shape {
                     GraphicShapeDto::Line => GraphicShape::Line,
                     GraphicShapeDto::Rectangle => GraphicShape::Rectangle,
+                    GraphicShapeDto::Ellipse => GraphicShape::Ellipse,
                     GraphicShapeDto::Arrow => GraphicShape::Arrow,
                 },
                 points: [point(points[0])?, point(points[1])?],
@@ -2743,6 +2745,7 @@ impl DocumentResponse {
                                     shape: match graphic.shape {
                                         GraphicShape::Line => GraphicShapeDto::Line,
                                         GraphicShape::Rectangle => GraphicShapeDto::Rectangle,
+                                        GraphicShape::Ellipse => GraphicShapeDto::Ellipse,
                                         GraphicShape::Arrow => GraphicShapeDto::Arrow,
                                     },
                                     points: graphic.points.map(|point| PositionView {

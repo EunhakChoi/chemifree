@@ -97,7 +97,7 @@ export type CaptionAlignment = 'left' | 'center' | 'right'
 
 export interface CaptionRun { shadow?: boolean; outline?: boolean; underline?: boolean; color?: string | null; size_pt?: number | null; font?: LabelFont | null; text: string; script: 'baseline' | 'subscript' | 'superscript'; weight: 'normal' | 'bold'; style: 'normal' | 'italic' }
 
-export type GraphicShape = 'line' | 'rectangle' | 'arrow'
+export type GraphicShape = 'line' | 'rectangle' | 'arrow' | 'ellipse'
 
 export type SceneObject =
   | { kind: 'instance'; id: string; parent: string | null; molecule: string }
@@ -1152,7 +1152,7 @@ function isSceneObject(value: unknown): value is SceneObject {
       return (value.alignment === 'left' || value.alignment === 'center' || value.alignment === 'right') && isRecord(value.anchor) && isFiniteNumber(value.anchor.x) && isFiniteNumber(value.anchor.y) && validCaptionRuns(value.runs)
     case 'graphic':
       return (
-        (value.shape === 'line' || value.shape === 'rectangle' || value.shape === 'arrow') &&
+        (value.shape === 'line' || value.shape === 'rectangle' || value.shape === 'arrow' || value.shape === 'ellipse') &&
         (value.line_width_pt === undefined || value.line_width_pt === null || (isFiniteNumber(value.line_width_pt) && value.line_width_pt >= SETTING_RANGES.line_width_pt[0] && value.line_width_pt <= SETTING_RANGES.line_width_pt[1])) &&
         Array.isArray(value.points) && value.points.length === 2 &&
         value.points.every((point) => isRecord(point) && isFiniteNumber(point.x) && isFiniteNumber(point.y))

@@ -1368,7 +1368,7 @@ function SceneControls({ document, editor, activePlacement }: { document: Docume
       const count = latest.scene?.objects?.filter((object) => object.kind === 'graphic').length ?? 0
       const x = 20 + (count % 6) * 35
       const y = 20 + Math.floor(count / 6) * 30
-      return [{ op: 'add_graphic', shape, points: [{ x, y }, { x: x + 24, y: y + (shape === 'rectangle' ? 16 : 0) }] }]
+      return [{ op: 'add_graphic', shape, points: [{ x, y }, { x: x + 24, y: y + (shape === 'rectangle' || shape === 'ellipse' ? 16 : 0) }] }]
     })
   }
 
@@ -1411,7 +1411,7 @@ function SceneControls({ document, editor, activePlacement }: { document: Docume
         ))}
       </ul>
       <div className="flex flex-wrap gap-1">
-        {(['line', 'rectangle', 'arrow'] as const).map((shape) => (
+        {(['line', 'rectangle', 'arrow', 'ellipse'] as const).map((shape) => (
           <Button key={shape} size="sm" variant="outline" onClick={() => add(shape)}>Add {shape}</Button>
         ))}
       </div>

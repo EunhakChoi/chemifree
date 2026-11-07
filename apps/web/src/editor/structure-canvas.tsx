@@ -1063,14 +1063,17 @@ function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPer
   const uy = length > 0 ? (b.y - a.y) / length : 0
   const head = `${b.x},${b.y} ${b.x - ux * 6 - uy * 3},${b.y - uy * 6 + ux * 3} ${b.x - ux * 6 + uy * 3},${b.y - uy * 6 - ux * 3}`
   const rect = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) }
+  const BoxTag = object.shape === 'ellipse' ? 'ellipse' : 'rect'
+  const box = object.shape === 'ellipse'
+    ? { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, rx: rect.width / 2, ry: rect.height / 2 } : rect
   const underlay = graphicUnderlay(lineWidth, unitsPerPixel)
   return (
     <g data-scene-object={object.id} onPointerDown={onPointerDown} strokeLinecap="round" strokeLinejoin="round">
-      {object.shape === 'rectangle' ? (
+      {object.shape === 'rectangle' || object.shape === 'ellipse' ? (
         <>
-          <rect {...rect} fill="none" stroke="transparent" strokeWidth={Math.max(10 * unitsPerPixel, lineWidth)} />
-          {selected && <rect {...rect} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
-          <rect {...rect} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
+          <BoxTag {...box} fill="none" stroke="transparent" strokeWidth={Math.max(10 * unitsPerPixel, lineWidth)} />
+          {selected && <BoxTag {...box} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
+          <BoxTag {...box} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
         </>
       ) : (
         <>

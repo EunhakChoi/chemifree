@@ -257,6 +257,17 @@ fn v2_v3_field_presence_bounds_unknown_fields_and_future_headers_refuse_without_
         old["objects"][1]["line_width_pt"] = width;
         invalid.push((old, "clipboard_fragment_invalid"));
     }
+    for version in [2, 3] {
+        let mut ellipse = template.clone();
+        ellipse["version"] = json!(version);
+        if version == 2 {
+            for object in ellipse["objects"].as_array_mut().unwrap() {
+                object.as_object_mut().unwrap().remove("line_width_pt");
+            }
+        }
+        ellipse["objects"][1]["shape"] = json!("ellipse");
+        invalid.push((ellipse, "clipboard_fragment_invalid"));
+    }
     let mut group_field = template.clone();
     group_field["objects"][0]["line_width_pt"] = Value::Null;
     invalid.push((group_field, "clipboard_fragment_invalid"));
@@ -267,7 +278,7 @@ fn v2_v3_field_presence_bounds_unknown_fields_and_future_headers_refuse_without_
     settings["settings"]["line_width_pt"] = json!(2.0);
     invalid.push((settings, "clipboard_scene_style_mismatch"));
     invalid.push((
-        json!({"format":"chemifree.clipboard","version":4,"future_body":[]}),
+        json!({"format":"chemifree.clipboard","version":5,"future_body":[]}),
         "clipboard_format_unsupported",
     ));
     for (raw, reason) in invalid {

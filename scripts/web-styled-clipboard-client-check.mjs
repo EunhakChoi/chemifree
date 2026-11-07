@@ -45,7 +45,7 @@ for (const [name, change] of [
   ['above range', (p) => { p.objects[1].line_width_pt = 10.01 }],
   ['group width', (p) => { p.objects[0].line_width_pt = null }],
   ['unknown graphic key', (p) => { p.objects[1].stroke = 'solid' }],
-  ['future version', (p) => { p.version = 4 }],
+  ['future version', (p) => { p.version = 5 }],
 ]) test(`v3 rejects ${name}`, () => {
   const value = styledCopy(); change(value.payload)
   assert.equal(sceneClipboardGraphicStyles(JSON.stringify(value.payload)), null)

@@ -810,6 +810,8 @@ pub enum EditError {
     TransformInvalidAngle,
     /// This selected rectangle cannot be represented after an arbitrary-angle rotation.
     TransformRectangleUnsupported(ObjectId),
+    /// A non-quarter-turn cannot retain the ellipse's axis-aligned corner representation.
+    TransformEllipseUnsupported(ObjectId),
     /// A refused combination of recorded states, with its stable code.
     InvalidState(StateError),
     Settings(SettingsError),
@@ -858,6 +860,7 @@ impl EditError {
             Self::ArrangementCenterUnstable => SceneError::ArrangementCenterUnstable,
             Self::TransformInvalidAngle => SceneError::TransformInvalidAngle,
             Self::TransformRectangleUnsupported(_) => SceneError::TransformRectangleUnsupported,
+            Self::TransformEllipseUnsupported(_) => SceneError::TransformEllipseUnsupported,
             _ => return None,
         })
     }
@@ -1004,6 +1007,9 @@ impl fmt::Display for EditError {
             Self::TransformRectangleUnsupported(object) => write!(
                 formatter,
                 "rectangle {object} requires an exact quarter-turn rotation; arbitrary angles cannot be represented by its two axis-aligned corners"
+            ),
+            Self::TransformEllipseUnsupported(object) => write!(formatter,
+                "ellipse {object} requires an exact quarter-turn rotation; arbitrary angles cannot be represented by its two axis-aligned bounding-box corners"
             ),
             Self::CaptionPersistenceLimit => formatter.write_str("The text edit exceeds the persistence budget; reduce text or transaction size."),
             Self::DisplayLabelInvalid => formatter.write_str("Display label needs non-whitespace single-line Unicode text, at most 128 UTF-8 bytes; text does not define chemistry."),
@@ -1625,8 +1631,16 @@ impl Content {
         }
         for object in &scope.graphics {
             if let SceneObject::Graphic(before) = self.scene.get(*object)? {
-                if before.shape == GraphicShape::Rectangle && !prepared.supports_rectangle() {
-                    return Err(EditError::TransformRectangleUnsupported(*object));
+                if !prepared.supports_axis_aligned() {
+                    match before.shape {
+                        GraphicShape::Rectangle => {
+                            return Err(EditError::TransformRectangleUnsupported(*object));
+                        }
+                        GraphicShape::Ellipse => {
+                            return Err(EditError::TransformEllipseUnsupported(*object));
+                        }
+                        _ => {}
+                    }
                 }
                 let after = Graphic {
                     line_width_pt: before.line_width_pt,

@@ -382,7 +382,7 @@ try {
     ['missing v3 width',(payload)=>{delete payload.objects.find((object)=>object.kind==='graphic').line_width_pt},'clipboard_fragment_invalid'],
     ['out-of-range width',(payload)=>{payload.objects.find((object)=>object.kind==='graphic').line_width_pt=10.01},'clipboard_fragment_invalid'],
     ['v2 width field',(payload)=>{payload.version=2},'clipboard_fragment_invalid'],
-    ['future version',(payload)=>{payload.version=4},'clipboard_format_unsupported'],
+    ['future version',(payload)=>{payload.version=5},'clipboard_format_unsupported'],
   ]) {
     const malformed=JSON.parse(sceneCopy.payload)
     const text=mutate(malformed)??JSON.stringify(malformed)
