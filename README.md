@@ -552,7 +552,8 @@ unchanged and external exports report omitted scene rendering. P36 remains
 build and image/regression browsers passed in the recorded runs. Independent
 review of `eb40cfa` found a P2: image pixel limits could be bypassed through
 history replay. The shared replay-state guard and a regression now address that
-finding; follow-up clippy and 52 focused tests passed. Full integrated validation,
-Codex review and CI remain pending. These focused passes do not establish general
-image-format or renderer parity.
+finding; follow-up clippy and 52 focused tests passed. Codex review of
+`5ea2107` in [PR #216](https://github.com/EunhakChoi/chemifree/pull/216) completed
+without findings. Full integrated validation and CI remain pending. These focused
+passes do not establish general image-format or renderer parity.
 See [P36k record](docs/verification/p36k-embedded-image.md).

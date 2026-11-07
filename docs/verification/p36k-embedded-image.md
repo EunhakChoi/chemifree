@@ -6,8 +6,8 @@ read the seven execution logs listed below; it ran no product tests, builds or
 browser checks. Focused execution passed, but independent review of `eb40cfa`
 found a P2 history-replay pixel-limit bypass. The shared-state fix and regression
 now address that finding, with follow-up clippy and 52 focused tests passing.
-Full integrated validation, Codex review and PR/main CI remain
-pending; no merged delivery, latest-head full pass or renderer/format equivalence
+Codex review of `5ea2107` in PR #216 completed without findings. Full integrated
+validation and PR/main CI remain pending; no merged delivery, latest-head full pass or renderer/format equivalence
 is claimed. P36 stays `in_progress`; earlier slice results are not P36k evidence.
 
 ## Implemented source boundary
@@ -106,8 +106,13 @@ the corrected test and the 52-test follow-up passed. Finding disposition:
 mutations had missed this path; their passes alone are not the disposition.
 The independent review did find an issue; no new independent approval is claimed.
 
+The parent recorded the completed Codex review in
+[PR #216](https://github.com/EunhakChoi/chemifree/pull/216): reviewed commit
+`5ea2107b023ea1b99858b0b17ab53d8efac97a77`, no findings. This result is separate from
+the earlier independent review and its addressed P2.
+
 The parent owns final integrated validation under the shared 6 GiB sandbox lock.
-Codex review, full integrated checks and CI remain pending. The existing native
+Full integrated checks and CI remain pending. The existing native
 fixture commit `a9c49f2` alone supplies no execution evidence. This documentation
 adds no new feature authorization: the user requested stopping after this image
 slice is finished, so further feature work needs a new request.

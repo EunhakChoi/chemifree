@@ -706,7 +706,9 @@ review of `eb40cfa` found that history replay could bypass image pixel limits;
 the shared content validator now checks the current pixel limit for every restored
 and replayed state. A regression rejects both undo- and redo-only over-limit
 states without rewriting the native bytes. Follow-up clippy and 52 focused tests
-passed; full integrated validation, Codex review and CI remain pending.
+passed. Codex review of `5ea2107` in
+[PR #216](https://github.com/EunhakChoi/chemifree/pull/216) completed without
+findings; full integrated validation and CI remain pending.
 
 ## Single open cubic spline profile (P36j candidate)
 
