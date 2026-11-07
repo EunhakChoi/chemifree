@@ -868,6 +868,48 @@ web validation are recorded separately from pending full checks and CI; this
 documentation pass reran no product checks. See
 [the P36e record](verification/p36e-styled-graphics-clipboard.md).
 
+### Finite arbitrary-angle rotation input (P36f candidate)
+
+The Scene **Rotate selected geometry** form adds a finite decimal/scientific
+degree input beside the existing fixed rotations/reflections. There is no
+separate magnitude cap. Positive angles rotate clockwise in page coordinates;
+negative angles counterclockwise. The requested number is sent unchanged to
+existing `transform_selection`; the domain retains its floating-point modulo360,
+quarter-turn and trigonometric policy. UI full-turn identities submit no command.
+Blank, malformed/nonfinite input, empty/invalid geometry and IME composition
+cannot submit. Changing documents resets the angle draft.
+
+Submission captures document ID, raw selected object/atom/bond IDs, the active
+placement and numeric angle. It deliberately does not freeze a revision or pivot.
+When the callback reaches the ordinary editor queue, it resolves those captured
+targets in the latest document geometry and recomputes the union-bounds center,
+then submits that explicit pivot under the latest revision. Prior geometry edits
+can therefore move the pivot; later live selection/placement/input changes do
+not redirect the captured rotation. A different document, missing captured target
+or required placement, caption-containing scope or empty geometry lapses the
+whole action. Scene-only targets need no active graph placement; raw atom/bond
+targets retain their explicitly captured placement. Bounds exclude ink/strokes.
+
+Captions, including grouped descendants, block the UI action without a request.
+Rectangle-containing scopes are not silently filtered or UI-rewritten: an
+arbitrary non-quarter-turn can be submitted and the backend refuses the entire
+transaction with `transform_rectangle_unsupported`. Exact quarter turns remain
+supported; rotated coordinate-limit failures likewise refuse atomically. Direct
+API validation still applies even to identity/empty requests; UI no-command
+filtering does not relax that contract.
+
+This form uses the existing mutation/restart reconciliation policy. It adds no
+special no-replay rule like the captured graphic creation/endpoint/width edits;
+a blanket promise that rotations are never retried after restart would be false.
+It directly queues a transaction, without a new `transform_plan` preview step,
+canvas rotation gesture or custom-pivot input. Stored stereo/marks, graph state,
+graphic shape/width, hierarchy/references and other styles retain existing
+geometry-only invariants; the drawing can disagree with stored stereo.
+
+Public API/catalog/native26/provider formats are unchanged. P36 remains
+`in_progress`; tests, reviews and CI are pending. A browser check currently in
+progress is not a pass. See [the P36f record](verification/p36f-selection-rotation.md).
+
 ## Effective selection scope and movement (P32a)
 
 The bounded P32 delivery is complete; see the [completion evidence](verification/p32-selection-completion.md). `document.selection_scope` is a read-only operation taking `{ document_id, selection, instance? }` and returning `{ snapshot, effective: { objects, positions, graphics } }` with the exact document revision. A selection has `objects`, `atoms` and `bonds` arrays, each defaulting to empty; repeated IDs are deduplicated. IDs must already exist; these fields do not resolve transaction-local `$N` references. Results are ordered by domain identifier, with `positions` containing unique `{ instance, atom }` pairs in instance-then-atom order. It changes no geometry, stored selection, revision, dirty state or history; repeating a request inspects the current snapshot rather than replaying a previous result.
@@ -914,7 +956,7 @@ The six alignment controls use the union of the selected units' geometry bounds 
 
 Rotate 90° clockwise and Rotate 90° counterclockwise send quarter-turn transforms. Reflect across horizontal axis keeps x and mirrors y; Reflect across vertical axis keeps y and mirrors x. These four actions require nonempty selected geometry and use its union-bounds center as pivot. The client captures the selected object IDs at the press, then rebuilds the action and center against the latest document when its queued request runs, so repeated presses compose. It sends an explicit pivot to the existing `transform_selection` command; the service has no implicit pivot rule. Selected objects, including groups, retain their existing hierarchy and are transformed as the same effective geometric union.
 
-The controls preserve graph data, bond marks, stored configurations and enhanced stereo groups. They explain that changed geometry can disagree with stored stereo; the existing stereo inspection assesses that agreement. Each successful action uses the ordinary atomic transaction, history selection, revision and Undo/Redo rules, and an unchanged result preserves the redo branch. P32d itself adds no mixed-object canvas marquee or mixed-selection dragging; P32e supplies those bounded interactions below. Custom rotation angle or pivot controls, snapping and structure cleanup remain unimplemented. View navigation retains its earlier scope.
+The controls preserve graph data, bond marks, stored configurations and enhanced stereo groups. They explain that changed geometry can disagree with stored stereo; the existing stereo inspection assesses that agreement. Each successful action uses the ordinary atomic transaction, history selection, revision and Undo/Redo rules, and an unchanged result preserves the redo branch. P32d itself adds no mixed-object canvas marquee or mixed-selection dragging; P32e supplies those bounded interactions below. P32d introduced no custom angle/pivot controls. P36f adds the separate finite-angle form candidate; custom pivots, snapping and structure cleanup remain unsupported. View navigation retains its earlier scope.
 
 ## Mixed canvas selection and movement (P32e)
 
@@ -924,7 +966,7 @@ Dragging a marquee on empty canvas selects atom centers from the active placemen
 
 Dragging a selected atom, bond or graphic moves the captured mixed selection with one `move_selection` command and an explicit active placement for partial graph targets. The effective union contains selected scene subtrees, selected atoms and selected-bond endpoints; each `{ instance, atom }` position and graphic moves once even when selected ancestors, descendants and graph targets overlap. Selected placements keep their own position sets, independently of the active placement. Directed references and chemical connectivity add no targets. The transient move preview follows that same geometric union. The edit changes geometry alone, retaining marks, stored configurations, enhanced stereo groups, hierarchy and references; normal revision, atomic refusal, history selection and Undo/Redo rules apply.
 
-Scene Group/Ungroup retain their existing scene-object rules; mixed canvas selection does not turn atoms or bonds into scene-group children. P32d alignment and distribution controls still accept scene-object selection only and remain disabled when explicit atom/bond targets are selected. [P32f](#mixed-selection-quarter-turns-and-reflections-p32f) extends the quarter-turn and axis-reflection buttons to mixed selection. P31 view navigation, pointer capture, click/drag threshold and gesture cancellation retain their existing behavior: panning does not select or move document content, and cancelled gestures commit nothing. This slice adds no snapping, custom rotation angle or pivot controls, structure cleanup or broader scientific/layout functionality.
+Scene Group/Ungroup retain their existing scene-object rules; mixed canvas selection does not turn atoms or bonds into scene-group children. P32d alignment and distribution controls still accept scene-object selection only and remain disabled when explicit atom/bond targets are selected. [P32f](#mixed-selection-quarter-turns-and-reflections-p32f) extends the quarter-turn and axis-reflection buttons to mixed selection. P31 view navigation, pointer capture, click/drag threshold and gesture cancellation retain their existing behavior: panning does not select or move document content, and cancelled gestures commit nothing. P32e itself adds no snapping, custom angle/pivot controls or structure cleanup. P36f separately adds a finite-angle form; custom pivots and broader scientific/layout functionality remain unsupported.
 
 ## Mixed-selection quarter turns and reflections (P32f)
 
@@ -934,7 +976,7 @@ A button press captures the raw selected object/atom/bond IDs, document ID and t
 
 The four transforms retain the P32c angle and axis semantics: positive 90° is visually clockwise; horizontal reflection mirrors y across the pivot's horizontal line and vertical reflection mirrors x across its vertical line. The command changes geometry only, leaving the selection scope, graph data, bond marks, stored configurations, enhanced stereo groups, hierarchy and references intact. No mark is swapped or stored configuration inverted. Changed geometry can disagree with stored stereo; the existing stereo inspection assesses that agreement. Normal atomic refusal, revision, history selection and Undo/Redo behavior applies.
 
-The bounded P32 delivery is complete; see the [completion evidence](verification/p32-selection-completion.md). This slice adds no custom rotation angle or pivot controls, snapping, structure cleanup or new transform semantics.
+The bounded P32 delivery is complete; see the [completion evidence](verification/p32-selection-completion.md). P32f itself added no custom angle/pivot controls. [P36f](#finite-arbitrary-angle-rotation-input-p36f-candidate) adds the separate arbitrary-angle form candidate; custom pivot, snapping, structure cleanup and new transform semantics remain outside it.
 
 ## Native graph-fragment copy and paste (P33a)
 
