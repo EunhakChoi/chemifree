@@ -150,7 +150,7 @@ fn malformed_profiles_cardinalities_and_old_pair_commands_refuse_atomically() {
         json!({"document_id":id,"selection":{"objects":["s2"]}}),
     );
     let raw: Value = serde_json::from_str(copy["result"]["payload"].as_str().unwrap()).unwrap();
-    for version in [2, 3, 4, 6] {
+    for version in [2, 3, 4, 7] {
         let mut payload = raw.clone();
         payload["version"] = json!(version);
         let result = call(
@@ -159,6 +159,28 @@ fn malformed_profiles_cardinalities_and_old_pair_commands_refuse_atomically() {
             json!({"document_id":id,"expected_revision":1,"payload":payload.to_string(),"offset":{"x":0,"y":0}}),
         );
         assert_eq!(result["outcome"], "error", "{result}");
+        assert_eq!(snapshot(&app, &id), before);
+    }
+    for version in 2..=5 {
+        let mut payload = raw.clone();
+        payload["version"] = json!(version);
+        let object = &mut payload["objects"][0];
+        object["shape"] = json!("spline");
+        object["points"] = json!([
+            {"x":0,"y":0},{"x":10,"y":20},{"x":20,"y":20},{"x":30,"y":0}
+        ]);
+        if version == 2 {
+            object.as_object_mut().unwrap().remove("line_width_pt");
+        }
+        let result = call(
+            &app,
+            "document.clipboard_scene_paste",
+            json!({"document_id":id,"expected_revision":1,"payload":payload.to_string(),"offset":{"x":0,"y":0}}),
+        );
+        assert_eq!(
+            result["diagnostics"][0]["details"]["reason"], "clipboard_fragment_invalid",
+            "{result}"
+        );
         assert_eq!(snapshot(&app, &id), before);
     }
     for modification in ["missing", "range", "count"] {
