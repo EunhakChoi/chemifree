@@ -396,3 +396,13 @@ archives before replacement/recovery, and refuses future v26 untouched. Existing
 full-graph export losses and clipboard/Cut/template restrictions remain binding.
 P35 remains `in_progress`; execution and both reviews are pending. See
 [P35q record](docs/verification/p35q-fragment-display-runs.md).
+
+P36a adds a bounded candidate for editing an existing line, arrow or rectangle's
+two stored points through `update_graphic_points` and the **Graphic endpoints**
+panel. Finite coordinates within inclusive±100000 pt may be reversed or coincident;
+shape, object IDs, groups, references and chemical graph remain intact. The edit
+shares atomic transactions, replay, Undo/Redo and native v25 history without a
+schema change. The UI guards invalid/IME input and stale queued geometry edits.
+Resize handles, new shapes, images, clipping, layers and graphic styles remain
+outside this slice. P36 is `in_progress`; checks, both reviews and PR CI are
+pending. See [P36a record](docs/verification/p36a-graphic-points.md).

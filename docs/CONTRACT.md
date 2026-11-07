@@ -606,6 +606,52 @@ Tests/build/browser/mutation have not run for this candidate; see the
 [P34h record](verification/p34h-attached-kekule-ring.md).
 
 
+## Existing graphic point editing (P36a candidate)
+
+`{ "op":"update_graphic_points", "object":"s2", "points":[{"x":15.5,"y":-20},{"x":80,"y":35}] }`
+replaces exactly the two stored points of an existing line, arrow or rectangle.
+Coordinates are document points (1/72 inch), with x increasing right and y down;
+each coordinate must be finite and within inclusive −100000 to100000 pt.
+Reversed and coincident points are allowed, matching existing graphic creation.
+Point order is preserved; an arrow keeps its tip at its second point, and a
+rectangle uses its two opposite corners without rewriting their stored order.
+The command accepts a concrete existing graphic ID, not a `$N` creation reference.
+It does not accept shape, parent, group, style or reference changes.
+
+Malformed or missing fields, a list other than two points, null/wrong-type
+coordinates and unknown fields such as `shape` use `invalid_request`. Coordinates
+outside the domain limit use `invalid_command`. Missing object and wrong-kind
+targets use `invalid_command` with `object_unknown` or `object_kind_mismatch`.
+Instances, groups and captions are not graphics. A refusal rolls back the entire
+transaction, including earlier edits and any allocated IDs. Effective coordinate
+changes form one ordinary Undo step; identical points are a no-op without a new
+revision/history entry. Shared revision checks, same-process request replay,
+selection-aware Undo/Redo and persistence apply over HTTP, CLI and operation
+contract 1.
+
+Only the target's two points change. Its ID, shape, parent/group membership,
+page roots, sibling/child order, outgoing and incoming references remain intact,
+as do other objects, chemical atoms/bonds, placement coordinates, stereo and
+settings. Graphic arrows remain drawings without inferred reaction roles or
+electron-flow meaning. This command uses existing scene-object history and native
+document/draft v25; it adds no file version, graphic type or persistence schema.
+
+The web **Graphic endpoints** panel edits one selected scene graphic's four
+coordinate fields in pt, including a child within a group. It accepts finite
+decimal/scientific numeric input within the same range; invalid, unchanged, busy
+or IME-composing input cannot submit. The queued edit captures the exact document,
+revision, target and points; a changed document/revision, moved/regrouped/removed
+or replaced target lapses the edit instead of overwriting newer geometry. An
+unconfirmed endpoint edit is not automatically resent into a restarted process.
+The canvas paints the new stored geometry using the existing renderer.
+
+This slice does not add resize/endpoint drag handles, new shapes, curved or
+reaction/electron arrows, scientific glyphs, images, clipping, layers, graphic
+style controls or automatic layout. Existing object movement/group/transform and
+format-loss policies remain binding. P36 remains `in_progress`; authored checks,
+both required reviews and PR CI are pending. See
+[the P36a record](verification/p36a-graphic-points.md).
+
 ## Effective selection scope and movement (P32a)
 
 The bounded P32 delivery is complete; see the [completion evidence](verification/p32-selection-completion.md). `document.selection_scope` is a read-only operation taking `{ document_id, selection, instance? }` and returning `{ snapshot, effective: { objects, positions, graphics } }` with the exact document revision. A selection has `objects`, `atoms` and `bonds` arrays, each defaulting to empty; repeated IDs are deduplicated. IDs must already exist; these fields do not resolve transaction-local `$N` references. Results are ordered by domain identifier, with `positions` containing unique `{ instance, atom }` pairs in instance-then-atom order. It changes no geometry, stored selection, revision, dirty state or history; repeating a request inspects the current snapshot rather than replaying a previous result.
@@ -1439,7 +1485,7 @@ The `chemifree-numerics` Rust library separates exact signed rational values fro
 
 `GET /api/v1/data` and `chemifree data status --json` return `api_version`, `state` (`not_configured`, `refused`, or `checked`), nullable `reason`, registration IDs with `loaded` or `unavailable` state and nullable reason, and `engine: "not_implemented"` for the separate prediction model binding. A loaded registration may also include `retained_extra_columns`, a nonnegative integer count of source columns kept as opaque metadata; older responses omit it. The CLI and web display the count when it is positive. Neither response contains column names, data records or source paths. A checked registration means only that a supported profile was authorized and decoded; `chem.properties` independently recognizes the two mass input profiles described above. The host selects and trusts each registration separately; an aggregate registry hash alone does not establish manifest membership. Public checks use independent fixtures, not personal payloads. Missing or invalid data never prevents document editing. The explicitly selected local trust descriptor, identity checks, supported profiles, and current limits are specified in [DATA.ko.md](DATA.ko.md).
 
-Catalog: `{ implementation, version, contracts: [1], profiles: [{ id, execution, note }], operations: [{ id, representation, execution, followup?, note, commands?, sub_operations? }] }`. Representation and execution are separate: `representation` ∈ `supported | not_supported` says whether a document and this contract can hold the operation's inputs and results; `execution` ∈ `executable | requires_data | not_implemented | rejected` says whether it runs, would need data that is not loaded, does not run, or never will. `document.transaction` lists its sub-operations, each either a command or a capability. A command row has no `commands` field and its `id` is an `op` of the transaction body. A capability row is not a command: its `commands` lists the command rows (by `id`) that carry it out, and is empty while it is not implemented. `commands` was added within contract 1; a reply without it predates that. The transaction lists the existing atom, bond, title, and placement commands, plus `add_graphic`, `add_caption`, `update_caption`, `contract_fragment`, `set_fragment_display_text`, `set_fragment_display_runs`, `expand_fragment`, `group`, `ungroup`, `reorder`, `delete_objects`, `move_objects`, `move_selection`, `arrange_objects`, `transform_selection`, `add_reference`, and `remove_reference`. The `scene_tree` capability names these seventeen commands; `scene_placement` names the three instance commands. Recorded-state capability rows name their implementing atom and bond commands. The four stereo commands are command rows (`set_bond_mark`, `set_atom_configuration`, `set_bond_configuration`, `set_configuration_from_drawing`); the `stereo_marks` capability row names the first and `stereo_configuration` the other three. The eight stereo group commands are command rows too (`create_stereo_group`, `delete_stereo_group`, `set_stereo_group_kind`, `set_stereo_group_number`, `add_stereo_group_members`, `remove_stereo_group_members`, `merge_stereo_groups`, `split_stereo_group`), carried out for the `stereo_group` capability row, which also states the group limits (at most one group for each stored center, so no more than the 2,000-atom cap; one absolute group; a stored number is any 32-bit signed integer); the catalog has no separate limits field. The transaction also lists the existing Et display commands `collapse_ethyl`, `update_abbreviation_label`, and `expand_ethyl`. The transaction lists 57 sub-operations: 46 command rows and 11 capability rows, including bounded `insert_ring` (P34a/P34b) and `attach_ring` (P34c) drawing recipes. Recorded states remain separate from the bounded `chem.validate` inspection described above. `chem.properties` lists formula and mass (P19). `followup` names the plan entry expected to change a row (docs/roadmap/).
+Catalog: `{ implementation, version, contracts: [1], profiles: [{ id, execution, note }], operations: [{ id, representation, execution, followup?, note, commands?, sub_operations? }] }`. Representation and execution are separate: `representation` ∈ `supported | not_supported` says whether a document and this contract can hold the operation's inputs and results; `execution` ∈ `executable | requires_data | not_implemented | rejected` says whether it runs, would need data that is not loaded, does not run, or never will. `document.transaction` lists its sub-operations, each either a command or a capability. A command row has no `commands` field and its `id` is an `op` of the transaction body. A capability row is not a command: its `commands` lists the command rows (by `id`) that carry it out, and is empty while it is not implemented. `commands` was added within contract 1; a reply without it predates that. The transaction lists the existing atom, bond, title, and placement commands, plus `add_graphic`, `update_graphic_points`, `add_caption`, `update_caption`, `contract_fragment`, `set_fragment_display_text`, `set_fragment_display_runs`, `expand_fragment`, `group`, `ungroup`, `reorder`, `delete_objects`, `move_objects`, `move_selection`, `arrange_objects`, `transform_selection`, `add_reference`, and `remove_reference`. The `scene_tree` capability names these eighteen commands; `scene_placement` names the three instance commands. Recorded-state capability rows name their implementing atom and bond commands. The four stereo commands are command rows (`set_bond_mark`, `set_atom_configuration`, `set_bond_configuration`, `set_configuration_from_drawing`); the `stereo_marks` capability row names the first and `stereo_configuration` the other three. The eight stereo group commands are command rows too (`create_stereo_group`, `delete_stereo_group`, `set_stereo_group_kind`, `set_stereo_group_number`, `add_stereo_group_members`, `remove_stereo_group_members`, `merge_stereo_groups`, `split_stereo_group`), carried out for the `stereo_group` capability row, which also states the group limits (at most one group for each stored center, so no more than the 2,000-atom cap; one absolute group; a stored number is any 32-bit signed integer); the catalog has no separate limits field. The transaction also lists the existing Et display commands `collapse_ethyl`, `update_abbreviation_label`, and `expand_ethyl`. The transaction lists 58 sub-operations: 47 command rows and 11 capability rows, including bounded `insert_ring` (P34a/P34b) and `attach_ring` (P34c) drawing recipes. Recorded states remain separate from the bounded `chem.validate` inspection described above. `chem.properties` lists formula and mass (P19). `followup` names the plan entry expected to change a row (docs/roadmap/).
 
 Protocol errors (`envelope: "protocol_error"`):
 
@@ -1540,6 +1586,7 @@ Transaction body: `{ "request_id": string, "expected_revision": number, "command
 | `move_instance` | `instance`, `offset: { x, y }` | Every position of the instance moves once; the graph and other instances stay |
 | `delete_instance` | `instance` | Deletes the instance and its positions; deleting the last one is refused |
 | `add_graphic` | `shape`, two `points`, optional `parent` and `index` | Adds a line, rectangle, or arrow under a group or page |
+| `update_graphic_points` | `object`, exactly two `points` | Replaces an existing graphic's two stored points while retaining shape, containment and references; [P36a bounds and atomicity](#existing-graphic-point-editing-p36a-candidate) |
 | `group` | `objects` | Groups at least two distinct siblings, preserving their order; the group occupies the first selected sibling's position |
 | `ungroup` | `group` | Removes the group, promoting its children in order |
 | `reorder` | `object`, `index` | Moves an object among its siblings |
