@@ -26,6 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::document::{AtomId, BondId, EditError, ObjectId, Point, PositionKey, Vector};
+use crate::image::Image;
 use crate::settings::{LABEL_SIZE_RANGE, LINE_WIDTH_RANGE, LabelFont, SettingsError};
 
 /// Scene objects a document holds, of every kind together.
@@ -235,6 +236,7 @@ pub enum SceneObject {
         children: Vec<ObjectId>,
     },
     Graphic(Graphic),
+    Image(Image),
 }
 
 impl SceneObject {
@@ -244,6 +246,7 @@ impl SceneObject {
             Self::Instance => ObjectKind::Instance,
             Self::Group { .. } => ObjectKind::Group,
             Self::Graphic(_) => ObjectKind::Graphic,
+            Self::Image(_) => ObjectKind::Image,
         }
     }
 
@@ -252,6 +255,7 @@ impl SceneObject {
     pub(crate) fn same_kind(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Graphic(a), Self::Graphic(b)) => a.shape == b.shape,
+            (Self::Image(a), Self::Image(b)) => a.asset == b.asset,
             _ => self.kind() == other.kind(),
         }
     }
@@ -259,6 +263,7 @@ impl SceneObject {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ObjectKind {
+    Image,
     Caption,
     Instance,
     Group,
@@ -272,6 +277,7 @@ impl fmt::Display for ObjectKind {
             Self::Instance => "a scene instance",
             Self::Group => "a group",
             Self::Graphic => "a graphic",
+            Self::Image => "an image",
         })
     }
 }
@@ -307,6 +313,11 @@ pub enum SceneError {
     PolygonPersistenceLimit,
     /// A spline-bearing edit cannot fit the shared variable-size persistence budget.
     SplinePersistenceLimit,
+    ImageInvalid,
+    ImagePixelLimit,
+    ImageHistoryPixelLimit,
+    ImagePersistenceLimit,
+    ImageUnsupported,
     /// This operation cannot preserve a caption.
     CaptionUnsupported,
     /// A command names a scene object that does not exist.
@@ -351,13 +362,18 @@ pub enum SceneError {
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 29] = [
+    pub const ALL: [Self; 34] = [
         Self::CaptionInvalid,
         Self::CaptionPersistenceLimit,
         Self::GraphicGeometryInvalid,
         Self::GraphicCommandMismatch,
         Self::PolygonPersistenceLimit,
         Self::SplinePersistenceLimit,
+        Self::ImageInvalid,
+        Self::ImagePixelLimit,
+        Self::ImageHistoryPixelLimit,
+        Self::ImagePersistenceLimit,
+        Self::ImageUnsupported,
         Self::CaptionUnsupported,
         Self::AbbreviationInvalid,
         Self::FragmentDisplayInvalid,
@@ -392,6 +408,11 @@ impl SceneError {
             Self::GraphicCommandMismatch => "graphic_command_mismatch",
             Self::PolygonPersistenceLimit => "polygon_persistence_limit",
             Self::SplinePersistenceLimit => "spline_persistence_limit",
+            Self::ImageInvalid => "image_invalid",
+            Self::ImagePixelLimit => "image_pixel_limit",
+            Self::ImageHistoryPixelLimit => "image_history_pixel_limit",
+            Self::ImagePersistenceLimit => "image_persistence_limit",
+            Self::ImageUnsupported => "image_unsupported",
             Self::CaptionUnsupported => "caption_unsupported",
             Self::AbbreviationInvalid => "abbreviation_invalid",
             Self::FragmentDisplayInvalid => "fragment_display_invalid",
@@ -640,6 +661,7 @@ impl SceneTree {
             match object {
                 SceneObject::Caption(caption) => caption.validate()?,
                 SceneObject::Graphic(graphic) => graphic.validate()?,
+                SceneObject::Image(image) => image.validate()?,
                 _ => {}
             }
             if !seen.insert(id) {
@@ -832,6 +854,7 @@ impl SceneTree {
             match self.objects.get_mut(&id) {
                 Some(SceneObject::Instance) => instances.push(id),
                 Some(SceneObject::Graphic(graphic)) => *graphic = graphic.translated(delta)?,
+                Some(SceneObject::Image(image)) => *image = image.translated(delta)?,
                 Some(SceneObject::Caption(caption)) => {
                     caption.anchor = caption.anchor.translated(delta)?
                 }

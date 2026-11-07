@@ -288,6 +288,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         }
     }
 
+    /// Connects the bounded embedded PNG validator without a core infrastructure dependency.
+    #[must_use]
+    pub fn with_image_decoder(
+        mut self,
+        decoder: impl chemifree_domain::image::PngDecoder + 'static,
+    ) -> Self {
+        self.documents.image_decoder = Some(Arc::new(decoder));
+        self
+    }
+
     /// Connects the independently implemented MOL/SDF provider for every entry adapter.
     #[must_use]
     pub fn with_ctfile_codec(self, codec: impl ctfile::CtCodec + 'static) -> Self {

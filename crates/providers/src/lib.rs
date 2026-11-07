@@ -1,4 +1,4 @@
-//! Infrastructure implementations of application-owned ports.
+//! Infrastructure implementations of inner-layer ports.
 //! The optional native InChI adapter requires an explicit checked library registration.
 //! User documents and preferences are local JSON files;
 //! explicitly selected external data is checked through an application-owned registry.
@@ -12,6 +12,7 @@ mod file_store;
 mod inchi;
 pub mod interchange_codec;
 mod opaque_policy;
+pub mod png_image;
 mod preference_store;
 mod smiles;
 

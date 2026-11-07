@@ -1,7 +1,8 @@
-//! Chemifree document file format, version 29 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 30 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
+//! Version 30 adds embedded immutable PNG images; v1–29 forbid images in current/history.
 //! Version 29 adds single open cubic spline graphics; v1–28 forbid them in current/history.
 //! Version 28 adds bounded polygon vertices; v1–27 forbid polygons in current/history.
 //! Version 27 adds axis-aligned ellipse graphics; v1–26 forbid them in current/history.
@@ -39,7 +40,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 29. Other versions
+//! so they read with none. Reading never writes; the next write is version 30. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -51,6 +52,9 @@ use chemifree_domain::document::{
     PositionKey,
 };
 use chemifree_domain::element::Element;
+use chemifree_domain::image::{
+    Image, ImageSize, MAX_CURRENT_IMAGE_PIXELS, MAX_HISTORY_IMAGE_PIXELS, PngCache,
+};
 use chemifree_domain::scene::{
     Caption, CaptionAlignment, CaptionRun, CaptionScript, CaptionStyle, CaptionWeight, Graphic,
     GraphicShape, ReferenceTarget, SceneObject, SceneReference, Selection,
@@ -69,9 +73,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 29;
+const FORMAT_VERSION: u32 = 30;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 29;
+const DRAFT_FORMAT_VERSION: u32 = 30;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -86,7 +90,7 @@ const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Current v29 scene/history: groups, styled/aligned captions, and Et display maps.
+/// Current v30 scene/history: groups, styled/aligned captions, and Et display maps.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -171,6 +175,12 @@ enum SceneState {
     },
     Group {
         children: Vec<String>,
+    },
+    Image {
+        mime_type: String,
+        data_base64: String,
+        origin: StoredPoint,
+        size_pt: StoredPoint,
     },
     Graphic {
         shape: StoredShape,
@@ -1411,6 +1421,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    TwentyNine,
     TwentyEight,
     TwentySeven,
     TwentySix,
@@ -1451,6 +1462,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        29 => Ok(Version::TwentyNine),
         28 => Ok(Version::TwentyEight),
         27 => Ok(Version::TwentySeven),
         26 => Ok(Version::TwentySix),
@@ -1481,7 +1493,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, and \
              {current}"
         )),
     }
@@ -1666,6 +1678,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
         Ok(Version::Fourteen) => Some(14),
+        Ok(Version::TwentyNine) => Some(29),
         Ok(Version::TwentyEight) => Some(28),
         Ok(Version::TwentySeven) => Some(27),
         Ok(Version::TwentySix) => Some(26),
@@ -1701,6 +1714,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     check_settings_fields(bytes, format)?;
     let parts = match format {
         Version::Current
+        | Version::TwentyNine
         | Version::TwentyEight
         | Version::TwentySeven
         | Version::TwentySix
@@ -1766,6 +1780,7 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     check_settings_fields(bytes, format)?;
     let (parts, base_revision, saved_at_ms) = match format {
         Version::Current
+        | Version::TwentyNine
         | Version::TwentyEight
         | Version::TwentySeven
         | Version::TwentySix
@@ -1841,9 +1856,15 @@ fn check_graphic_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         ellipse: bool,
         polygon: bool,
         spline: bool,
+        images: bool,
     ) -> Result<(), String> {
         match value {
             serde_json::Value::Object(object) => {
+                if !images
+                    && object.get("kind").and_then(serde_json::Value::as_str) == Some("image")
+                {
+                    return Err("Embedded images require native v30 and are forbidden in v1–29, including history.".into());
+                }
                 if !spline
                     && object.get("kind").and_then(serde_json::Value::as_str) == Some("graphic")
                     && object.get("shape").and_then(serde_json::Value::as_str) == Some("spline")
@@ -1868,12 +1889,12 @@ fn check_graphic_fields(bytes: &[u8], format: Version) -> Result<(), String> {
                     }
                 }
                 for child in object.values() {
-                    visit(child, width_field, ellipse, polygon, spline)?;
+                    visit(child, width_field, ellipse, polygon, spline, images)?;
                 }
             }
             serde_json::Value::Array(values) => {
                 for child in values {
-                    visit(child, width_field, ellipse, polygon, spline)?;
+                    visit(child, width_field, ellipse, polygon, spline, images)?;
                 }
             }
             _ => {}
@@ -1884,13 +1905,21 @@ fn check_graphic_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         &parse(bytes, "document or draft")?,
         matches!(
             format,
-            Version::Current | Version::TwentyEight | Version::TwentySeven | Version::TwentySix
+            Version::Current
+                | Version::TwentyNine
+                | Version::TwentyEight
+                | Version::TwentySeven
+                | Version::TwentySix
         ),
         matches!(
             format,
-            Version::Current | Version::TwentyEight | Version::TwentySeven
+            Version::Current | Version::TwentyNine | Version::TwentyEight | Version::TwentySeven
         ),
-        matches!(format, Version::Current | Version::TwentyEight),
+        matches!(
+            format,
+            Version::Current | Version::TwentyNine | Version::TwentyEight
+        ),
+        matches!(format, Version::Current | Version::TwentyNine),
         format == Version::Current,
     )
 }
@@ -1902,6 +1931,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     let current = matches!(
         format,
         Version::Current
+            | Version::TwentyNine
             | Version::TwentyEight
             | Version::TwentySeven
             | Version::TwentySix
@@ -1938,6 +1968,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
             != matches!(
                 format,
                 Version::Current
+                    | Version::TwentyNine
                     | Version::TwentyEight
                     | Version::TwentySeven
                     | Version::TwentySix
@@ -1957,6 +1988,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
         let rich = matches!(
             format,
             Version::Current
+                | Version::TwentyNine
                 | Version::TwentyEight
                 | Version::TwentySeven
                 | Version::TwentySix
@@ -1995,6 +2027,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
             != matches!(
                 format,
                 Version::Current
+                    | Version::TwentyNine
                     | Version::TwentyEight
                     | Version::TwentySeven
                     | Version::TwentySix
@@ -2027,6 +2060,7 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
     let current = matches!(
         format,
         Version::Current
+            | Version::TwentyNine
             | Version::TwentyEight
             | Version::TwentySeven
             | Version::TwentySix
@@ -2043,11 +2077,12 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_weight").is_some() != current
             || (current && !matches!(settings["label_weight"].as_str(), Some("normal" | "bold")))
         {
-            return Err("label_weight is required as normal or bold in v18–29 and forbidden in v1–17, including history.".into());
+            return Err("label_weight is required as normal or bold in v18–30 and forbidden in v1–17, including history.".into());
         }
         let styled = matches!(
             format,
             Version::Current
+                | Version::TwentyNine
                 | Version::TwentyEight
                 | Version::TwentySeven
                 | Version::TwentySix
@@ -2062,11 +2097,12 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_style").is_some() != styled
             || (styled && !matches!(settings["label_style"].as_str(), Some("normal" | "italic")))
         {
-            return Err("label_style is required as normal or italic in v19–29 and forbidden in v1–18, including history.".into());
+            return Err("label_style is required as normal or italic in v19–30 and forbidden in v1–18, including history.".into());
         }
         let underlined = matches!(
             format,
             Version::Current
+                | Version::TwentyNine
                 | Version::TwentyEight
                 | Version::TwentySeven
                 | Version::TwentySix
@@ -2080,11 +2116,12 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_underline").is_some() != underlined
             || (underlined && !settings["label_underline"].is_boolean())
         {
-            return Err("label_underline is required as a boolean in v20–29 and forbidden in v1–19, including history.".into());
+            return Err("label_underline is required as a boolean in v20–30 and forbidden in v1–19, including history.".into());
         }
         let outlined = matches!(
             format,
             Version::Current
+                | Version::TwentyNine
                 | Version::TwentyEight
                 | Version::TwentySeven
                 | Version::TwentySix
@@ -2097,11 +2134,12 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_outline").is_some() != outlined
             || (outlined && !settings["label_outline"].is_boolean())
         {
-            return Err("label_outline is required as a boolean in v21–29 and forbidden in v1–20, including history.".into());
+            return Err("label_outline is required as a boolean in v21–30 and forbidden in v1–20, including history.".into());
         }
         let shadowed = matches!(
             format,
             Version::Current
+                | Version::TwentyNine
                 | Version::TwentyEight
                 | Version::TwentySeven
                 | Version::TwentySix
@@ -2113,7 +2151,7 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_shadow").is_some() != shadowed
             || (shadowed && !settings["label_shadow"].is_boolean())
         {
-            return Err("label_shadow is required as a boolean in v22–29 and forbidden in v1–21, including history.".into());
+            return Err("label_shadow is required as a boolean in v22–30 and forbidden in v1–21, including history.".into());
         }
         Ok(())
     };
@@ -2211,6 +2249,7 @@ fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(),
     if matches!(
         format,
         Version::Current
+            | Version::TwentyNine
             | Version::TwentyEight
             | Version::TwentySeven
             | Version::TwentySix
@@ -2273,6 +2312,7 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
     if !matches!(stored.pages.as_slice(), [page] if page.id == PAGE_ID) {
         return Err(format!("a document holds exactly one page, {PAGE_ID:?}"));
     }
+    let mut image_cache = PngCache::default();
     Ok(DocumentParts {
         fragment_displays: stored
             .fragment_displays
@@ -2341,7 +2381,12 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
         objects: stored
             .objects
             .into_iter()
-            .map(|object| Ok((instance_id(&object.id)?, read_scene_state(object.state)?)))
+            .map(|object| {
+                Ok((
+                    instance_id(&object.id)?,
+                    read_scene_state(object.state, &mut image_cache)?,
+                ))
+            })
             .collect::<Result<_, String>>()?,
         references: stored
             .references
@@ -2379,12 +2424,12 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
         undo: history
             .undo
             .into_iter()
-            .map(read_scene_change_set)
+            .map(|set| read_scene_change_set(set, &mut image_cache))
             .collect::<Result<_, _>>()?,
         redo: history
             .redo
             .into_iter()
-            .map(read_scene_change_set)
+            .map(|set| read_scene_change_set(set, &mut image_cache))
             .collect::<Result<_, _>>()?,
     })
 }
@@ -2431,6 +2476,15 @@ fn stored_scene_state(object: &SceneObject) -> SceneState {
         SceneObject::Group { children } => SceneState::Group {
             children: children.iter().map(ToString::to_string).collect(),
         },
+        SceneObject::Image(image) => SceneState::Image {
+            mime_type: "image/png".into(),
+            data_base64: image.asset.data_base64().into(),
+            origin: stored_point(&image.origin),
+            size_pt: StoredPoint {
+                x: image.size_pt.x(),
+                y: image.size_pt.y(),
+            },
+        },
         SceneObject::Graphic(graphic) => SceneState::Graphic {
             line_width_pt: graphic.line_width_pt,
             shape: match graphic.shape {
@@ -2470,7 +2524,7 @@ fn read_reference(reference: StoredReference) -> Result<SceneReference, String> 
     })
 }
 
-fn read_scene_state(object: SceneState) -> Result<SceneObject, String> {
+fn read_scene_state(object: SceneState, image_cache: &mut PngCache) -> Result<SceneObject, String> {
     Ok(match object {
         SceneState::Caption {
             alignment,
@@ -2523,6 +2577,30 @@ fn read_scene_state(object: SceneState) -> Result<SceneObject, String> {
                 .map(|id| instance_id(id))
                 .collect::<Result<_, _>>()?,
         },
+        SceneState::Image {
+            mime_type,
+            data_base64,
+            origin,
+            size_pt,
+        } => {
+            if mime_type != "image/png" {
+                return Err("Only embedded image/png is supported".into());
+            }
+            let asset = image_cache.decode(&data_base64, &crate::png_image::EmbeddedPngDecoder)?;
+            if image_cache.live_pixels() > MAX_CURRENT_IMAGE_PIXELS + MAX_HISTORY_IMAGE_PIXELS {
+                return Err(
+                    "Incoming unique PNG assets exceed the native pixel validation budget".into(),
+                );
+            }
+            SceneObject::Image(
+                Image::new(
+                    asset,
+                    point(origin.x, origin.y)?,
+                    ImageSize::new(size_pt.x, size_pt.y).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?,
+            )
+        }
         SceneState::Graphic {
             shape,
             points,
@@ -2573,7 +2651,10 @@ fn read_selection(selection: StoredSelection) -> Result<Selection, String> {
     })
 }
 
-fn read_scene_change_set(stored: SceneChangeSet) -> Result<ChangeSet, String> {
+fn read_scene_change_set(
+    stored: SceneChangeSet,
+    image_cache: &mut PngCache,
+) -> Result<ChangeSet, String> {
     let mut set = to_change_set(StoredChangeSet {
         title: stored.title,
         atoms: stored.atoms,
@@ -2657,8 +2738,14 @@ fn read_scene_change_set(stored: SceneChangeSet) -> Result<ChangeSet, String> {
             Ok((
                 instance_id(&object.id)?,
                 Change {
-                    before: object.before.map(read_scene_state).transpose()?,
-                    after: object.after.map(read_scene_state).transpose()?,
+                    before: object
+                        .before
+                        .map(|state| read_scene_state(state, image_cache))
+                        .transpose()?,
+                    after: object
+                        .after
+                        .map(|state| read_scene_state(state, image_cache))
+                        .transpose()?,
                 },
             ))
         })

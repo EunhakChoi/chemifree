@@ -22,6 +22,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;
 
 use crate::element::Element;
+use crate::image::{Image, ImageSize, MAX_CURRENT_IMAGE_PIXELS, MAX_HISTORY_IMAGE_PIXELS};
 use crate::scene;
 use crate::scene::{
     ArrangementPlan, ArrangementUnit, Bounds, Caption, DeleteMode, Graphic, GraphicShape,
@@ -548,6 +549,16 @@ pub enum Command {
         object: ObjectId,
         caption: Caption,
     },
+    AddImage {
+        image: Image,
+        parent: Option<ObjectId>,
+        index: Option<usize>,
+    },
+    UpdateImageGeometry {
+        object: ObjectId,
+        origin: Point,
+        size_pt: ImageSize,
+    },
     AddGraphic {
         graphic: Graphic,
         parent: Option<ObjectId>,
@@ -759,6 +770,11 @@ pub enum EditError {
     GraphicCommandMismatch,
     PolygonPersistenceLimit,
     SplinePersistenceLimit,
+    ImageInvalid,
+    ImagePixelLimit,
+    ImageHistoryPixelLimit,
+    ImagePersistenceLimit,
+    ImageUnsupported(ObjectId),
     CaptionUnsupported(ObjectId),
     EmptyTransaction,
     TooManyCommands,
@@ -875,6 +891,11 @@ impl EditError {
             Self::GraphicCommandMismatch => SceneError::GraphicCommandMismatch,
             Self::PolygonPersistenceLimit => SceneError::PolygonPersistenceLimit,
             Self::SplinePersistenceLimit => SceneError::SplinePersistenceLimit,
+            Self::ImageInvalid => SceneError::ImageInvalid,
+            Self::ImagePixelLimit => SceneError::ImagePixelLimit,
+            Self::ImageHistoryPixelLimit => SceneError::ImageHistoryPixelLimit,
+            Self::ImagePersistenceLimit => SceneError::ImagePersistenceLimit,
+            Self::ImageUnsupported(_) => SceneError::ImageUnsupported,
             Self::CaptionUnsupported(_) => SceneError::CaptionUnsupported,
             Self::UnknownObject(_) => SceneError::ObjectUnknown,
             Self::ObjectKindMismatch { .. } => SceneError::ObjectKindMismatch,
@@ -1046,6 +1067,11 @@ impl fmt::Display for EditError {
             ),
             Self::GraphicGeometryInvalid => formatter.write_str("Graphic point count does not match its shape: polygons require 3–64 vertices, splines require exactly four defining points, and other shapes require exactly two points."),
             Self::GraphicCommandMismatch => formatter.write_str("Polygon and spline geometry each require their dedicated command; two-point commands accept only two-point shapes."),
+            Self::ImageInvalid => formatter.write_str("Image needs a verified embedded static PNG, positive finite size, and origin/end within ±100000 pt."),
+            Self::ImagePixelLimit => formatter.write_str("Current embedded images exceed the 4194304-pixel document policy."),
+            Self::ImageHistoryPixelLimit => formatter.write_str("Unique image assets exceed the retained history pixel policy."),
+            Self::ImagePersistenceLimit => formatter.write_str("The image-bearing edit exceeds the shared persistence budget; reduce source bytes or transaction size."),
+            Self::ImageUnsupported(id) => write!(formatter, "Image {id} cannot participate in rotation or reflection; exclude it from this transform."),
             Self::SplinePersistenceLimit => formatter.write_str("The spline-bearing edit exceeds the shared variable-size persistence budget; reduce transaction size."),
             Self::PolygonPersistenceLimit => formatter.write_str("The polygon-bearing edit exceeds the shared variable-size persistence budget; reduce vertices or transaction size."),
             Self::CaptionPersistenceLimit => formatter.write_str("The text edit exceeds the persistence budget; reduce text or transaction size."),
@@ -1555,7 +1581,7 @@ impl Content {
                 SceneObject::Graphic(_) => {
                     scope.graphics.insert(*object);
                 }
-                SceneObject::Caption(_) | SceneObject::Group { .. } => {}
+                SceneObject::Caption(_) | SceneObject::Image(_) | SceneObject::Group { .. } => {}
             }
         }
         let mut atoms = selection.atoms.clone();
@@ -1606,6 +1632,11 @@ impl Content {
                     points.extend(graphic.points.iter().copied());
                 }
             }
+            for id in &scope.objects {
+                if let SceneObject::Image(image) = self.scene.get(*id)? {
+                    points.extend([image.origin, image.end()?]);
+                }
+            }
             let bounds =
                 Bounds::from_points(points).ok_or(EditError::ArrangementEmptyGeometry(object))?;
             units.push(ArrangementUnit {
@@ -1627,6 +1658,12 @@ impl Content {
                         .get(key)
                         .ok_or(EditError::MissingPosition(key.instance))?,
                 )?;
+            }
+            for id in &unit.scope.objects {
+                if let SceneObject::Image(image) = self.scene.get(*id)? {
+                    unit.translated(image.origin)?;
+                    unit.translated(image.end()?)?;
+                }
             }
             for graphic in &unit.scope.graphics {
                 if let SceneObject::Graphic(graphic) = self.scene.get(*graphic)? {
@@ -1650,6 +1687,9 @@ impl Content {
         for id in &scope.objects {
             if matches!(self.scene.get(*id)?, SceneObject::Caption(_)) {
                 return Err(EditError::CaptionUnsupported(*id));
+            }
+            if matches!(self.scene.get(*id)?, SceneObject::Image(_)) {
+                return Err(EditError::ImageUnsupported(*id));
             }
         }
         let prepared = scene::PreparedTransform::new(transform)?;
@@ -1996,6 +2036,9 @@ impl Draft {
             return Err(EditError::CoordinateOutOfRange);
         }
         for id in &scope.objects {
+            if let Some(SceneObject::Image(image)) = self.content.scene.objects.get_mut(id) {
+                *image = image.translated(delta)?;
+            }
             if let Some(SceneObject::Caption(caption)) = self.content.scene.objects.get_mut(id) {
                 caption.anchor = caption.anchor.translated(delta)?;
             }
@@ -2678,6 +2721,34 @@ impl Draft {
                     .objects
                     .insert(*object, SceneObject::Caption(caption.clone()));
             }
+            Command::AddImage {
+                image,
+                parent,
+                index,
+            } => {
+                image.validate()?;
+                let id = self.allocate_object()?;
+                self.content.scene.insert(
+                    id,
+                    SceneObject::Image(image.clone()),
+                    *parent,
+                    *index,
+                )?;
+                created = Created::Object(id);
+            }
+            Command::UpdateImageGeometry {
+                object,
+                origin,
+                size_pt,
+            } => {
+                self.content.scene.require(*object, ObjectKind::Image)?;
+                if let Some(SceneObject::Image(image)) = self.content.scene.objects.get_mut(object)
+                {
+                    image.origin = *origin;
+                    image.size_pt = *size_pt;
+                    image.validate()?;
+                }
+            }
             Command::AddGraphic {
                 graphic,
                 parent,
@@ -3200,6 +3271,9 @@ impl Document {
                 "duplicate atom, bond, scene object, reference, position, stereo record, or stereo group",
             ));
         }
+        if content.current_image_pixels() > MAX_CURRENT_IMAGE_PIXELS {
+            return Err(invalid("current image pixel limit exceeded"));
+        }
         content
             .validate()
             .map_err(|error| RestoreError(format!("invalid document content: {error}")))?;
@@ -3211,7 +3285,18 @@ impl Document {
         for set in parts.undo.iter().chain(&parts.redo) {
             // Retention cannot erase an invalid style from an older incoming record.
             for (_, change) in &set.objects {
+                if let (Some(SceneObject::Image(a)), Some(SceneObject::Image(b))) =
+                    (&change.before, &change.after)
+                    && a.asset != b.asset
+                {
+                    return Err(invalid("immutable image asset changed in history"));
+                }
                 for object in [&change.before, &change.after].into_iter().flatten() {
+                    if let SceneObject::Image(image) = object {
+                        image
+                            .validate()
+                            .map_err(|e| RestoreError(format!("invalid image history: {e}")))?;
+                    }
                     if let SceneObject::Graphic(graphic) = object {
                         graphic.validate().map_err(|error| {
                             RestoreError(format!("invalid graphic history: {error}"))
@@ -3243,7 +3328,8 @@ impl Document {
         // Editing keeps undo + redo within the limits (undo and redo only move entries between
         // them). A stored history beyond them, e.g. written under looser limits, is trimmed the
         // way editing trims: oldest undo entries first, then the farthest redo entries.
-        while undo.len() + redo.len() > HISTORY_LIMIT
+        while persistence::history_image_pixels(undo.iter().chain(&redo)) > MAX_HISTORY_IMAGE_PIXELS
+            || undo.len() + redo.len() > HISTORY_LIMIT
             || history_size(&undo) + history_size(&redo) > HISTORY_CHANGE_LIMIT
             || (variable_size_budget
                 && persistence::history_weight(undo.iter().chain(&redo))
@@ -3726,6 +3812,12 @@ impl Document {
                 group_notes: Vec::new(),
             });
         }
+        if draft.content.current_image_pixels() > MAX_CURRENT_IMAGE_PIXELS {
+            return Err(whole(EditError::ImagePixelLimit));
+        }
+        if persistence::history_image_pixels([&changes]) > MAX_HISTORY_IMAGE_PIXELS {
+            return Err(whole(EditError::ImageHistoryPixelLimit));
+        }
         let variable_size_budget = draft.content.has_variable_size()
             || changes.has_variable_size()
             || self
@@ -3740,7 +3832,9 @@ impl Document {
                 > CAPTION_CONTENT_WEIGHT_LIMIT
                 || changes.history_admission_weight() > CAPTION_HISTORY_WEIGHT_LIMIT)
         {
-            return Err(whole(if changes.has_graphic_shape(GraphicShape::Polygon) {
+            return Err(whole(if changes.has_images() {
+                EditError::ImagePersistenceLimit
+            } else if changes.has_graphic_shape(GraphicShape::Polygon) {
                 EditError::PolygonPersistenceLimit
             } else if changes.has_graphic_shape(GraphicShape::Spline) {
                 EditError::SplinePersistenceLimit
@@ -3773,7 +3867,8 @@ impl Document {
         self.revision += 1;
         self.undo.push_back(changes);
         self.redo.clear();
-        while self.undo.len() > HISTORY_LIMIT
+        while persistence::history_image_pixels(self.undo.iter()) > MAX_HISTORY_IMAGE_PIXELS
+            || self.undo.len() > HISTORY_LIMIT
             || history_size(&self.undo) > HISTORY_CHANGE_LIMIT
             || (variable_size_budget
                 && persistence::history_weight(&self.undo) > CAPTION_HISTORY_WEIGHT_LIMIT)

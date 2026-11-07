@@ -323,6 +323,7 @@ fn main() -> ExitCode {
         args.model_trusted_registry.as_deref(),
     );
     let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir))
+        .with_image_decoder(chemifree_providers::png_image::EmbeddedPngDecoder)
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
         .with_smiles_codec(OpenSmilesCodec)
@@ -866,6 +867,26 @@ fn document_text(response: &DocumentResponse) -> String {
                     "  {id}  group in {}: {}",
                     parent.as_deref().unwrap_or("page"),
                     children.join(", ")
+                ));
+            }
+            SceneObjectView::Image {
+                id,
+                parent,
+                origin,
+                size_pt,
+                pixel_width,
+                pixel_height,
+                ..
+            } => {
+                lines.push(format!(
+                    "  {id}  embedded PNG in {} at ({}, {}), {}×{} pt, {}×{} pixels",
+                    parent.as_deref().unwrap_or("page"),
+                    origin.x,
+                    origin.y,
+                    size_pt.x,
+                    size_pt.y,
+                    pixel_width,
+                    pixel_height
                 ));
             }
             SceneObjectView::Graphic {

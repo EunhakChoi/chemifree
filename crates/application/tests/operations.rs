@@ -710,6 +710,8 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "update_caption",
             "add_graphic",
             "update_graphic_points",
+            "add_image",
+            "update_image_geometry",
             "add_spline",
             "update_spline_points",
             "add_polygon",
@@ -758,6 +760,8 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
         [
             "add_graphic",
             "update_graphic_points",
+            "add_image",
+            "update_image_geometry",
             "add_spline",
             "update_spline_points",
             "add_polygon",
@@ -821,12 +825,12 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "split_stereo_group"
         ]
     );
-    assert_eq!(commands.len(), 52, "{commands:?}");
+    assert_eq!(commands.len(), 54, "{commands:?}");
     assert_eq!(capabilities.len(), 11, "{capabilities:?}");
     assert_eq!(
         transaction["sub_operations"].as_array().unwrap().len(),
-        63,
-        "52 command rows and 11 capability rows"
+        65,
+        "54 command rows and 11 capability rows"
     );
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }

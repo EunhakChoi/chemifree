@@ -61,6 +61,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         args.model_trusted_registry.as_deref(),
     );
     let application = LocalApplication::new(LocalCapabilities, repository)
+        .with_image_decoder(chemifree_providers::png_image::EmbeddedPngDecoder)
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
         .with_smiles_codec(OpenSmilesCodec)

@@ -298,14 +298,23 @@ fn replayed_group_losses(read: &SmilesRead, committed: &DocumentView) -> Vec<Los
 fn grid_commands(read: &SmilesRead, target: &DocumentView) -> Result<Vec<Command>, Diagnostic> {
     // Everything the drawing holds that has a position: atoms and the points of graphics.
     let graphic_points = target.scene.objects.iter().flat_map(|object| match object {
-        SceneObjectView::Graphic { points, .. } => points.iter().collect::<Vec<_>>(),
-        SceneObjectView::Caption { anchor, .. } => vec![anchor],
+        SceneObjectView::Graphic { points, .. } => points.clone(),
+        SceneObjectView::Image {
+            origin, size_pt, ..
+        } => vec![
+            *origin,
+            crate::contract::PositionView {
+                x: origin.x + size_pt.x,
+                y: origin.y + size_pt.y,
+            },
+        ],
+        SceneObjectView::Caption { anchor, .. } => vec![*anchor],
         SceneObjectView::Instance { .. } | SceneObjectView::Group { .. } => Vec::new(),
     });
     let (left, bottom) = target
         .atoms
         .iter()
-        .map(|atom| &atom.position)
+        .map(|atom| atom.position)
         .chain(graphic_points)
         .fold(None, |extent: Option<(f64, f64)>, position| {
             Some(match extent {
