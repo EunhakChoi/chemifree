@@ -97,7 +97,7 @@ Native graph version 1 and graphic-forest versions 2/3 are separate profiles and
 
 The catalog lists 40 operations, with 30 executable in the default profile.
 
-The scene can also contain ordered groups and simple line, rectangle, and arrow graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Each document owns its style (bond length and width, label font and size, carbon labels, and display unit); style changes are undoable. Data-directory preferences separately hold the theme, defaults copied into newly created documents, and mass-result display decimal places. **Document style** and **Preferences** edit these settings in the web UI; general numeric precision and NMR preferences remain unavailable.
+The scene can also contain ordered groups and simple line, rectangle, arrow, and candidate axis-aligned ellipse graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Each document owns its style (bond length and width, label font and size, carbon labels, and display unit); style changes are undoable. Data-directory preferences separately hold the theme, defaults copied into newly created documents, and mass-result display decimal places. **Document style** and **Preferences** edit these settings in the web UI; general numeric precision and NMR preferences remain unavailable.
 
 If preferences could not be read when the page started, open **Preferences** and choose **Retry preferences** after the local service is available; a successful read applies the saved theme.
 
@@ -470,3 +470,17 @@ and stale/deleted/reparented targets lapse. Ordinary revision, selection history
 restart reconciliation, API and native26 rules remain. P36 stays `in_progress`;
 browser/full/reviews/CI are pending. See
 [P36g record](docs/verification/p36g-scene-order.md).
+
+
+P36h adds a bounded **Ellipse** candidate with exactly two opposite bounding-box
+corners and stroke-only axis-aligned rendering. Reversed/coincident/zero-axis
+corners are retained; zero-axis objects have no visible stroke, so use Scene
+selection and the numeric corner form. Non-quarter-turn rotations refuse the
+whole transaction, including circles and degenerate ellipses. Native27 admits
+ellipses only under that header; old current/history headers remain strict, with
+width required from v26. Graphics clipboard output uses required-width v4 when
+the copied forest includes an ellipse, otherwise canonical v2/v3; older readers
+are not assumed compatible. Graph/scientific state and existing export rendering
+losses remain. Earlier P36a–g shape/schema/version statements are historical slice
+boundaries, superseded here for P36h. P36 stays `in_progress`; targeted/full/web/
+reviews/CI remain pending. See [P36h record](docs/verification/p36h-ellipse.md).

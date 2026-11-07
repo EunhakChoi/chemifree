@@ -1,5 +1,14 @@
 # Chemifree 새 세션 인계
 
+## P36h axis-aligned ellipse 후보 (검증 대기)
+
+- Ellipse는 정확히 두 opposite bounding-box corners로 저장하고 순서를 보존한다. finite·inclusive±100000 pt, reversed/coincident/zero-axis도 허용한다. stroke-only이며 zero-axis는 실제 획·hit stroke가 보이지 않아 Scene 선택과 numeric corner form을 쓴다. distinct corners의 기존 handle은 bounding corners를 편집한다.
+- Graphic 명시 shape·Scene Add·기존 preview/release/page-root 생성·취소/pan/zoom/stale/service 정책을 재사용한다. move/reflection/exact quarter-turn은 가능하지만 일반 각도는 circle/degenerate/group descendant도 transform_ellipse_unsupported로 mixed transaction 전체 거절한다. graph/stored stereo/width/IDs/refs는 보존한다.
+- native27 current/history/draft가 ellipse를 허용한다. v1–26 header는 history-only도 거절하며 width는 v26+ 필수 nullable·v1–25 금지/상속 migration을 유지한다. read-only migration·첫 overwrite/recovery exact-byte archives·future28 untouched refusal를 유지한다.
+- 복사 forest에 ellipse가 있으면 상속만 있어도 clipboard v4이고 모든 graphic width가 nullable 필수다. 없으면 기존 canonical v2/v3, v2/3 ellipse 금지·v2 width 금지·v3/4 width 필수다. v4 old-shape/all-null 입력은 허용하되 recopy는 실제 내용으로 v2/v3를 선택한다. old reader 호환·silent downgrade를 주장하지 않는다. graph clipboard v1/settings-match/byte·command/ref/Cut 경계는 그대로다.
+- 공개 명세의 ellipse 열거·넓은 R12/R15 범위 중 두-corner stroke-only profile이며 fill/곡선/자유 회전/새 resize·layer·image·scientific symbols·external ellipse roundtrip은 없다. graph export는 scene_object rendering loss를 보고한다. P36은 in_progress이며 source/authored tests 대조만 했고 대상/full/browser/양 리뷰/CI는 근거 인계 전 pending이다. [P36h 기록](verification/p36h-ellipse.md).
+- 아래 P36a–g no-new-shape/no-schema/native25/26 설명과 당시 검사·배송 대기는 각 slice의 역사적 기록이다. P36h의 현재 변경은 이 항목과 CONTRACT를 따르며 과거 실행 결과를 P36h 성공으로 읽지 않는다.
+
 ## P36g same-parent First/Last 후보
 
 - Scene First/Last는 selected scene object 정확히1개를 같은 parent의 처음/마지막으로 옮겨 Earlier/Later 반복을 줄인다. 전체 selected ID가1개일 필요는 없고 valid atom/bond IDs 동시 선택은 history에 보존하되 reorder하지 않는다. graph-only·복수 scene object·ancestor+descendant 동시 선택은 boundary action이 없다.
