@@ -133,14 +133,21 @@ pub(crate) fn mapping(
                         .rev(),
                 );
             }
-            (SceneObject::Graphic(graphic), SceneObjectView::Graphic { shape, .. }) => {
+            (
+                SceneObject::Graphic(graphic),
+                SceneObjectView::Graphic {
+                    shape,
+                    line_width_pt,
+                    ..
+                },
+            ) => {
                 let matches = matches!(
                     (graphic.shape, shape),
                     (GraphicShape::Line, GraphicShapeDto::Line)
                         | (GraphicShape::Rectangle, GraphicShapeDto::Rectangle)
                         | (GraphicShape::Arrow, GraphicShapeDto::Arrow)
                 );
-                if !matches {
+                if !matches || graphic.line_width_pt != *line_width_pt {
                     return Err(invalid_mapping());
                 }
             }

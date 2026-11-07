@@ -50,6 +50,7 @@ pub enum SceneFragmentError {
     UnknownSelection(ObjectId),
     InstanceUnsupported(ObjectId),
     CaptionUnsupported(ObjectId),
+    /// Historical v2-only writer refusal, retained for diagnostic compatibility.
     GraphicLineWidthUnsupported(ObjectId),
     GroupTooSmall(ObjectId),
     InvalidTree,
@@ -133,11 +134,7 @@ fn walk(
     match object {
         SceneObject::Instance => return Err(SceneFragmentError::InstanceUnsupported(id)),
         SceneObject::Caption(_) => return Err(SceneFragmentError::CaptionUnsupported(id)),
-        SceneObject::Graphic(graphic) => {
-            if graphic.line_width_pt.is_some() {
-                return Err(SceneFragmentError::GraphicLineWidthUnsupported(id));
-            }
-        }
+        SceneObject::Graphic(graphic) => graphic.validate().map_err(SceneFragmentError::Invalid)?,
         SceneObject::Group { children } => {
             if children.len() < 2 {
                 return Err(SceneFragmentError::GroupTooSmall(id));
