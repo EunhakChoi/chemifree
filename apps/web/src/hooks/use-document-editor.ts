@@ -1,3 +1,4 @@
+import { graphicCreationCommands, type GraphicCreation } from '@/editor/graphic-creation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useAutosave } from '@/hooks/use-autosave'
@@ -1089,6 +1090,15 @@ export function useDocumentEditor() {
         }),
       [run, setCurrent, refreshList],
     ),
+    createGraphic: useCallback((creation: GraphicCreation) => {
+      const frozen: GraphicCreation = { ...creation, points: [{ ...creation.points[0] }, { ...creation.points[1] }] }
+      const pressed = new Set(selectionRef.current)
+      return mutate((document, restartedFrom) => {
+        if (restartedFrom || frozen.serviceGeneration !== serviceGenerationRef.current) return null
+        const commands = graphicCreationCommands(document.document, frozen)
+        return commands ? client.transact(frozen.documentId, frozen.revision, commands, { before: selectionSnapshot(pressed, document.document) }) : null
+      })
+    }, [mutate]),
     apply: useCallback(
       (edit: Edit, selectionEdit?: EditSelection) => {
         const shown = currentRef.current?.document

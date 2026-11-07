@@ -286,6 +286,80 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   const small=await handle(line.id,0).boundingBox()
   await page.mouse.move(small.x+small.width/2,small.y+small.height/2)
   await page.mouse.down();await page.mouse.move(small.x+small.width/2+1,small.y+small.height/2+1);await page.mouse.up()
+  stage='round-trip endpoint drags restore geometry below threshold before release'
+  for(const index of [0,1])for(const pixels of [1,2]){
+    const before=(await snapshot()).document
+    const count=writes.length
+    const point=fixed[index]
+    const previewed=structuredClone(fixed);previewed[index]={x:point.x+15,y:point.y+10}
+    await beginEndpoint(line.id,index,previewed[index]);await expectPainted(line.id,previewed)
+    const origin=await screenPoint(point)
+    await page.mouse.move(origin.x+pixels,origin.y,{steps:4})
+    await page.waitForFunction(({target,index,point})=>{
+      const ink=document.querySelector('[data-scene-object="'+target+'"] line.stroke-foreground')
+      return Number(ink?.getAttribute('x'+(index+1)))===point.x&&Number(ink?.getAttribute('y'+(index+1)))===point.y
+    },{target:line.id,index,point},{timeout:5000})
+    assert.equal(await canvas.evaluate((svg)=>svg.hasPointerCapture(window.graphicPointerId)),true,'returning below threshold does not cancel endpoint ownership')
+    await expectPainted(line.id,fixed)
+    assert.deepEqual((await snapshot()).document,before,'round-trip endpoint preview never commits')
+    assert.equal(writes.length,count)
+    await page.mouse.up();await idle()
+    assert.deepEqual((await snapshot()).document,before,'release below threshold is a no-op')
+    assert.equal(writes.length,count,'round-trip endpoint release sends no transaction')
+  }
+  const bodyOrigin={x:(fixed[0].x+fixed[1].x)/2,y:(fixed[0].y+fixed[1].y)/2}
+  async function beginBodyMove(delta){
+    const start=await screenPoint(bodyOrigin)
+    const end=await screenPoint({x:bodyOrigin.x+delta.x,y:bodyOrigin.y+delta.y})
+    await canvas.evaluate((svg)=>svg.addEventListener('pointerdown',(event)=>{
+      window.graphicPointerId=event.pointerId
+      window.bodyMoveTarget={object:event.target.closest('[data-scene-object]')?.getAttribute('data-scene-object'),endpoint:event.target.getAttribute('data-graphic-endpoint')}
+    },{once:true}))
+    await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(end.x,end.y,{steps:4})
+    assert.deepEqual(await page.evaluate(()=>window.bodyMoveTarget),{object:line.id,endpoint:null},'the ordinary move begins on the graphic body')
+    await expectPainted(line.id,fixed.map((point)=>({x:point.x+delta.x,y:point.y+delta.y})))
+  }
+  stage='ordinary graphic body round trips restore geometry without changing selection or commit policy'
+  for(const pixels of [1,2]){
+    const before=(await snapshot()).document
+    const selected=await page.evaluate(()=>[...window.graphicHarness.selection])
+    const count=writes.length
+    await beginBodyMove({x:15,y:10})
+    assert.deepEqual((await snapshot()).document,before,'whole-object movement is still only a preview')
+    const origin=await screenPoint(bodyOrigin)
+    await page.mouse.move(origin.x+pixels,origin.y,{steps:4})
+    await page.waitForFunction(({target,points})=>{
+      const ink=document.querySelector('[data-scene-object="'+target+'"] line.stroke-foreground')
+      return ['x1','y1','x2','y2'].every((name,index)=>Number(ink?.getAttribute(name))===[points[0].x,points[0].y,points[1].x,points[1].y][index])
+    },{target:line.id,points:fixed},{timeout:5000})
+    await expectPainted(line.id,fixed)
+    assert.equal(await canvas.evaluate((svg)=>svg.hasPointerCapture(window.graphicPointerId)),true,'subthreshold return retains body-move ownership')
+    assert.deepEqual(await page.evaluate(()=>[...window.graphicHarness.selection]),selected)
+    assert.deepEqual((await snapshot()).document,before)
+    assert.equal(writes.length,count)
+    await page.mouse.up();await idle()
+    assert.deepEqual((await snapshot()).document,before,'body-move release below threshold commits nothing')
+    assert.deepEqual(await page.evaluate(()=>[...window.graphicHarness.selection]),selected)
+    assert.equal(writes.length,count)
+  }
+  stage='endpoint handles follow the painted whole-object move preview'
+  const beforeHandleMove=(await snapshot()).document
+  const beforeHandleWrites=writes.length
+  await beginBodyMove({x:15,y:10})
+  for(const index of [0,1]){
+    await page.waitForFunction(({target,index,point})=>{
+      const mark=document.querySelector('[data-endpoint-object="'+target+'"][data-graphic-endpoint="'+index+'"]')
+      return Number(mark?.getAttribute('cx'))===point.x&&Number(mark?.getAttribute('cy'))===point.y
+    },{target:line.id,index,point:{x:fixed[index].x+15,y:fixed[index].y+10}},{timeout:5000})
+  }
+  assert.deepEqual((await snapshot()).document,beforeHandleMove)
+  await page.keyboard.press('Escape');await page.mouse.up();await expectPainted(line.id,fixed)
+  assert.deepEqual((await snapshot()).document,beforeHandleMove)
+  for(const index of [0,1]){
+    assert.equal(Number(await handle(line.id,index).getAttribute('cx')),fixed[index].x,'cancel restores each handle x')
+    assert.equal(Number(await handle(line.id,index).getAttribute('cy')),fixed[index].y,'cancel restores each handle y')
+  }
+  assert.equal(writes.length,beforeHandleWrites)
   for(const cancel of ['escape','pointercancel','lostcapture']) {
     stage='endpoint cancel via '+cancel
     await beginEndpoint(line.id,0,{x:fixed[0].x+15,y:fixed[0].y+10})

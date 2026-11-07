@@ -1,5 +1,13 @@
 # Chemifree 새 세션 인계
 
+## P36c explicit Graphic tool 생성 후보
+
+- Graphic(G)에서 Line/Arrow/Rectangle을 명시 선택한다. 초기 shape는 null이며 선택 전 canvas press는 생성하지 않는다. 기존 atom/bond/graphic 위에서도 graph edit 없이 두 점 gesture를 시작하고 existing Scene Add controls는 유지한다.
+- press document/revision/shape/service generation/start point를 capture한다. inverse SVG screen 좌표로 pan/zoom을 반영하고0.01 pt rounding·finite inclusive±100000 pt와3 client px threshold를 유지한다. move는 실제 renderer의 local preview만 바꾸며 쓰지 않고 valid release는 ordered press/release points의 add_graphic1개만 제출한다. parent/index를 생략해 선택 group과 무관한 fresh page root다. 반응/전자 의미·snapping/clamping/aspect lock은 없다.
+- Escape/pointercancel/lost capture/blur/Fit/Reset·문서/revision/tool/shape/관찰된 service generation 변경은 preview를 버린다. Space/middle pan이 press에서 우선한다. 제출한 shape/points는 복사·고정하고 큐에서 document/revision/service를 재검증한다. 미관찰 restart는 expired request 거절을 낼 수 있지만 replacement process에 생성 edit를 자동 replay하지 않는다.
+- existing objects/group/order/refs·graph/placements/stereo/settings는 새 page root 외에 보존한다. 기존 add_graphic atomic/fresh IDs/selection history/Undo/Redo와 native v25를 재사용하며 command/schema/provider 변경은 없다. 새 shapes·curves/reaction/electron arrows·images·clip/layers/styles/layout·group insertion gesture는 추가하지 않는다.
+- P36은 `in_progress`; 선행 P36b #206은 final f36550d에서 merge76016170fe68fb5ad188d04ed26153cdcdc911ba로 병합됐고 PR CI42324595907 check/browser가 성공했다. 그 post-merge main run42325796411 pending과 P36c full checks·양 리뷰·CI pending을 구분한다. 기존 browser regression 검사 진행을 성공으로 기록하지 않는다. source/test 대조만 했으며 제품 검사 실행 주장은 없다. [P36c 기록](verification/p36c-graphic-creation.md).
+
 ## P36b 단일 graphic canvas endpoint drag 후보
 
 - Select에서 정확히 한 explicit noncoincident line/arrow/rectangle에만 두 endpoint handles를 보인다. group 자체·복수/mixed selection에는 없고 직접 선택한 grouped child는 가능하다. coincident stored points는 허용하되 numeric endpoint form으로 편집한다.
