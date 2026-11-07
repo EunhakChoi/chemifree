@@ -195,6 +195,8 @@ cargo test -p chemifree-conformance   # runner 단위·통합 테스트
 
 ## 갱신 규칙
 
+bounded P35 완료 후 `MODEL-01.rest`·`RENDER-01.rest`·`STYLE-01.rest`는 P35를 열린 후속에서 제외한다. 남은 advanced scene/graphic style은 P36, geometric references는 P37, general shaping/bounds/clip/SVG는 P38, pages/settings는 P40, reaction-role/mapping references는 P49에 연결하며 기존 prediction/NMR/carrier 후속은 유지한다. P38을 임의 atom-text parser나 미정 label editor의 구현 약속으로 확대하지 않는다. 정확한 대상·범위는 [P35 감사의 후속 대조](verification/p35-completion-audit.md#documentation-integration-checks-still-required)에 기록했다. 이는 추적 경로 수정이며 미구현 요구사항을 완료 처리하거나 적합성 결과를 생성한 것이 아니다.
+
 - 사례를 더하거나 바꾸면 `npm run conformance:record`로 기록을 다시 쓰고, 바뀐 결과를 검토해 함께 커밋한다. 기록은 LF로 고정한다(.gitattributes).
 - 기능을 구현하면 해당 부분의 상태·구현 경로·근거를 바꾸고 후속 계획을 지운다. 구현되지 않은 나머지는 catch-all에 남긴다. 근거는 `case:`나 `check:`만 쓴다.
 - 상태를 올리기 전에 근거가 그 요약을 실제로 비교하는지 직접 확인한다. 검사는 이를 대신하지 않는다.

@@ -244,6 +244,21 @@ separate from already verified product delivery.
 
 ## Documentation integration checks still required
 
+Completed P35 is no longer an open follow-up of the three remaining catch-all
+parts. Their open roadmap scopes, rather than a label-only replacement ID, own
+the remaining work:
+
+| Catch-all | Open follow-ups and scope |
+| --- | --- |
+| `MODEL-01.rest` | In-progress P36 covers advanced graphic scene types; planned P37 geometric references, P40 multiple pages and P49 persistent reaction-role/mapping references. Existing optional S05 retains collaborative reference invariants. Independent captions/simple graphics are excluded from the unsupported summary; the broader multi-graph model is still not claimed complete. |
+| `RENDER-01.rest` | P35 is removed; existing planned P38 owns general shaping/bounds/transform/clip/SVG, with P36 graphics, P37 annotations, P40 page/PDF and the existing open codec/specialized-object/output/accessibility rows retaining their narrower scopes. |
+| `STYLE-01.rest` | P36 graphic controls and planned P38 shared rendering replace P35 as the relevant open style/rendering owners; P40 page settings, P60 numeric prediction precision, P66 solvent/corrections and P80 style/template carriers remain. P38 does not promise an undefined arbitrary atom-text editor or parser; any such wider editor semantics need explicit future scope. |
+
+This is traceability routing, not new feature authorization or an implementation
+status promotion. Requirement/part/conformance counts are unchanged. The missing
+fresh `target/conformance/report.json` remains a separate isolated-full-check
+prerequisite; no report was fabricated or copied into the execution evidence.
+
 The parent integration should run `npm run test:traceability` and
 `npm run test:checks`, validate that the roadmap HTML embeds the same JSON, and
 review the updated `STYLE-01.4` evidence links. This audit intentionally performs no
