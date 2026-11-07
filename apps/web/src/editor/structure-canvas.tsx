@@ -1,6 +1,7 @@
-import { graphicEndpointCurrent, graphicEndpointPoints, selectedGraphic, type GraphicEndpointGesture, type GraphicPointsEdit } from '@/editor/graphic-points'
+import { graphicCreationCurrent, type GraphicCreation } from '@/editor/graphic-creation'
+import { graphicPointValid, graphicEndpointCurrent, graphicEndpointPoints, selectedGraphic, type GraphicEndpointGesture, type GraphicPointsEdit } from '@/editor/graphic-points'
 import { compactDisplaysIn, abbreviationTargets, compactView, ethylLabel } from '@/editor/abbreviation'
-import type { RingPattern, RingSize } from '@/lib/document-contract'
+import type { GraphicShape, RingPattern, RingSize } from '@/lib/document-contract'
 import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
 import { SceneCaption } from '@/editor/scene-caption'
@@ -52,7 +53,7 @@ export type { DrawnOrder } from '@/editor/bond-gestures'
 /** What the bond tool draws: a kind of bond, or a stereo mark on a single bond. */
 export type DrawnKind = DrawnOrder | 'wedge' | 'hash' | 'wavy'
 
-export type Tool = 'select' | 'atom' | 'bond' | 'erase' | 'pan' | 'ring'
+export type Tool = 'select' | 'atom' | 'bond' | 'erase' | 'pan' | 'ring' | 'graphic'
 
 /** Below this pointer travel in CSS pixels a press is a click, not a drag. */
 const DRAG_THRESHOLD = 3
@@ -62,6 +63,7 @@ const DRAG_THRESHOLD = 3
  * service without scene instances.
  */
 type Drag =
+  | { kind: 'graphic-create'; start: Position; creation: GraphicCreation }
   | ({ kind: 'endpoint' } & GraphicEndpointGesture)
   | { kind: 'attach'; start: Position; atom: string; instance: string | null; size: RingSize; pattern: RingPattern }
   | { kind: 'move'; start: Position; selected: Set<string>; instance: string | null; scope: SelectionGeometry }
@@ -70,6 +72,7 @@ type Drag =
   | { kind: 'click'; start: Position; hit: Hit; instance: string | null }
 
 type Preview =
+  | { kind: 'graphic-create'; creation: GraphicCreation }
   | { kind: 'endpoint'; gesture: GraphicEndpointGesture; points: [Position, Position] }
   | { kind: 'move'; scope: SelectionGeometry; delta: Position }
   | { kind: 'bond' | 'attach'; from: Position; to: Position }
@@ -131,6 +134,9 @@ interface StructureCanvasProps {
   onActivePlacementChange: (instance: string | null) => void
   /** A captured endpoint edit; the parent checks its revision again in the queue. */
   onGraphicPoints?: (edit: GraphicPointsEdit) => void
+  graphicShape?: GraphicShape | null
+  serviceGeneration?: number
+  onGraphicCreate?: (creation: GraphicCreation) => void
   onCommands: (commands: Command[], selectionBefore?: ReadonlySet<string>) => void
   /** A stereo-mark gesture, built from the document on screen; the parent sends it to the latest. */
   onMark: (intent: MarkIntent) => void
@@ -175,6 +181,9 @@ export function StructureCanvas({
   onAttachRing,
   onCommands,
   onGraphicPoints,
+  graphicShape = null,
+  serviceGeneration = 0,
+  onGraphicCreate,
   onMark,
   rings = [],
   cipLabels = [],
@@ -438,11 +447,12 @@ export function StructureCanvas({
     }
   }
 
-  const cancelExpiredEndpoint = useEffectEvent(() => {
+  const cancelExpiredGraphic = useEffectEvent(() => {
     const gesture = drag.current
     if (gesture?.kind === 'endpoint' && (tool !== 'select' || !graphicEndpointCurrent(document, selection, gesture))) cancelPointer()
+    if (gesture?.kind === 'graphic-create' && (tool !== 'graphic' || !graphicCreationCurrent(document, graphicShape, serviceGeneration, gesture.creation))) cancelPointer()
   })
-  useEffect(() => { cancelExpiredEndpoint() }, [document, selection, tool])
+  useEffect(() => { cancelExpiredGraphic() }, [document, selection, tool, graphicShape, serviceGeneration])
 
   const cancelFromWindow = useEffectEvent(() => cancelPointer())
 
@@ -572,6 +582,12 @@ export function StructureCanvas({
     if (pointer.current?.id !== event.pointerId || pointer.current.pan) return
     const point = toDocument(event)
     if (!point) return
+    if (tool === 'graphic') {
+      if (graphicShape && onGraphicCreate && graphicPointValid(point)) {
+        setDrag({ kind: 'graphic-create', start: point, creation: { documentId: document.id, revision: document.revision, serviceGeneration, shape: graphicShape, points: [{ ...point }, { ...point }] } })
+      }
+      return
+    }
     const { hit, instance } = locate(point)
     if (tool === 'ring' && ringMode === 'attach') {
       const atom = hit?.kind === 'atom' ? drawingOf(instance).atoms.get(hit.id) : undefined
@@ -622,7 +638,10 @@ export function StructureCanvas({
       return
     }
     if (!active || distance({ x: event.clientX, y: event.clientY }, active.start) < DRAG_THRESHOLD) return
-    if (gesture.kind === 'endpoint') {
+    if (gesture.kind === 'graphic-create') {
+      if (tool !== 'graphic' || !graphicCreationCurrent(document, graphicShape, serviceGeneration, gesture.creation)) { cancelPointer(); return }
+      setPreview(graphicPointValid(point) ? { kind: 'graphic-create', creation: { ...gesture.creation, points: [{ ...gesture.start }, { ...point }] } } : null)
+    } else if (gesture.kind === 'endpoint') {
       if (tool !== 'select' || !graphicEndpointCurrent(document, selection, gesture)) { cancelPointer(); return }
       const points = graphicEndpointPoints(gesture, point)
       setPreview(points ? { kind: 'endpoint', gesture, points } : null)
@@ -657,6 +676,12 @@ export function StructureCanvas({
     // document and drops them if what they name is gone.
     if (active.pan || !gesture || !point) return
     const dragged = distance({ x: event.clientX, y: event.clientY }, active.start) >= DRAG_THRESHOLD
+    if (gesture.kind === 'graphic-create') {
+      if (dragged && tool === 'graphic' && graphicPointValid(point) && graphicCreationCurrent(document, graphicShape, serviceGeneration, gesture.creation)) {
+        onGraphicCreate?.({ ...gesture.creation, points: [{ ...gesture.start }, { ...point }] })
+      }
+      return
+    }
     if (gesture.kind === 'endpoint') {
       if (!dragged || tool !== 'select' || !graphicEndpointCurrent(document, selection, gesture)) return
       const points = graphicEndpointPoints(gesture, point)
@@ -698,6 +723,7 @@ export function StructureCanvas({
 
   function gestureCommands(gesture: Drag, point: Position, dragged: boolean): Command[] {
     switch (gesture.kind) {
+      case 'graphic-create':
       case 'endpoint':
         return []
       case 'move': {
@@ -822,6 +848,7 @@ export function StructureCanvas({
       return [{ label, at: groupLabelAt(position(drawing, label.atom), around) }]
     })
 
+  const graphicPreview = preview?.kind === 'graphic-create' && tool === 'graphic' && graphicCreationCurrent(document, graphicShape, serviceGeneration, preview.creation) ? preview.creation : null
   const endpointPreview = preview?.kind === 'endpoint' && tool === 'select' && graphicEndpointCurrent(document, selection, preview.gesture) ? preview : null
   const endpointGraphic = tool === 'select' && onGraphicPoints && !disabled ? selectedGraphic(document, selection) : null
 
@@ -964,6 +991,9 @@ export function StructureCanvas({
         const drawing = drawings.find((item) => item.id === object.id)
         return drawing ? drawInstance(drawing) : null
       }) : drawings.map(drawInstance)}
+      {graphicPreview && <g data-editor-overlay="" data-graphic-create-preview={graphicPreview.shape} pointerEvents="none">
+        <SceneGraphic object={{ kind: 'graphic', id: 'preview', parent: null, shape: graphicPreview.shape, points: graphicPreview.points }} selected={false} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} />
+      </g>}
       {endpointGraphic && <g data-editor-overlay="" aria-label={`Endpoints of ${endpointGraphic.shape} ${endpointGraphic.id}`}>
         {([0, 1] as const).map((endpoint) => {
           const at = endpointPreview?.gesture.edit.graphic.id === endpointGraphic.id ? endpointPreview.points[endpoint] : endpointGraphic.points[endpoint]
@@ -1019,7 +1049,7 @@ function SceneGraphic({ object, selected, lineWidth, unitsPerPixel, onPointerDow
   selected: boolean
   lineWidth: number
   unitsPerPixel: number
-  onPointerDown: (event: PointerEvent<SVGGElement>) => void
+  onPointerDown?: (event: PointerEvent<SVGGElement>) => void
 }) {
   const [a, b] = object.points
   const length = Math.hypot(b.x - a.x, b.y - a.y)

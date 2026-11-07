@@ -1,3 +1,4 @@
+import { GraphicToolControls } from '@/components/graphic-tool-controls'
 import { graphicPointsCommands } from '@/editor/graphic-points'
 import { GraphicPointsPanel } from '@/components/graphic-points-panel'
 import { FragmentDisplayPanel } from '@/components/fragment-display-panel'
@@ -25,6 +26,7 @@ import {
   RotateCwIcon,
   SaveIcon,
   SlashIcon,
+  SquareIcon,
   Trash2Icon,
   TriangleAlertIcon,
   Undo2Icon,
@@ -136,6 +138,7 @@ const TOOLS: { value: Tool; label: string; key: string; icon: ReactNode }[] = [
   { value: 'select', label: 'Select and move', key: 'V', icon: <MousePointer2Icon /> },
   { value: 'atom', label: 'Atom', key: 'A', icon: <AtomIcon /> },
   { value: 'bond', label: 'Bond', key: 'B', icon: <SlashIcon /> },
+  { value: 'graphic', label: 'Graphic', key: 'G', icon: <SquareIcon /> },
   { value: 'ring', label: 'Insert carbon ring', key: 'R', icon: <HexagonIcon /> },
   { value: 'erase', label: 'Erase', key: 'E', icon: <EraserIcon /> },
   { value: 'pan', label: 'Pan view', key: 'H', icon: <HandIcon /> },
@@ -576,6 +579,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   const [tool, setTool] = useState<Tool>('bond')
   const [element, setElement] = useState('C')
   const [bondKind, setBondKind] = useState<DrawnKind>('single')
+  const [graphicShape, setGraphicShape] = useState<GraphicShape | null>(null)
   const [ringSize, setRingSize] = useState<RingSize>(6)
   const [ringPattern, setRingPattern] = useState<RingPattern>('single')
   const [ringMode, setRingMode] = useState<'independent' | 'attach'>('independent')
@@ -797,6 +801,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
         )}
       </div>
 
+      {tool === 'graphic' && <GraphicToolControls shape={graphicShape} onShapeChange={setGraphicShape} disabled={editor.busy || dragging} />}
       {tool === 'ring' && <ToggleGroup
         aria-label="Ring placement"
         variant="outline"
@@ -871,6 +876,9 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             onSelectionChange={setSelection}
             activePlacement={activePlacement}
             onActivePlacementChange={(instance) => setMovementContext({ document: document.id, instance })}
+            graphicShape={graphicShape}
+            serviceGeneration={editor.serviceGeneration}
+            onGraphicCreate={(creation) => void editor.createGraphic(creation)}
             onGraphicPoints={(edit) => void editor.apply((latest) => graphicPointsCommands(latest, edit))}
             onCommands={(commands, before) => void editor.apply(
               (latest) => latest.id === document.id ? stillApplicable(commands, latest) : null,

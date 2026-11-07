@@ -2,6 +2,10 @@ import type { Command, DocumentView, Position, SceneObject } from '@/lib/documen
 
 export type GraphicObject = Extract<SceneObject, { kind: 'graphic' }>
 
+export function graphicPointValid(point: Position): boolean {
+  return Number.isFinite(point.x) && Number.isFinite(point.y) && Math.abs(point.x) <= 100_000 && Math.abs(point.y) <= 100_000
+}
+
 /** Decimal point coordinates match the domain's finite ±100000 point boundary. */
 export function parseGraphicCoordinate(text: string): number | null {
   const trimmed = text.trim()
@@ -22,7 +26,7 @@ export function graphicPointsCommands(latest: DocumentView, edit: GraphicPointsE
   if (latest.id !== edit.documentId || latest.revision !== edit.revision) return null
   const current = latest.scene?.objects?.find((object) => object.id === edit.graphic.id)
   if (JSON.stringify(current) !== JSON.stringify(edit.graphic)) return null
-  if (edit.points.some((point) => !Number.isFinite(point.x) || !Number.isFinite(point.y) || Math.abs(point.x) > 100_000 || Math.abs(point.y) > 100_000)) return null
+  if (!edit.points.every((point) => graphicPointValid(point))) return null
   if (JSON.stringify(edit.points) === JSON.stringify(edit.graphic.points)) return null
   return [{ op: 'update_graphic_points', object: edit.graphic.id, points: [{ ...edit.points[0] }, { ...edit.points[1] }] }]
 }
@@ -46,7 +50,7 @@ export function graphicEndpointPoints(gesture: GraphicEndpointGesture, at: Posit
   const points: [Position, Position] = [{ ...gesture.edit.graphic.points[0] }, { ...gesture.edit.graphic.points[1] }]
   const original = points[gesture.endpoint]
   points[gesture.endpoint] = { x: original.x + at.x - gesture.start.x, y: original.y + at.y - gesture.start.y }
-  return points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y) && Math.abs(point.x) <= 100_000 && Math.abs(point.y) <= 100_000) ? points : null
+  return points.every((point) => graphicPointValid(point)) ? points : null
 }
 
 /** A gesture remains bound to its press-time document, revision, target and explicit selection. */
