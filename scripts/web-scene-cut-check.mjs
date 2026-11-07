@@ -5,7 +5,21 @@ import { createServer } from 'vite'
 import { chromium } from 'playwright-core'
 
 import { keepRequestInterception } from './lib/request-interception.mjs'
-import { sceneCutAfter, sceneCutCopy, sceneCutSource } from './lib/scene-cut-fixture.mjs'
+import { sceneCutAfter, sceneCutCopy as inheritedCopy, sceneCutSource as inheritedSource } from './lib/scene-cut-fixture.mjs'
+
+// Exercise the same stale/replay/activation guards with a v3 styled subtree.
+function sceneCutSource() {
+  const source = inheritedSource()
+  source.document.scene.objects.find((object) => object.id === 's6').line_width_pt = .1
+  return source
+}
+function sceneCutCopy(source = sceneCutSource()) {
+  const copy = inheritedCopy(source)
+  const payload = JSON.parse(copy.payload)
+  payload.version = 3
+  for (const object of payload.objects) if (object.kind === 'graphic') object.line_width_pt ??= null
+  return { ...copy, payload: JSON.stringify(payload) }
+}
 
 const fixture = `
 import React, { useEffect } from 'react'
