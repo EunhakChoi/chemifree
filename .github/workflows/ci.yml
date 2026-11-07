@@ -73,6 +73,8 @@ jobs:
       - name: Install Chromium and its system libraries
         id: chromium
         run: npx playwright-core install --with-deps chromium
+      - name: Manual stereo check across an unchanged render
+        run: npm run test:browser:stereo-manual
       - name: Route-expiry guard (#8)
         run: npm run test:browser:routes
       - name: Native clipboard dialogs

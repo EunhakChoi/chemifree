@@ -4506,6 +4506,63 @@ function runnerFixture(dropOnStop, drawing = agreementDocument()) {
 }
 const edited = (value, n) => ({ ...structuredClone(value), revision: value.revision + n })
 
+test('manual stereo checks survive unchanged renders before their request starts', async () => {
+  const f = runnerFixture(false)
+  f.runner.attach()
+  const manual = () => f.source(structuredClone(f.drawing), { active: false })
+  f.runner.update(manual())
+  f.runner.checkNow()
+  f.runner.update(manual())
+  f.advance(0)
+  assert.equal(f.asks.length, 1, 'an unchanged manual-mode render must not cancel Check now')
+  assert.equal(f.runner.getState().running, true)
+  f.runner.update(manual())
+  await f.settle(0, 'resolve', { snapshot: f.drawing, rows: [] })
+  assert.deepEqual(f.runner.getState(), { outcome: { kind: 'ok', generation: 0, inspection: { snapshot: f.drawing, rows: [] } }, running: false })
+  f.runner.update(manual())
+  f.advance(1000)
+  assert.equal(f.asks.length, 1, 'manual mode does not start an automatic request after rendering the answer')
+  f.runner.detach()
+})
+
+test('manual Check again survives rendering the prior failure before its retry starts', async () => {
+  const f = runnerFixture(false)
+  f.runner.attach()
+  const manual = f.source(f.drawing, { active: false })
+  f.runner.update(manual)
+  f.runner.checkNow()
+  f.advance(0)
+  await f.settle(0, 'reject', new Error('comparison failed'))
+  assert.equal(f.runner.getState().outcome.kind, 'failed')
+  f.runner.checkNow()
+  f.runner.update(manual)
+  f.advance(0)
+  assert.equal(f.asks.length, 2, 'rendering the failure must not cancel Check again')
+  assert.equal(f.runner.getState().running, true)
+  await f.settle(1, 'resolve', { snapshot: f.drawing, rows: [] })
+  assert.equal(f.runner.getState().outcome.kind, 'ok')
+  assert.equal(f.runner.getState().running, false)
+  f.runner.detach()
+})
+
+test('pending manual checks still lapse when their drawing, service or eligibility changes', () => {
+  for (const change of [
+    (f) => f.source(edited(f.drawing, 1), { active: false }),
+    (f) => f.source(f.drawing, { active: false, generation: 1 }),
+    (f) => f.source(f.drawing, { active: false, allowed: false }),
+  ]) {
+    const f = runnerFixture(false)
+    f.runner.attach()
+    f.runner.update(f.source(f.drawing, { active: false }))
+    f.runner.checkNow()
+    f.runner.update(change(f))
+    f.advance(1000)
+    assert.equal(f.asks.length, 0, 'an explicit check is not carried into a different or ineligible context')
+    assert.deepEqual(f.runner.getState(), { outcome: null, running: false })
+    f.runner.detach()
+  }
+})
+
 test('the page asks chem.cip only while labels are wanted: one request in flight, changes coalesced, nothing after switching off', async () => {
   const f = runnerFixture(true)
   f.runner.attach()
@@ -4559,6 +4616,7 @@ test('askDecision stops without asking, keeps a repeat and asks for anything els
   const value = agreementDocument()
   const asked = { document: value, generation: 0, active: true }
   assert.equal(askDecision(null, { ...asked, active: false }), 'stop')
+  assert.equal(askDecision({ ...asked, active: false }, { ...asked, active: false, document: structuredClone(value) }), 'keep', 'manual checks survive repeated inactive renders')
   assert.equal(askDecision(asked, { ...asked, document: structuredClone(value) }), 'keep')
   assert.equal(askDecision(asked, { ...asked, document: edited(value, 1) }), 'ask')
   assert.equal(askDecision({ ...asked, active: false }, asked), 'ask')
