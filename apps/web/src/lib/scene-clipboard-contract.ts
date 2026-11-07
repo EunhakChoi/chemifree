@@ -31,7 +31,9 @@ function point(value: unknown): value is Position {
     Number.isFinite(value.x) && Number.isFinite(value.y) && Math.abs(value.x) <= 100_000 && Math.abs(value.y) <= 100_000
 }
 
-function equal(left: unknown, right: unknown, exactNumbers = false): boolean {
+function equal(first: unknown, second: unknown, exactNumbers = false): boolean {
+  const left = record(first) && first.kind === 'graphic' ? { ...first, line_width_pt: first.line_width_pt ?? null } : first
+  const right = record(second) && second.kind === 'graphic' ? { ...second, line_width_pt: second.line_width_pt ?? null } : second
   if (exactNumbers && typeof left === 'number' && typeof right === 'number') return Object.is(left, right)
   if (left === right) return true
   if (Array.isArray(left) || Array.isArray(right)) {
@@ -117,7 +119,7 @@ export function sceneClipboardCopyMatches(
     const selected = included || wanted.has(id)
     if (!included && selected) expectedRoots.push(id)
     if (selected) {
-      if (object.kind === 'instance' || object.kind === 'caption') return false
+      if (object.kind === 'instance' || object.kind === 'caption' || (object.kind === 'graphic' && object.line_width_pt != null)) return false
       if (object.kind === 'group') objects.push({ kind: object.kind, id, children: object.children })
       else objects.push({ kind: object.kind, id, shape: object.shape, points: object.points })
     }

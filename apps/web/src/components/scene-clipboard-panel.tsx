@@ -7,7 +7,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import type { DocumentEditor, NativeSceneClipboardCutPlan } from '@/hooks/use-document-editor'
-import { MAX_NATIVE_CLIPBOARD_BYTES, settingsOf, type DocumentView, type NativeSceneClipboardCopy } from '@/lib/document-contract'
+import { ApiError, MAX_NATIVE_CLIPBOARD_BYTES, settingsOf, type DocumentView, type NativeSceneClipboardCopy } from '@/lib/document-contract'
 
 interface SceneClipboardPanelProps {
   document: DocumentView
@@ -26,6 +26,7 @@ interface PendingAction {
 }
 
 function errorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.stateReason === 'clipboard_scene_graphic_line_width_unsupported') return 'Graphics Copy/Cut cannot preserve explicit line-width overrides. The source is retained. Select each overridden graphic and use document width before copying; this explicitly applies the document width.'
   return error instanceof Error ? error.message : 'The graphics clipboard request failed.'
 }
 
@@ -237,7 +238,7 @@ export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelPro
 
   return <section aria-label="Scene graphics clipboard" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
     <h3 className="text-sm font-medium">Scene graphics clipboard</h3>
-    <p className="text-xs text-muted-foreground">Copy or cut selected lines, arrows, rectangles and groups with their internal object references. Mixed atom/bond selections, molecule placements, outgoing references outside the forest and groups with fewer than two children are refused. Cut also refuses references from outside the forest. Paste requires matching document style. External graphics formats are not available.</p>
+    <p className="text-xs text-muted-foreground">Copy or cut selected lines, arrows, rectangles and groups with their internal object references. Mixed atom/bond selections, molecule placements, outgoing references outside the forest and groups with fewer than two children are refused. Cut also refuses references from outside the forest. Explicit graphic line-width overrides are refused; use document width in the selected graphic inspector before Copy/Cut. Paste requires matching document style. External graphics formats are not available.</p>
     <Dialog open={mode !== null} onOpenChange={(open) => { if (!open) close() }}>
       <div className="flex flex-wrap gap-2">
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy} />} onClick={() => void prepareCopy()}>Copy graphics…</DialogTrigger>

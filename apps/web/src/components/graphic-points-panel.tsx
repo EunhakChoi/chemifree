@@ -2,9 +2,10 @@ import { useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { graphicLineWidth, graphicLineWidthCommands, parseGraphicLineWidth } from '@/editor/graphic-line-width'
 import { graphicPointsCommands, parseGraphicCoordinate, type GraphicObject } from '@/editor/graphic-points'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import type { DocumentView, Position } from '@/lib/document-contract'
+import { settingsOf, type DocumentView, type Position } from '@/lib/document-contract'
 
 /** Edit the stored geometry of one selected graphic through the shared transaction API. */
 export function GraphicPointsPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
@@ -12,8 +13,11 @@ export function GraphicPointsPanel({ document, editor }: { document: DocumentVie
   const graphic = chosen.length === 1 && chosen[0].kind === 'graphic' ? chosen[0] : null
   return <section aria-label="Graphic endpoints" className="flex flex-col gap-2">
     {graphic
-      ? <GraphicPointsForm key={`${document.id}:${JSON.stringify(graphic)}`} document={document} graphic={graphic} editor={editor} />
-      : <p className="text-xs text-muted-foreground">Select one line, arrow or rectangle to edit its two stored endpoints.</p>}
+      ? <div key={`${document.id}:${JSON.stringify(graphic)}`} className="flex flex-col gap-3">
+          <GraphicPointsForm document={document} graphic={graphic} editor={editor} />
+          {editor.selection.size === 1 && <GraphicLineWidthForm document={document} graphic={graphic} editor={editor} />}
+        </div>
+      : <p className="text-xs text-muted-foreground">Select one line, arrow or rectangle to edit its endpoints and line width.</p>}
   </section>
 }
 
@@ -46,5 +50,35 @@ function GraphicPointsForm({ document, graphic, editor }: { document: DocumentVi
     </FieldGroup>
     <FieldDescription id={`${id}-help`}>Edit the two points of {graphic.id} ({graphic.shape}) in document coordinates. Use finite decimal values from −100000 to 100000 pt. Reversed or coincident points are allowed. Group membership and references are retained. Drag distinct endpoints on the canvas, or use this form for coincident endpoints.</FieldDescription>
     <Button type="submit" variant="outline" size="sm" disabled={editor.busy || composing || !valid || unchanged}>Apply graphic endpoints</Button>
+  </form>
+}
+
+function GraphicLineWidthForm({ document, graphic, editor }: { document: DocumentView; graphic: GraphicObject; editor: DocumentEditor }) {
+  const id = useId()
+  const [text, setText] = useState(graphic.line_width_pt == null ? '' : String(graphic.line_width_pt))
+  const [composing, setComposing] = useState(false)
+  const lineWidth = parseGraphicLineWidth(text)
+  const inherited = graphic.line_width_pt == null
+  const unchanged = lineWidth === (graphic.line_width_pt ?? null)
+  const documentWidth = settingsOf(document).line_width_pt
+  function submit(value: number | null) {
+    if (editor.busy || composing) return
+    const edit = { documentId: document.id, revision: document.revision, graphic, lineWidth: value }
+    void editor.apply((latest) => graphicLineWidthCommands(latest, edit))
+  }
+  return <form aria-label={`Graphic line width at ${graphic.id}`} className="flex flex-col gap-2" onSubmit={(event) => {
+    event.preventDefault()
+    if (lineWidth !== undefined && !unchanged) submit(lineWidth)
+  }}>
+    <FieldGroup><Field data-invalid={lineWidth === undefined}>
+      <FieldLabel htmlFor={id}>Graphic line width (pt)</FieldLabel>
+      <Input id={id} value={text} inputMode="decimal" disabled={editor.busy} placeholder={`Document width (${documentWidth} pt)`} aria-invalid={lineWidth === undefined} aria-describedby={`${id}-help`}
+        onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)} onChange={(event) => setText(event.target.value)} />
+      <FieldDescription id={`${id}-help`}>Blank inherits the document width; an explicit width must be 0.1–10 pt. Effective width: {graphicLineWidth(graphic, documentWidth)} pt ({inherited ? 'document inheritance' : 'graphic override'}). Graphics Copy/Cut refuses overrides. Use document width to remove this override explicitly before copying; appearance then follows the document width.</FieldDescription>
+    </Field></FieldGroup>
+    <div className="flex flex-wrap gap-2">
+      <Button type="submit" variant="outline" size="sm" disabled={editor.busy || composing || lineWidth === undefined || unchanged}>Apply graphic line width</Button>
+      <Button type="button" variant="outline" size="sm" disabled={editor.busy || composing || inherited} onClick={() => submit(null)}>Use document width</Button>
+    </div>
   </form>
 }

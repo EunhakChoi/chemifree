@@ -1,3 +1,4 @@
+import { graphicLineWidth } from '@/editor/graphic-line-width'
 import { graphicCreationCurrent, type GraphicCreation } from '@/editor/graphic-creation'
 import { translatedGraphicPoints, graphicPointValid, graphicEndpointCurrent, graphicEndpointPoints, selectedGraphic, type GraphicEndpointGesture, type GraphicPointsEdit } from '@/editor/graphic-points'
 import { compactDisplaysIn, abbreviationTargets, compactView, ethylLabel } from '@/editor/abbreviation'
@@ -1048,13 +1049,14 @@ export function StructureCanvas({
   )
 }
 
-function SceneGraphic({ object, selected, lineWidth, unitsPerPixel, onPointerDown }: {
+function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPerPixel, onPointerDown }: {
   object: Extract<SceneObject, { kind: 'graphic' }>
   selected: boolean
   lineWidth: number
   unitsPerPixel: number
   onPointerDown?: (event: PointerEvent<SVGGElement>) => void
 }) {
+  const lineWidth = graphicLineWidth(object, documentLineWidth)
   const [a, b] = object.points
   const length = Math.hypot(b.x - a.x, b.y - a.y)
   const ux = length > 0 ? (b.x - a.x) / length : 0
