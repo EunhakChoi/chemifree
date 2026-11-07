@@ -2,7 +2,7 @@
 //! drafts, and copies.
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{panic, thread};
 
@@ -504,6 +504,8 @@ enum CopySlot<'a> {
 /// neither: it works on a copy and applies its result under `sessions` after checking the
 /// revision again.
 pub(crate) struct Documents<R> {
+    pub(crate) image_decoder: Option<Arc<dyn chemifree_domain::image::PngDecoder>>,
+    image_cache: Mutex<chemifree_domain::image::PngCache>,
     repository: R,
     sessions: Mutex<Sessions>,
     turns: Turns,
@@ -513,6 +515,8 @@ impl<R: DocumentRepository> Documents<R> {
     pub(crate) fn new(repository: R) -> Self {
         Self {
             repository,
+            image_decoder: None,
+            image_cache: Mutex::new(Default::default()),
             sessions: Mutex::new(Sessions::default()),
             turns: Turns::default(),
         }
@@ -1078,7 +1082,24 @@ impl<R: DocumentRepository> Documents<R> {
         commands: Vec<CommandDto>,
         selection: TransactionSelections,
     ) -> Result<DocumentResponse, ApplicationError> {
-        let domain_commands = contract::to_commands(&commands)?;
+        let domain_commands = if commands
+            .iter()
+            .any(|command| matches!(command, CommandDto::AddImage { .. }))
+        {
+            let mut cache = self.image_cache.lock().map_err(|_| {
+                ApplicationError::new(
+                    ErrorCode::ResourceLimit,
+                    "Image validation cache is unavailable",
+                )
+            })?;
+            contract::to_commands(&commands, self.image_decoder.as_deref(), &mut cache)?
+        } else {
+            contract::to_commands(
+                &commands,
+                self.image_decoder.as_deref(),
+                &mut Default::default(),
+            )?
+        };
         let domain_selection = contract::to_selection(&selection)?;
         let mutation = Mutation::Transaction {
             expected_revision,

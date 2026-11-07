@@ -10,6 +10,7 @@ use chemifree_domain::document::{
     ObjectId, PAGE_ID, Point, RingPattern, RingSize, Vector,
 };
 use chemifree_domain::element::Element;
+use chemifree_domain::image::{Image, ImageSize, PngCache, PngDecoder};
 use chemifree_domain::scene::{
     AlignMode, Caption, CaptionAlignment, CaptionRun, CaptionScript, CaptionStyle, CaptionWeight,
     DeleteMode, DistributionAxis, Graphic, GraphicShape, ObjectArrangement, ObjectRef,
@@ -654,6 +655,19 @@ pub enum CommandDto {
         alignment: CaptionAlignmentDto,
         runs: Vec<CaptionRunDto>,
     },
+    AddImage {
+        mime_type: String,
+        data_base64: String,
+        origin: PointDto,
+        size_pt: PointDto,
+        parent: Option<String>,
+        index: Option<usize>,
+    },
+    UpdateImageGeometry {
+        object: String,
+        origin: PointDto,
+        size_pt: PointDto,
+    },
     AddGraphic {
         shape: GraphicShapeDto,
         points: [PointDto; 2],
@@ -1054,12 +1068,16 @@ impl From<StateError> for Refusal {
 }
 
 /// Converts wire commands to domain commands, reporting the first malformed field.
-pub(crate) fn to_commands(commands: &[CommandDto]) -> Result<Vec<Command>, ApplicationError> {
+pub(crate) fn to_commands(
+    commands: &[CommandDto],
+    decoder: Option<&dyn PngDecoder>,
+    cache: &mut PngCache,
+) -> Result<Vec<Command>, ApplicationError> {
     commands
         .iter()
         .enumerate()
         .map(|(index, command)| {
-            to_command(command).map_err(|refusal| ApplicationError {
+            to_command(command, decoder, cache).map_err(|refusal| ApplicationError {
                 command_index: Some(index),
                 invalid_state: refusal.state,
                 invalid_scene: refusal.scene,
@@ -1099,7 +1117,11 @@ pub struct RingDirectionDto {
     pub dy: f64,
 }
 
-fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
+fn to_command(
+    command: &CommandDto,
+    decoder: Option<&dyn PngDecoder>,
+    cache: &mut PngCache,
+) -> Result<Command, Refusal> {
     Ok(match command {
         CommandDto::InsertRing {
             instance,
@@ -1386,6 +1408,49 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
         } => Command::UpdateCaption {
             object: instance_id(object)?,
             caption: caption(*anchor, *alignment, runs)?,
+        },
+        CommandDto::AddImage {
+            mime_type,
+            data_base64,
+            origin,
+            size_pt,
+            parent,
+            index,
+        } => {
+            let invalid = |message: String| Refusal {
+                message,
+                state: None,
+                scene: Some(SceneError::ImageInvalid),
+                group: None,
+            };
+            if mime_type != "image/png" {
+                return Err(invalid("Only embedded image/png is supported".into()));
+            }
+            let decoder =
+                decoder.ok_or_else(|| invalid("Embedded PNG decoder is not configured".into()))?;
+            let asset = cache.decode(data_base64, decoder).map_err(invalid)?;
+            let size = ImageSize::new(size_pt.x, size_pt.y).map_err(|e| invalid(e.to_string()))?;
+            let image =
+                Image::new(asset, point(*origin)?, size).map_err(|e| invalid(e.to_string()))?;
+            Command::AddImage {
+                image,
+                parent: parent.as_deref().map(instance_id).transpose()?,
+                index: *index,
+            }
+        }
+        CommandDto::UpdateImageGeometry {
+            object,
+            origin,
+            size_pt,
+        } => Command::UpdateImageGeometry {
+            object: instance_id(object)?,
+            origin: point(*origin)?,
+            size_pt: ImageSize::new(size_pt.x, size_pt.y).map_err(|e| Refusal {
+                message: e.to_string(),
+                state: None,
+                scene: Some(SceneError::ImageInvalid),
+                group: None,
+            })?,
         },
         CommandDto::AddGraphic {
             shape,
@@ -2179,6 +2244,16 @@ pub enum SceneObjectView {
         parent: Option<String>,
         children: Vec<String>,
     },
+    Image {
+        id: String,
+        parent: Option<String>,
+        mime_type: &'static str,
+        data_base64: String,
+        origin: PositionView,
+        size_pt: PositionView,
+        pixel_width: u32,
+        pixel_height: u32,
+    },
     Graphic {
         id: String,
         parent: Option<String>,
@@ -2805,6 +2880,22 @@ impl DocumentResponse {
                                     id,
                                     parent,
                                     children: children.iter().map(ToString::to_string).collect(),
+                                },
+                                SceneObject::Image(image) => SceneObjectView::Image {
+                                    id,
+                                    parent,
+                                    mime_type: "image/png",
+                                    data_base64: image.asset.data_base64().to_owned(),
+                                    origin: PositionView {
+                                        x: image.origin.x(),
+                                        y: image.origin.y(),
+                                    },
+                                    size_pt: PositionView {
+                                        x: image.size_pt.x(),
+                                        y: image.size_pt.y(),
+                                    },
+                                    pixel_width: image.asset.width(),
+                                    pixel_height: image.asset.height(),
                                 },
                                 SceneObject::Graphic(graphic) => SceneObjectView::Graphic {
                                     id,

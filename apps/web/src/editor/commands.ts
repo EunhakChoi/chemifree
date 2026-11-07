@@ -53,8 +53,10 @@ function referencedIds(command: Command): string[] {
     case 'update_spline_points':
     case 'update_polygon_vertices':
     case 'update_graphic_points':
+    case 'update_image_geometry':
     case 'update_caption':
       return [command.object]
+    case 'add_image':
     case 'add_caption':
     case 'add_spline':
     case 'add_polygon':

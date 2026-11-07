@@ -1,3 +1,4 @@
+import { imageCorners } from '@/editor/image'
 import { compactDisplaysIn, abbreviationTargets } from '@/editor/abbreviation'
 import type { Command, DocumentView, Position, SelectionTransform } from '@/lib/document-contract'
 import { selectionSnapshot } from '@/editor/scene-selection'
@@ -42,6 +43,7 @@ export function selectionGeometry(document: DocumentView, selected: ReadonlySet<
     if (!object) return null
     switch (object.kind) {
       case 'group': pending.push(...object.children); break
+      case 'image':
       case 'caption': break
       case 'graphic': scope.graphics.add(id); break
       case 'instance': {
@@ -83,7 +85,7 @@ export function marqueeSelection(document: DocumentView, instance: string | null
     if (inside(position)) for (const target of abbreviationTargets(document, instance, position.atom)) selected.add(target)
   }
   for (const object of document.scene?.objects ?? []) {
-    if (object.kind === 'graphic' && object.points.every((point) => inside(point))) selected.add(object.id)
+    if ((object.kind === 'graphic' && object.points.every((point) => inside(point))) || (object.kind === 'image' && imageCorners(object).every((point) => inside(point)))) selected.add(object.id)
   }
   return selected
 }
@@ -92,8 +94,8 @@ export function marqueeSelection(document: DocumentView, instance: string | null
 export function selectionMove(document: DocumentView, selected: ReadonlySet<string>, instance: string | null, delta: Position): Command[] | null {
   const scope = selectionGeometry(document, selected, instance)
   if (!scope) return null
-  const hasCaption = document.scene?.objects?.some((object) => object.kind === 'caption' && scope.objects.has(object.id)) ?? false
-  if (scope.positions.size === 0 && scope.graphics.size === 0 && !hasCaption) return null
+  const hasBoxObject = document.scene?.objects?.some((object) => (object.kind === 'caption' || object.kind === 'image') && scope.objects.has(object.id)) ?? false
+  if (scope.positions.size === 0 && scope.graphics.size === 0 && !hasBoxObject) return null
   const selection = selectionSnapshot(new Set(selected), document)
   if (!document.scene?.objects) {
     return [{ op: 'move_atoms', atoms: [...(scope.positions.get(instance) ?? [])], delta, ...(instance === null ? {} : { instance }) }]
@@ -109,7 +111,7 @@ export function selectionTransform(document: DocumentView, selected: ReadonlySet
   const hasGraphTargets = selection.atoms.length > 0 || selection.bonds.length > 0
   const context = hasGraphTargets ? instance : null
   const scope = selectionGeometry(document, selected, context)
-  if (!scope || document.scene.objects.some((object) => object.kind === 'caption' && scope.objects.has(object.id))) return null
+  if (!scope || document.scene.objects.some((object) => (object.kind === 'caption' || object.kind === 'image') && scope.objects.has(object.id))) return null
   const points: Position[] = []
   for (const placement of document.scene.instances) {
     const atoms = scope.positions.get(placement.id)

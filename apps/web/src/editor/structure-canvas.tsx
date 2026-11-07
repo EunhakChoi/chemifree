@@ -1,3 +1,5 @@
+import { imageCorners } from '@/editor/image'
+import { SceneImage } from '@/editor/scene-image'
 import { SplineDraftControls } from '@/components/spline-draft-controls'
 import { appendSplinePoint, splineDraftCurrent, splinePoints, SPLINE_POINT_NAMES, type SplineCreation } from '@/editor/spline'
 import { PolygonDraftControls } from '@/components/polygon-draft-controls'
@@ -396,7 +398,7 @@ export function StructureCanvas({
       viewBox(
         [
           ...drawings.flatMap((drawing) => drawing.view.atoms.map((atom) => atom.position)),
-          ...(document.scene?.objects?.flatMap((object) => object.kind === 'graphic' ? object.points : object.kind === 'caption' ? [object.anchor] : []) ?? []),
+          ...(document.scene?.objects?.flatMap((object) => object.kind === 'graphic' ? object.points : object.kind === 'caption' ? [object.anchor] : object.kind === 'image' ? imageCorners(object) : []) ?? []),
         ],
         [...captionBoxes.values(), ...drawings.flatMap((drawing) => [
           ...drawing.view.atoms.flatMap((atom) => labelBox(drawing.labels, atom.id, atom.position) ?? []),
@@ -1035,6 +1037,16 @@ export function StructureCanvas({
       </g>
       {sceneObjects ? sceneObjects.map((object) => {
         if (object.kind === 'group') return null
+        if (object.kind === 'image') return (
+          <SceneImage key={object.id} object={object} selected={sceneSelected(object)} unitsPerPixel={unitsPerPixel}
+            delta={preview?.kind === 'move' && preview.scope.objects.has(object.id) ? preview.delta : undefined}
+            onPointerDown={(event) => {
+              if (tool !== 'select' || disabled || event.button !== 0 || pointer.current?.id !== event.pointerId) return
+              event.stopPropagation()
+              const point = toDocument(event)
+              if (point) selectTarget(object.id, 'graphic', activePlacement, point, event.shiftKey)
+            }} />
+        )
         if (object.kind === 'caption') return (
           <SceneCaption key={object.id} object={object} box={captionBoxes.get(object.id)} settings={settingsOf(document)} selected={sceneSelected(object)}
             delta={preview?.kind === 'move' && preview.scope.objects.has(object.id) ? preview.delta : undefined}

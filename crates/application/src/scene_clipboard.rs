@@ -201,6 +201,11 @@ pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
                 id: entry.id.to_string(),
                 children: children.iter().map(ToString::to_string).collect(),
             },
+            SceneObject::Image(_) => {
+                return Err(invalid(
+                    "Embedded images are outside the graphics clipboard profile",
+                ));
+            }
             SceneObject::Caption(_) => {
                 return Err(invalid(
                     "Captions are outside the graphics clipboard profile",

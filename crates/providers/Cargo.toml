@@ -8,6 +8,10 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+png = "=0.18.1"
+flate2 = "=1.1.10"
+base64 = "=0.22.1"
+crc32fast = "=1.5.4"
 chemifree-domain.workspace = true
 chemifree-inchi-native.workspace = true
 chemifree-application.workspace = true

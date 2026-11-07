@@ -25,7 +25,7 @@ export function SelectionRotationForm({ document, editor, activePlacement }: { d
       <FieldLabel htmlFor={id}>Rotation angle (degrees)</FieldLabel>
       <Input id={id} value={text} inputMode="decimal" placeholder="e.g. 30" aria-invalid={invalid} aria-describedby={`${id}-help`}
         onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)} onChange={(event) => setText(event.target.value)} />
-      <FieldDescription id={`${id}-help`}>Use a finite angle. Positive rotates clockwise, negative counterclockwise, around the selected geometry center. Full turns make no change. Captions are unsupported; rectangles and ellipses require exact quarter turns.</FieldDescription>
+      <FieldDescription id={`${id}-help`}>Use a finite angle. Positive rotates clockwise, negative counterclockwise, around the selected geometry center. Full turns make no change. Captions and embedded images are unsupported; rectangles and ellipses require exact quarter turns.</FieldDescription>
     </Field></FieldGroup>
     <Button type="submit" variant="outline" size="sm" disabled={composing || !ready}>Rotate</Button>
   </form>

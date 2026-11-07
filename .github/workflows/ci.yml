@@ -103,6 +103,8 @@ jobs:
         run: npm run test:browser:graphic-line-width
       - name: Ellipse stroke, opposite corners and v4 clipboard
         run: npm run test:browser:graphic-ellipse
+      - name: Embedded static PNG, rectangular selection and native persistence
+        run: npm run test:browser:embedded-image
       - name: Cubic spline explicit points, stroke and v6 clipboard
         run: npm run test:browser:graphic-spline
       - name: Graphic polygon browser smoke

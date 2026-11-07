@@ -473,11 +473,13 @@ pub(crate) fn drawing_losses(
                 SemanticImpact::Rendering,
                 "Independent caption text, script, weight and style are not written by this export profile.",
             ),
-            SceneObjectView::Group { id, .. } | SceneObjectView::Graphic { id, .. } => push(
+            SceneObjectView::Group { id, .. }
+            | SceneObjectView::Graphic { id, .. }
+            | SceneObjectView::Image { id, .. } => push(
                 &format!(".scene.objects[{id}]"),
                 "scene_object",
                 SemanticImpact::Rendering,
-                &format!("Groups and graphics are not represented in {format}."),
+                &format!("Groups, graphics and embedded images are not represented in {format}."),
             ),
             SceneObjectView::Instance { .. } => {}
         }

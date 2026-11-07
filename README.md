@@ -535,3 +535,25 @@ review `1d28c6d` with no findings. The separate formatter attempt hit `ENOTCACHE
 and did not pass. Full isolated validation, Codex review and CI remain pending;
 this documentation ran no product checks. See
 [P36j record](docs/verification/p36j-spline.md) for exact scope and evidence.
+
+P36k adds a bounded **Embedded PNG image** candidate. Choose a local static,
+noninterlaced 8-bit RGB/RGBA PNG, then enter its origin and positive width/height
+in pt and explicitly add it. Source files are limited to 128 KiB, 2048 pixels per
+edge and 1,048,576 pixels per image; current drawings allow 4,194,304 image pixels.
+The server validates the complete PNG. Pixel density does not select physical
+size, and the stored rectangle may stretch the aspect ratio. Transparent pixels
+remain part of the selectable rectangle. Geometry edits, movement, grouping,
+ordering, alignment, references and ordinary history retain the embedded bytes;
+rotation/reflection and image clipboard copying are refused. There is no URL
+fetching, OCR or image-to-chemistry conversion. Native30 stores image objects;
+older headers forbid them, including history-only states. Scientific graphs stay
+unchanged and external exports report omitted scene rendering. P36 remains
+`in_progress`. Focused Rust clippy/tests and mutations, web lint/typecheck/client/
+build and image/regression browsers passed in the recorded runs. Independent
+review of `eb40cfa` found a P2: image pixel limits could be bypassed through
+history replay. The shared replay-state guard and a regression now address that
+finding; follow-up clippy and 52 focused tests passed. Codex review of
+`5ea2107` in [PR #216](https://github.com/EunhakChoi/chemifree/pull/216) completed
+without findings. Full integrated validation and CI remain pending. These focused
+passes do not establish general image-format or renderer parity.
+See [P36k record](docs/verification/p36k-embedded-image.md).

@@ -5,6 +5,7 @@
 use super::{Change, ChangeSet, Content, Document, FragmentDisplay};
 use crate::scene::{GraphicShape, SceneObject, Selection};
 use crate::stereo_group::StereoGroup;
+use std::collections::HashSet;
 
 // Each reservation includes field/identifier overhead. Identifiers need at most 11 ASCII
 // bytes, floats at most 32; ID list entries reserve 16. Control-free text reserves twice its
@@ -56,6 +57,7 @@ fn admission_object_weight(object: &SceneObject) -> usize {
 fn object_weight_with(object: &SceneObject, admission: bool) -> usize {
     match object {
         SceneObject::Instance => 128,
+        SceneObject::Image(image) => 512 + image.asset.data_base64().len() * 2,
         // Each polygon or cubic defining point reserves two finite coordinate lexemes and JSON field overhead.
         SceneObject::Graphic(graphic)
             if matches!(graphic.shape, GraphicShape::Polygon | GraphicShape::Spline) =>
@@ -133,11 +135,41 @@ pub(super) fn history_weight<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) 
 }
 
 fn variable_size_object(object: &SceneObject) -> bool {
-    matches!(object, SceneObject::Caption(_))
+    matches!(object, SceneObject::Caption(_) | SceneObject::Image(_))
         || matches!(object, SceneObject::Graphic(graphic) if matches!(graphic.shape, GraphicShape::Polygon | GraphicShape::Spline))
 }
 
+pub(super) fn history_image_pixels<'a>(sets: impl IntoIterator<Item = &'a ChangeSet>) -> u64 {
+    let mut seen = HashSet::new();
+    let mut pixels = 0;
+    for set in sets {
+        for (_, change) in &set.objects {
+            for object in [&change.before, &change.after].into_iter().flatten() {
+                if let SceneObject::Image(image) = object
+                    && seen.insert(image.asset.data_base64())
+                {
+                    pixels += image.asset.pixels();
+                }
+            }
+        }
+    }
+    pixels
+}
 impl Content {
+    pub(super) fn current_image_pixels(&self) -> u64 {
+        self.scene
+            .objects
+            .values()
+            .filter_map(|object| {
+                if let SceneObject::Image(image) = object {
+                    Some(image.asset.pixels())
+                } else {
+                    None
+                }
+            })
+            .sum()
+    }
+
     pub(super) fn has_variable_size(&self) -> bool {
         !self.fragment_displays.is_empty()
             || !self.display_labels.is_empty()
@@ -194,6 +226,15 @@ impl Content {
 }
 
 impl ChangeSet {
+    pub(super) fn has_images(&self) -> bool {
+        self.objects.iter().any(|(_, change)| {
+            [&change.before, &change.after]
+                .into_iter()
+                .flatten()
+                .any(|object| matches!(object, SceneObject::Image(_)))
+        })
+    }
+
     pub(super) fn has_graphic_shape(&self, shape: GraphicShape) -> bool {
         self.objects.iter().any(|(_, change)| {
             [&change.before, &change.after].into_iter().flatten().any(

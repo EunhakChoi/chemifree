@@ -1395,9 +1395,9 @@ try {
       const transaction = catalog.result.operations.find((operation) => operation.id === 'document.transaction')
       const commandRows = transaction.sub_operations.filter((part) => part.commands === undefined)
       const capabilityRows = transaction.sub_operations.filter((part) => part.commands !== undefined)
-      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [63, 52, 11],
+      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [65, 54, 11],
         'Graphic point and line-width updates and fragment display commands are command rows; the 11 capability rows are unchanged')
-      for (const command of ['update_graphic_points', 'set_graphic_line_width', 'add_polygon', 'update_polygon_vertices', 'add_spline', 'update_spline_points', 'contract_fragment', 'set_fragment_display_text', 'set_fragment_display_runs', 'expand_fragment', 'set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing',
+      for (const command of ['update_graphic_points', 'set_graphic_line_width', 'add_polygon', 'update_polygon_vertices', 'add_spline', 'update_spline_points', 'add_image', 'update_image_geometry', 'contract_fragment', 'set_fragment_display_text', 'set_fragment_display_runs', 'expand_fragment', 'set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing',
         'create_stereo_group', 'delete_stereo_group', 'set_stereo_group_kind', 'set_stereo_group_number',
         'add_stereo_group_members', 'remove_stereo_group_members', 'merge_stereo_groups', 'split_stereo_group']) {
         assert.equal(commandRows.find((part) => part.id === command)?.execution, 'executable', command)
@@ -1866,7 +1866,7 @@ try {
     const savedV1 = await write('/api/v1/documents/doc-00000000000000a1/save', { request_id: 'v1-save', expected_revision: 5 })
     assert.equal(savedV1.status, 200)
     assert.equal(readFileSync(kept('doc-00000000000000a1'), 'utf8'), viaHttp.bytes, 'the first save kept the exact version 1 bytes')
-    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 29)
+    assert.equal(JSON.parse(readFileSync(viaHttp.path, 'utf8')).format_version, 30)
     assert.deepEqual(cli('documents', 'show', 'doc-00000000000000a1', '--json').body.document, savedV1.body.document)
 
     const viaCli = placed('v1-document.json', 'doc-00000000000000a2')
@@ -1909,10 +1909,10 @@ try {
     const savedV2 = await write('/api/v1/documents/doc-00000000000000b2/save', { request_id: 'v2-save', expected_revision: 7 })
     assert.equal(savedV2.status, 200)
     assert.equal(readFileSync(keptV2('doc-00000000000000b2'), 'utf8'), v2.bytes, 'the first save kept the exact version 2 bytes')
-    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 29)
+    assert.equal(JSON.parse(readFileSync(v2.path, 'utf8')).format_version, 30)
     assert.equal(cli('documents', 'show', 'doc-00000000000000b2', '--json').body.document.atoms[0].radical, 'doublet')
     const undoneV2 = cli('documents', 'undo', 'doc-00000000000000b2', '--expected-revision', '7', '--json')
-    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 29')
+    assert.equal(undoneV2.body.document.atoms[0].radical, 'none', 'the edit undoes after saving in version 30')
 
     // Both entry adapters preserve an old draft's exact bytes before recovering it as a copy.
     const oldDraft = (documentId) => {
@@ -1954,19 +1954,19 @@ try {
     const savedV4 = await write(`/api/v1/documents/${v4Id}/save`, { request_id: 'v4-save', expected_revision: 3 })
     assert.equal(savedV4.status, 200)
     assert.equal(readFileSync(join(dataDir, 'migrated', `${v4Id}.v4.json`), 'utf8'), v4.bytes)
-    assert.equal(JSON.parse(readFileSync(v4.path, 'utf8')).format_version, 29)
+    assert.equal(JSON.parse(readFileSync(v4.path, 'utf8')).format_version, 30)
     const undoneV4 = cli('documents', 'undo', v4Id, '--expected-revision', '3', '--json')
     assert.equal(undoneV4.body.document.settings.label_font, 'sans-serif')
     assert.deepEqual(undoneV4.body.document.scene.references, openedV4.body.document.scene.references)
 
     const newer = placed('v4-document.json', 'doc-00000000000000a3')
-    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 30')
+    newer.bytes = newer.bytes.replace('"format_version": 4', '"format_version": 31')
     writeFileSync(newer.path, newer.bytes)
     const refused = await call('/api/v1/documents/doc-00000000000000a3')
     assert.deepEqual([refused.status, refused.body.code], [500, 'document_unreadable'])
-    assert.match(refused.body.message, /version 30/)
+    assert.match(refused.body.message, /version 31/)
     const unreadable = (await call('/api/v1/documents')).body.unreadable.find((item) => item.id === 'doc-00000000000000a3')
-    assert.match(unreadable?.message ?? '', /version 30; this build reads versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, and 29/)
+    assert.match(unreadable?.message ?? '', /version 31; this build reads versions 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, and 30/)
     assert.equal(cli('documents', 'show', 'doc-00000000000000a3', '--json').body.code, 'document_unreadable')
     assert.equal(readFileSync(newer.path, 'utf8'), newer.bytes, 'a newer file is left untouched')
     assert.equal(existsSync(kept('doc-00000000000000a3')), false)

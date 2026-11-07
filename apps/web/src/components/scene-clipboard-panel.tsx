@@ -238,7 +238,7 @@ export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelPro
 
   return <section aria-label="Scene graphics clipboard" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
     <h3 className="text-sm font-medium">Scene graphics clipboard</h3>
-    <p className="text-xs text-muted-foreground">Copy or cut selected lines, arrows, rectangles, ellipses and groups with their internal object references. Mixed atom/bond selections, molecule placements, outgoing references outside the forest and groups with fewer than two children are refused. Cut also refuses references from outside the forest. Explicit graphic line widths are preserved; inherited widths continue to follow the document width. Paste requires matching document style. External graphics formats are not available.</p>
+    <p className="text-xs text-muted-foreground">Copy or cut selected lines, arrows, rectangles, ellipses, polygons, splines and groups with their internal object references. Embedded images (including those inside groups), mixed atom/bond selections, molecule placements, outgoing references outside the forest and groups with fewer than two children are refused. Cut also refuses references from outside the forest. Explicit graphic line widths are preserved; inherited widths continue to follow the document width. Paste requires matching document style. External graphics formats are not available.</p>
     <Dialog open={mode !== null} onOpenChange={(open) => { if (!open) close() }}>
       <div className="flex flex-wrap gap-2">
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy} />} onClick={() => void prepareCopy()}>Copy graphics…</DialogTrigger>

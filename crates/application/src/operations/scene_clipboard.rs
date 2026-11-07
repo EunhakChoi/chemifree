@@ -104,7 +104,8 @@ pub(crate) fn mapping(
                 SceneObjectView::Instance { id, .. }
                 | SceneObjectView::Group { id, .. }
                 | SceneObjectView::Caption { id, .. }
-                | SceneObjectView::Graphic { id, .. } => id.as_str(),
+                | SceneObjectView::Graphic { id, .. }
+                | SceneObjectView::Image { id, .. } => id.as_str(),
             };
             (id, object)
         })

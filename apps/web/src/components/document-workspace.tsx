@@ -1,3 +1,4 @@
+import { EmbeddedImagePanel } from '@/components/embedded-image-panel'
 import { SceneOrderBoundaryButtons } from '@/components/scene-order-boundary-buttons'
 import { SelectionRotationForm } from '@/components/selection-rotation-form'
 import { GraphicToolControls } from '@/components/graphic-tool-controls'
@@ -1419,6 +1420,7 @@ function SceneControls({ document, editor, activePlacement }: { document: Docume
         ))}
       </div>
       <GraphicPointsPanel document={document} editor={editor} />
+      <EmbeddedImagePanel document={document} editor={editor} />
       <Button size="sm" variant="outline" disabled={!link || Boolean(alreadyLinked)} onClick={() => {
         if (link) void editor.apply((latest) => stillApplicable([{ op: 'add_reference', ...link }], latest))
       }}>Add reference</Button>
@@ -1455,7 +1457,7 @@ function SceneControls({ document, editor, activePlacement }: { document: Docume
         <h4 id="scene-geometry-heading" className="text-sm font-medium">Arrange objects and transform selection</h4>
         <p id="scene-geometry-help" className="text-xs text-muted-foreground">
           Select scene objects above to align or distribute; groups count once. Align at least two objects against their combined geometry bounds;
-          distribute at least three with equal edge gaps and fixed endpoints. Bounds exclude labels and stroke widths.
+          distribute at least three with equal edge gaps and fixed endpoints. Bounds exclude labels and stroke widths. Embedded images use their complete rectangular bounds; they cannot be rotated or reflected.
           Rotations and reflections include selected atoms and bond endpoints in the active movement placement, around the entire selected geometry center. Horizontal reflection swaps above and below that center; vertical reflection swaps left and right.
         </p>
         {geometry.hasCaptions && <p className="text-xs text-muted-foreground">Captions can be moved and grouped. Arrange, rotate and reflect do not yet support captions, including captions inside groups.</p>}

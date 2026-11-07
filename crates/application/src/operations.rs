@@ -571,7 +571,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 63] = [
+const TRANSACTION_PARTS: [Entry; 65] = [
     runs("attach_ring", "Connects a fresh regular carbon ring to an existing atom along an explicit direction in the only placement (size 5 or 6, default 6; pattern single by default, or explicit kekule for size 6). Connector stays single. Ordinary bond-addition stereo clearing and group notes apply. No fusion, aromaticity inference or layout."),
 
     runs(
@@ -646,6 +646,8 @@ const TRANSACTION_PARTS: [Entry; 63] = [
         "update_graphic_points",
         "Replaces exactly two points of an existing line, rectangle, ellipse, or arrow, preserving its shape, identity, parent, and references. Coordinates use the existing finite point bounds; coincident and reversed points remain supported.",
     ),
+    runs("add_image", "Adds a verified embedded immutable static RGB/RGBA PNG with explicit positive size; no URL, OCR or chemical interpretation."),
+    runs("update_image_geometry", "Replaces only image origin and positive size, retaining the source PNG, identity, hierarchy and references."),
     runs("add_spline", "Adds one bounded open stroke-only cubic Bézier from exactly four points P0, C1, C2, P3. Stored-point bounds are conservative; no interpolation or chemical meaning."),
     runs("update_spline_points", "Replaces the complete P0, C1, C2, P3 state of an existing spline, preserving identity, width, hierarchy and references."),
     runs("add_polygon", "Adds a closed stroke-only polygon with 3–64 ordered bounded vertices; repeated, collinear, crossing and degenerate geometry is retained."),
@@ -777,6 +779,8 @@ const TRANSACTION_PARTS: [Entry; 63] = [
     .carried_out_by(&[
         "add_graphic",
         "update_graphic_points",
+        "add_image",
+        "update_image_geometry",
         "add_spline",
         "update_spline_points",
         "add_polygon",

@@ -183,11 +183,13 @@ fn drawing_losses(view: &DocumentView) -> Vec<Loss> {
                 SemanticImpact::Rendering,
                 "Independent caption text, script, weight and style are not written by this export profile.",
             ),
-            SceneObjectView::Group { id, .. } | SceneObjectView::Graphic { id, .. } => push(
+            SceneObjectView::Group { id, .. }
+            | SceneObjectView::Graphic { id, .. }
+            | SceneObjectView::Image { id, .. } => push(
                 format!("document.scene.objects[{id}]"),
                 "scene_object",
                 SemanticImpact::Rendering,
-                "Scene groups and graphics are not written by this bounded export profile.",
+                "Scene groups, graphics and embedded images are not written by this bounded export profile.",
             ),
             SceneObjectView::Instance { .. } => {}
         }

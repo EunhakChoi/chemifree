@@ -157,7 +157,10 @@ pub fn atom_groups(
                 match document.object(id) {
                     Some(SceneObject::Instance) => chosen.extend(&all),
                     Some(SceneObject::Group { children }) => pending.extend(children),
-                    Some(SceneObject::Caption(_) | SceneObject::Graphic(_)) | None => (),
+                    Some(
+                        SceneObject::Caption(_) | SceneObject::Graphic(_) | SceneObject::Image(_),
+                    )
+                    | None => (),
                 }
             }
             chosen
