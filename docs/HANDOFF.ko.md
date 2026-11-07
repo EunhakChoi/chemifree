@@ -1,5 +1,14 @@
 # Chemifree 새 세션 인계
 
+## P36d per-graphic line width 후보
+
+- `set_graphic_line_width`는 existing line/arrow/rectangle의 필수 nullable `line_width_pt`만 바꾼다. finite0.1–10 pt 또는 null=document width 동적 상속이다. 명시 숫자가 현재 document 값과 같아도 override이며 이후 document 변경을 따르지 않는다. null reset은 effective 값이 같아도 metadata 편집이다. 새 graphics는 상속하며 add_graphic은 width 입력을 받지 않는다.
+- width form은 단일 explicit graphic의 inherited/override/effective 값을 보이고 blank/Use document width로 reset한다. decimal/scientific·range·no-op·busy/IME gate와 document/revision/exact-target 큐 검증·restart no-replay를 적용한다. 실제 stroke/arrowhead outline·selection underlay·hit stroke가 effective width를 쓴다. point-based fit/arrange와 arrowhead geometry 정책은 바꾸지 않는다.
+- graph/geometry/ID/shape/scene root·group/order·refs/selection·문서 및 caption/label style은 보존하며 points/move/transform도 override를 유지한다. whole transaction atomicity·Undo/Redo·revision/replay를 공유한다. width range는 line_width_out_of_range, 없는/다른-kind object는 기존 typed reason으로 거절한다.
+- native v26 document/draft current·before/after history graphic에 nullable field 필수다. v1–25는 null/history-only까지 금지하고 모든 boundary를 inherited로 migration한다. 읽기는 쓰지 않고 첫 overwrite/recovery 전에 exact old bytes를 보관한다. future27은 untouched 거절하며 existing256-byte graphic reservation·64MiB physical cap을 유지한다. provider capacity fixture는 source로 확인했고 이 문서에서 실행하지 않았다.
+- native clipboard v2는 그대로이며 explicit width가 selected subtree 어디에 있든 전체 Copy/Cut을 clipboard_scene_graphic_line_width_unsupported로 거절한다. 문서값과 같은 explicit width도 해당한다. UI는 각 graphic을 Use document width로 명시 reset하면 외형이 document width를 따를 수 있다고 안내한다. silent stripping/부분 copy·cut은 없고 outside override는 보존한다. chemical export는 기존 scene_object loss이며 styled roundtrip을 주장하지 않는다.
+- Rust production e6e3b45에 대해 targeted Rust27건 통과는 부모 보고 근거다. 이 문서 작업은 source/test 대조만 했고 웹/full/양 리뷰/CI는 pending이다. P36은 `in_progress`; 선행 #207은 merge afe6410이며 post-merge main run42329036170은 별도 pending이다. [P36d 기록](verification/p36d-graphic-line-width.md).
+
 ## P36c explicit Graphic tool 생성 후보
 
 - Graphic(G)에서 Line/Arrow/Rectangle을 명시 선택한다. 초기 shape는 null이며 선택 전 canvas press는 생성하지 않는다. 기존 atom/bond/graphic 위에서도 graph edit 없이 두 점 gesture를 시작하고 existing Scene Add controls는 유지한다.

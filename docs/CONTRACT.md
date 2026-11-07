@@ -310,7 +310,8 @@ intersecting retained members with `clipboard_abbreviation_display_unsupported`;
 the UI instructs expansion first. External label roundtrip, a nickname dictionary,
 text-to-graph parsing, arbitrary graph replacement and general multistyle chemical
 labels remain unsupported. P35p introduced native v24 plain-text persistence;
-current v25 script-run persistence is described below. This slice shipped in
+v25 introduced script-run persistence; current v26 additionally carries the P36d
+graphic-width field described below. This slice shipped in
 [#202](https://github.com/EunhakChoi/chemifree/pull/202), with successful final-head
 [check/browser CI 42316586336](https://github.com/EunhakChoi/chemifree/actions/runs/42316586336).
 The [completion audit](verification/p35-completion-audit.md#merged-delivery-and-ci)
@@ -647,8 +648,8 @@ Only the target's two points change. Its ID, shape, parent/group membership,
 page roots, sibling/child order, outgoing and incoming references remain intact,
 as do other objects, chemical atoms/bonds, placement coordinates, stereo and
 settings. Graphic arrows remain drawings without inferred reaction roles or
-electron-flow meaning. This command uses existing scene-object history and native
-document/draft v25; it adds no file version, graphic type or persistence schema.
+electron-flow meaning. This point-edit command adds no graphic type or persistence schema; current
+scene-object history uses native v26 with the P36d width field described below.
 
 The web **Graphic endpoints** panel edits one selected scene graphic's four
 coordinate fields in pt, including a child within a group. It accepts finite
@@ -703,8 +704,8 @@ the preview and releases capture. Document/revision, selection, target geometry
 or kind, group membership or tool changes invalidate the press context. The
 queued callback checks document/revision/exact target again before posting.
 Unknown edits are not automatically resent into a restarted service; the normal
-reconciliation/reload path applies. The gesture uses existing native v25 scene
-state/history, with no new command, schema, migration or scientific semantics.
+reconciliation/reload path applies. The gesture introduces no command, schema, migration or scientific semantics;
+current scene/history is native v26 with the P36d width field below.
 
 No bounding-box resize, aspect lock, multi-object/group handles, rotation handles,
 new shapes, image controls, clipping, layers, styles or reaction/electron arrow
@@ -712,7 +713,7 @@ meaning is added. P36 stays `in_progress`. P36a PR #204 has merged. P36b
 [#206](https://github.com/EunhakChoi/chemifree/pull/206) merged as `7601617` from
 `f36550d` with successful [PR check/browser CI 42324595907](https://github.com/EunhakChoi/chemifree/actions/runs/42324595907).
 Its [post-merge main run 42325796411](https://github.com/EunhakChoi/chemifree/actions/runs/42325796411)
-is pending, separately from P36c full checks/reviews/CI. Historical notes remain; see
+has its delivery evidence tracked separately from P36d verification. Historical notes remain; see
 [the P36b record](verification/p36b-graphic-endpoint-drag.md).
 
 ### Explicit canvas graphic creation (P36c candidate)
@@ -752,17 +753,69 @@ process. No partial object is stored from a cancelled or stale preview.
 
 Creation shares `add_graphic` atomicity, fresh IDs, revision/replay and one-step
 Undo/Redo. Existing objects, hierarchy, references, graph atoms/bonds, placements,
-stereo and settings remain unchanged except for the new page root. Native v25,
-command/schema/provider formats and existing external-format losses are unchanged.
+stereo and settings remain unchanged except for the new page root. P36c introduced no command/schema/provider format change; current native v26
+adds the separate P36d width field below. Existing external-format losses remain.
 This adds no shapes beyond line/arrow/rectangle, curve/electron/reaction-arrow
 semantics, images, clipping, layers, style controls, automatic layout or group
-insertion gesture. P36 stays `in_progress`. Preceding #206 is merged with
-passing PR CI; its post-merge main run 42325796411 is pending separately from
-P36c full checks/reviews/CI. An ongoing browser regression is not a pass.
+insertion gesture. P36 stays `in_progress`. P36c #207 merged as `afe6410`; its
+post-merge main run42329036170 is pending separately from P36d web/full/review/CI.
+Implementation-session execution notes remain historical.
 Creation-preview, endpoint-preview and ordinary-movement return-path defects were
 reproduced and fixed during review follow-up; their separate commits and added
 regression scope are recorded below. The currently running full smoke is pending.
 See [the P36c record](verification/p36c-graphic-creation.md).
+
+### Per-graphic line-width override (P36d candidate)
+
+`{ "op":"set_graphic_line_width", "object":"s2", "line_width_pt":2.75 }`
+sets an existing line/arrow/rectangle's explicit finite width within inclusive
+0.1–10 pt. `line_width_pt` is required; explicit `null` restores dynamic document
+width inheritance. Missing/wrong-type fields are `invalid_request`;
+out-of-range widths use `invalid_command` with `line_width_out_of_range`. Missing and
+wrong-kind targets retain `object_unknown`/`object_kind_mismatch`. A refusal is
+atomic, including earlier edits/ID allocation. Identical stored overrides are
+no-ops; effective changes share revision checks, replay and one-step Undo/Redo.
+
+An explicit width equal to today's document width remains an override: later
+document-width changes do not affect it. Resetting to null is a real metadata
+edit even when the effective width is currently equal. New graphics inherit by
+default; `add_graphic` itself gains no width input. Snapshots expose nullable
+graphic `line_width_pt`; older snapshots may omit it as inherited. This additive
+API default is separate from strict native v26 admission below.
+
+Only graphic stroke width changes. Shape, points, object/graph IDs, hierarchy,
+root/child order, references, selection, other graphics, chemical states, graph
+positions/stereo and document/caption/label styles remain intact. Point updates,
+movement and supported transforms retain the override. The renderer uses effective
+width for graphic strokes, including the arrowhead outline, selection underlay
+and transparent hit stroke. Arrowhead dimensions and point-based arrangement/fit
+geometry keep their existing policies; no new stroke-aware layout is claimed.
+
+For one explicitly selected graphic, the width form shows inherited/override and
+effective width, accepts a bounded decimal/scientific value, and treats blank as
+null. **Use document width** resets explicitly. Busy/invalid/IME/unchanged inputs
+cannot submit, and captured document/revision/exact-target checks reject stale
+queued edits. Width edits are not automatically replayed into a restarted service.
+
+Native graphic-forest clipboard v2 is unchanged and does not carry overrides.
+Copy/Cut preparation refuses the whole selected subtree if any graphic has an
+explicit width, even one equal to document width, with typed reason
+`clipboard_scene_graphic_line_width_unsupported`. No supported subset is copied
+or deleted and no override is silently stripped. The UI asks users to reset each
+affected graphic to document width first, warning that this explicitly changes
+appearance to follow that width. Unselected outside overrides are retained.
+Inherited/null snapshot compatibility does not relax strict v2 payload fields.
+
+Native v26 adds the nullable field in current/history/drafts and migrates v1–25
+to inheritance with exact-byte archives before replacement; see the file-format
+section. External chemical exports still drop scene graphics with `scene_object`
+loss, rather than claiming styled-graphic roundtrip. Colours, dashes, fills,
+arrowhead controls, broader shapes/layout and scientific arrow meaning remain
+outside this slice. P36 stays `in_progress`. The parent reports 27 targeted Rust
+tests passed for `e6e3b45`; this documentation work reran none. Web/full checks,
+reviews and PR CI remain pending. Preceding P36c #207 merged as `afe6410`, with
+[post-merge main run42329036170](https://github.com/EunhakChoi/chemifree/actions/runs/42329036170)
+pending separately. See [the P36d record](verification/p36d-graphic-line-width.md).
 
 ## Effective selection scope and movement (P32a)
 
@@ -902,7 +955,7 @@ The bounded forest contains only lines, arrows, rectangles and groups. A molecul
 
 Every reference owned by an included object must target another included object. Those internal links are preserved, including directed cycles and self-references. Outgoing references to excluded objects, atoms or bonds refuse rather than being dropped or followed. Incoming references owned by excluded objects remain solely in the unchanged source and are outside the copied scope. Reference links carry no chemical interpretation and remain separate from containment; the containment forest must be acyclic and contain every object exactly once.
 
-The strict data-only payload is `{ format: "chemifree.clipboard", version: 2, kind: "graphics", settings, roots, objects, references }`. A graphic is `{ kind: "graphic", id, shape, points: [{ x, y }, { x, y }] }`, with shape `line`, `arrow` or `rectangle`; a group is `{ kind: "group", id, children }`. A reference is `{ source, target: { kind: "object", id } }`. Containment is recorded only through ordered roots and group children; there is no redundant parent field. Every field is required. Unknown fields/tags, duplicate JSON keys, duplicate object/reference records, dangling or repeated children, shared or cyclic containment, unreachable objects and invalid settings/points refuse. Clip-local `sN` identifiers never address destination entities.
+The strict data-only payload is `{ format: "chemifree.clipboard", version: 2, kind: "graphics", settings, roots, objects, references }`. A graphic is `{ kind: "graphic", id, shape, points: [{ x, y }, { x, y }] }` without a per-graphic width field; explicit-width selected subtrees refuse as described under [P36d](#per-graphic-line-width-override-p36d-candidate). A graphic has shape `line`, `arrow` or `rectangle`; a group is `{ kind: "group", id, children }`. A reference is `{ source, target: { kind: "object", id } }`. Containment is recorded only through ordered roots and group children; there is no redundant parent field. Every field is required. Unknown fields/tags, duplicate JSON keys, duplicate object/reference records, dangling or repeated children, shared or cyclic containment, unreachable objects and invalid settings/points refuse. Clip-local `sN` identifiers never address destination entities.
 
 The common typed format/version header is classified before imposing the closed graphics schema, and the known version-2 header then requires a typed `kind`. Unsupported valid format/version/kind headers return `clipboard_format_unsupported`, even when their bodies differ; malformed headers and malformed known bodies return `clipboard_fragment_invalid`. UTF-8 payload text is limited to 64 KiB (`clipboard_byte_limit`). Graph version 1 remains unchanged and is not accepted by these scene operations; ordinary graph clipboard paste still refuses version 2. These are separate profiles and operations, not arbitrary transaction import.
 
@@ -910,7 +963,7 @@ The common typed format/version header is classified before imposing the closed 
 
 Paste leaves all chemical graph states, stereo, molecule instances and their positions unchanged and accepts destinations with multiple placements. The result selects only the fresh roots, while ordinary selection-before/after history makes Undo restore the prior selection and Redo restore the pasted forest. Fresh IDs are not reused after Undo or deletion. The complete forest is preflighted against the same locked destination revision, including translated coordinate bounds, identifier exhaustion, the 1,000-object/16-level/4,096-reference limits and the actual 500-command transaction budget (one command per object plus one per reference). Any refusal preserves content, selection, revision, dirty state and redo history.
 
-The request ID binds exact payload text, offset, expected revision and optional selection-before. Each offset component binds its exact floating-point bits, so changing either signed zero is a different request. Replay returns the original immutable snapshot and reconstructs its complete ID mapping from that snapshot's selected roots and preserved child order, even after later edits, allocations or history changes. This is a lossless copy within the declared graphic-only scope: successful operations have outcome `ok` with an empty loss report; unsupported states refuse instead of asking to omit them. Domain refusals use `clipboard_scene_graph_selection_unsupported`, `clipboard_scene_empty_selection`, `clipboard_scene_selection_unknown`, `clipboard_scene_instance_unsupported`, `clipboard_scene_group_too_small`, `clipboard_scene_invalid_tree`, `clipboard_scene_depth_limit`, `clipboard_scene_object_limit`, `clipboard_scene_reference_unsupported`, `clipboard_scene_duplicate_reference`, `clipboard_scene_style_mismatch`, `clipboard_scene_command_limit`, `clipboard_scene_identifier_limit` or `clipboard_scene_fragment_invalid`. A precommit mapping invariant failure is `clipboard_scene_mapping_invalid`. Malformed operation parameters use `invalid_request`.
+The request ID binds exact payload text, offset, expected revision and optional selection-before. Each offset component binds its exact floating-point bits, so changing either signed zero is a different request. Replay returns the original immutable snapshot and reconstructs its complete ID mapping from that snapshot's selected roots and preserved child order, even after later edits, allocations or history changes. This is a lossless copy within the declared graphic-only scope: successful operations have outcome `ok` with an empty loss report; unsupported states refuse instead of asking to omit them. Domain refusals use `clipboard_scene_graph_selection_unsupported`, `clipboard_scene_empty_selection`, `clipboard_scene_selection_unknown`, `clipboard_scene_instance_unsupported`, `clipboard_scene_group_too_small`, `clipboard_scene_invalid_tree`, `clipboard_scene_depth_limit`, `clipboard_scene_object_limit`, `clipboard_scene_reference_unsupported`, `clipboard_scene_duplicate_reference`, `clipboard_scene_style_mismatch`, `clipboard_scene_command_limit`, `clipboard_scene_identifier_limit` or `clipboard_scene_fragment_invalid`. P36d adds `clipboard_scene_graphic_line_width_unsupported` for any explicit-width graphic in the selected subtree. A precommit mapping invariant failure is `clipboard_scene_mapping_invalid`. Malformed operation parameters use `invalid_request`.
 
 P33e supplies shared HTTP/CLI primitives; P33f adds the explicit browser adapter below. P33j adds bounded graphic forest Cut below; molecule-instance cloning, chemical subtree cloning and external-format scene transport remain unsupported. Bounded P33 is complete within the [recorded scope](verification/p33-clipboard-completion.md); the existing native graph and MOL clipboard web flows retain their earlier boundaries.
 
@@ -1597,7 +1650,7 @@ The `chemifree-numerics` Rust library separates exact signed rational values fro
 
 `GET /api/v1/data` and `chemifree data status --json` return `api_version`, `state` (`not_configured`, `refused`, or `checked`), nullable `reason`, registration IDs with `loaded` or `unavailable` state and nullable reason, and `engine: "not_implemented"` for the separate prediction model binding. A loaded registration may also include `retained_extra_columns`, a nonnegative integer count of source columns kept as opaque metadata; older responses omit it. The CLI and web display the count when it is positive. Neither response contains column names, data records or source paths. A checked registration means only that a supported profile was authorized and decoded; `chem.properties` independently recognizes the two mass input profiles described above. The host selects and trusts each registration separately; an aggregate registry hash alone does not establish manifest membership. Public checks use independent fixtures, not personal payloads. Missing or invalid data never prevents document editing. The explicitly selected local trust descriptor, identity checks, supported profiles, and current limits are specified in [DATA.ko.md](DATA.ko.md).
 
-Catalog: `{ implementation, version, contracts: [1], profiles: [{ id, execution, note }], operations: [{ id, representation, execution, followup?, note, commands?, sub_operations? }] }`. Representation and execution are separate: `representation` ∈ `supported | not_supported` says whether a document and this contract can hold the operation's inputs and results; `execution` ∈ `executable | requires_data | not_implemented | rejected` says whether it runs, would need data that is not loaded, does not run, or never will. `document.transaction` lists its sub-operations, each either a command or a capability. A command row has no `commands` field and its `id` is an `op` of the transaction body. A capability row is not a command: its `commands` lists the command rows (by `id`) that carry it out, and is empty while it is not implemented. `commands` was added within contract 1; a reply without it predates that. The transaction lists the existing atom, bond, title, and placement commands, plus `add_graphic`, `update_graphic_points`, `add_caption`, `update_caption`, `contract_fragment`, `set_fragment_display_text`, `set_fragment_display_runs`, `expand_fragment`, `group`, `ungroup`, `reorder`, `delete_objects`, `move_objects`, `move_selection`, `arrange_objects`, `transform_selection`, `add_reference`, and `remove_reference`. The `scene_tree` capability names these eighteen commands; `scene_placement` names the three instance commands. Recorded-state capability rows name their implementing atom and bond commands. The four stereo commands are command rows (`set_bond_mark`, `set_atom_configuration`, `set_bond_configuration`, `set_configuration_from_drawing`); the `stereo_marks` capability row names the first and `stereo_configuration` the other three. The eight stereo group commands are command rows too (`create_stereo_group`, `delete_stereo_group`, `set_stereo_group_kind`, `set_stereo_group_number`, `add_stereo_group_members`, `remove_stereo_group_members`, `merge_stereo_groups`, `split_stereo_group`), carried out for the `stereo_group` capability row, which also states the group limits (at most one group for each stored center, so no more than the 2,000-atom cap; one absolute group; a stored number is any 32-bit signed integer); the catalog has no separate limits field. The transaction also lists the existing Et display commands `collapse_ethyl`, `update_abbreviation_label`, and `expand_ethyl`. The transaction lists 58 sub-operations: 47 command rows and 11 capability rows, including bounded `insert_ring` (P34a/P34b) and `attach_ring` (P34c) drawing recipes. Recorded states remain separate from the bounded `chem.validate` inspection described above. `chem.properties` lists formula and mass (P19). `followup` names the plan entry expected to change a row (docs/roadmap/).
+Catalog: `{ implementation, version, contracts: [1], profiles: [{ id, execution, note }], operations: [{ id, representation, execution, followup?, note, commands?, sub_operations? }] }`. Representation and execution are separate: `representation` ∈ `supported | not_supported` says whether a document and this contract can hold the operation's inputs and results; `execution` ∈ `executable | requires_data | not_implemented | rejected` says whether it runs, would need data that is not loaded, does not run, or never will. `document.transaction` lists its sub-operations, each either a command or a capability. A command row has no `commands` field and its `id` is an `op` of the transaction body. A capability row is not a command: its `commands` lists the command rows (by `id`) that carry it out, and is empty while it is not implemented. `commands` was added within contract 1; a reply without it predates that. The transaction lists the existing atom, bond, title, and placement commands, plus `add_graphic`, `update_graphic_points`, `set_graphic_line_width`, `add_caption`, `update_caption`, `contract_fragment`, `set_fragment_display_text`, `set_fragment_display_runs`, `expand_fragment`, `group`, `ungroup`, `reorder`, `delete_objects`, `move_objects`, `move_selection`, `arrange_objects`, `transform_selection`, `add_reference`, and `remove_reference`. The `scene_tree` capability names these nineteen commands; `scene_placement` names the three instance commands. Recorded-state capability rows name their implementing atom and bond commands. The four stereo commands are command rows (`set_bond_mark`, `set_atom_configuration`, `set_bond_configuration`, `set_configuration_from_drawing`); the `stereo_marks` capability row names the first and `stereo_configuration` the other three. The eight stereo group commands are command rows too (`create_stereo_group`, `delete_stereo_group`, `set_stereo_group_kind`, `set_stereo_group_number`, `add_stereo_group_members`, `remove_stereo_group_members`, `merge_stereo_groups`, `split_stereo_group`), carried out for the `stereo_group` capability row, which also states the group limits (at most one group for each stored center, so no more than the 2,000-atom cap; one absolute group; a stored number is any 32-bit signed integer); the catalog has no separate limits field. The transaction also lists the existing Et display commands `collapse_ethyl`, `update_abbreviation_label`, and `expand_ethyl`. The transaction lists 59 sub-operations: 48 command rows and 11 capability rows, including bounded `insert_ring` (P34a/P34b) and `attach_ring` (P34c) drawing recipes. Recorded states remain separate from the bounded `chem.validate` inspection described above. `chem.properties` lists formula and mass (P19). `followup` names the plan entry expected to change a row (docs/roadmap/).
 
 Protocol errors (`envelope: "protocol_error"`):
 
@@ -1698,6 +1751,7 @@ Transaction body: `{ "request_id": string, "expected_revision": number, "command
 | `move_instance` | `instance`, `offset: { x, y }` | Every position of the instance moves once; the graph and other instances stay |
 | `delete_instance` | `instance` | Deletes the instance and its positions; deleting the last one is refused |
 | `add_graphic` | `shape`, two `points`, optional `parent` and `index` | Adds a line, rectangle, or arrow under a group or page |
+| `set_graphic_line_width` | `object`, required `line_width_pt`: finite 0.1–10 or null | Sets only a graphic stroke override or dynamic document inheritance; [P36d semantics](#per-graphic-line-width-override-p36d-candidate) |
 | `update_graphic_points` | `object`, exactly two `points` | Replaces an existing graphic's two stored points while retaining shape, containment and references; [P36a bounds and atomicity](#existing-graphic-point-editing-p36a-candidate) |
 | `group` | `objects` | Groups at least two distinct siblings, preserving their order; the group occupies the first selected sibling's position |
 | `ungroup` | `group` | Removes the group, promoting its children in order |
@@ -2008,7 +2062,7 @@ Guarantees:
 - **Drafted without a client.** Within one running API process, unsaved work in a session is in its recovery draft about 10 seconds (plus a quarter-second check interval and the write) after the first change the draft does not hold, while storage accepts the write and no earlier draft blocks it, and at a normal stop. The service's periodic check does not wait for a document whose turn is taken (by a save or a client's autosave, say): it tries that document again on the next check, a quarter-second later, without counting a failed attempt, so a busy document never delays the drafts of others. Its own draft waits until the turn is free; a save that is running leaves nothing to draft once it commits. At a normal stop, no request is running, and each draft waits up to 3 seconds for its turn. A session closed before the service drafts it is not opened again to be drafted.
 - **No resurrection.** After a save or an explicit discard, that draft does not come back, even if the process ends in between.
 - **Nothing deleted silently.** A delete never takes unsaved work with it: it is refused while any copy in the same process or any recovery draft holds such work, and a trashed document can be restored as it was. No stale session or draft re-creates a deleted document.
-- **Originals kept on upgrade.** Reading a document or draft of an earlier file version never writes. The first save that replaces a version 1–24 document, and recovery or interrupted-save cleanup of an older draft, first keep its exact bytes (see Document file format).
+- **Originals kept on upgrade.** Reading a document or draft of an earlier file version never writes. The first save that replaces a version 1–25 document, and recovery or interrupted-save cleanup of an older draft, first keep its exact bytes (see Document file format).
 - **Independent copies.** A copy has its own ID and file; saving or editing either document never changes the other, and the source's saved file is untouched by the copy.
 - **At most once per process.** Within one API process, a repeated `request_id` with the same body takes effect at most once (within the replay window above).
 - **No reuse per process.** Within one API process, a revision or atom/bond ID that a client has seen, including in the document list, never names different content. Recovery keeps to this: it continues numbering, or refers the draft to a copy.
@@ -2065,15 +2119,15 @@ Allowed web origins default to `http://127.0.0.1:5173`, `http://localhost:5173`,
 
 ## Document file format
 
-`<data-dir>/documents/<id>.json` is owner-only on Unix. Version 25 is compact JSON with a final newline. It contains `format: "chemifree.document"`, `format_version: 25`, `document`, and `history`. The document contains its `id`, `revision`, `title`, molecule and one page, ordered `roots`, typed `objects`, directed `references`, instance/atom `positions`, `stereo`, `stereo_groups`, `selection`, `settings`, and `next_atom`, `next_bond`, `next_object`, and `next_group` counters. Instances name `m1`; groups contain ordered child IDs; graphics contain their shape and two points. Atom and bond states are as in the API, except that a bond state may also hold a stereo `mark` (below). `stereo_groups` is a required list of enhanced-stereo groups `{ "id": "e<n>", "state": { "kind": "absolute" | "and" | "or", "number": <integer> | null, "members": [atom IDs] } }` in ID order (written ascending, read in any order like every list in the file; a member listed twice is refused); `number` is always present and is stored as stated (the full 32-bit integer range, `0` and negatives included, `null` for none), `next_group` is at least one above every group ID in the document or its history, and each history entry holds a required `stereo_groups` list of `{ "id", "before", "after" }` with the whole group or `null`. A document that does not satisfy the stored-group rules is unreadable: every member is an atom with a stored tetrahedral configuration (not `unknown`), a group has at least one member and no member twice, an atom is in at most one group, an `absolute` group has no number and there is at most one, and per kind (`and`, `or`) no two groups have the same number, where no number counts as `0`. The groups are edited and shown as described under [Stereo groups](#stereo-groups).
+`<data-dir>/documents/<id>.json` is owner-only on Unix. Version 26 is compact JSON with a final newline. It contains `format: "chemifree.document"`, `format_version: 26`, `document`, and `history`. The document contains its `id`, `revision`, `title`, molecule and one page, ordered `roots`, typed `objects`, directed `references`, instance/atom `positions`, `stereo`, `stereo_groups`, `selection`, `settings`, and `next_atom`, `next_bond`, `next_object`, and `next_group` counters. Instances name `m1`; groups contain ordered child IDs; graphics contain their shape, two points and nullable per-graphic `line_width_pt`. Atom and bond states are as in the API, except that a bond state may also hold a stereo `mark` (below). `stereo_groups` is a required list of enhanced-stereo groups `{ "id": "e<n>", "state": { "kind": "absolute" | "and" | "or", "number": <integer> | null, "members": [atom IDs] } }` in ID order (written ascending, read in any order like every list in the file; a member listed twice is refused); `number` is always present and is stored as stated (the full 32-bit integer range, `0` and negatives included, `null` for none), `next_group` is at least one above every group ID in the document or its history, and each history entry holds a required `stereo_groups` list of `{ "id", "before", "after" }` with the whole group or `null`. A document that does not satisfy the stored-group rules is unreadable: every member is an atom with a stored tetrahedral configuration (not `unknown`), a group has at least one member and no member twice, an atom is in at most one group, an `absolute` group has no number and there is at most one, and per kind (`and`, `or`) no two groups have the same number, where no number counts as `0`. The groups are edited and shown as described under [Stereo groups](#stereo-groups).
 
-Every v25 `settings` object, in the current document and both before/after history
+Every v26 `settings` object, in the current document and both before/after history
 states, requires boolean `label_shadow`, `label_outline` and `label_underline`. Versions 1–21 omit shadow and migrate it to false. Versions 1–20
 omit outline and migrate it to false. Versions 1–19 omit underline and
 migrate it to false; a field hidden behind an earlier header is refused. The
 existing `label_weight` requirement starts at v18 and `label_style` at v19;
-earlier versions migrate each to normal. Reading accepts versions 1–25 and
-refuses future versions, including v26, without rewriting their bytes.
+earlier versions migrate each to normal. Reading accepts versions 1–26 and
+refuses future versions, including v27, without rewriting their bytes.
 
 The v9 document also requires `abbreviations: [{ instance, anchor, terminal }]`, including
 an empty list when no Et display exists. Every history entry requires `abbreviations` changes
@@ -2093,7 +2147,7 @@ keys, invalid text, redundant default records and invalid or unreplayable histor
 are refused. Versions 1–22 forbid this field, including empty or history-only
 fields, and migrate with empty cosmetic maps while preserving membership and
 history. Reads never write. First overwrite/recovery preserves exact old document
-and draft bytes under the existing versioned archive protocol. Future v26 is
+and draft bytes under the existing versioned archive protocol. Future v27 is
 refused untouched; the provider retains its 64 MiB physical file limit.
 
 Version 24 additionally requires `fragment_displays: [{ instance, anchor, members, text }]`
@@ -2118,8 +2172,20 @@ One baseline run retains v24 admission weights, and each additional run reserves
 64 bytes of metadata in current and both history sides. Existing 48 MiB current,
 8 MiB history and 64 MiB physical bounds apply. Reading writes nothing; the
 existing exact-byte archive protocol now includes v24 documents/drafts before
-first overwrite/recovery. Future v26 refuses untouched. Clipboard/template
+first overwrite/recovery. Future v27 refuses untouched. Clipboard/template
 formats do not gain this map.
+
+Version 26 additionally requires nullable `line_width_pt` on every current and
+before/after historical graphic state in documents and drafts. Null means dynamic
+document inheritance; numbers must be finite within0.1–10 pt. Missing/invalid
+current or history-only fields and invalid records beyond retention limits refuse.
+Versions1–25 forbid the field on graphic states even when null or history-only
+and migrate every graphic boundary to inheritance. Read does not write; first
+replacement/recovery archives exact old document/draft bytes, now including v25,
+under the existing protocol. Future v27 refuses untouched. Existing 256-byte
+graphic reservations and physical64MiB limits remain; current/history capacity
+fixtures exercise long-float widths within those reservations. Clipboard v2 is
+unchanged and refuses explicit-width subtrees rather than carrying this field.
 
 Stereo is stored and shown, and the four stereo commands set, clear and (from the drawing, when sent) derive it over HTTP, the CLI and operation contract 1 (see Stereo marks and configurations); the web editor draws marks and sets them with its bond tool and bond inspector (see Web editor). One command, `set_configuration_from_drawing`, stores a configuration read off the marks and positions when it is sent (a stored record is an ordinary record, so the file format is unchanged), the read-only operation `chem.stereo` compares the stored configurations with the drawing, the read-only operation `chem.cip` computes CIP descriptors from the stored configurations (Rules 1a, 1b, 2 and 3 only, see [CIP labels](#cip-labels)), and chemical stereo is otherwise unimplemented (no stereogenicity judgement beyond those labels, SMILES `@` and `@@` and CXSMILES `a:`, `o<n>:`, `&<n>:` are read and supported configurations and groups are written in recorded SMILES (see the SMILES section); enhanced-stereo groups are stored, edited by eight commands and shown in the snapshot over HTTP, the CLI and operation contract 1 (see [Stereo groups](#stereo-groups)), and CIP, identity and substructure ignore them; MOL V3000 reads and writes the groups (as `COLLECTION` entries, see Enhanced stereo collections) and CDXML and CDX import reads them and bounded drawing export writes groups whose members derive from the output drawing (see CDXML interchange); V2000 carries none, recorded SMILES writes supported groups as CXSMILES while canonical SMILES and V2000 export require consent to drop them; MOL import reads V3000 marks and derives configurations, CDXML import reads marks and derives configurations too, MOL export writes marks, and export drops or asks consent for stereo and groups as stated under MOL and SMILES). A `mark` is `{"kind": "wedge" | "hash", "narrow": "begin" | "end"}`, `{"kind": "wavy"}`, or `{"kind": "crossed"}`; the narrow end is recorded in the mark and a bond's `begin` and `end` are never swapped. A wedge, hash, or wavy mark is allowed only on a single bond and a crossed mark only on a double bond. `stereo` is a required list of `{ "id", "state" }` records in key order (centers first, then double bonds, each ascending), at most one per stereo center (an atom ID) or double bond (a bond ID). A center state is `{"kind": "center", "state": {"mode": "tetrahedral", "neighbors": [four slots], "turn": "clockwise" | "anticlockwise"}}` or the same with `"mode": "unknown"` and no `turn`; a slot is an atom ID, `implicit_hydrogen`, or `lone_pair`, and the four slots are distinct, in canonical order (atom IDs ascending, then `implicit_hydrogen`, then `lone_pair`), with the turn seen from the first slot (`anticlockwise` is the OpenSMILES `@` handedness). A double-bond state is `{"kind": "double_bond", "state": {"mode": "relative", "begin_ref", "end_ref", "relation": "same_side" | "opposite_sides"}}` or `{"mode": "unknown"}`; each reference is the lowest-ID other neighbor of its end, or `implicit_hydrogen` where the end has none. The two positions of an sp2 end other than the double bond are complementary, not interchangeable labels: with one other atom `n`, the hydrogen (or lone pair) is the other position, so a state naming it is stored as `n` with the relation flipped; with none, a lone pair is stored as `implicit_hydrogen` with the relation flipped. One older form is accepted and normalized on load: the first version 6 build also stored a `lone_pair` reference at an end with no other atom, so a version 6 document, draft, or history entry (before or after side) that holds one is read as `implicit_hydrogen` with the relation flipped for each such end, the same rule as above; reading does not rewrite the file, and the format version does not change. Any other stored record that is not in this form is rejected on load, and the domain refuses to state a hydrogen or lone pair at an end with two other atoms. Whether a position is a hydrogen or a lone pair is a label derived when a configuration is derived, not stored. The file's names differ from the snapshot's: `mode` is `kind`, `begin_ref` and `end_ref` are `begin_neighbor` and `end_neighbor`, and the file's wrapper `kind` (`center` or `double_bond`) and `id` are the snapshot's `atoms[].atom` and `bonds[].bond` lists; the words `tetrahedral`, `unknown`, `relative`, `same_side`, `opposite_sides`, `clockwise`, `anticlockwise` and the slot names are the same. When a transaction changes the neighbors of an atom (adding, deleting, or reconnecting a bond, or deleting a neighbor), or deletes an atom or bond, the records of that atom as a center and of double bonds that end at it, and the record of a deleted bond, are removed in the same transaction, and undo restores them. A mark goes away with its bond, and changing the order of a bond so that its mark or its stored record no longer fits is refused with the rule it breaks. A mark and a stated configuration are separate statements and are never validated against each other when written: a crossed mark may sit on a double bond that has a stated relative configuration, and a wedge or hash on a bond at a stated center, whichever is set first, and `set_bond_mark`, `set_atom_configuration`, `set_bond_configuration` and any other edit never refuse or remove one because of the other. The one command that reads marks, `set_configuration_from_drawing`, replaces the stored record of each item it processes with what the drawing shows (a configuration stated by hand, `unknown` and a different label included) and writes nothing for an item it skips. Comparing the drawn mark with the stated configuration is not done when anything is written; it is the read-only operation `chem.stereo`, which edits and stores nothing.
 
@@ -2127,11 +2193,11 @@ Each history change set records the title, atoms, bonds, page roots, scene objec
 
 Loading rejects unknown fields or versions, files over 64 MiB, invalid atom and bond states, a mark on a bond order that cannot carry it, stereo records whose atoms, bonds, neighbors, or order do not fit the graph they are stored with, repeated or dangling entities and references, malformed trees, incorrect positions, counters that could reuse IDs, and history that cannot replay in both directions. It also rejects a stored selection that matches neither the newest undo entry after an edit or redo nor the nearest redo entry before an undo. Both boundaries can be valid after undo, undo, redo. History cannot change a scene object kind or graphic shape or reuse a deleted entity ID. History beyond the limits is trimmed oldest undo first and then farthest redo; when every undo entry is trimmed, selection follows the nearest redo boundary. A rejected file is listed as unreadable and left untouched. Finite floats round-trip bit-exactly. This is a working format, not MOL, SDF, CDXML, or SMILES.
 
-Versions 1–24 documents and drafts are read and migrated in memory, including history. Version 7 has no captions. Captions in a v1–7 current or history state are refused, rather than reinterpreted as a newer file. Version 1 combined atoms and their single positions; migration separates graph and `s1` positions. Version 2 had only element atoms and single/double/triple bonds; migration fills recorded-state defaults. Version 3 already holds those recorded states and separate instances. Versions 2 and 3 reconstruct page roots at each historical boundary in instance ID order; all three start with empty selection and references. Version 4 already holds the scene tree, references and selection; migration preserves those and adds the built-in style. Version 5 already holds the settings; migration adds no marks and no stereo records, and a version 5 file that contains either is refused. Version 6 already holds those; migration adds an empty group list and `next_group` 1, and a version 6 file that contains `stereo_groups` or `next_group`, in the document or in a history entry, is refused (as is a version 7 file that omits them). History that exceeds the current change limit is trimmed as above. Reading never writes.
+Versions 1–25 documents and drafts are read and migrated in memory, including history. Version 7 has no captions. Captions in a v1–7 current or history state are refused, rather than reinterpreted as a newer file. Version 1 combined atoms and their single positions; migration separates graph and `s1` positions. Version 2 had only element atoms and single/double/triple bonds; migration fills recorded-state defaults. Version 3 already holds those recorded states and separate instances. Versions 2 and 3 reconstruct page roots at each historical boundary in instance ID order; all three start with empty selection and references. Version 4 already holds the scene tree, references and selection; migration preserves those and adds the built-in style. Version 5 already holds the settings; migration adds no marks and no stereo records, and a version 5 file that contains either is refused. Version 6 already holds those; migration adds an empty group list and `next_group` 1, and a version 6 file that contains `stereo_groups` or `next_group`, in the document or in a history entry, is refused (as is a version 7 file that omits them). History that exceeds the current change limit is trimmed as above. Reading never writes.
 
-Before the first save over a version 1–24 document, under the save lock, the provider writes and flushes the exact old bytes to `migrated/<id>.v<version>.json` before replacing the document. A failed copy fails the save and preserves the old file. A different old file with the same ID gets the next free numbered name; identical bytes are not copied again. These backups are not listed or treated as documents. Unknown versions are refused and left untouched.
+Before the first save over a version 1–25 document, under the save lock, the provider writes and flushes the exact old bytes to `migrated/<id>.v<version>.json` before replacing the document. A failed copy fails the save and preserves the old file. A different old file with the same ID gets the next free numbered name; identical bytes are not copied again. These backups are not listed or treated as documents. Unknown versions are refused and left untouched.
 
-A recovery draft uses `format: "chemifree.draft"`, version 25, `base_revision`, `saved_at_ms`, and the same `document` and `history` shapes. Old drafts migrate in memory and inspection writes nothing. Recovery can retain an already complete draft in its earlier version; an autosave with no new undrafted edit does not rewrite it. The next actual draft write uses the current version. Before recovery or recovery as a copy can rewrite or remove an old draft, the provider keeps the exact bytes it claimed under `migrated/<id>.draft.v<version>.json`; different bytes get numbered copies and identical bytes are not duplicated. If preservation fails, recovery fails and the draft stays abandoned. Explicit discard removes the draft without creating a copy. An old draft left as `drafts/<id>.committing` by an interrupted successful save is preserved before cleanup. Other files include `trash/<id>.json` and `trash/<id>.deleted`, migrated copies, `locks/<id>.lock`, `drafts/<id>.owner`, `drafts/<id>.committing`, and abandoned temporary files. Draft ownership and save locking remain distinct.
+A recovery draft uses `format: "chemifree.draft"`, version 26, `base_revision`, `saved_at_ms`, and the same `document` and `history` shapes. Old drafts migrate in memory and inspection writes nothing. Recovery can retain an already complete draft in its earlier version; an autosave with no new undrafted edit does not rewrite it. The next actual draft write uses the current version. Before recovery or recovery as a copy can rewrite or remove an old draft, the provider keeps the exact bytes it claimed under `migrated/<id>.draft.v<version>.json`; different bytes get numbered copies and identical bytes are not duplicated. If preservation fails, recovery fails and the draft stays abandoned. Explicit discard removes the draft without creating a copy. An old draft left as `drafts/<id>.committing` by an interrupted successful save is preserved before cleanup. Other files include `trash/<id>.json` and `trash/<id>.deleted`, migrated copies, `locks/<id>.lock`, `drafts/<id>.owner`, `drafts/<id>.committing`, and abandoned temporary files. Draft ownership and save locking remain distinct.
 
 Version 11 additionally requires caption `alignment` in every current and historical scene
 state, including redo-only captions; valid values are `left`, `center`, `right`. Versions 8–10
@@ -2417,7 +2483,7 @@ None of these checks validate chemical behavior or compatibility with any other 
 
 P35i independent caption run shadow: `shadow` is a boolean; omission means false, explicit null and other types are malformed. It composes with every existing run field and never changes graph identity, text, advances or anchor. The shared application provides UI/API/CLI, replay and undo/redo. Chemifree renders a second copy at (+1,+1) pt with opacity 0.35 and zero blur, using the effective run color (theme foreground for null); hollow outlines stay hollow and underline rectangles receive the same shadow. This is an independent visual policy, without a claim of legacy rendering equivalence. Only visible shaped glyph/stroke ink and positive-width underlines enter the translated union; whitespace, invisible formatting and zero-advance shaping follow browser measurements. Fit/selection/hit bounds use the current actual SVG viewport measurement provenance.
 
-Native document/draft v17 requires boolean shadow in every current/history run. v8–16 forbid that field and migrate to false, preserving all original bytes in versioned archives before replacement. Future v26 is refused untouched (v19 adds label style and v20 adds underline, below). Shadow=false keeps the exact v16 admission weights (160 without outline, 192 with it); shadow=true admits at224 bytes/run. Physical metadata reserves192 bytes for at most185 encoded metadata bytes. History physical weight is at most6/5 of its8MiB admission; current admission is48MiB and at most32,000 runs add at most1,024,000 physical bytes. The conservative complete-file bound is61,421,978 bytes, below64MiB with more than5MiB spare, including the existing4096-byte envelope. Existing maximal109-caption current/undo/redo states must not be trimmed or refused during migration. External caption roundtrip and scientific labels remain unsupported.
+Native document/draft v17 requires boolean shadow in every current/history run. v8–16 forbid that field and migrate to false, preserving all original bytes in versioned archives before replacement. Future v27 is refused untouched (v19 adds label style and v20 adds underline, below). Shadow=false keeps the exact v16 admission weights (160 without outline, 192 with it); shadow=true admits at224 bytes/run. Physical metadata reserves192 bytes for at most185 encoded metadata bytes. History physical weight is at most6/5 of its8MiB admission; current admission is48MiB and at most32,000 runs add at most1,024,000 physical bytes. The conservative complete-file bound is61,421,978 bytes, below64MiB with more than5MiB spare, including the existing4096-byte envelope. Existing maximal109-caption current/undo/redo states must not be trimmed or refused during migration. External caption roundtrip and scientific labels remain unsupported.
 
 
 Shadow compositing policy: all shadow glyphs and underline rectangles paint together in one translated SVG group behind every foreground glyph and underline. The group receives opacity0.35 once, so overlapping descenders/underline shadows do not accumulate opacity and later-run shadows cannot cover foreground ink. A real-browser regression rasterizes the actual detached shadow tree with frozen computed styles onto a transparent canvas and asserts nonempty alpha≤90/255, including g/j descenders, alongside DOM paint order and the existing geometry/theme checks. Historical session note: this regression was initially written without execution.
@@ -2453,7 +2519,7 @@ Native document/draft v18 requires normal/bold `label_weight` in current setting
 and in every history settings before/after state. v1–17 forbid that field and
 migrate all settings states to normal. Reading writes nothing; replacement or
 recovery preserves exact old document/draft bytes in existing versioned archives.
-v26 is refused untouched (v19 adds label style and v20 adds underline, below). The existing 256-byte settings reservation covers the
+v27 is refused untouched (v19 adds label style and v20 adds underline, below). The existing 256-byte settings reservation covers the
 new field, so caption admission weights, the 61,421,978-byte conservative complete
 file bound and the provider's physical 64 MiB bound remain unchanged. Existing
 v16/v17 maximal 109-caption edits must retain complete undo/redo during migration.
@@ -2499,7 +2565,7 @@ No explicit font registration or equivalence with another renderer is claimed.
 Native document/draft v19 requires `label_style` as normal/italic in current and
 all history settings before/after states. v1–18 forbid this field and migrate
 all such states to normal; v18 still requires normal/bold weight. Reading does
-not write; overwrite/recovery archives exact prior bytes. Future v26 is refused
+not write; overwrite/recovery archives exact prior bytes. Future v27 is refused
 untouched. Existing settings reservations, caption history admission and the
 physical 64 MiB bound are unchanged. Native clipboard/template versions remain
 unchanged: omission of style means normal; explicit null/unknown/type errors are
@@ -2532,7 +2598,7 @@ and replay carry the same field. Native document/draft v20 requires the boolean
 in current settings and every before/after settings history state. Versions 1–19
 forbid the new field and migrate to false in memory; first rewrite/recovery
 preserves exact old bytes under the existing archive protocol. Weight remains
-required from v18 and style from v19. Future v26 is refused. Existing history
+required from v18 and style from v19. Future v27 is refused. Existing history
 admission and 64 MiB provider file limits stay unchanged. Older clipboard/template
 payloads may omit the field (false); explicit null or a nonboolean is invalid.
 Copy validation compares the complete migrated style. External exports keep the
@@ -2563,7 +2629,7 @@ fit and bounds; bond trimming, hit testing and selection share the measured box.
 
 Native document and draft v21 require a boolean in every current and historical
 settings state. Versions 1–20 omit it, migrate to false and retain exact source
-bytes before their first replacement; v26 is refused untouched. Clipboard and
+bytes before their first replacement; v27 is refused untouched. Clipboard and
 template payloads may omit it for false; explicit invalid values are refused and
 style matching includes outline. Existing nondefault-settings interchange losses
 cover this style. Existing history admission and 64 MiB read limits are retained.
@@ -2601,7 +2667,7 @@ receive no shadow expansion. Disabling shadow restores the prior style path.
 Native document/draft v22 requires a boolean in every current and historical
 settings state; v1–21 forbid that field and migrate to false. Reading leaves
 source bytes intact; first replacement/recovery preserves exact source archives.
-Future v26 is refused untouched. Old template/clipboard payloads may omit shadow
+Future v27 is refused untouched. Old template/clipboard payloads may omit shadow
 for false; explicit invalid values are refused and style equality includes it.
 Existing nondefault-settings interchange loss reporting covers shadow.
 
