@@ -1,5 +1,7 @@
 # P35o retained-graph plain display label record
 
+Current evidence: this is an implementation-session record. Its pending execution/review wording is historical: merged #201/#202 and passing final-head check/browser CI are reconciled in [the P35 completion audit draft](p35-completion-audit.md). The #203 script-run follow-up and final P35 decision remain pending there. No checks were rerun for this documentation draft.
+
 The bounded candidate edits one plain display string on an existing collapsed
 ethyl graph. `update_abbreviation_label` names the explicit instance and anchor;
 required `text` is either a string or null to reset the effective label to `Et`.

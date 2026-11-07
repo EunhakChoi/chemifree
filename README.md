@@ -1,6 +1,6 @@
 # Chemifree
 
-Current P35 evidence: caption and chemical-label typography shipped in #184 and #187–199, with passing check/browser CI; #185 shipped fixed graph-preserving Et display. P35 remains in progress because general abbreviation label text/run editing is absent. Later implementation-session notes about pending checks are historical; see the [completion audit](docs/verification/p35-completion-audit.md) for current evidence and unsupported boundaries.
+Current P35 evidence: caption and chemical-label typography shipped in #184 and #187–199, with passing check/browser CI; #185 shipped fixed graph-preserving Et display. Merged #201 adds editable Et display text and #202 explicit retained-fragment text/expansion; both final PR heads passed check/browser CI. #203's fragment script runs remain pending final PR CI and merge in the e21b47b audit draft. P35 stays in progress until the parent reconciles that evidence and the approved graph-preserving decision with the original acceptance. Later implementation-session notes about pending checks are historical; see the [completion audit](docs/verification/p35-completion-audit.md) for current evidence and unsupported boundaries.
 
 
 An independently authored, open-source chemical drawing workspace for humans and agents.

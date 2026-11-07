@@ -15,10 +15,13 @@
 - 실제 Graphic endpoints panel은 선택한 scene graphic1개의 x1/y1/x2/y2를 pt로 편집한다. decimal/scientific 입력·invalid/busy/no-op/IME gate와 captured document/revision/target 검증을 적용한다. 큐에서 revision·geometry·group/target이 바뀌면 lapse하며 restart 후 미확정 편집은 자동 재전송하지 않는다.
 - resize/endpoint drag handles·새 도형·curve/reaction/electron arrows·scientific glyph·image·clip/layer/style/layout은 추가하지 않는다. P36은 `in_progress`; Rust0650f7a·web66eac34 소스를 대조했으며 테스트·빌드·browser·두 리뷰·PR CI는 대기다. [P36a 기록](verification/p36a-graphic-points.md). 이 문서 작업은 실행 검증이나 전체 P36 완료를 주장하지 않는다.
 
-## P35 현재 상태 정정 (main f29195a, #199)
+## P35 완료 감사 초안 (main #202 + #203 pending)
 
-P35a–n과 Et 표시 #185는 병합되었고 각 PR의 check/browser CI가 통과했다. 아래 후보·실행 대기 문구는 구현 당시의 기록이며 현재 검증 상태가 아니다. 다만 fixed Et 이외 일반 약어 레이블의 생성·텍스트/run 편집은 구현되지 않아 P35 원 scope 완료는 입증하지 못했다. P35는 in_progress를 유지한다. [완료 근거 대조와 남은 범위](verification/p35-completion-audit.md)를 현재 기준으로 사용한다. 이번 문서 대조에서는 테스트·빌드·브라우저를 실행하지 않았다.
+P35a–n과 Et 표시 #185에 더해 #201의 Et plain text 편집, #202의 explicit retained-fragment membership/text 편집·확장이 병합되었다. #201 final head bfb54d7의 CI42311153640, #202 final head8d7efbe의 CI42316586336은 check/browser 모두 성공을 확인했다. 이전 감사의 “fixed Et만 제공하며 약어 text 편집이 없다”는 판단은 현재 구현과 달라 정정했다.
 
+사용자가 결정한 실제 graph 보존·화면만 축약 정책은 유지한다. text/script는 화학 의미를 만들지 않고 atom typed state 편집과 구분한다. #203은 fragment baseline/subscript/superscript runs 후속이며 head e21b47b에서 아직 open/CI42319966036 진행 중으로 확인했다. PR body/부모 인계의 isolated full/local browser 성공 보고와 최종 PR CI 성공은 구분한다. 이전 check는15분 제한에 도달했고 e21b47b는25분으로 조정한 재실행이다. 이 감사 초안은 검사를 실행하지 않았다.
+
+P35는 `in_progress`를 유지한다. #203 최종 CI·병합 후 부모가 unchanged scope/acceptance와 승인된 display-only 결정을 대조해 완료 상태를 판단한다. arbitrary atom text·원자별 rich runs·dictionary/parser·external caption/display roundtrip은 미지원이며 새로운 임의 의미나 완료요건으로 채우지 않는다. [완료 근거 대조와 대기 항목](verification/p35-completion-audit.md)을 현재 기준으로 사용한다. 아래 후보·대기 문구는 각 구현 당시 기록이며 #201/#202 확정 배송 근거는 위 감사가 우선한다.
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 

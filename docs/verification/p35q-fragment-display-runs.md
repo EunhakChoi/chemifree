@@ -1,5 +1,7 @@
 # P35q retained fragment display script-run candidate
 
+Current evidence: [the completion audit draft](p35-completion-audit.md) distinguishes the parent/PR-body report of successful isolated full checks and browser matrices from pending #203 final-head CI and merge. The former implementation-session pending wording below is historical. At draft inspection #203 remains open at e21b47b with CI42319966036 in progress; P35 remains in_progress, and this documentation work reran no checks.
+
 This follow-up candidate adds explicit baseline/subscript/superscript runs to an
 existing retained fragment display. `set_fragment_display_runs` requires instance,
 anchor and the complete `runs: [{ text, script }]` list. Every run must have
