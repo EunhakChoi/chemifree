@@ -41,7 +41,7 @@ serialization and visual appearance. The 66,000-character integration observatio
 is one authored carrier case, explicitly not a universal length guarantee.
 
 The recorded [user decision](p34i-ethyl-display.md#authorized-boundary) is to retain
-the actual chemical graph and contract its display. [The current contract](../CONTRACT.md#explicit-retained-graph-fragment-display-p35p-candidate)
+the actual chemical graph and contract its display. [The current contract](../CONTRACT.md#explicit-retained-graph-fragment-display-p35p)
 and subsequent P35o–q slices apply that decision to explicit text, member selection
 and script runs. Display strings and scripts never define chemistry. Editing
 typed atom state can change chemical meaning; editing display text cannot. No
@@ -271,3 +271,19 @@ reported stale HANDOFF/TRACEABILITY summary totals after adding `STYLE-01.4`
 Both summary lines now use the checker-provided exact 110-part/61-implemented
 text. Conformance generation and verification remain parent-owned; this correction
 ran no tests and does not claim the traceability check has passed.
+
+## Completion documentation review follow-up (#205)
+
+Codex P1 identified completed P35 still listed as an open catch-all follow-up.
+`241cbca` rerouted the remaining MODEL-01/RENDER-01/STYLE-01 scope to open rows,
+with rationale above. The parent reports subsequent conformance/traceability
+checks passed; that supersedes the earlier missing-fresh-report note as current
+integration status, without representing a new run by this documentation patch.
+
+Codex P2 identified the CONTRACT banner and P35o/p/q paragraphs still describing
+P35 as in progress and their execution/reviews as pending. The current contract
+now states bounded completion, links merged #201–203 and verified PR/main CI, and
+points to the actual review/fix dispositions above. Other P35 implementation-session
+notes are explicitly historical. Unsupported scientific, arbitrary-label and
+external-roundtrip boundaries remain unchanged. This correction changes only
+documentation and does not claim this documentation PR's own final CI has passed.
