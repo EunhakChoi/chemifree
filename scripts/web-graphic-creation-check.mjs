@@ -166,7 +166,7 @@ createRoot(document.getElementById('root')).render(<Harness/> )
     assert.equal(writes.at(-1).expected_revision,before.revision)
     const current=(await snapshot()).document
     const graphic=current.scene.objects.find((object)=>!before.scene.objects.some((old)=>old.id===object.id))
-    assert.deepEqual(graphic,{id:graphic.id,kind:'graphic',parent:null,shape,points})
+    assert.deepEqual(graphic,{id:graphic.id,kind:'graphic',parent:null,shape,points,line_width_pt:null})
     assert.ok(current.scene.roots.includes(graphic.id),'selected groups do not become an implicit parent')
     graphUnchanged(current);added.push(graphic)
   }

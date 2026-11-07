@@ -1,7 +1,8 @@
-//! Chemifree document file format, version 25 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 26 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
+//! Version 26 adds nullable graphic line_width_pt; v1–25 migrate as inherited in current/history.
 //! Version 25 stores fragment display runs; v24 text migrates to one baseline run in current/history.
 //! Version 24 adds explicit fragment_displays; versions 1–23 migrate as empty, including history.
 //! Version 23 adds cosmetic display_labels; versions 1–22 retain default Et, including history.
@@ -35,7 +36,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 25. Other versions
+//! so they read with none. Reading never writes; the next write is version 26. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -65,9 +66,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 25;
+const FORMAT_VERSION: u32 = 26;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 25;
+const DRAFT_FORMAT_VERSION: u32 = 26;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -82,7 +83,7 @@ const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Current v25 scene/history: groups, styled/aligned captions, and Et display maps.
+/// Current v26 scene/history: groups, styled/aligned captions, and Et display maps.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -171,6 +172,8 @@ enum SceneState {
     Graphic {
         shape: StoredShape,
         points: [StoredPoint; 2],
+        #[serde(default)]
+        line_width_pt: Option<f64>,
     },
 }
 
@@ -1402,6 +1405,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    TwentyFive,
     TwentyFour,
     TwentyThree,
     TwentyTwo,
@@ -1438,6 +1442,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        25 => Ok(Version::TwentyFive),
         24 => Ok(Version::TwentyFour),
         23 => Ok(Version::TwentyThree),
         22 => Ok(Version::TwentyTwo),
@@ -1464,7 +1469,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, and \
              {current}"
         )),
     }
@@ -1629,7 +1634,7 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
     Ok(probe.document.revision)
 }
 
-/// The earlier version of a document file this build reads (1 to 24), which a save
+/// The earlier version of a document file this build reads (1 to 25), which a save
 /// replaces only after keeping a copy of it; `None` otherwise.
 pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
     earlier(version(bytes, FORMAT, FORMAT_VERSION, "document"))
@@ -1649,6 +1654,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
         Ok(Version::Fourteen) => Some(14),
+        Ok(Version::TwentyFive) => Some(25),
         Ok(Version::TwentyFour) => Some(24),
         Ok(Version::TwentyThree) => Some(23),
         Ok(Version::TwentyTwo) => Some(22),
@@ -1670,15 +1676,17 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
     }
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1 to 24 file
+/// Parses and fully validates a stored document, including its history; a version 1 to 25 file
 /// is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let format = version(bytes, FORMAT, FORMAT_VERSION, "document")?;
+    check_graphic_fields(bytes, format)?;
     check_abbreviation_fields(bytes, format)?;
     check_caption_fields(bytes, format)?;
     check_settings_fields(bytes, format)?;
     let parts = match format {
         Version::Current
+        | Version::TwentyFive
         | Version::TwentyFour
         | Version::TwentyThree
         | Version::TwentyTwo
@@ -1731,14 +1739,16 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1 to 24 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1 to 25 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let format = version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")?;
+    check_graphic_fields(bytes, format)?;
     check_abbreviation_fields(bytes, format)?;
     check_caption_fields(bytes, format)?;
     check_settings_fields(bytes, format)?;
     let (parts, base_revision, saved_at_ms) = match format {
         Version::Current
+        | Version::TwentyFive
         | Version::TwentyFour
         | Version::TwentyThree
         | Version::TwentyTwo
@@ -1802,6 +1812,35 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     })
 }
 
+/// The shared scene DTO default is migration-only, including every history side.
+fn check_graphic_fields(bytes: &[u8], format: Version) -> Result<(), String> {
+    fn visit(value: &serde_json::Value, current: bool) -> Result<(), String> {
+        match value {
+            serde_json::Value::Object(object) => {
+                if object.get("kind").and_then(serde_json::Value::as_str) == Some("graphic")
+                    && object.contains_key("line_width_pt") != current
+                {
+                    return Err("Graphic line_width_pt is required in v26 and forbidden in v1–25, including history.".into());
+                }
+                for child in object.values() {
+                    visit(child, current)?;
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for child in values {
+                    visit(child, current)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    visit(
+        &parse(bytes, "document or draft")?,
+        format == Version::Current,
+    )
+}
+
 /// The shared DTO defaults only support migration. v9 requires the fields on every
 /// current/history state; earlier headers cannot smuggle even empty v9 fields.
 fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String> {
@@ -1809,6 +1848,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     let current = matches!(
         format,
         Version::Current
+            | Version::TwentyFive
             | Version::TwentyFour
             | Version::TwentyThree
             | Version::TwentyTwo
@@ -1838,7 +1878,10 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     }
     if states.iter().any(|state| {
         state.get("fragment_displays").is_some()
-            != matches!(format, Version::Current | Version::TwentyFour)
+            != matches!(
+                format,
+                Version::Current | Version::TwentyFive | Version::TwentyFour
+            )
     }) {
         return Err(
             "fragment_displays are required in v24+ and forbidden in v1–23, including history."
@@ -1849,7 +1892,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
         if display.is_null() {
             return Ok(());
         }
-        let rich = format == Version::Current;
+        let rich = matches!(format, Version::Current | Version::TwentyFive);
         if display.get("runs").is_some() != rich
             || display.get("text").is_some() == rich
             || (rich && !display["runs"].is_array())
@@ -1882,7 +1925,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
         state.get("display_labels").is_some()
             != matches!(
                 format,
-                Version::Current | Version::TwentyFour | Version::TwentyThree
+                Version::Current | Version::TwentyFive | Version::TwentyFour | Version::TwentyThree
             )
     }) {
         return Err(
@@ -1909,6 +1952,7 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
     let current = matches!(
         format,
         Version::Current
+            | Version::TwentyFive
             | Version::TwentyFour
             | Version::TwentyThree
             | Version::TwentyTwo
@@ -1921,11 +1965,12 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_weight").is_some() != current
             || (current && !matches!(settings["label_weight"].as_str(), Some("normal" | "bold")))
         {
-            return Err("label_weight is required as normal or bold in v18–25 and forbidden in v1–17, including history.".into());
+            return Err("label_weight is required as normal or bold in v18–26 and forbidden in v1–17, including history.".into());
         }
         let styled = matches!(
             format,
             Version::Current
+                | Version::TwentyFive
                 | Version::TwentyFour
                 | Version::TwentyThree
                 | Version::TwentyTwo
@@ -1936,11 +1981,12 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_style").is_some() != styled
             || (styled && !matches!(settings["label_style"].as_str(), Some("normal" | "italic")))
         {
-            return Err("label_style is required as normal or italic in v19–25 and forbidden in v1–18, including history.".into());
+            return Err("label_style is required as normal or italic in v19–26 and forbidden in v1–18, including history.".into());
         }
         let underlined = matches!(
             format,
             Version::Current
+                | Version::TwentyFive
                 | Version::TwentyFour
                 | Version::TwentyThree
                 | Version::TwentyTwo
@@ -1950,11 +1996,12 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_underline").is_some() != underlined
             || (underlined && !settings["label_underline"].is_boolean())
         {
-            return Err("label_underline is required as a boolean in v20–25 and forbidden in v1–19, including history.".into());
+            return Err("label_underline is required as a boolean in v20–26 and forbidden in v1–19, including history.".into());
         }
         let outlined = matches!(
             format,
             Version::Current
+                | Version::TwentyFive
                 | Version::TwentyFour
                 | Version::TwentyThree
                 | Version::TwentyTwo
@@ -1963,16 +2010,20 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_outline").is_some() != outlined
             || (outlined && !settings["label_outline"].is_boolean())
         {
-            return Err("label_outline is required as a boolean in v21–25 and forbidden in v1–20, including history.".into());
+            return Err("label_outline is required as a boolean in v21–26 and forbidden in v1–20, including history.".into());
         }
         let shadowed = matches!(
             format,
-            Version::Current | Version::TwentyFour | Version::TwentyThree | Version::TwentyTwo
+            Version::Current
+                | Version::TwentyFive
+                | Version::TwentyFour
+                | Version::TwentyThree
+                | Version::TwentyTwo
         );
         if settings.get("label_shadow").is_some() != shadowed
             || (shadowed && !settings["label_shadow"].is_boolean())
         {
-            return Err("label_shadow is required as a boolean in v22–25 and forbidden in v1–21, including history.".into());
+            return Err("label_shadow is required as a boolean in v22–26 and forbidden in v1–21, including history.".into());
         }
         Ok(())
     };
@@ -2070,6 +2121,7 @@ fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(),
     if matches!(
         format,
         Version::Current
+            | Version::TwentyFive
             | Version::TwentyFour
             | Version::TwentyThree
             | Version::TwentyTwo
@@ -2287,6 +2339,7 @@ fn stored_scene_state(object: &SceneObject) -> SceneState {
             children: children.iter().map(ToString::to_string).collect(),
         },
         SceneObject::Graphic(graphic) => SceneState::Graphic {
+            line_width_pt: graphic.line_width_pt,
             shape: match graphic.shape {
                 GraphicShape::Line => StoredShape::Line,
                 GraphicShape::Rectangle => StoredShape::Rectangle,
@@ -2374,9 +2427,14 @@ fn read_scene_state(object: SceneState) -> Result<SceneObject, String> {
                 .map(|id| instance_id(id))
                 .collect::<Result<_, _>>()?,
         },
-        SceneState::Graphic { shape, points } => {
+        SceneState::Graphic {
+            shape,
+            points,
+            line_width_pt,
+        } => {
             let [first, second] = points;
             SceneObject::Graphic(Graphic {
+                line_width_pt,
                 shape: match shape {
                     StoredShape::Line => GraphicShape::Line,
                     StoredShape::Rectangle => GraphicShape::Rectangle,

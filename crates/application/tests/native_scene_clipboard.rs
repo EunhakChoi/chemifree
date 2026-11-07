@@ -238,7 +238,7 @@ fn paste_maps_nonmonotonic_root_ids_without_touching_graph_placements_stereo_or_
     );
     assert_eq!(
         object(after, "s3"),
-        &json!({"kind":"graphic","id":"s3","parent":"s7","shape":"line","points":[{"x":100.1,"y":198.0},{"x":130.0,"y":204.0}]})
+        &json!({"kind":"graphic","id":"s3","parent":"s7","line_width_pt":null,"shape":"line","points":[{"x":100.1,"y":198.0},{"x":130.0,"y":204.0}]})
     );
     assert_eq!(
         object(after, "s4")["points"],

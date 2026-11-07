@@ -340,10 +340,10 @@ try {
   assert.deepEqual(sceneAfter.document.scene.roots, ['s1', 's2', mapping.s7, mapping.s8])
   assert.deepEqual(object(mapping.s7), { kind: 'group', id: mapping.s7, parent: null, children: [mapping.s6, mapping.s5] })
   assert.deepEqual(object(mapping.s6), { kind: 'group', id: mapping.s6, parent: mapping.s7, children: [mapping.s3, mapping.s4] })
-  assert.deepEqual(object(mapping.s3), { kind: 'graphic', id: mapping.s3, parent: mapping.s6, shape: 'line', points: [{ x: 31, y: 38 }, { x: 60, y: 44 }] })
-  assert.deepEqual(object(mapping.s4), { kind: 'graphic', id: mapping.s4, parent: mapping.s6, shape: 'arrow', points: [{ x: 35, y: 46 }, { x: 37, y: 48 }] })
-  assert.deepEqual(object(mapping.s5), { kind: 'graphic', id: mapping.s5, parent: mapping.s7, shape: 'rectangle', points: [{ x: 50, y: 65 }, { x: 40, y: 55 }] })
-  assert.deepEqual(object(mapping.s8), { kind: 'graphic', id: mapping.s8, parent: null, shape: 'line', points: [{ x: 70, y: 90 }, { x: 90, y: 110 }] })
+  assert.deepEqual(object(mapping.s3), { kind: 'graphic', line_width_pt: null, id: mapping.s3, parent: mapping.s6, shape: 'line', points: [{ x: 31, y: 38 }, { x: 60, y: 44 }] })
+  assert.deepEqual(object(mapping.s4), { kind: 'graphic', line_width_pt: null, id: mapping.s4, parent: mapping.s6, shape: 'arrow', points: [{ x: 35, y: 46 }, { x: 37, y: 48 }] })
+  assert.deepEqual(object(mapping.s5), { kind: 'graphic', line_width_pt: null, id: mapping.s5, parent: mapping.s7, shape: 'rectangle', points: [{ x: 50, y: 65 }, { x: 40, y: 55 }] })
+  assert.deepEqual(object(mapping.s8), { kind: 'graphic', line_width_pt: null, id: mapping.s8, parent: null, shape: 'line', points: [{ x: 70, y: 90 }, { x: 90, y: 110 }] })
   // References are canonicalized by destination IDs, independently of payload order.
   const referenceKeys = (references) => references.map(({ source, target }) => `${source}:${target.kind}:${target.id}`).sort()
   assert.deepEqual(referenceKeys(sceneAfter.document.scene.references), referenceKeys([

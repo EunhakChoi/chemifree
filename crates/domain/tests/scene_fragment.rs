@@ -34,6 +34,7 @@ fn select(ids: &[u32]) -> Selection {
 fn graphic(shape: GraphicShape, x: f64) -> Command {
     Command::AddGraphic {
         graphic: Graphic {
+            line_width_pt: None,
             shape,
             points: [point(x, 0.0), point(x + 10.0, 10.0)],
         },
@@ -202,6 +203,7 @@ fn paste_builds_graphics_then_bottom_up_groups_and_selects_only_new_roots() {
     assert_eq!(
         destination.object(id(6)),
         Some(&SceneObject::Graphic(Graphic {
+            line_width_pt: None,
             shape: GraphicShape::Rectangle,
             points: [point(50.0, 20.0), point(60.0, 30.0)]
         }))
@@ -410,6 +412,7 @@ fn malformed_trees_duplicates_and_external_references_are_refused_before_plannin
     loose.objects.push(FragmentObject {
         id: id(99),
         object: SceneObject::Graphic(Graphic {
+            line_width_pt: None,
             shape: GraphicShape::Line,
             points: [point(0.0, 0.0), point(1.0, 1.0)],
         }),
@@ -435,6 +438,7 @@ fn deep_fragment(groups: u32) -> Fragment {
         objects.push(FragmentObject {
             id: leaf,
             object: SceneObject::Graphic(Graphic {
+                line_width_pt: None,
                 shape: GraphicShape::Line,
                 points: [point(0.0, 0.0), point(1.0, 1.0)],
             }),
@@ -443,6 +447,7 @@ fn deep_fragment(groups: u32) -> Fragment {
     objects.push(FragmentObject {
         id: id(200),
         object: SceneObject::Graphic(Graphic {
+            line_width_pt: None,
             shape: GraphicShape::Line,
             points: [point(0.0, 0.0), point(1.0, 1.0)],
         }),
@@ -529,6 +534,7 @@ fn actual_objects_plus_references_obey_the_single_transaction_command_limit() {
         .map(|serial| FragmentObject {
             id: id(serial),
             object: SceneObject::Graphic(Graphic {
+                line_width_pt: None,
                 shape: GraphicShape::Line,
                 points: [point(0.0, 0.0), point(1.0, 1.0)],
             }),

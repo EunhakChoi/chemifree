@@ -1,5 +1,7 @@
 # P36c explicit canvas graphic-creation candidate
 
+Delivery follow-up: P36c #207 merged as `afe6410`; [post-merge main run42329036170](https://github.com/EunhakChoi/chemifree/actions/runs/42329036170) is pending in the parent handoff. Earlier implementation-session pending notes below are historical. [P36d](p36d-graphic-line-width.md) separately adds candidate native v26 graphic widths and has its own pending web/full/review/CI gates; P36 remains in_progress.
+
 Source/test inspection covers P36c implementation `fbec0a0` and review fixes
 `a6c2f10`, `b630a3b` and `5864f84`, based on predecessor `f36550d`. This
 candidate adds Graphic tool creation using the existing `add_graphic` command;

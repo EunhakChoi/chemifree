@@ -228,6 +228,7 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
                 FragmentObject {
                     id: object_id(&id)?,
                     object: SceneObject::Graphic(Graphic {
+                        line_width_pt: None,
                         shape: match shape {
                             GraphicShapeDto::Line => GraphicShape::Line,
                             GraphicShapeDto::Arrow => GraphicShape::Arrow,
@@ -578,6 +579,7 @@ mod tests {
             fragment.objects.push(FragmentObject {
                 id,
                 object: SceneObject::Graphic(Graphic {
+                    line_width_pt: None,
                     shape: GraphicShape::Line,
                     points: [
                         Point::new(12345.67890123456, -12345.67890123456).unwrap(),

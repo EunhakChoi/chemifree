@@ -103,7 +103,7 @@ export type SceneObject =
   | { kind: 'instance'; id: string; parent: string | null; molecule: string }
   | { kind: 'group'; id: string; parent: string | null; children: string[] }
   | { kind: 'caption'; id: string; parent: string | null; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
-  | { kind: 'graphic'; id: string; parent: string | null; shape: GraphicShape; points: [Position, Position] }
+  | { kind: 'graphic'; id: string; parent: string | null; shape: GraphicShape; points: [Position, Position]; line_width_pt?: number | null }
 
 export interface ReferenceTarget {
   kind: 'object' | 'atom' | 'bond'
@@ -724,6 +724,7 @@ export type Command =
   | { op: 'update_caption'; object: string; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
   | { op: 'add_graphic'; shape: GraphicShape; points: [Position, Position]; parent?: string; index?: number }
   | { op: 'update_graphic_points'; object: string; points: [Position, Position] }
+  | { op: 'set_graphic_line_width'; object: string; line_width_pt: number | null }
   | { op: 'group'; objects: string[] }
   | { op: 'ungroup'; group: string }
   | { op: 'reorder'; object: string; index: number }
@@ -1147,6 +1148,7 @@ function isSceneObject(value: unknown): value is SceneObject {
     case 'graphic':
       return (
         (value.shape === 'line' || value.shape === 'rectangle' || value.shape === 'arrow') &&
+        (value.line_width_pt === undefined || value.line_width_pt === null || (isFiniteNumber(value.line_width_pt) && value.line_width_pt >= SETTING_RANGES.line_width_pt[0] && value.line_width_pt <= SETTING_RANGES.line_width_pt[1])) &&
         Array.isArray(value.points) && value.points.length === 2 &&
         value.points.every((point) => isRecord(point) && isFiniteNumber(point.x) && isFiniteNumber(point.y))
       )

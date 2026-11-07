@@ -50,6 +50,7 @@ fn drawing() -> Document {
         },
         Command::AddGraphic {
             graphic: Graphic {
+                line_width_pt: None,
                 shape: GraphicShape::Line,
                 points: [point(0.0, 0.0), point(10.0, 0.0)],
             },
@@ -58,6 +59,7 @@ fn drawing() -> Document {
         },
         Command::AddGraphic {
             graphic: Graphic {
+                line_width_pt: None,
                 shape: GraphicShape::Arrow,
                 points: [point(20.0, 0.0), point(30.0, 0.0)],
             },
@@ -66,6 +68,7 @@ fn drawing() -> Document {
         },
         Command::AddGraphic {
             graphic: Graphic {
+                line_width_pt: None,
                 shape: GraphicShape::Rectangle,
                 points: [point(40.0, 0.0), point(50.0, 10.0)],
             },
@@ -229,6 +232,7 @@ fn absent_and_wrong_kind_targets_roll_back_earlier_edits_and_identifier_allocati
             .apply(&[
                 Command::AddGraphic {
                     graphic: Graphic {
+                        line_width_pt: None,
                         shape: GraphicShape::Line,
                         points: [point(0.0, 0.0), point(1.0, 1.0)],
                     },

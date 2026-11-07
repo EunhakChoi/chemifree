@@ -557,6 +557,11 @@ pub enum Command {
         object: ObjectId,
         points: [Point; 2],
     },
+    /// Sets one graphic's bounded line width, or restores dynamic document inheritance.
+    SetGraphicLineWidth {
+        object: ObjectId,
+        line_width_pt: Option<f64>,
+    },
     /// Puts at least two objects sharing one parent into a new group, which takes the place of
     /// the earliest of them; they keep their order.
     Group {
@@ -1624,6 +1629,7 @@ impl Content {
                     return Err(EditError::TransformRectangleUnsupported(*object));
                 }
                 let after = Graphic {
+                    line_width_pt: before.line_width_pt,
                     shape: before.shape,
                     points: [
                         prepared.point(before.points[0], pivot)?,
@@ -2625,6 +2631,7 @@ impl Draft {
                 parent,
                 index,
             } => {
+                graphic.validate()?;
                 let id = self.allocate_object()?;
                 self.content.scene.insert(
                     id,
@@ -2633,6 +2640,18 @@ impl Draft {
                     *index,
                 )?;
                 created = Created::Object(id);
+            }
+            Command::SetGraphicLineWidth {
+                object,
+                line_width_pt,
+            } => {
+                self.content.scene.require(*object, ObjectKind::Graphic)?;
+                if let Some(SceneObject::Graphic(graphic)) =
+                    self.content.scene.objects.get_mut(object)
+                {
+                    graphic.line_width_pt = *line_width_pt;
+                    graphic.validate()?;
+                }
             }
             Command::UpdateGraphicPoints { object, points } => {
                 self.content.scene.require(*object, ObjectKind::Graphic)?;
@@ -3073,6 +3092,16 @@ impl Document {
         // History retention is not a migration path for malformed display text. Check
         // every incoming string and local record shape, including entries later trimmed.
         for set in parts.undo.iter().chain(&parts.redo) {
+            // Retention cannot erase an invalid style from an older incoming record.
+            for (_, change) in &set.objects {
+                for object in [&change.before, &change.after].into_iter().flatten() {
+                    if let SceneObject::Graphic(graphic) = object {
+                        graphic.validate().map_err(|error| {
+                            RestoreError(format!("invalid graphic history: {error}"))
+                        })?;
+                    }
+                }
+            }
             set.validate_fragment_display_changes().map_err(|error| {
                 RestoreError(format!("invalid fragment display history: {error}"))
             })?;

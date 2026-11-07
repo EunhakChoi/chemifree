@@ -427,3 +427,15 @@ no new shapes, styles, layers or scientific arrow semantics are added. P36 stays
 `in_progress`. Preceding #206 is merged with passing PR CI42324595907; its
 post-merge main run42325796411 is pending separately from P36c full checks/reviews/CI.
 See [P36c record](docs/verification/p36c-graphic-creation.md).
+
+P36d adds candidate per-graphic `line_width_pt`: an explicit finite0.1–10 pt
+value or null for dynamic document inheritance. A number equal to the current
+document width still counts as an override. The selected-graphic form exposes
+width/reset and effective inheritance; rendering, selection underlay and hit
+stroke use that width without changing geometry or chemistry. Native v26 strictly
+stores it through history/drafts and migrates v1–25 to inheritance with exact-byte
+archives. Clipboard v2 refuses any explicit-width selected subtree; resetting to
+document width is explicit and may change appearance. P36 stays `in_progress`.
+The parent reports27 targeted Rust cases passed at e6e3b45; web/full/reviews/CI
+remain pending. Preceding #207 merged afe6410, with main run42329036170 pending.
+See [P36d record](docs/verification/p36d-graphic-line-width.md).

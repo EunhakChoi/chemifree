@@ -33,6 +33,7 @@ fn empty() -> Document {
 
 fn line(x: f64) -> Graphic {
     Graphic {
+        line_width_pt: None,
         shape: GraphicShape::Line,
         points: [point(x, 0.0), point(x + 10.0, 0.0)],
     }
@@ -146,6 +147,7 @@ fn graphics_are_added_to_the_page_or_into_a_group_at_an_index() {
             add_graphic(line(40.0), Some(4), Some(1)),
             add_graphic(
                 Graphic {
+                    line_width_pt: None,
                     shape: GraphicShape::Arrow,
                     points: [point(0.0, 0.0), point(5.0, 5.0)],
                 },

@@ -28,6 +28,7 @@ fn reference(source: u32, target: ReferenceTarget) -> SceneReference {
 fn graphic(x: f64) -> Command {
     Command::AddGraphic {
         graphic: Graphic {
+            line_width_pt: None,
             shape: GraphicShape::Line,
             points: [
                 Point::new(x, 0.0).unwrap(),

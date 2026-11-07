@@ -121,6 +121,7 @@ fn command(random: &mut Random, scene: &Scene) -> Command {
             let siblings = scene.children.get(&parent).map_or(0, Vec::len);
             Command::AddGraphic {
                 graphic: Graphic {
+                    line_width_pt: None,
                     shape: random.pick(&shapes).unwrap(),
                     points: [point(random), point(random)],
                 },

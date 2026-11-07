@@ -40,6 +40,7 @@ fn movement(selection: Selection, instance: Option<u32>, dx: f64, dy: f64) -> Co
 }
 fn graphic(x: f64) -> Graphic {
     Graphic {
+        line_width_pt: None,
         shape: GraphicShape::Line,
         points: [point(x, 0.0), point(x + 5.0, 0.0)],
     }
@@ -197,6 +198,7 @@ fn selected_bonds_move_both_endpoints_once_and_do_not_follow_scene_references() 
     assert_eq!(
         document.object(object(2)),
         Some(&SceneObject::Graphic(Graphic {
+            line_width_pt: None,
             shape: GraphicShape::Line,
             points: [point(43.0, -2.0), point(48.0, -2.0)]
         }))
@@ -256,6 +258,7 @@ fn overlapping_parent_child_and_graph_targets_move_every_geometry_once() {
     );
     for (id, graphic) in before.1 {
         let expected = Graphic {
+            line_width_pt: None,
             shape: graphic.shape,
             points: graphic
                 .points
@@ -345,6 +348,7 @@ fn invalid_final_graphic_and_nonfinite_deltas_abort_all_movement() {
     document
         .apply(&[Command::AddGraphic {
             graphic: Graphic {
+                line_width_pt: None,
                 shape: GraphicShape::Line,
                 points: [point(MAX_COORDINATE - 1.0, 0.0), point(MAX_COORDINATE, 0.0)],
             },
