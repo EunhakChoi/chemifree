@@ -384,3 +384,15 @@ before replacement, and v25 refuses untouched. General nickname dictionaries,
 text-to-graph parsing and external label roundtrip remain unsupported. P35 stays
 `in_progress`; tests/build/browser execution and both reviews are pending.
 See [P35p record](docs/verification/p35p-fragment-display.md).
+
+P35q is an unverified follow-up candidate for baseline/subscript/superscript runs
+on retained fragment displays. `set_fragment_display_runs` replaces explicit
+nonempty runs within the same total 128 UTF-8 byte, nonblank single-line limit.
+Plain-text commands reset to one baseline run; scripts inherit document label
+style and share measured SVG bounds. Text and scripts do not define chemistry;
+the retained graph supplies scientific results. Native v25 strictly stores runs
+in current/history, migrates v24 text to baseline with exact document/draft
+archives before replacement/recovery, and refuses future v26 untouched. Existing
+full-graph export losses and clipboard/Cut/template restrictions remain binding.
+P35 remains `in_progress`; execution and both reviews are pending. See
+[P35q record](docs/verification/p35q-fragment-display-runs.md).
