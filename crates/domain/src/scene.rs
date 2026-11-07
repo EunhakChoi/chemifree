@@ -2,7 +2,7 @@
 //!
 //! The page holds an ordered containment tree of scene objects: molecule scene instances (each
 //! draws the document's chemical graph with one position per atom), groups (which contain other
-//! objects), and simple graphics (a line, a rectangle, or an arrow). Every object has exactly one
+//! objects), and simple graphics (a line, rectangle, ellipse, or arrow). Every object has exactly one
 //! parent, the page or a group, and its place among that parent's children is its drawing order.
 //! All kinds share one identifier space (`s1`, `s2`, …) that is never reused.
 //!
@@ -64,6 +64,8 @@ pub enum GraphicShape {
     Line,
     /// An axis-aligned rectangle between two opposite corners.
     Rectangle,
+    /// A stroke-only axis-aligned ellipse between two opposite bounding-box corners.
+    Ellipse,
     /// A line with its head at the second point.
     Arrow,
 }
@@ -316,11 +318,13 @@ pub enum SceneError {
     TransformInvalidAngle,
     /// An arbitrary rotation cannot retain an axis-aligned rectangle's representation.
     TransformRectangleUnsupported,
+    /// An arbitrary rotation cannot retain an axis-aligned ellipse's representation.
+    TransformEllipseUnsupported,
 }
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::CaptionInvalid,
         Self::CaptionPersistenceLimit,
         Self::CaptionUnsupported,
@@ -345,6 +349,7 @@ impl SceneError {
         Self::ArrangementCenterUnstable,
         Self::TransformInvalidAngle,
         Self::TransformRectangleUnsupported,
+        Self::TransformEllipseUnsupported,
     ];
 
     /// The stable machine-readable code.
@@ -374,6 +379,7 @@ impl SceneError {
             Self::ArrangementCenterUnstable => "arrangement_center_unstable",
             Self::TransformInvalidAngle => "transform_invalid_angle",
             Self::TransformRectangleUnsupported => "transform_rectangle_unsupported",
+            Self::TransformEllipseUnsupported => "transform_ellipse_unsupported",
         }
     }
 }

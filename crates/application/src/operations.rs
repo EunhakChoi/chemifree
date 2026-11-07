@@ -596,7 +596,7 @@ const TRANSACTION_PARTS: [Entry; 59] = [
         "move_selection",
         "Moves the union of selected object subtrees, explicit atoms and bond endpoints once; graph targets use the named instance or the only instance. Transaction selection snapshots remain independent.",
     ),
-    runs("transform_selection", "Geometry-only rotation/reflection about an explicit pivot of the effective selected union. Stored stereo, marks and groups remain unchanged; selected rectangles require quarter-turn rotations."),
+    runs("transform_selection", "Geometry-only rotation/reflection about an explicit pivot of the effective selected union. Stored stereo, marks and groups remain unchanged; selected axis-aligned rectangles and ellipses require exact quarter-turn rotations."),
     runs(
         "arrange_objects",
         "Rigid geometry-only alignment or equal-gap distribution of outermost selected scene objects, with shared preflight and atomic history. No partial atom/bond targets or rendered label bounds.",
@@ -640,11 +640,11 @@ const TRANSACTION_PARTS: [Entry; 59] = [
     runs("update_caption", "Replaces a caption anchor and its complete script, weight, style, generic font family and nullable size_pt (finite 4–72 pt; null/omission follows drawing size), and nullable color (canonical opaque sRGB #RRGGBB; null/omission follows theme foreground) runs."),
     runs(
         "add_graphic",
-        "Adds a line, rectangle, or arrow to a page or group.",
+        "Adds a line, rectangle, ellipse, or arrow to a page or group.",
     ),
     runs(
         "update_graphic_points",
-        "Replaces exactly two points of an existing line, rectangle, or arrow, preserving its shape, identity, parent, and references. Coordinates use the existing finite point bounds; coincident and reversed points remain supported.",
+        "Replaces exactly two points of an existing line, rectangle, ellipse, or arrow, preserving its shape, identity, parent, and references. Coordinates use the existing finite point bounds; coincident and reversed points remain supported.",
     ),
     runs("set_graphic_line_width", "Sets a graphic's explicit finite 0.1–10 pt line width, or restores dynamic document inheritance with null. Shape, geometry, identity, hierarchy, references and chemical graph are retained."),
     runs("group", "Groups sibling scene objects in drawing order."),
@@ -947,7 +947,7 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         Op::DocumentClipboardSceneCopy => (
             runs(
                 id,
-                "Copies an ordered graphic-only scene forest and its internal object references; refuses molecule instances, graph targets and outgoing references.",
+                "Copies an ordered graphic-only scene forest and its internal object references, using v4 when an ellipse is included and otherwise preserving v2/v3 selection; refuses molecule instances, graph targets and outgoing references.",
             ),
             &[],
         ),

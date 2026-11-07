@@ -145,6 +145,7 @@ pub(crate) fn mapping(
                     (graphic.shape, shape),
                     (GraphicShape::Line, GraphicShapeDto::Line)
                         | (GraphicShape::Rectangle, GraphicShapeDto::Rectangle)
+                        | (GraphicShape::Ellipse, GraphicShapeDto::Ellipse)
                         | (GraphicShape::Arrow, GraphicShapeDto::Arrow)
                 );
                 if !matches || graphic.line_width_pt != *line_width_pt {

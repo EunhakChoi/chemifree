@@ -878,6 +878,7 @@ fn document_text(response: &DocumentResponse) -> String {
                 let shape = match shape {
                     GraphicShapeDto::Line => "line",
                     GraphicShapeDto::Rectangle => "rectangle",
+                    GraphicShapeDto::Ellipse => "ellipse",
                     GraphicShapeDto::Arrow => "arrow",
                 };
                 lines.push(format!(
