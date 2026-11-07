@@ -325,3 +325,72 @@ fn maximum_source_files_reach_shared_admission_boundary_and_roundtrip_below64mib
     assert!((document.persistence_weight() as u64) < MAX_DOCUMENT_BYTES);
     assert_eq!(repo.load(document.id()).unwrap(), Some(document));
 }
+
+#[test]
+fn native_history_cannot_replay_more_pixels_than_the_current_image_budget() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut cache = PngCache::default();
+    let asset = cache
+        .decode(
+            include_str!("../../application/tests/fixtures/image-1024-rgba.base64").trim(),
+            &EmbeddedPngDecoder,
+        )
+        .unwrap();
+    let image = Image::new(
+        asset,
+        Point::new(0., 0.).unwrap(),
+        ImageSize::new(1., 1.).unwrap(),
+    )
+    .unwrap();
+    let mut document = Document::new(
+        DocumentId::parse("image-native").unwrap(),
+        "History image pixel limit",
+    )
+    .unwrap();
+    document
+        .apply(&vec![
+            Command::AddImage {
+                image,
+                parent: None,
+                index: None
+            };
+            4
+        ])
+        .unwrap();
+    repo.save(&document, None).unwrap();
+    let seed: Value = serde_json::from_slice(&fs::read(path(&root)).unwrap()).unwrap();
+    for redo in [false, true] {
+        let mut raw = seed.clone();
+        let mut entry = raw["history"]["undo"][0].clone();
+        let image = raw["document"]["objects"][1]["state"].clone();
+        let roots = raw["document"]["roots"].clone();
+        let mut five = roots.clone();
+        five.as_array_mut().unwrap().push(json!("s6"));
+        entry["objects"] = if redo {
+            json!([{"id":"s6","before":null,"after":image}])
+        } else {
+            json!([{"id":"s6","before":image,"after":null}])
+        };
+        entry["roots"] = if redo {
+            json!({"before":roots,"after":five})
+        } else {
+            json!({"before":five,"after":roots})
+        };
+        raw["document"]["next_object"] = json!(7);
+        raw["history"]["undo"] = if redo {
+            json!([])
+        } else {
+            json!([entry.clone()])
+        };
+        raw["history"]["redo"] = if redo { json!([entry]) } else { json!([]) };
+        let bytes = serde_json::to_vec(&raw).unwrap();
+        fs::write(path(&root), &bytes).unwrap();
+        let error = match repo.load(document.id()) {
+            Err(error) => error,
+            Ok(_) => panic!("4Mi current pixels must not hide a 5Mi replay state (redo={redo})"),
+        };
+        assert!(error.to_string().contains("history"), "{error}");
+        assert_eq!(fs::read(path(&root)).unwrap(), bytes);
+    }
+}

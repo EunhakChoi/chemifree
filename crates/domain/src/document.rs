@@ -1772,6 +1772,11 @@ impl Content {
 
     /// Checks every structural invariant; used for restored and replayed states.
     fn validate(&self) -> Result<(), EditError> {
+        // Restored history is untrusted: every replayed state must fit the same
+        // current raster budget as the document that is initially opened.
+        if self.current_image_pixels() > MAX_CURRENT_IMAGE_PIXELS {
+            return Err(EditError::ImagePixelLimit);
+        }
         self.validate_abbreviations()?;
         self.validate_fragment_displays()?;
         validate_title(&self.title)?;
