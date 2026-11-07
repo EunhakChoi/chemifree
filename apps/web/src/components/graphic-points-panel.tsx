@@ -44,7 +44,7 @@ function GraphicPointsForm({ document, graphic, editor }: { document: DocumentVi
         </Field>
       })}
     </FieldGroup>
-    <FieldDescription id={`${id}-help`}>Edit the two points of {graphic.id} ({graphic.shape}) in document coordinates. Use finite decimal values from −100000 to 100000 pt. Reversed or coincident points are allowed. Group membership and references are retained.</FieldDescription>
+    <FieldDescription id={`${id}-help`}>Edit the two points of {graphic.id} ({graphic.shape}) in document coordinates. Use finite decimal values from −100000 to 100000 pt. Reversed or coincident points are allowed. Group membership and references are retained. Drag distinct endpoints on the canvas, or use this form for coincident endpoints.</FieldDescription>
     <Button type="submit" variant="outline" size="sm" disabled={editor.busy || composing || !valid || unchanged}>Apply graphic endpoints</Button>
   </form>
 }

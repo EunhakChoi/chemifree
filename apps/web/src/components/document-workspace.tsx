@@ -1,3 +1,4 @@
+import { graphicPointsCommands } from '@/editor/graphic-points'
 import { GraphicPointsPanel } from '@/components/graphic-points-panel'
 import { FragmentDisplayPanel } from '@/components/fragment-display-panel'
 import { AbbreviationPanel } from '@/components/abbreviation-panel'
@@ -870,6 +871,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             onSelectionChange={setSelection}
             activePlacement={activePlacement}
             onActivePlacementChange={(instance) => setMovementContext({ document: document.id, instance })}
+            onGraphicPoints={(edit) => void editor.apply((latest) => graphicPointsCommands(latest, edit))}
             onCommands={(commands, before) => void editor.apply(
               (latest) => latest.id === document.id ? stillApplicable(commands, latest) : null,
               before === undefined ? undefined : { kind: 'gesture', before },

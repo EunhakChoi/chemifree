@@ -1,3 +1,4 @@
+import { graphicEndpointCurrent, graphicEndpointPoints, selectedGraphic, type GraphicEndpointGesture, type GraphicPointsEdit } from '@/editor/graphic-points'
 import { compactDisplaysIn, abbreviationTargets, compactView, ethylLabel } from '@/editor/abbreviation'
 import type { RingPattern, RingSize } from '@/lib/document-contract'
 import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
@@ -61,6 +62,7 @@ const DRAG_THRESHOLD = 3
  * service without scene instances.
  */
 type Drag =
+  | ({ kind: 'endpoint' } & GraphicEndpointGesture)
   | { kind: 'attach'; start: Position; atom: string; instance: string | null; size: RingSize; pattern: RingPattern }
   | { kind: 'move'; start: Position; selected: Set<string>; instance: string | null; scope: SelectionGeometry }
   | { kind: 'bond'; start: Position; fromAtom: string | null; instance: string | null }
@@ -68,6 +70,7 @@ type Drag =
   | { kind: 'click'; start: Position; hit: Hit; instance: string | null }
 
 type Preview =
+  | { kind: 'endpoint'; gesture: GraphicEndpointGesture; points: [Position, Position] }
   | { kind: 'move'; scope: SelectionGeometry; delta: Position }
   | { kind: 'bond' | 'attach'; from: Position; to: Position }
   | { kind: 'marquee'; from: Position; to: Position }
@@ -126,6 +129,8 @@ interface StructureCanvasProps {
   onSelectionChange: (selection: Set<string>) => void
   activePlacement: string | null
   onActivePlacementChange: (instance: string | null) => void
+  /** A captured endpoint edit; the parent checks its revision again in the queue. */
+  onGraphicPoints?: (edit: GraphicPointsEdit) => void
   onCommands: (commands: Command[], selectionBefore?: ReadonlySet<string>) => void
   /** A stereo-mark gesture, built from the document on screen; the parent sends it to the latest. */
   onMark: (intent: MarkIntent) => void
@@ -169,6 +174,7 @@ export function StructureCanvas({
   ringPattern = 'single',
   onAttachRing,
   onCommands,
+  onGraphicPoints,
   onMark,
   rings = [],
   cipLabels = [],
@@ -432,6 +438,12 @@ export function StructureCanvas({
     }
   }
 
+  const cancelExpiredEndpoint = useEffectEvent(() => {
+    const gesture = drag.current
+    if (gesture?.kind === 'endpoint' && (tool !== 'select' || !graphicEndpointCurrent(document, selection, gesture))) cancelPointer()
+  })
+  useEffect(() => { cancelExpiredEndpoint() }, [document, selection, tool])
+
   const cancelFromWindow = useEffectEvent(() => cancelPointer())
 
   useEffect(() => {
@@ -610,7 +622,11 @@ export function StructureCanvas({
       return
     }
     if (!active || distance({ x: event.clientX, y: event.clientY }, active.start) < DRAG_THRESHOLD) return
-    if (gesture.kind === 'move') {
+    if (gesture.kind === 'endpoint') {
+      if (tool !== 'select' || !graphicEndpointCurrent(document, selection, gesture)) { cancelPointer(); return }
+      const points = graphicEndpointPoints(gesture, point)
+      setPreview(points ? { kind: 'endpoint', gesture, points } : null)
+    } else if (gesture.kind === 'move') {
       setPreview({
         kind: 'move',
         scope: gesture.scope,
@@ -641,6 +657,12 @@ export function StructureCanvas({
     // document and drops them if what they name is gone.
     if (active.pan || !gesture || !point) return
     const dragged = distance({ x: event.clientX, y: event.clientY }, active.start) >= DRAG_THRESHOLD
+    if (gesture.kind === 'endpoint') {
+      if (!dragged || tool !== 'select' || !graphicEndpointCurrent(document, selection, gesture)) return
+      const points = graphicEndpointPoints(gesture, point)
+      if (points) onGraphicPoints?.({ ...gesture.edit, points })
+      return
+    }
     if (gesture.kind === 'attach') {
       if (dragged) onAttachRing?.(gesture.instance, gesture.atom, { dx: point.x - gesture.start.x, dy: point.y - gesture.start.y }, gesture.size, gesture.pattern)
       return
@@ -676,6 +698,8 @@ export function StructureCanvas({
 
   function gestureCommands(gesture: Drag, point: Position, dragged: boolean): Command[] {
     switch (gesture.kind) {
+      case 'endpoint':
+        return []
       case 'move': {
         if (!dragged) return []
         const delta = { x: round(point.x - gesture.start.x), y: round(point.y - gesture.start.y) }
@@ -797,6 +821,9 @@ export function StructureCanvas({
         .map((id) => position(drawing, id))
       return [{ label, at: groupLabelAt(position(drawing, label.atom), around) }]
     })
+
+  const endpointPreview = preview?.kind === 'endpoint' && tool === 'select' && graphicEndpointCurrent(document, selection, preview.gesture) ? preview : null
+  const endpointGraphic = tool === 'select' && onGraphicPoints && !disabled ? selectedGraphic(document, selection) : null
 
   const sceneObjects = document.scene?.objects
   const byId = new Map(sceneObjects?.map((object) => [object.id, object]) ?? [])
@@ -922,7 +949,7 @@ export function StructureCanvas({
             }} />
         )
         if (object.kind === 'graphic') return (
-          <SceneGraphic key={object.id} object={preview?.kind === 'move' && preview.scope.graphics.has(object.id) ? {
+          <SceneGraphic key={object.id} object={endpointPreview?.gesture.edit.graphic.id === object.id ? { ...object, points: endpointPreview.points } : preview?.kind === 'move' && preview.scope.graphics.has(object.id) ? {
             ...object, points: [
               { x: object.points[0].x + preview.delta.x, y: object.points[0].y + preview.delta.y },
               { x: object.points[1].x + preview.delta.x, y: object.points[1].y + preview.delta.y },
@@ -937,6 +964,23 @@ export function StructureCanvas({
         const drawing = drawings.find((item) => item.id === object.id)
         return drawing ? drawInstance(drawing) : null
       }) : drawings.map(drawInstance)}
+      {endpointGraphic && <g data-editor-overlay="" aria-label={`Endpoints of ${endpointGraphic.shape} ${endpointGraphic.id}`}>
+        {([0, 1] as const).map((endpoint) => {
+          const at = endpointPreview?.gesture.edit.graphic.id === endpointGraphic.id ? endpointPreview.points[endpoint] : endpointGraphic.points[endpoint]
+          return <circle key={endpoint} data-graphic-endpoint={endpoint} data-endpoint-object={endpointGraphic.id}
+            role="img" aria-label={`Endpoint ${endpoint + 1} of ${endpointGraphic.shape} ${endpointGraphic.id}; drag to edit or use the numeric endpoint form`}
+            cx={at.x} cy={at.y} r={6 * unitsPerPixel} strokeWidth={1.5 * unitsPerPixel} className="fill-background stroke-primary cursor-crosshair"
+            onPointerDown={(event) => {
+              const active = pointer.current
+              if (disabled || tool !== 'select' || event.button !== 0 || active?.id !== event.pointerId || active.pan) return
+              event.stopPropagation()
+              const start = toDocument(event)
+              if (!start) return
+              const graphic = { ...endpointGraphic, points: [{ ...endpointGraphic.points[0] }, { ...endpointGraphic.points[1] }] satisfies [Position, Position] }
+              setDrag({ kind: 'endpoint', endpoint, start, edit: { documentId: document.id, revision: document.revision, graphic, points: graphic.points } })
+            }} />
+        })}
+      </g>}
       {preview?.kind === 'bond' && isMarkKind(bondKind) ? (
         <g className="fill-none stroke-primary" strokeWidth={settingsOf(document).line_width_pt} strokeLinejoin="round" data-bond-preview={bondKind}>
           <StrokeShapes strokes={previewStrokes(preview.from, preview.to, bondKind)} bond="preview" fill="fill-primary stroke-none" />

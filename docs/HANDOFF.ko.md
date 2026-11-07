@@ -1,5 +1,13 @@
 # Chemifree 새 세션 인계
 
+## P36b 단일 graphic canvas endpoint drag 후보
+
+- Select에서 정확히 한 explicit noncoincident line/arrow/rectangle에만 두 endpoint handles를 보인다. group 자체·복수/mixed selection에는 없고 직접 선택한 grouped child는 가능하다. coincident stored points는 허용하되 numeric endpoint form으로 편집한다.
+- press-time document/revision/정확한 graphic/point/pointer를 capture하고 실제 SVG inverse screen transform으로 prior pan/zoom을 반영한다. handle 안 press offset을 보존한 pointer delta로 선택 point만 바꾸며 반대 point는 그대로다. 기존 canvas rounding·finite±100000 pt와3px drag threshold를 유지하고 snapping/clamping은 없다. Space/middle pan이 press에서 우선한다.
+- move는 실제 graphic renderer의 local preview만 바꾸고 transaction을 보내지 않는다. valid release는 기존 update_graphic_points1개로 commit하며 no-op/Undo/Redo·ID/shape/group/refs/graph 보존과 native v25를 재사용한다. schema/command 추가는 없다.
+- Escape/pointercancel/lost capture/blur/Fit/Reset은 preview를 버린다. document/revision/selection/tool/target geometry/kind/group 변화는 gesture를 무효화하며 큐에서 다시 검증한다. restart 후 미확정 edit 자동 재전송은 없다. bounding-box resize·multi/group/rotation handles·새 도형/image/clip/layers/style/과학 화살표 의미는 미지원이다.
+- HEAD79434f2 source 대조만 했다. P36은 `in_progress`; 선행 P36a PR#204 merge pending과 P36b full checks·Codex/독립 fresh review·PR CI pending을 구분한다. 부모/web 담당의 진행 중 general smoke를 성공으로 쓰지 않는다. [P36b 기록](verification/p36b-graphic-endpoint-drag.md).
+
 ## P36a 기존 graphic 두 점 좌표 편집 후보
 
 - `update_graphic_points`는 concrete graphic object ID와 정확히 두 points를 받아 기존 line/arrow/rectangle의 좌표만 교체한다. 각 x/y는 finite·inclusive±100000 pt이며 reversed/coincident도 허용한다. arrow의 두 번째 점은 tip, rectangle은 저장 순서를 보존한 두 opposite corners다. shape/ID·group/parent·roots/order·incoming/outgoing references·다른 객체·graph/placement/stereo/settings를 유지한다. 반응/전자 의미는 추론하지 않는다.
