@@ -87,7 +87,7 @@ fn copied_widths_keep_native26_and_recovery_undo_without_rewriting_the_source() 
     app.save("styled-target", None, 2).unwrap();
     let target_path = root.path().join("documents/styled-target.json");
     let native: Value = serde_json::from_slice(&fs::read(&target_path).unwrap()).unwrap();
-    assert_eq!(native["format_version"], 29);
+    assert_eq!(native["format_version"], 30);
     assert_eq!(
         native["document"]["objects"][1]["state"]["line_width_pt"],
         2.75
