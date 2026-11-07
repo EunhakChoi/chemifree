@@ -15,13 +15,15 @@
 - 실제 Graphic endpoints panel은 선택한 scene graphic1개의 x1/y1/x2/y2를 pt로 편집한다. decimal/scientific 입력·invalid/busy/no-op/IME gate와 captured document/revision/target 검증을 적용한다. 큐에서 revision·geometry·group/target이 바뀌면 lapse하며 restart 후 미확정 편집은 자동 재전송하지 않는다.
 - resize/endpoint drag handles·새 도형·curve/reaction/electron arrows·scientific glyph·image·clip/layer/style/layout은 추가하지 않는다. P36은 `in_progress`; Rust0650f7a·web66eac34 소스를 대조했으며 테스트·빌드·browser·두 리뷰·PR CI는 대기다. [P36a 기록](verification/p36a-graphic-points.md). 이 문서 작업은 실행 검증이나 전체 P36 완료를 주장하지 않는다.
 
-## P35 완료 감사 초안 (main #202 + #203 pending)
+## P35 완료 감사 (main #203, post-merge CI pending)
 
-P35a–n과 Et 표시 #185에 더해 #201의 Et plain text 편집, #202의 explicit retained-fragment membership/text 편집·확장이 병합되었다. #201 final head bfb54d7의 CI42311153640, #202 final head8d7efbe의 CI42316586336은 check/browser 모두 성공을 확인했다. 이전 감사의 “fixed Et만 제공하며 약어 text 편집이 없다”는 판단은 현재 구현과 달라 정정했다.
+P35a–n/Et #185 및 #201/#202에 더해 #203 fragment baseline/subscript/superscript runs가 main84ef063으로 병합되었다. #203 final head bdc331f의 PR CI42320918256 check/browser 성공을 직접 확인했다. #201 CI42311153640·#202 CI42316586336의 성공 근거도 유지한다. 이전 감사의 “fixed Et만 제공하며 약어 text/run 편집이 없다”는 판단은 #201–203으로 해소되었다.
 
-사용자가 결정한 실제 graph 보존·화면만 축약 정책은 유지한다. text/script는 화학 의미를 만들지 않고 atom typed state 편집과 구분한다. #203은 fragment baseline/subscript/superscript runs 후속이며 head e21b47b에서 아직 open/CI42319966036 진행 중으로 확인했다. PR body/부모 인계의 isolated full/local browser 성공 보고와 최종 PR CI 성공은 구분한다. 이전 check는15분 제한에 도달했고 e21b47b는25분으로 조정한 재실행이다. 이 감사 초안은 검사를 실행하지 않았다.
+사용자가 결정한 실제 graph 보존·화면만 축약 정책과 unchanged scope/acceptance를 대조하면, caption multi-style/script/alignment·typed atom 편집의 화학 의미 구분·retained Et/fragment text/script 편집·native 저장/이력·Unicode/long-text/run/codec index 검사에 bounded 완료 근거가 있다. arbitrary atom rich text·nickname atom union/dictionary/parser·external caption/display roundtrip은 구현하지 않았으며 이 범위를 일반 legacy 호환 완료로 확대하지 않는다.
 
-P35는 `in_progress`를 유지한다. #203 최종 CI·병합 후 부모가 unchanged scope/acceptance와 승인된 display-only 결정을 대조해 완료 상태를 판단한다. arbitrary atom text·원자별 rich runs·dictionary/parser·external caption/display roundtrip은 미지원이며 새로운 임의 의미나 완료요건으로 채우지 않는다. [완료 근거 대조와 대기 항목](verification/p35-completion-audit.md)을 현재 기준으로 사용한다. 아래 후보·대기 문구는 각 구현 당시 기록이며 #201/#202 확정 배송 근거는 위 감사가 우선한다.
+#203 Codex·독립 reviewer는9be4dd8의 reopen ink assertion label 오류를 함께 지적했고9b2e150에서 수정했다. 최종 PR body의 focused/full/local browser 성공 보고와 final PR CI, 기존15분 timeout 및25분 조정, catalog correction을 감사에 구분해 기록했다. 이 문서 작업은 검사를 재실행하지 않았다.
+
+P35는 `in_progress`를 유지한다. main84ef063의 post-merge CI는 부모 인계에서 진행 중이며 성공을 주장하지 않는다. 해당 결과와 문서 integration 검증을 기록한 뒤 부모가 bounded done 변경을 결정한다. [완료 근거 대조와 남은 gate](verification/p35-completion-audit.md)를 현재 기준으로 사용한다. 아래 후보·대기 문구는 각 구현 당시 기록이며 #201–203의 확정 배송/PR CI 근거는 위 감사가 우선한다.
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 

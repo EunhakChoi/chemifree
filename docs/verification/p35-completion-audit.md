@@ -1,15 +1,16 @@
 # P35 completion evidence audit
 
-P35 remains `in_progress`. This draft audits source at `e21b47b`, based on merged
-main `2b35e6c` (#202), while [#203](https://github.com/EunhakChoi/chemifree/pull/203)
-is open and its current CI run is pending. #201 and #202 have shipped editable
-Et text and explicit retained-fragment displays, so the earlier `f29195a` audit's
-"fixed Et only, no abbreviation text editor" conclusion is superseded. #203 adds
-display script runs in this branch; this draft does not claim it is merged or
-fully CI-verified, or declare the original row complete. It changes no product
-behavior and ran no tests, builds, browser checks or cargo checks.
+P35 remains `in_progress` pending post-merge main CI and the parent's final
+state change. This audit now covers merged main `84ef063` (#203). Editable Et
+text (#201), explicit retained-fragment displays (#202) and fragment script runs
+(#203) have shipped with successful final-head PR `check`/`browser` CI. The
+earlier `f29195a` audit's "fixed Et only, no abbreviation text editor" conclusion
+is superseded. The evidence supports the bounded editing/storage acceptance under
+the recorded graph-preserving decision; the remaining delivery gate is post-merge
+main CI, whose success is not claimed here. This audit changes no product behavior
+and ran no tests, builds, browser checks or cargo checks.
 
-The candidate/pending statements in the P35a–p and P34i implementation records,
+The candidate/pending statements in the P35a–q and P34i implementation records,
 and their copied README/CONTRACT/HANDOFF notes, describe those implementation
 sessions. The merged PR and CI evidence below supersedes that execution status;
 it does not turn unsupported behavior into implemented behavior.
@@ -44,16 +45,16 @@ nickname dictionary or text-to-graph interpretation is inferred to fill a gap.
 
 Merged #201 supplies an existing Et display's plain-text editor/reset. Merged
 #202 supplies explicit eligible fragment membership, plain-text editing and
-expansion. #203's candidate supplies ordered baseline/subscript/superscript runs
+expansion. Merged #203 supplies ordered baseline/subscript/superscript runs
 on that display. These address the former missing abbreviation editing path and
 must be assessed as graph-preserving display editing, rather than described as
 fixed Et. The public packet's `nickname`/`fragment` atom union carrying `label`
 and `expression` is still not implemented as those graph atom kinds: this product
 stores separate display metadata over real atoms. That distinction remains an
 explicit compatibility boundary, not a new arbitrary atom union or parser added
-by this audit. The parent must reconcile the approved display-only decision with
-the unchanged roadmap acceptance after #203 merges and its final checks pass;
-this draft makes no final completion decision.
+by this audit. The acceptance assessment below uses that recorded decision and
+the unchanged roadmap wording, while the parent retains the final state change
+until post-merge main CI succeeds.
 
 ## Implemented acceptance evidence
 
@@ -66,11 +67,40 @@ this draft makes no final completion decision.
 | Atom semantics | `apps/web/src/editor/atom-edits.ts` builds `update_atom` commands for element/isotope/charge/H/radical/query/attachment state. These change recorded chemical state and can change graph identity/calculations; the visible label is derived from state by `apps/web/src/editor/label.ts`. Document settings font/size/carbon display and P35j–n weight/style/underline/outline/shadow change presentation only. They do not parse arbitrary atom label text or assign chemistry to captions. |
 | Et text semantics (#201, merged) | `crates/domain/src/document/abbreviation.rs` retains its neutral C2/single-boundary eligibility. `update_abbreviation_label` edits a nonempty single-line string up to128 UTF-8 bytes; explicit null resets Et. Domain/application/provider display-label checks and `scripts/web-display-label-check.mjs` cover literal Unicode, history/replay/reset, graph/identity/formula preservation and measured SVG bounds. This is now editable display text, without a substituent parser. |
 | Fragment membership/text (#202, merged) | `crates/domain/src/document/fragment_display.rs`, `crates/domain/tests/fragment_display.rs` and `crates/application/tests/fragment_display.rs` cover explicit member/anchor contraction, text edits, expansion, exact graph/ID/state/coordinate/identity preservation, refusals, history/replay and full-graph scientific/export behavior. `crates/providers/tests/fragment_display_format.rs` covers strict v24/current/history/draft and old-byte archives; `scripts/web-fragment-display-check.mjs` exercises the actual form, hidden members, whole-member dragging and native roundtrip. Bounds and eligible shapes remain explicit below. |
-| Fragment script runs (#203, pending) | `explicit_scripts_are_preserved_in_history_and_plain_text_resets_to_one_baseline_run`, `run_budget_uses_total_utf8_bytes_and_nonempty_runs_without_an_independent_count_limit` and provider v24/v25 migration/strict-history tests preserve complete ordered runs. Application `rich_run_edit_replays_as_one_transaction_and_plain_text_resets_scripts`, `scripts/web-fragment-display-client-check.mjs` and the production browser script cover Korean, combining/ZWJ text, exact run/text agreement, baseline reset, IME, sub/sup positions and native reopen. This branch adds these checks; final PR CI and merge are pending, as detailed below. |
+| Fragment script runs (#203, merged) | `explicit_scripts_are_preserved_in_history_and_plain_text_resets_to_one_baseline_run`, `run_budget_uses_total_utf8_bytes_and_nonempty_runs_without_an_independent_count_limit` and provider v24/v25 migration/strict-history tests preserve complete ordered runs. Application `rich_run_edit_replays_as_one_transaction_and_plain_text_resets_scripts`, `scripts/web-fragment-display-client-check.mjs` and the production browser script cover Korean, combining/ZWJ text, exact run/text agreement, baseline reset, IME, sub/sup positions and native reopen. Final-head PR CI passes both jobs and #203 is merged, as detailed below. |
 | Measured rendering | `scene-caption.tsx`, `label.ts` and `scripts/web-label-{weight,style,underline,outline,shadow}-check.mjs` cover mounted SVG ink/advance, fit, trimming, picking and selection, family/size/style combinations, font completion and viewport/document provenance. Stored Unicode and bounds checks are distinct from universal glyph or legacy pixel equivalence. |
 | CDXML rich runs | `crates/providers/tests/cdxml.rs` and `cdxml_golden.rs` exercise the separate typed interchange tree with style-run Unicode text, XML entities, properties and ordered children. CDXML `<s>` child runs have text content rather than editor byte offsets. This tree does not import/export editor captions. |
 | CDX indices and strict encoding | `crates/providers/src/cdx/text.rs` converts encoded byte ranges into independent strings; `crates/providers/tests/cdx_reader.rs::style_runs_must_cover_the_text_in_order_with_known_fonts_and_colors` checks zero first index, ordering, range and known tables. `unstyled_text_is_latin_one_and_refuses_the_ambiguous_range`, `styled_text_applies_the_same_encoding_rules`, `font_charsets_and_platforms_are_never_guessed`, and writer `text_that_cannot_be_encoded_is_refused_not_approximated` keep the bounded Latin-1/charset restrictions explicit. Unsupported Korean/emoji encodings and ambiguous 0x80–0x9f are not guessed. |
 | CDX long framing | Reader `extended_lengths_carry_long_text_and_may_spell_short_values` and writer `long_text_uses_the_extended_length_and_reads_back` use 70,000 ASCII bytes and the extended property length; the writer asserts the 70,002-byte string payload and rereads it. This exercises binary framing separately from the editor's 16 KiB caption bound. |
+
+## Bounded acceptance assessment
+
+The shipped paths cover the roadmap's bounded editing-and-storage acceptance
+under the recorded graph-preserving display decision:
+
+- Multi-style Unicode runs, explicit subscript/superscript and alignment are
+  edited and saved by the independent caption path. Fragment displays additionally
+  edit explicit script runs and inherit the document's chemical typography.
+- Atom labels are edited through typed chemical state and derived presentation;
+  those state edits can change chemistry. Editable Et/fragment display text and
+  scripts preserve the actual graph and never infer chemistry. This explicitly
+  answers when a label edit changes atom meaning.
+- Korean, combining/ZWJ text, bounded long text, exact ordered run boundaries,
+  native history/drafts and saved/reopened measured glyph geometry have source,
+  regression and final-head PR CI evidence in the table. CDX byte-index/encoding
+  checks and long framing are separate codec evidence, not editor string offsets
+  or a promise of external caption/display roundtrip.
+
+The former missing abbreviation text/run path is resolved by #201–203. No
+additional product gap is identified within this explicit bounded profile. This
+assessment does not require inventing nickname chemistry, a dictionary/parser,
+per-atom arbitrary rich text, or universal rich-run styling/alignment for every
+label kind. Those broader unsupported behaviors remain below; it does not claim
+full legacy rendering compatibility or completion of RENDER-01/STYLE-01.
+
+Recommendation: mark bounded P35 complete only after successful post-merge main
+CI and integration checks are recorded. This commit deliberately leaves its
+status `in_progress`; it does not pre-approve an unfinished main run.
 
 ## Boundaries retained
 
@@ -102,8 +132,8 @@ weight/style overrides or alignment controls to fragments. Caption alignment and
 multi-style runs remain independently implemented as above. Native v25 requires
 runs without top-level text, v24 requires text without runs and migrates every
 current/history/draft display to one baseline run; exact-byte archives precede
-replacement/recovery, and future v26 refuses untouched. These source-inspected
-candidate rules are not a final CI claim.
+replacement/recovery, and future v26 refuses untouched. These merged rules have
+passing PR CI; post-merge main CI remains separate.
 
 Caption transforms/arrange/graphics
 clipboard refuse the whole unsupported request. Drawing exports report caption
@@ -141,6 +171,7 @@ Those historical reviews are not reviews of this documentation change.
 | Chemical shadow | [#199](https://github.com/EunhakChoi/chemifree/pull/199) | [42304228461](https://github.com/EunhakChoi/chemifree/actions/runs/42304228461) |
 | Editable Et display text | [#201](https://github.com/EunhakChoi/chemifree/pull/201) | [42311153640](https://github.com/EunhakChoi/chemifree/actions/runs/42311153640) |
 | Explicit retained-fragment display | [#202](https://github.com/EunhakChoi/chemifree/pull/202) | [42316586336](https://github.com/EunhakChoi/chemifree/actions/runs/42316586336) |
+| Fragment display script runs | [#203](https://github.com/EunhakChoi/chemifree/pull/203) | [42320918256](https://github.com/EunhakChoi/chemifree/actions/runs/42320918256) |
 
 The final #199 run passed `check` at 2026-11-06 22:31:13 UTC and `browser` at
 22:33:54 UTC. Its body records a fresh isolated full check, smoke and the five
@@ -164,31 +195,39 @@ fixed in `411a773`. Its off-screen browser click failure was fixed in the test.
 These dispositions come from the merged PR bodies; they are not new reviews of
 this audit draft.
 
-## #203 pending evidence and final decision gate
+## #203 merged evidence and remaining main-CI gate
 
-At the metadata inspection for this draft, #203 is open with head `e21b47b` and
-[CI run 42319966036](https://github.com/EunhakChoi/chemifree/actions/runs/42319966036)
-is `in_progress`. There is no confirmed merge SHA or complete successful current
-PR CI claim here. Its PR body and parent handoff report successful isolated full
-`npm run check`, routes, no-skip general smoke, fragment/display-label/Et/caption
-browser checks and focused Rust/frontend checks. The body records that the
-previous `9b2e150` browser job passed, while `check` reached the 15-minute limit
-during conformance; `e21b47b` changes that job's limit to 25 minutes and is being
-rerun. A timeout is not a full passing run. No check was rerun by this audit.
+Read-only PR metadata confirms #203 merged as
+`84ef063a8f39a859b575c9fe3cdd5ce674f40397` at 2026-11-07 01:09:37 UTC.
+Its final head is `bdc331f8171643a474791c6d313eb4019e54800b` and
+[PR CI run 42320918256](https://github.com/EunhakChoi/chemifree/actions/runs/42320918256)
+passed both `check` and `browser`; both jobs were read directly for this update.
+The browser includes retained-fragment/display-label/Et/caption matrices and the
+general smoke. The PR body separately reports successful isolated full
+`npm run check`, 110 conformance cases, traceability, routes, no-skip general
+smoke and focused Rust/frontend checks. This audit reran none of them.
 
-The #203 body records Codex and independent fresh-context review at `9be4dd8`;
-both identified the wrong post-reopen browser ink assertion label, fixed in
-`9b2e150` with an exact saved/reopened script-position comparison. It reports no
-other actionable independent finding and no repeat review request. Final merge,
-current-head CI and any later findings still need reconciliation by the parent.
+Codex and the independent fresh-context reviewer both reviewed `9be4dd8` and
+identified the wrong post-reopen browser ink assertion label. `9b2e150` fixed
+it and added an exact saved/reopened script-position comparison. The independent
+review reported no other actionable finding; no repeat review was requested.
+The operation catalog later gained the four existing fragment-display command
+rows and scene-tree capability links, with exact counts, public documentation and
+HTTP/CLI smoke updated. Focused operations/contract checks were rerun successfully
+according to the final PR body, and the final-head PR CI above covers the result.
+These are the actual reported review/fix dispositions, not a fresh review of this
+completion documentation.
 
-Before a final P35 state decision, replace this pending snapshot with verified
-final head/merge/run evidence and reconcile the unchanged scope and acceptance
-table against the approved graph-preserving decision. Keep unsupported atom text,
-per-atom rich runs, external roundtrip and bounded display eligibility explicit.
-Do not infer dictionary/parser requirements, count an unexecuted check as passed,
-or promote all RENDER-01/STYLE-01 work merely because the bounded P35 path ships.
-P35 remains `in_progress` in this draft; the parent owns the later conclusion.
+The earlier `9b2e150` browser job passed while its `check` timed out during
+conformance at the 15-minute limit. `e21b47b` raised that limit to 25 minutes;
+the successful final-head run supersedes the old pending snapshot, without
+turning that timeout into a pass.
+
+Post-merge main CI for `84ef063` is pending in the parent handoff and is not
+claimed successful here. Record that run's final result separately from PR CI
+before the parent promotes bounded P35 to done. Later documentation integration
+checks and this documentation PR's own review/CI remain separate gates. The
+roadmap remains `in_progress` until those required final results are reconciled.
 
 ## Documentation integration checks still required
 
