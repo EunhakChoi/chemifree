@@ -1,4 +1,4 @@
-//! Public graphic styles retain graph state, replay and strict clipboard loss boundaries.
+//! Public graphic styles retain graph state, replay and versioned clipboard fidelity.
 
 use chemifree_application::{Application, CommandDto};
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
@@ -174,7 +174,7 @@ fn malformed_widths_and_wrong_targets_are_atomic_with_existing_error_codes() {
 }
 
 #[test]
-fn graphics_clipboard_refuses_override_but_null_restoration_keeps_v2_payload_unchanged() {
+fn graphics_clipboard_preserves_override_in_v3_and_null_restoration_keeps_exact_v2_payload() {
     let (app, _root, id) = setup();
     let copy = |request: &str| {
         send(
@@ -189,6 +189,9 @@ fn graphics_clipboard_refuses_override_but_null_restoration_keeps_v2_payload_unc
     let payload: Value =
         serde_json::from_str(original["result"]["payload"].as_str().unwrap()).unwrap();
     assert_eq!(payload["version"], 2);
+    for object in payload["objects"].as_array().unwrap() {
+        assert!(!object.as_object().unwrap().contains_key("line_width_pt"));
+    }
     app.apply_transaction(
         &id,
         None,
@@ -197,11 +200,27 @@ fn graphics_clipboard_refuses_override_but_null_restoration_keeps_v2_payload_unc
     )
     .unwrap();
     let before = view(&app, &id);
-    let refused = copy("styled-copy");
-    assert_eq!(
-        refused["diagnostics"][0]["details"]["reason"],
-        "clipboard_scene_graphic_line_width_unsupported",
-        "{refused}"
+    let styled = copy("styled-copy");
+    assert_eq!(styled["outcome"], "ok", "{styled}");
+    assert_eq!(styled["loss_report"], json!([]));
+    let styled_payload: Value =
+        serde_json::from_str(styled["result"]["payload"].as_str().unwrap()).unwrap();
+    assert_eq!(styled_payload["version"], 3);
+    let copied_graphic = |id: &str| {
+        styled_payload["objects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|object| object["id"] == id)
+            .unwrap()
+    };
+    assert_eq!(copied_graphic("s2")["line_width_pt"], 1.2);
+    assert_eq!(copied_graphic("s3")["line_width_pt"], Value::Null);
+    assert!(
+        copied_graphic("s3")
+            .as_object()
+            .unwrap()
+            .contains_key("line_width_pt")
     );
     assert_eq!(view(&app, &id), before);
     app.apply_transaction(

@@ -7,7 +7,8 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import type { DocumentEditor, NativeSceneClipboardCutPlan } from '@/hooks/use-document-editor'
-import { ApiError, MAX_NATIVE_CLIPBOARD_BYTES, settingsOf, type DocumentView, type NativeSceneClipboardCopy } from '@/lib/document-contract'
+import { MAX_NATIVE_CLIPBOARD_BYTES, settingsOf, type DocumentView, type NativeSceneClipboardCopy } from '@/lib/document-contract'
+import { sceneClipboardGraphicStyles } from '@/lib/scene-clipboard-contract'
 
 interface SceneClipboardPanelProps {
   document: DocumentView
@@ -26,7 +27,6 @@ interface PendingAction {
 }
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError && error.stateReason === 'clipboard_scene_graphic_line_width_unsupported') return 'Graphics Copy/Cut cannot preserve explicit line-width overrides. The source is retained. Select each overridden graphic and use document width before copying; this explicitly applies the document width.'
   return error instanceof Error ? error.message : 'The graphics clipboard request failed.'
 }
 
@@ -238,7 +238,7 @@ export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelPro
 
   return <section aria-label="Scene graphics clipboard" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3">
     <h3 className="text-sm font-medium">Scene graphics clipboard</h3>
-    <p className="text-xs text-muted-foreground">Copy or cut selected lines, arrows, rectangles and groups with their internal object references. Mixed atom/bond selections, molecule placements, outgoing references outside the forest and groups with fewer than two children are refused. Cut also refuses references from outside the forest. Explicit graphic line-width overrides are refused; use document width in the selected graphic inspector before Copy/Cut. Paste requires matching document style. External graphics formats are not available.</p>
+    <p className="text-xs text-muted-foreground">Copy or cut selected lines, arrows, rectangles and groups with their internal object references. Mixed atom/bond selections, molecule placements, outgoing references outside the forest and groups with fewer than two children are refused. Cut also refuses references from outside the forest. Explicit graphic line widths are preserved; inherited widths continue to follow the document width. Paste requires matching document style. External graphics formats are not available.</p>
     <Dialog open={mode !== null} onOpenChange={(open) => { if (!open) close() }}>
       <div className="flex flex-wrap gap-2">
         <DialogTrigger render={<Button size="sm" variant="outline" disabled={busy} />} onClick={() => void prepareCopy()}>Copy graphics…</DialogTrigger>
@@ -254,6 +254,7 @@ export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelPro
             ? mode === 'cut' ? 'Cut to clipboard writes this captured forest first, then removes its roots only if the source drawing is unchanged. Clipboard writing and deletion are separate: a refused deletion leaves a copy. Manual copying never authorizes deletion. Undo changes the document only.' : 'This text contains the captured graphics and groups. Select it for manual copying if browser clipboard access is unavailable.'
             : 'Paste Chemifree native graphics text below. Reading the browser clipboard requires your click. Text is sent to the local service only when you press Paste graphics. Graph-fragment and external-format text are not accepted here.'}</DialogDescription>
           {unresolved}
+          <GraphicStyles text={mode === 'paste' ? text : currentOffer?.payload ?? ''} />
           {mode !== 'paste' ? <>
             {currentOffer && <p role="status">{currentOffer.roots.length} roots, {currentOffer.copied.objects.length} objects, revision {currentOffer.snapshot.document.revision}.</p>}
             {(offer && !currentOffer || pending !== null && pending.generation !== editor.serviceGeneration) && <p>The service changed. Close this dialog and copy the graphics again.</p>}
@@ -302,4 +303,12 @@ export function SceneClipboardPanel({ document, editor }: SceneClipboardPanelPro
     {mode === null && unresolved}
     {mode === null && error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
   </section>
+}
+
+function GraphicStyles({ text }: { text: string }) {
+  const styles = sceneClipboardGraphicStyles(text)
+  if (!styles?.length) return null
+  return <ul aria-label="Clipboard graphic line widths" className="flex flex-col gap-1 text-xs text-muted-foreground">
+    {styles.map((style) => <li key={style.id}>{style.shape} {style.id}: {style.lineWidth === null ? 'document width (inherited)' : `${style.lineWidth} pt (override)`}</li>)}
+  </ul>
 }

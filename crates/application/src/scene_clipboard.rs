@@ -5,7 +5,7 @@ use chemifree_domain::scene::{
     Graphic, GraphicShape, ReferenceTarget, SceneObject, SceneReference,
 };
 use chemifree_domain::scene_clipboard::{Fragment, FragmentObject, SceneFragmentError};
-use chemifree_domain::settings::Settings;
+use chemifree_domain::settings::{LINE_WIDTH_RANGE, Settings};
 use serde::{Deserialize, Serialize};
 
 use crate::ApplicationError;
@@ -54,11 +54,45 @@ enum ObjectData {
         id: String,
         shape: GraphicShapeDto,
         points: [PointData; 2],
+        // Outer None is omission in v2; Some(None) is explicit inheritance in v3.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "line_width_field"
+        )]
+        line_width_pt: Option<Option<f64>>,
     },
     Group {
         id: String,
         children: Vec<String>,
     },
+}
+
+fn line_width_field<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<f64>>, D::Error> {
+    Option::<f64>::deserialize(deserializer).map(Some)
+}
+
+fn graphic_width(
+    version: u32,
+    field: Option<Option<f64>>,
+) -> Result<Option<f64>, ApplicationError> {
+    let width = match (version, field) {
+        (2, None) => None,
+        (3, Some(width)) => width,
+        _ => {
+            return Err(invalid(
+                "Graphic line_width_pt is forbidden in clipboard v2 and required in v3.",
+            ));
+        }
+    };
+    if width.is_some_and(|value| !value.is_finite() || !LINE_WIDTH_RANGE.contains(&value)) {
+        return Err(invalid(
+            "Graphic line width must be finite and within 0.1–10 pt, or null for inheritance.",
+        ));
+    }
+    Ok(width)
 }
 
 #[derive(Deserialize, Serialize)]
@@ -92,7 +126,7 @@ fn invalid(message: impl Into<String>) -> ApplicationError {
 fn unsupported() -> ApplicationError {
     clipboard::refusal(
         "clipboard_format_unsupported",
-        "Expected chemifree.clipboard version 2 with kind graphics",
+        "Expected chemifree.clipboard version 2 or 3 with kind graphics",
     )
 }
 
@@ -135,6 +169,7 @@ fn byte_limit() -> ApplicationError {
 /// Refuses an invalid domain fragment or text exceeding the native clipboard byte limit.
 pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
     fragment.validate().map_err(domain_refusal)?;
+    let styled = fragment.objects.iter().any(|entry| matches!(&entry.object, SceneObject::Graphic(graphic) if graphic.line_width_pt.is_some()));
     let mut objects = Vec::with_capacity(fragment.objects.len());
     for entry in &fragment.objects {
         objects.push(match &entry.object {
@@ -149,6 +184,7 @@ pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
                     x: point.x(),
                     y: point.y(),
                 }),
+                line_width_pt: styled.then_some(graphic.line_width_pt),
             },
             SceneObject::Group { children } => ObjectData::Group {
                 id: entry.id.to_string(),
@@ -185,7 +221,7 @@ pub(crate) fn encode(fragment: &Fragment) -> Result<String, ApplicationError> {
         .collect::<Result<Vec<_>, ApplicationError>>()?;
     let payload = Payload {
         format: "chemifree.clipboard".into(),
-        version: 2,
+        version: if styled { 3 } else { 2 },
         kind: "graphics".into(),
         settings: contract::settings_view(&fragment.settings),
         roots: fragment.roots.iter().map(ToString::to_string).collect(),
@@ -211,7 +247,7 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
     let value =
         crate::json::parse_strict(text.as_bytes()).map_err(|error| invalid(error.to_string()))?;
     let header = Header::deserialize(&value).map_err(|error| invalid(error.to_string()))?;
-    if header.format != "chemifree.clipboard" || header.version != 2 {
+    if header.format != "chemifree.clipboard" || !matches!(header.version, 2 | 3) {
         return Err(unsupported());
     }
     let kind = KindHeader::deserialize(&value).map_err(|error| invalid(error.to_string()))?;
@@ -223,12 +259,17 @@ pub(crate) fn decode(text: &str) -> Result<Fragment, ApplicationError> {
     let mut objects = Vec::with_capacity(payload.objects.len());
     for entry in payload.objects {
         objects.push(match entry {
-            ObjectData::Graphic { id, shape, points } => {
+            ObjectData::Graphic {
+                id,
+                shape,
+                points,
+                line_width_pt,
+            } => {
                 let [first, second] = points;
                 FragmentObject {
                     id: object_id(&id)?,
                     object: SceneObject::Graphic(Graphic {
-                        line_width_pt: None,
+                        line_width_pt: graphic_width(payload.version, line_width_pt)?,
                         shape: match shape {
                             GraphicShapeDto::Line => GraphicShape::Line,
                             GraphicShapeDto::Arrow => GraphicShape::Arrow,
@@ -408,7 +449,7 @@ mod tests {
     #[test]
     fn unsupported_headers_are_classified_before_any_version_specific_body() {
         for unsupported in [
-            json!({"format":"chemifree.clipboard","version":3,"future_body":{"commands":[1,2]}}),
+            json!({"format":"chemifree.clipboard","version":4,"future_body":{"commands":[1,2]}}),
             json!({"format":"chemifree.clipboard","version":u64::MAX,"future":true}),
             json!({"format":"another.format","version":2,"kind":"graphics","unknown":null}),
             json!({"format":"chemifree.clipboard","version":2,"kind":"molecules","new_body":[]}),

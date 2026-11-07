@@ -28,6 +28,7 @@ import React, { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { NativeClipboardPanel } from '/src/components/native-clipboard-panel.tsx'
 import { SceneClipboardPanel } from '/src/components/scene-clipboard-panel.tsx'
+import { StructureCanvas } from '/src/editor/structure-canvas.tsx'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
 import '/src/index.css'
 const ids = ${JSON.stringify(ids)}
@@ -48,6 +49,7 @@ function Harness() {
     {editor.current && <div key={editor.current.document.id}>
       <NativeClipboardPanel document={editor.current.document} editor={editor} activePlacement={editor.current.document.id === ids.source ? 's2' : 's1'} />
       <SceneClipboardPanel document={editor.current.document} editor={editor} />
+      <div style={{width:800,height:450}}><StructureCanvas document={editor.current.document} tool="select" element="C" bondKind="single" selection={editor.selection} onSelectionChange={editor.setSelection} activePlacement="s1" onActivePlacementChange={()=>{}} onCommands={(commands)=>void editor.apply(commands)} onMark={()=>{}} disabled={editor.busy}/></div>
     </div>}
   </main>
 }
@@ -101,12 +103,13 @@ try {
     assert.ok(response.ok, `${path}: ${response.status} ${JSON.stringify(value)}`)
     return value
   }
-  async function seed(title, commands) {
+  async function seed(title, commands, styles = []) {
     const created = await request('/documents', { title })
     const id = created.document.id
-    await request(`/documents/${id}/transactions`, { expected_revision: 0, commands })
+    let drawn = await request(`/documents/${id}/transactions`, { expected_revision: 0, commands })
+    if (styles.length) drawn = await request(`/documents/${id}/transactions`, { expected_revision: drawn.document.revision, commands: styles })
     // Clean seeds avoid source autosave/session changes obscuring copy immutability.
-    await request(`/documents/${id}/save`, { expected_revision: 1 })
+    await request(`/documents/${id}/save`, { expected_revision: drawn.document.revision })
     return id
   }
   const graphic = (shape, points) => ({ op: 'add_graphic', shape, points })
@@ -132,6 +135,10 @@ try {
     { op: 'add_reference', source: 's3', target: { kind: 'object', id: 's4' } },
     { op: 'add_reference', source: 's4', target: { kind: 'object', id: 's3' } },
     { op: 'add_reference', source: 's8', target: { kind: 'object', id: 's6' } },
+  ], [
+    { op: 'set_graphic_line_width', object: 's3', line_width_pt: .1 },
+    { op: 'set_graphic_line_width', object: 's4', line_width_pt: 10 },
+    { op: 'set_graphic_line_width', object: 's8', line_width_pt: 1.2 },
   ])
   const destinationCommands = [
     { op: 'add_atom', element: 'C', position: { x: -30, y: -40 } },
@@ -212,6 +219,13 @@ try {
     const text = page.getByRole('textbox', { name: graphMode ? 'Native fragment text' : 'Native graphics text', exact: true })
     await page.waitForFunction(() => document.querySelector('textarea')?.value.includes('chemifree.clipboard'))
     assert.equal(await text.inputValue(), envelope.result.payload)
+    if (!graphMode) {
+      assert.equal(JSON.parse(envelope.result.payload).version,3)
+      const styles=page.getByRole('list',{name:'Clipboard graphic line widths'})
+      assert.match(await styles.textContent(),/line s3: 0.1 pt \(override\)/)
+      assert.match(await styles.textContent(),/arrow s4: 10 pt \(override\)/)
+      assert.match(await styles.textContent(),/rectangle s5: document width \(inherited\)/)
+    }
     await button('Copy to clipboard').click()
     await page.getByRole('status').filter({ hasText: graphMode ? 'Native fragment text copied to clipboard.' : 'Native graphics text copied to clipboard.' }).waitFor()
     await button('Close').click()
@@ -226,6 +240,7 @@ try {
     await page.waitForFunction((expected) => document.querySelector('textarea')?.value === expected, payload)
     await page.getByRole('textbox', { name: 'Offset x (pt)', exact: true }).fill('30')
     await page.getByRole('textbox', { name: 'Offset y (pt)', exact: true }).fill('40')
+    if (!graphMode) assert.match(await page.getByRole('list',{name:'Clipboard graphic line widths'}).textContent(),/arrow s4: 10 pt \(override\)/)
     const envelope = await operation(graphMode ? 'document.clipboard_paste' : 'document.clipboard_scene_paste', () => button(graphMode ? 'Paste fragment' : 'Paste graphics').click())
     await page.getByRole('dialog').waitFor({ state: 'detached' })
     return envelope.result
@@ -340,10 +355,10 @@ try {
   assert.deepEqual(sceneAfter.document.scene.roots, ['s1', 's2', mapping.s7, mapping.s8])
   assert.deepEqual(object(mapping.s7), { kind: 'group', id: mapping.s7, parent: null, children: [mapping.s6, mapping.s5] })
   assert.deepEqual(object(mapping.s6), { kind: 'group', id: mapping.s6, parent: mapping.s7, children: [mapping.s3, mapping.s4] })
-  assert.deepEqual(object(mapping.s3), { kind: 'graphic', line_width_pt: null, id: mapping.s3, parent: mapping.s6, shape: 'line', points: [{ x: 31, y: 38 }, { x: 60, y: 44 }] })
-  assert.deepEqual(object(mapping.s4), { kind: 'graphic', line_width_pt: null, id: mapping.s4, parent: mapping.s6, shape: 'arrow', points: [{ x: 35, y: 46 }, { x: 37, y: 48 }] })
+  assert.deepEqual(object(mapping.s3), { kind: 'graphic', line_width_pt: .1, id: mapping.s3, parent: mapping.s6, shape: 'line', points: [{ x: 31, y: 38 }, { x: 60, y: 44 }] })
+  assert.deepEqual(object(mapping.s4), { kind: 'graphic', line_width_pt: 10, id: mapping.s4, parent: mapping.s6, shape: 'arrow', points: [{ x: 35, y: 46 }, { x: 37, y: 48 }] })
   assert.deepEqual(object(mapping.s5), { kind: 'graphic', line_width_pt: null, id: mapping.s5, parent: mapping.s7, shape: 'rectangle', points: [{ x: 50, y: 65 }, { x: 40, y: 55 }] })
-  assert.deepEqual(object(mapping.s8), { kind: 'graphic', line_width_pt: null, id: mapping.s8, parent: null, shape: 'line', points: [{ x: 70, y: 90 }, { x: 90, y: 110 }] })
+  assert.deepEqual(object(mapping.s8), { kind: 'graphic', line_width_pt: 1.2, id: mapping.s8, parent: null, shape: 'line', points: [{ x: 70, y: 90 }, { x: 90, y: 110 }] })
   // References are canonicalized by destination IDs, independently of payload order.
   const referenceKeys = (references) => references.map(({ source, target }) => `${source}:${target.kind}:${target.id}`).sort()
   assert.deepEqual(referenceKeys(sceneAfter.document.scene.references), referenceKeys([
@@ -354,15 +369,62 @@ try {
     { source: mapping.s8, target: { kind: 'object', id: mapping.s6 } },
   ]))
   assert.deepEqual(sceneAfter.document.selection, { objects: [mapping.s7, mapping.s8].sort(), atoms: [], bonds: [] })
+  for (const [id,tag,width] of [[mapping.s3,'line',.1],[mapping.s4,'line',10],[mapping.s5,'rect',1.2],[mapping.s8,'line',1.2]]) {
+    assert.equal(Number(await page.locator('[data-scene-object="'+id+'"] '+tag+'.stroke-foreground').getAttribute('stroke-width')),width,'pasted graphic ink retains its effective width')
+  }
   await history(sceneBefore, sceneAfter, { objects: ['s1'], atoms: ['a1'], bonds: ['b1'] }, [mapping.s7, mapping.s8])
   assert.deepEqual(stable(await snapshot(source)), stable(sourceBefore))
   assert.deepEqual(stable(await snapshot(graph)), stable(beforeRefusal), 'forest paste cannot change the other destination')
+  stage = 'malformed styled text is not displayed and is refused without a destination edit'
+  const beforeInvalid = await shown()
+  for (const [name,mutate,reason] of [
+    ['duplicate width',(payload)=>JSON.stringify(payload).replace('"line_width_pt":0.1','"line_width_pt":0.1,"line_width_pt":10'),'clipboard_fragment_invalid'],
+    ['missing v3 width',(payload)=>{delete payload.objects.find((object)=>object.kind==='graphic').line_width_pt},'clipboard_fragment_invalid'],
+    ['out-of-range width',(payload)=>{payload.objects.find((object)=>object.kind==='graphic').line_width_pt=10.01},'clipboard_fragment_invalid'],
+    ['v2 width field',(payload)=>{payload.version=2},'clipboard_fragment_invalid'],
+    ['future version',(payload)=>{payload.version=4},'clipboard_format_unsupported'],
+  ]) {
+    const malformed=JSON.parse(sceneCopy.payload)
+    const text=mutate(malformed)??JSON.stringify(malformed)
+    await button('Paste graphics…').click()
+    await page.getByRole('textbox',{name:'Native graphics text',exact:true}).fill(text)
+    const refused=await operation('document.clipboard_scene_paste',()=>button('Paste graphics').click(),'error')
+    assert.equal(refused.diagnostics[0].details.reason,reason,name)
+    await page.getByRole('alert').waitFor()
+    assert.deepEqual(stable(await shown()),stable(beforeInvalid),name)
+    assert.deepEqual(stable(await snapshot(scene)),stable(beforeInvalid),name)
+    assert.equal(await page.getByRole('list',{name:'Clipboard graphic line widths'}).count(),0,name+' has no ambiguous preview after server refusal')
+    await button('Close').click()
+  }
+  stage = 'styled forest Cut retains clipboard widths and restores them with Undo'
+  await open('source', source)
+  await button('Select source forest').click()
+  const cutOffer = await operation('document.clipboard_scene_copy', () => button('Cut graphics…').click())
+  const cutText = page.getByRole('textbox', {name:'Native graphics text',exact:true})
+  await page.waitForFunction(() => document.querySelector('textarea')?.value.includes('chemifree.clipboard'))
+  assert.equal(await cutText.inputValue(),cutOffer.result.payload)
+  assert.equal(JSON.parse(cutOffer.result.payload).version,3)
+  const removed = page.waitForResponse((response) => response.url().endsWith('/transactions'))
+  await button('Cut to clipboard').click()
+  assert.equal((await removed).status(),200)
+  await revision(sourceBefore.document.revision+1)
+  const cutAfter = await shown()
+  assert.deepEqual(cutAfter.document.scene.objects,sourceBefore.document.scene.objects.slice(0,2))
+  assert.deepEqual(cutAfter.document.scene.roots,['s1','s2'])
+  assert.deepEqual(cutAfter.document.scene.references,[])
+  for (const field of ['atoms','bonds','stereo','settings']) assert.deepEqual(cutAfter.document[field],sourceBefore.document[field])
+  await button('Undo edit').click();await revision(cutAfter.document.revision+1)
+  assert.deepEqual((await shown()).document.scene,sourceBefore.document.scene)
+  await button('Redo edit').click();await revision(cutAfter.document.revision+2)
+  assert.deepEqual((await shown()).document.scene,cutAfter.document.scene)
+  await button('Undo edit').click();await revision(cutAfter.document.revision+3)
+  assert.deepEqual((await shown()).document.scene,sourceBefore.document.scene)
   const transport = await page.evaluate(() => window.clipboardTransport)
-  assert.deepEqual(transport.writes, [{ text: graphCopy.payload, activated: true }, { text: sceneCopy.payload, activated: true }])
+  assert.deepEqual(transport.writes, [{ text: graphCopy.payload, activated: true }, { text: sceneCopy.payload, activated: true }, { text: cutOffer.result.payload, activated: true }])
   assert.deepEqual(transport.reads, [{ activated: true }, { activated: true }], 'history never reads or writes clipboard')
   assert.deepEqual(errors, [])
   passed = true
-  console.log('Real backend native graph and graphic forest cross-document clipboard integration passed.')
+  console.log('Real backend native graph and styled graphic forest Copy/Cut/Paste integration passed.')
 } catch (error) {
   console.error(`Native clipboard integration failed at ${stage}. Data retained at ${work}.\n${apiLog}`)
   throw error

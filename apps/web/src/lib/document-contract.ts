@@ -1024,6 +1024,11 @@ function isSettings(value: unknown, complete: boolean) {
   )
 }
 
+/** Complete document settings with only supported fields and bounded values. */
+export function isDocumentSettings(value: unknown): value is DocumentSettings {
+  return isSettings(value, true)
+}
+
 function isRecovery(value: unknown): value is RecoveryView | null {
   return (
     value === null ||

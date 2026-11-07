@@ -1,5 +1,7 @@
 # P36d per-graphic line-width candidate
 
+Compatibility follow-up: [P36e](p36e-styled-graphics-clipboard.md) adds candidate v3 transport preserving explicit widths. The v2-only subtree refusal and mandatory pre-copy reset below describe the historical P36d policy, not the current P36e source. V2 stays strict/all-inherited output; v3 has its own pending verification and does not change native v26. Use document width is now an optional inheritance edit, not a Copy/Cut prerequisite.
+
 Source inspection covers Rust production `e6e3b45` and the concurrently edited
 web draft. The parent reports27 targeted Rust tests passed for that production
 change. This documentation pass did not execute them; web/full checks, reviews
@@ -50,7 +52,8 @@ exercises near-maximal graphic/history populations with long float lexemes for
 document and draft encodings within the existing byte-admission/persistence
 contracts.
 
-Clipboard graphic forest v2 remains unchanged and cannot carry explicit widths.
+Historical P36d-only clipboard policy (superseded by candidate P36e v3):
+graphic forest v2 remains unchanged and cannot carry explicit widths.
 Copy/Cut preparation traverses the whole selected forest and refuses if any
 graphic, including a descendant, has an override with typed reason
 `clipboard_scene_graphic_line_width_unsupported`. No subset is copied/deleted and

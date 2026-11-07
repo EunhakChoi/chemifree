@@ -74,7 +74,7 @@ function GraphicLineWidthForm({ document, graphic, editor }: { document: Documen
       <FieldLabel htmlFor={id}>Graphic line width (pt)</FieldLabel>
       <Input id={id} value={text} inputMode="decimal" disabled={editor.busy} placeholder={`Document width (${documentWidth} pt)`} aria-invalid={lineWidth === undefined} aria-describedby={`${id}-help`}
         onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)} onChange={(event) => setText(event.target.value)} />
-      <FieldDescription id={`${id}-help`}>Blank inherits the document width; an explicit width must be 0.1–10 pt. Effective width: {graphicLineWidth(graphic, documentWidth)} pt ({inherited ? 'document inheritance' : 'graphic override'}). Graphics Copy/Cut refuses overrides. Use document width to remove this override explicitly before copying; appearance then follows the document width.</FieldDescription>
+      <FieldDescription id={`${id}-help`}>Blank inherits the document width; an explicit width must be 0.1–10 pt. Effective width: {graphicLineWidth(graphic, documentWidth)} pt ({inherited ? 'document inheritance' : 'graphic override'}). Graphics Copy/Cut preserves explicit widths. Use document width to restore dynamic inheritance.</FieldDescription>
     </Field></FieldGroup>
     <div className="flex flex-wrap gap-2">
       <Button type="submit" variant="outline" size="sm" disabled={editor.busy || composing || lineWidth === undefined || unchanged}>Apply graphic line width</Button>

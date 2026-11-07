@@ -1,10 +1,12 @@
-import type { DocumentView, NativeClipboardIdMapping, Position, SceneObject, SceneReference, SelectionView } from '@/lib/document-contract'
+import { isDocumentSettings, MAX_NATIVE_CLIPBOARD_BYTES, SETTING_RANGES, type DocumentSettings, type DocumentView, type GraphicShape, type NativeClipboardIdMapping, type Position, type SceneObject, type SceneReference, type SelectionView } from '@/lib/document-contract'
+import { parseStrictJson } from '@/lib/strict-json'
 
 type GraphicObject = Extract<SceneObject, { kind: 'graphic' | 'group' }>
-type PayloadObject = Omit<Extract<GraphicObject, { kind: 'graphic' }>, 'parent'> | Omit<Extract<GraphicObject, { kind: 'group' }>, 'parent'>
+type PayloadObject = (Omit<Extract<GraphicObject, { kind: 'graphic' }>, 'parent' | 'line_width_pt'> & { line_width_pt: number | null }) | Omit<Extract<GraphicObject, { kind: 'group' }>, 'parent'>
 
 interface GraphicPayload {
-  settings: Record<string, unknown>
+  version: 2 | 3
+  settings: DocumentSettings
   roots: string[]
   objects: PayloadObject[]
   references: SceneReference[]
@@ -54,27 +56,32 @@ function sameReferences(first: SceneReference[], second: SceneReference[]): bool
     second.every((reference) => keys.has(referenceKey(reference)))
 }
 
-/** Only used after a successful service reply; invalid input is still diagnosed by the service. */
+/** Read bounded wire profiles for summaries and reply checks; the service diagnoses paste errors. */
 function payloadOf(text: string): GraphicPayload | null {
+  if (text.length > MAX_NATIVE_CLIPBOARD_BYTES || new TextEncoder().encode(text).length > MAX_NATIVE_CLIPBOARD_BYTES) return null
   let value: unknown
   try {
-    value = JSON.parse(text)
+    value = parseStrictJson(text)
   } catch {
     return null
   }
   if (!record(value) || !exactKeys(value, ['format', 'version', 'kind', 'settings', 'roots', 'objects', 'references']) ||
-      value.format !== 'chemifree.clipboard' || value.version !== 2 || value.kind !== 'graphics' || !record(value.settings) ||
+      value.format !== 'chemifree.clipboard' || (value.version !== 2 && value.version !== 3) || value.kind !== 'graphics' || !record(value.settings) ||
       !ids(value.roots) || value.roots.length === 0 || !Array.isArray(value.objects) || value.objects.length > 1000 ||
       !Array.isArray(value.references) || value.references.length > 4096 || value.objects.length + value.references.length > 500) return null
+  // SettingsDto defaults only these newer label fields in legacy v2/v3 payloads.
+  const settings = { label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, ...value.settings }
+  if (!isDocumentSettings(settings)) return null
   const objects: PayloadObject[] = []
   for (const item of value.objects) {
     if (!record(item) || !objectId(item.id) || objects.some((prior) => prior.id === item.id)) return null
     if (item.kind === 'group' && exactKeys(item, ['kind', 'id', 'children']) && ids(item.children) && item.children.length >= 2) {
       objects.push({ kind: 'group', id: item.id, children: item.children })
-    } else if (item.kind === 'graphic' && exactKeys(item, ['kind', 'id', 'shape', 'points']) &&
+    } else if (item.kind === 'graphic' && exactKeys(item, value.version === 3 ? ['kind', 'id', 'shape', 'points', 'line_width_pt'] : ['kind', 'id', 'shape', 'points']) &&
+        (value.version === 2 || item.line_width_pt === null || (typeof item.line_width_pt === 'number' && Number.isFinite(item.line_width_pt) && item.line_width_pt >= SETTING_RANGES.line_width_pt[0] && item.line_width_pt <= SETTING_RANGES.line_width_pt[1])) &&
         (item.shape === 'line' || item.shape === 'arrow' || item.shape === 'rectangle') &&
         Array.isArray(item.points) && item.points.length === 2 && point(item.points[0]) && point(item.points[1])) {
-      objects.push({ kind: 'graphic', id: item.id, shape: item.shape, points: [item.points[0], item.points[1]] })
+      objects.push({ kind: 'graphic', id: item.id, shape: item.shape, points: [item.points[0], item.points[1]], line_width_pt: typeof item.line_width_pt === 'number' ? item.line_width_pt : null })
     } else return null
   }
   const byId = new Map(objects.map((object) => [object.id, object]))
@@ -97,7 +104,15 @@ function payloadOf(text: string): GraphicPayload | null {
     references.push({ source: item.source, target: { kind: 'object', id: item.target.id } })
   }
   if (!sameReferences(references, references)) return null
-  return { settings: { label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, ...value.settings }, roots: value.roots, objects, references }
+  return { version: value.version, settings, roots: value.roots, objects, references }
+}
+
+/** Strictly read the styles shown beside clipboard text, without interpreting chemical content. */
+export function sceneClipboardGraphicStyles(text: string): Array<{ id: string; shape: GraphicShape; lineWidth: number | null }> | null {
+  const payload = payloadOf(text)
+  if (!payload) return null
+  return payload.objects.flatMap((object) => object.kind === 'graphic'
+    ? [{ id: object.id, shape: object.shape, lineWidth: object.line_width_pt }] : [])
 }
 
 /** Checks the entire copied forest against the requested source scope without following references. */
@@ -119,16 +134,17 @@ export function sceneClipboardCopyMatches(
     const selected = included || wanted.has(id)
     if (!included && selected) expectedRoots.push(id)
     if (selected) {
-      if (object.kind === 'instance' || object.kind === 'caption' || (object.kind === 'graphic' && object.line_width_pt != null)) return false
+      if (object.kind === 'instance' || object.kind === 'caption') return false
       if (object.kind === 'group') objects.push({ kind: object.kind, id, children: object.children })
-      else objects.push({ kind: object.kind, id, shape: object.shape, points: object.points })
+      else objects.push({ kind: object.kind, id, shape: object.shape, points: object.points, line_width_pt: object.line_width_pt ?? null })
     }
     return object.kind !== 'group' || object.children.every((child) => visit(child, selected))
   }
   if (!scene.roots.every((root) => visit(root, false))) return false
   const included = new Set(objects.map((object) => object.id))
   const references = (scene.references ?? []).filter((reference) => included.has(reference.source))
-  return equal(roots, expectedRoots) && equal(payload.roots, expectedRoots) &&
+  const version = objects.some((object) => object.kind === 'graphic' && object.line_width_pt !== null) ? 3 : 2
+  return payload.version === version && equal(roots, expectedRoots) && equal(payload.roots, expectedRoots) &&
     equal(copied.objects, objects.map((object) => object.id)) && equal(payload.objects, objects) && sameReferences(payload.references, references)
 }
 

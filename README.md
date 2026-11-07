@@ -93,7 +93,7 @@ Native graph Copy/Cut/Paste preserves supported recorded states, marks and self-
 
 MOL and SMILES clipboard text uses the existing preview/loss-consent flow to append to one existing placement. MOL supports the existing V2000/V3000/Auto profiles; SMILES retains its bounded grammar and deterministic import grid. CDXML provides explicit whole-drawing text copying after export consent and text import into a **new drawing**, with page/molecule selection, preview and loss acceptance. CDX remains binary download only. These are explicit formats without format guessing. See the [MOL](docs/CONTRACT.md#explicit-mol-text-clipboard-bridge-p33d), [SMILES](docs/CONTRACT.md#explicit-smiles-text-clipboard-bridge-p33g) and [CDXML import](docs/CONTRACT.md#explicit-cdxml-text-import-as-a-new-drawing-p33i) contracts.
 
-Native graph version 1 and graphic-forest version 2 are separate profiles and require exact destination settings. Graph paste requires one destination placement; graph Cut additionally requires one source placement, no crossing bonds and no incoming graph references. Graphics can paste into multiple-placement destinations but reject molecule instances, mixed graph targets, outgoing/graph references and groups with fewer than two children; Cut also rejects incoming references from outside the forest. Molecule-instance cloning, enhanced-stereo-group graph copying, global shortcuts, custom MIME, external-format Cut and Windows/OLE remain outside this bounded delivery. OS clipboard permission success, external-application compatibility and full editor canvas/navigation are not established by the clipboard harness. The real-backend P33k harness checks cross-document graph/forest copying and pasting; it replaces browser clipboard transport only. Permission-error and uncertainty behavior is covered separately with scripted HTTP/clipboard boundaries. Broader scientific and format requirements remain partial.
+Native graph version 1 and graphic-forest versions 2/3 are separate profiles and require exact destination settings. Graph paste requires one destination placement; graph Cut additionally requires one source placement, no crossing bonds and no incoming graph references. Graphics can paste into multiple-placement destinations but reject molecule instances, mixed graph targets, outgoing/graph references and groups with fewer than two children; Cut also rejects incoming references from outside the forest. Molecule-instance cloning, enhanced-stereo-group graph copying, global shortcuts, custom MIME, external-format Cut and Windows/OLE remain outside this bounded delivery. OS clipboard permission success, external-application compatibility and full editor canvas/navigation are not established by the clipboard harness. The real-backend P33k harness checks cross-document graph/forest copying and pasting; it replaces browser clipboard transport only. Permission-error and uncertainty behavior is covered separately with scripted HTTP/clipboard boundaries. Broader scientific and format requirements remain partial.
 
 The catalog lists 40 operations, with 30 executable in the default profile.
 
@@ -434,8 +434,19 @@ document width still counts as an override. The selected-graphic form exposes
 width/reset and effective inheritance; rendering, selection underlay and hit
 stroke use that width without changing geometry or chemistry. Native v26 strictly
 stores it through history/drafts and migrates v1–25 to inheritance with exact-byte
-archives. Clipboard v2 refuses any explicit-width selected subtree; resetting to
-document width is explicit and may change appearance. P36 stays `in_progress`.
+archives. P36d initially refused explicit widths in v2; P36e adds a v3 graphics profile
+that preserves them. Resetting to document width remains an explicit choice that
+may change appearance, not a Copy/Cut prerequisite. P36 stays `in_progress`.
 The parent reports27 targeted Rust cases passed at e6e3b45; web/full/reviews/CI
 remain pending. Preceding #207 merged afe6410, with main run42329036170 pending.
 See [P36d record](docs/verification/p36d-graphic-line-width.md).
+
+P36e adds a candidate styled-graphics clipboard profile: all-inherited forests
+still copy as strict v2, while any explicit width selects v3 with required
+nullable width on every graphic. Paste accepts either profile, including all-null
+v3, preserving explicit values and inherited state through groups, references,
+offsets and Undo/Cut/Paste. V2 still forbids width fields; v2-only readers are not
+claimed to support v3. Settings must match and existing byte/command limits remain.
+Native v26 and chemical graphs are unchanged. P36 stays `in_progress`;
+Rust/browser/full/reviews/CI remain pending without confirmed execution evidence.
+See [P36e record](docs/verification/p36e-styled-graphics-clipboard.md).

@@ -150,15 +150,20 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   await renderedWidth(line,10,true);await renderedWidth(arrow,1.2);await renderedWidth(rectangle,1.2)
   assert.equal(Number(await canvas.locator('[data-bonds]').first().getAttribute('stroke-width')),1.2,'chemical bond width is unchanged')
   assert.equal(await button('Apply graphic line width').isDisabled(),true)
-  stage='explicit overrides refuse Copy/Cut without stripping style or removing the source'
+  stage='explicit overrides are preserved by Copy/Cut offers without removing the source'
   for(const action of ['Copy graphics…','Cut graphics…']){
     const captured=(await snapshot()).document
     const count=writes.length
     await button(action).click()
     const dialog=page.getByRole('dialog')
-    await dialog.getByText(/cannot preserve explicit line-width overrides/).waitFor()
+    const text=dialog.getByRole('textbox',{name:'Native graphics text',exact:true})
+    await page.waitForFunction(()=>document.querySelector('textarea')?.value.includes('chemifree.clipboard'))
+    const payload=JSON.parse(await text.inputValue())
+    assert.equal(payload.version,3)
+    assert.equal(payload.objects.find((object)=>object.id===line.id).line_width_pt,10)
+    assert.match(await dialog.getByRole('list',{name:'Clipboard graphic line widths'}).textContent(),/10 pt \(override\)/)
     assert.deepEqual((await snapshot()).document,captured)
-    assert.equal(writes.length,count,'refused clipboard preparation is not a mutation')
+    assert.equal(writes.length,count,'clipboard preparation is not a mutation')
     await dialog.getByRole('button',{name:'Close',exact:true}).click()
   }
   stage='explicit inheritance restoration enables lossless native clipboard text'
@@ -251,7 +256,7 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   await page.reload();await button('Select line').click();await renderedWidth(line,10,true)
   assert.deepEqual(errors,[])
   passed=true
-  console.log('Graphic width form, inheritance, stroke/selection/hit, geometry preservation, clipboard refusal and native roundtrip passed.')
+  console.log('Graphic width form, inheritance, stroke/selection/hit, geometry preservation, styled clipboard offers and native roundtrip passed.')
 } finally {
   await browser?.close();await server?.close()
   if(api?.pid&&api.exitCode===null&&api.signalCode===null){const exited=once(api,'exit');api.kill('SIGTERM');const force=setTimeout(()=>api.kill('SIGKILL'),5000);await exited;clearTimeout(force)}
