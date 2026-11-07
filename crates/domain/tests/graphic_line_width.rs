@@ -9,7 +9,7 @@ use chemifree_domain::scene::{
     Graphic, GraphicShape, ReferenceTarget, SceneObject, SceneReference, Selection,
     SelectionTransform,
 };
-use chemifree_domain::scene_clipboard::{self, SceneFragmentError};
+use chemifree_domain::scene_clipboard;
 use chemifree_domain::settings::{SettingsEdit, SettingsError};
 
 fn object(n: u32) -> ObjectId {
@@ -206,10 +206,10 @@ fn point_updates_moves_and_transforms_preserve_explicit_widths() {
 }
 
 #[test]
-fn graphics_clipboard_refuses_styled_members_or_group_descendants_until_inheritance_is_restored() {
+fn graphics_clipboard_preserves_styled_members_and_group_descendants_without_mutation() {
     let mut doc = drawing();
-    // Give each selected subtree a valid v2 copy boundary, so the refusal below
-    // specifically exercises width loss rather than an outgoing-reference refusal.
+    // Keep each selected subtree closed so copy exercises width preservation
+    // independently of outgoing-reference refusals.
     let references: Vec<_> = doc.references().collect();
     doc.apply(
         &references
@@ -225,10 +225,18 @@ fn graphics_clipboard_refuses_styled_members_or_group_descendants_until_inherita
             objects: [object(id)].into(),
             ..Selection::default()
         };
+        let copied = scene_clipboard::copy_fragment(&doc, &selected).unwrap();
+        assert_eq!(copied.roots, [object(id)]);
         assert_eq!(
-            scene_clipboard::copy_fragment(&doc, &selected),
-            Err(SceneFragmentError::GraphicLineWidthUnsupported(object(2)))
+            copied
+                .objects
+                .iter()
+                .find(|entry| entry.id == object(2))
+                .unwrap()
+                .object,
+            SceneObject::Graphic(graphic(&doc, 2).clone())
         );
+        assert_eq!(copied.objects.len(), if id == 2 { 1 } else { 3 });
         assert_eq!(doc, before);
     }
     let outside = Selection {
