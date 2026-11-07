@@ -1,3 +1,4 @@
+import { SceneOrderBoundaryButtons } from '@/components/scene-order-boundary-buttons'
 import { SelectionRotationForm } from '@/components/selection-rotation-form'
 import { GraphicToolControls } from '@/components/graphic-tool-controls'
 import { graphicPointsCommands } from '@/editor/graphic-points'
@@ -1445,6 +1446,7 @@ function SceneControls({ document, editor, activePlacement }: { document: Docume
         }}>Ungroup</Button>
         <Button size="sm" variant="outline" disabled={!one || index <= 0} onClick={() => one && reorder(one.id, -1)}>Earlier</Button>
         <Button size="sm" variant="outline" disabled={!one || index < 0 || index === siblingsOfOne.length - 1} onClick={() => one && reorder(one.id, 1)}>Later</Button>
+        <SceneOrderBoundaryButtons document={document} editor={editor} />
       </div>
       <div className="flex flex-col gap-2" role="group" aria-labelledby="scene-geometry-heading" aria-describedby="scene-geometry-help">
         <h4 id="scene-geometry-heading" className="text-sm font-medium">Arrange objects and transform selection</h4>

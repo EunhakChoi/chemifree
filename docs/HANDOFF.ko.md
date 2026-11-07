@@ -1,5 +1,12 @@
 # Chemifree 새 세션 인계
 
+## P36g same-parent First/Last 후보
+
+- Scene First/Last는 selected scene object 정확히1개를 같은 parent의 처음/마지막으로 옮겨 Earlier/Later 반복을 줄인다. 전체 selected ID가1개일 필요는 없고 valid atom/bond IDs 동시 선택은 history에 보존하되 reorder하지 않는다. graph-only·복수 scene object·ancestor+descendant 동시 선택은 boundary action이 없다.
+- root는 page roots, child는 기존 group children 안에서 이동한다. group은 subtree 전체로 이동하며 내부 child order·geometry/shape/width/style·graph/placement/stereo·IDs/refs/containment는 그대로다. 별도 layer/global z-index·reparent 기능은 아니다.
+- press document/object/parent와 First/Last 의도는 capture하지만 revision·siblings·geometry는 freeze하지 않는다. 큐에서 same doc/object/parent와 membership를 검증하고 최신 siblings의0 또는 len−1로 기존 reorder1개를 제출한다. 앞선 append/reorder가 index를 바꾸며 뒤 live selection은 target을 바꾸지 않는다. 이미 boundary/singleton이면 no-op, 삭제/다른 문서/parent 변경/소실이면 lapse하고 새 parent를 따라가지 않는다.
+- 기존 선택 history·원자성/Undo/replay/save와 공통 mutation/restart 정책을 쓰며 특별 service capture/no-replay는 없다. API/catalog/native26/provider 불변, multi-object boundary/layer controls/scientific 의미는 추가하지 않는다. P36은 `in_progress`; browser/full/양 리뷰/CI pending이고 선행 P36f #211은 open이며 merge를 단정하지 않는다. source/test 대조만 수행했다. [P36g 기록](verification/p36g-scene-order.md).
+
 ## P36f finite arbitrary-angle UI 후보
 
 - 기존 transform_selection 위에 Scene Rotate selected geometry form을 추가한다. finite decimal/scientific angle을 별도 magnitude cap 없이 받고 raw degrees를 보낸다. positive clockwise·negative counterclockwise·modulo360/quarter-turn/trig는 기존 domain 정책이다. full-turn UI identity는 무전송, invalid/empty/IME는 차단하며 문서 전환은 draft를 reset한다.
