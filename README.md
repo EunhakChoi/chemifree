@@ -85,7 +85,7 @@ The web **Scene** controls expose whole-object/group alignment, distribution, ±
 
 The four quarter-turn and axis-reflection buttons also accept mixed scene/atom/bond selections, using the captured active placement for explicit graph targets. Queued actions revalidate the captured targets and compute the latest geometry-bounds center as the pivot; missing targets lapse the whole action. Stored stereo remains unchanged. See the [mixed transform contract](docs/CONTRACT.md#mixed-selection-quarter-turns-and-reflections-p32f).
 
-The bounded P32 selection and geometry delivery is complete; [verification and review evidence](docs/verification/p32-selection-completion.md) records the merged implementation and successful main CI. This completion documentation PR still awaits its own CI. Center arrangements that would change again on repetition refuse atomically as `arrangement_center_unstable`. Alignment/distribution require whole scene objects; partial-atom arrangement, lasso or edge-intersection selection, cross-placement raw graph selection, arbitrary-angle/custom-pivot web controls, snapping and cleanup remain outside this delivery.
+The bounded P32 selection and geometry delivery is complete; [verification and review evidence](docs/verification/p32-selection-completion.md) records the merged implementation and successful main CI. This completion documentation PR still awaits its own CI. Center arrangements that would change again on repetition refuse atomically as `arrangement_center_unstable`. Alignment/distribution require whole scene objects; partial-atom arrangement, lasso or edge-intersection selection, cross-placement raw graph selection, arbitrary-angle/custom-pivot controls were outside that P32 delivery. P36f adds a separate finite-angle form candidate; custom pivots, snapping and cleanup remain unsupported.
 
 Bounded **P33 is done** against the roadmap's explicit clipboard scope and acceptance criteria. [PR #172](https://github.com/EunhakChoi/chemifree/pull/172) passed isolated `npm run check`, the standard browser smoke, all eight clipboard browser commands, and [PR CI check/browser](https://github.com/EunhakChoi/chemifree/actions/runs/42148445439). [Post-merge main CI for `1082293`](https://github.com/EunhakChoi/chemifree/actions/runs/42149543576) also passed. This completion documentation PR still requires its own final review dispositions and current-head CI. See the [scope and evidence](docs/verification/p33-clipboard-completion.md).
 
@@ -450,3 +450,13 @@ claimed to support v3. Settings must match and existing byte/command limits rema
 Native v26 and chemical graphs are unchanged. P36 stays `in_progress`;
 Rust/browser/full/reviews/CI remain pending without confirmed execution evidence.
 See [P36e record](docs/verification/p36e-styled-graphics-clipboard.md).
+
+P36f adds a candidate finite arbitrary-angle input beside fixed Scene rotations.
+It captures IDs, placement and angle without freezing revision: the queued action
+recomputes the pivot from latest geometry. Captions block the UI; non-quarter-turn
+rectangle rotations reach the existing backend's atomic refusal. Existing restart
+reconciliation applies, without a special no-replay rule. API/native26 and
+geometry-only graph/stereo/width/reference behavior remain unchanged. Custom
+pivot and rotation-drag controls are not added. P36 stays `in_progress`;
+tests/reviews/CI remain pending while browser verification is in progress.
+See [P36f record](docs/verification/p36f-selection-rotation.md).

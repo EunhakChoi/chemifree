@@ -1,5 +1,12 @@
 # Chemifree 새 세션 인계
 
+## P36f finite arbitrary-angle UI 후보
+
+- 기존 transform_selection 위에 Scene Rotate selected geometry form을 추가한다. finite decimal/scientific angle을 별도 magnitude cap 없이 받고 raw degrees를 보낸다. positive clockwise·negative counterclockwise·modulo360/quarter-turn/trig는 기존 domain 정책이다. full-turn UI identity는 무전송, invalid/empty/IME는 차단하며 문서 전환은 draft를 reset한다.
+- document ID·raw selected IDs·active placement·angle을 제출 때 capture하되 revision/pivot은 freeze하지 않는다. 큐에서 최신 geometry의 union-bounds center를 계산하고 최신 revision으로 제출한다. 앞선 move는 pivot을 바꾸지만 뒤 live selection/placement/angle 변경은 대상을 바꾸지 않는다. 다른 문서·missing target/필수 placement·caption/empty scope는 전체 lapse다.
+- caption 및 group descendant는 UI block, rectangle arbitrary angle은 UI에서 부분필터/보정하지 않고 backend가 transform_rectangle_unsupported로 전체 원자 거절한다. exact quarter-turn·좌표 bounds·no-op/Undo/replay는 기존 API다. graph/stored stereo/marks·graphic shape/width·hierarchy/refs/styles는 geometry 외 보존하나 drawing/stereo disagreement는 가능하다.
+- 기존 공통 mutation/restart 정책이며 graphics create/endpoint/width의 특별 no-replay가 아니다. transform_plan preview 호출·custom pivot·rotation canvas gesture·새 API/catalog/native26/provider 변경은 없다. P36은 `in_progress`; tests/review/CI는 pending이며 진행 중 browser를 pass로 쓰지 않는다. [P36f 기록](verification/p36f-selection-rotation.md). 이 문서 작업은 source/test 대조만 한다.
+
 ## P36e styled graphics clipboard v3 후보
 
 - 기존 graphics Copy/Cut/Paste는 nullable width를 보존한다. included forest 전부 상속이면 기존 width field 없는 v2, explicit override1개라도 있으면 모든 graphic에 required nullable line_width_pt를 넣은 v3를 쓴다. 문서값과 같은 숫자도 explicit이며 outside width는 version 선택에 영향 없다.
