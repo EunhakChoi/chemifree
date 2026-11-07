@@ -691,6 +691,12 @@ the parent queues one captured `update_graphic_points` command; the shared P36a
 validation and ordinary Undo/Redo apply. A click/subthreshold movement, unchanged
 coordinates, invalid final bounds or cancelled gesture produces no geometry
 change. Point ordering, shape, ID, grouping, references and chemistry stay intact.
+After a larger excursion, returning below the threshold restores the stored
+endpoint preview before release, while pointer capture remains active. Ordinary
+whole-object movement clears its transient preview on the same return; its
+existing selection/commit policy is unchanged. For one eligible selected graphic,
+endpoint handles follow the same translated whole-object preview as the stroke
+and return with it on cancellation.
 
 Escape on the canvas, pointercancel, lost capture, blur, Fit or Reset discards
 the preview and releases capture. Document/revision, selection, target geometry
@@ -729,6 +735,10 @@ the ordinary root order, even if a group is selected. The arrow tip is point 2;
 rectangle corners retain their stored order. Existing degenerate/reversed point
 support is unchanged; a click/subthreshold gesture creates nothing. There is no
 snapping, aspect lock or clamping.
+If the pointer moves out and then returns below the threshold, the creation
+preview disappears immediately while capture remains active. Release there
+creates nothing and sends no transaction; threshold crossing is not a permanent
+commit latch. This also holds after returning one or two client pixels from press.
 
 Space/middle-button pan takes precedence at press. Escape, pointercancel, lost
 capture, blur, Fit and Reset discard previews; view navigation remains local.
@@ -749,6 +759,9 @@ semantics, images, clipping, layers, style controls, automatic layout or group
 insertion gesture. P36 stays `in_progress`. Preceding #206 is merged with
 passing PR CI; its post-merge main run 42325796411 is pending separately from
 P36c full checks/reviews/CI. An ongoing browser regression is not a pass.
+Creation-preview, endpoint-preview and ordinary-movement return-path defects were
+reproduced and fixed during review follow-up; their separate commits and added
+regression scope are recorded below. The currently running full smoke is pending.
 See [the P36c record](verification/p36c-graphic-creation.md).
 
 ## Effective selection scope and movement (P32a)
