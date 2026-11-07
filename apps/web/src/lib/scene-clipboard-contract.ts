@@ -1,4 +1,4 @@
-import { MAX_NATIVE_CLIPBOARD_BYTES, SETTING_RANGES, type DocumentView, type GraphicShape, type NativeClipboardIdMapping, type Position, type SceneObject, type SceneReference, type SelectionView } from '@/lib/document-contract'
+import { isDocumentSettings, MAX_NATIVE_CLIPBOARD_BYTES, SETTING_RANGES, type DocumentSettings, type DocumentView, type GraphicShape, type NativeClipboardIdMapping, type Position, type SceneObject, type SceneReference, type SelectionView } from '@/lib/document-contract'
 import { parseStrictJson } from '@/lib/strict-json'
 
 type GraphicObject = Extract<SceneObject, { kind: 'graphic' | 'group' }>
@@ -6,7 +6,7 @@ type PayloadObject = (Omit<Extract<GraphicObject, { kind: 'graphic' }>, 'parent'
 
 interface GraphicPayload {
   version: 2 | 3
-  settings: Record<string, unknown>
+  settings: DocumentSettings
   roots: string[]
   objects: PayloadObject[]
   references: SceneReference[]
@@ -69,6 +69,9 @@ function payloadOf(text: string): GraphicPayload | null {
       value.format !== 'chemifree.clipboard' || (value.version !== 2 && value.version !== 3) || value.kind !== 'graphics' || !record(value.settings) ||
       !ids(value.roots) || value.roots.length === 0 || !Array.isArray(value.objects) || value.objects.length > 1000 ||
       !Array.isArray(value.references) || value.references.length > 4096 || value.objects.length + value.references.length > 500) return null
+  // SettingsDto defaults only these newer label fields in legacy v2/v3 payloads.
+  const settings = { label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, ...value.settings }
+  if (!isDocumentSettings(settings)) return null
   const objects: PayloadObject[] = []
   for (const item of value.objects) {
     if (!record(item) || !objectId(item.id) || objects.some((prior) => prior.id === item.id)) return null
@@ -101,7 +104,7 @@ function payloadOf(text: string): GraphicPayload | null {
     references.push({ source: item.source, target: { kind: 'object', id: item.target.id } })
   }
   if (!sameReferences(references, references)) return null
-  return { version: value.version, settings: { label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, ...value.settings }, roots: value.roots, objects, references }
+  return { version: value.version, settings, roots: value.roots, objects, references }
 }
 
 /** Strictly read the styles shown beside clipboard text, without interpreting chemical content. */

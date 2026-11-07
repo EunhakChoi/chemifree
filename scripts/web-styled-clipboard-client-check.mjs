@@ -15,6 +15,11 @@ function styledCopy(width = .1) {
   for (const object of payload.objects) if (object.kind === 'graphic') object.line_width_pt ??= null
   return { source, copy, payload }
 }
+function copyForVersion(version) {
+  if (version === 3) return styledCopy()
+  const source = sceneCutSource(); const copy = sceneCutCopy(source)
+  return { source, copy, payload: JSON.parse(copy.payload) }
+}
 const requested = { objects: ['s4'], atoms: [], bonds: [] }
 function matches(value) {
   return sceneClipboardCopyMatches(JSON.stringify(value.payload), value.copy.copied, value.copy.roots, requested, value.source.document, value.source.document.settings)
@@ -128,5 +133,57 @@ test('strict JSON scan distinguishes escaped strings, punctuation and nested obj
 for (const text of ['{"a":1,"a":2}', '{"a":{"b":1,"b":2}}', '[{"a":1,"\\u0061":2}]', String.raw`{"a\"b":1,"a\u0022b":2}`, String.raw`{"a\/b":1,"a/b":2}`, '{"a":1,}', '{"a":"unterminated}', '{']) {
   test(`strict JSON refuses duplicate keys or malformed grammar: ${text}`, () => {
     assert.throws(() => parseStrictJson(text), SyntaxError)
+  })
+}
+
+for (const version of [2, 3]) {
+  for (const [name, change] of [
+    ['missing base fields', () => ({ bogus: true })],
+    ['missing bond length', (s) => { delete s.bond_length_pt; return s }],
+    ['missing line width', (s) => { delete s.line_width_pt; return s }],
+    ['missing label font', (s) => { delete s.label_font; return s }],
+    ['missing label size', (s) => { delete s.label_size_pt; return s }],
+    ['missing carbon labels', (s) => { delete s.carbon_labels; return s }],
+    ['missing display unit', (s) => { delete s.display_unit; return s }],
+    ['unknown setting', (s) => ({ ...s, bogus: true })],
+    ['string numeric setting', (s) => ({ ...s, bond_length_pt: '30' })],
+    ['invalid font', (s) => ({ ...s, label_font: 'comic-sans' })],
+    ['invalid weight', (s) => ({ ...s, label_weight: 'heavy' })],
+    ['invalid style', (s) => ({ ...s, label_style: 'oblique' })],
+    ['invalid carbon labels', (s) => ({ ...s, carbon_labels: 'none' })],
+    ['invalid unit', (s) => ({ ...s, display_unit: 'px' })],
+    ['null weight', (s) => ({ ...s, label_weight: null })],
+    ['null style', (s) => ({ ...s, label_style: null })],
+    ['nonboolean underline', (s) => ({ ...s, label_underline: 0 })],
+    ['nonboolean outline', (s) => ({ ...s, label_outline: 'false' })],
+    ['null shadow', (s) => ({ ...s, label_shadow: null })],
+    ['bond length below minimum', (s) => ({ ...s, bond_length_pt: 4.99 })],
+    ['bond length above maximum', (s) => ({ ...s, bond_length_pt: 200.01 })],
+    ['line width below minimum', (s) => ({ ...s, line_width_pt: .099 })],
+    ['line width above maximum', (s) => ({ ...s, line_width_pt: 10.01 })],
+    ['label size below minimum', (s) => ({ ...s, label_size_pt: 3.99 })],
+    ['label size above maximum', (s) => ({ ...s, label_size_pt: 72.01 })],
+  ]) test(`v${version} refuses settings with ${name} in previews and successful copy replies`, () => {
+    const value = copyForVersion(version)
+    value.payload.settings = change(value.payload.settings)
+    const text = JSON.stringify(value.payload)
+    assert.equal(sceneClipboardGraphicStyles(text), null)
+    // Even an equally malformed expected settings record cannot authorize a bad reply.
+    const expected = { label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, ...value.payload.settings }
+    assert.equal(sceneClipboardCopyMatches(text, value.copy.copied, value.copy.roots, requested, value.source.document, expected), false)
+  })
+
+  for (const [name, settings] of [
+    ['minimum numeric values', { bond_length_pt: 5, line_width_pt: .1, label_font: 'serif', label_weight: 'bold', label_style: 'italic', label_underline: true, label_outline: true, label_shadow: true, label_size_pt: 4, carbon_labels: 'all', display_unit: 'mm' }],
+    ['maximum numeric values', { bond_length_pt: 200, line_width_pt: 10, label_font: 'monospace', label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, label_size_pt: 72, carbon_labels: 'default', display_unit: 'in' }],
+    ['legacy omitted label fields', { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'sans-serif', label_size_pt: 12, carbon_labels: 'default', display_unit: 'cm' }],
+  ]) test(`v${version} accepts ${name} in previews and successful copy replies`, () => {
+    const { source, copy, payload } = copyForVersion(version)
+    source.document.settings = { label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, ...settings }
+    payload.settings = settings
+    assert.deepEqual(sceneClipboardGraphicStyles(JSON.stringify(payload)), [
+      { id: 's6', shape: 'line', lineWidth: version === 3 ? .1 : null }, { id: 's5', shape: 'arrow', lineWidth: null },
+    ])
+    assert.equal(sceneClipboardCopyMatches(JSON.stringify(payload), copy.copied, copy.roots, requested, source.document, source.document.settings), true)
   })
 }
