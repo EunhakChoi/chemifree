@@ -142,7 +142,7 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   async function waitRevision(revision){await page.waitForFunction((revision)=>JSON.parse(document.querySelector('[aria-label="Creation snapshot"]').textContent).document.revision===revision,revision);await idle()}
   stage='explicit shape choice before canvas creation'
   await page.goto('http://127.0.0.1:5173/graphic-creation-check')
-  await page.getByText('Choose Line, Arrow, Rectangle, Ellipse or Polygon before drawing.',{exact:false}).waitFor()
+  await page.getByText('Choose Line, Arrow, Rectangle, Ellipse, Polygon or Spline before drawing.',{exact:false}).waitFor()
   await button('Select existing group').click()
   const beforeChoice=(await snapshot()).document
   const beforeChoiceWrites=writes.length
@@ -287,7 +287,7 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   await page.getByText('No document open').waitFor()
   await page.locator('li[data-document-id="'+id+'"]').getByRole('button',{name:'Open',exact:true}).click()
   await page.getByRole('button',{name:'Graphic',exact:true}).click()
-  await page.getByText('Choose Line, Arrow, Rectangle, Ellipse or Polygon before drawing.',{exact:false}).waitFor()
+  await page.getByText('Choose Line, Arrow, Rectangle, Ellipse, Polygon or Spline before drawing.',{exact:false}).waitFor()
   await choose('rectangle')
   const beforeReal=(await(await fetch(base+'/api/v1/documents/'+id)).json()).document
   await begin({x:0,y:0},{x:30,y:20});await previewPoints('rectangle',[{x:0,y:0},{x:30,y:20}])

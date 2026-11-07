@@ -38,7 +38,7 @@ fn mutate_graphics(value: &mut Value, edit: &impl Fn(&mut serde_json::Map<String
     }
 }
 #[test]
-fn native28_current_history_and_draft_preserve_every_vertex_and_fit_physical_reservation() {
+fn native29_current_history_and_draft_preserve_every_vertex_and_fit_physical_reservation() {
     let root = tempfile::tempdir().unwrap();
     let repo = FileDocumentRepository::new(root.path());
     let mut doc = document();
@@ -52,7 +52,7 @@ fn native28_current_history_and_draft_preserve_every_vertex_and_fit_physical_res
     let path = root.path().join("documents/polygon-native.json");
     let bytes = fs::read(path).unwrap();
     let raw: Value = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(raw["format_version"], 28);
+    assert_eq!(raw["format_version"], 29);
     assert_eq!(repo.load(doc.id()).unwrap(), Some(doc.clone()));
     assert!(bytes.len() <= doc.persistence_weight());
     assert!((bytes.len() as u64) < MAX_DOCUMENT_BYTES);

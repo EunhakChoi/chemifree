@@ -118,7 +118,7 @@ fn current_file_and_draft_replay_custom_unicode_on_both_history_sides() {
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/ethyl-native.json");
     let raw: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(raw["format_version"], 28);
+    assert_eq!(raw["format_version"], 29);
     assert_eq!(
         raw["document"]["display_labels"][0]["text"],
         "Ph 한 e\u{301} 🧪"
@@ -212,7 +212,7 @@ fn v22_defaults_and_full_history_survive_read_and_new_save_archives_exact_origin
     assert_eq!(fs::read(&path).unwrap(), bytes);
     repo.save(&loaded, Some(loaded.revision())).unwrap();
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 28);
+    assert_eq!(rewritten["format_version"], 29);
     assert_eq!(legacy(rewritten), old);
     assert_eq!(fs::read(repo.migrated_path(doc.id(), 22)).unwrap(), bytes);
 }

@@ -69,7 +69,7 @@ fn ellipse_current_undo_redo_and_draft_states_round_trip_with_unmodified_storage
     doc.undo().unwrap();
     repo.save(&doc, None).unwrap();
     let value = raw(&root);
-    assert_eq!(value["format_version"], 28);
+    assert_eq!(value["format_version"], 29);
     assert_eq!(value["document"]["objects"][1]["state"]["shape"], "ellipse");
     assert_eq!(repo.load(doc.id()).unwrap(), Some(doc.clone()));
     let mut loaded = repo.load(doc.id()).unwrap().unwrap();
@@ -198,7 +198,7 @@ fn v26_legacy_shapes_migrate_without_graphic_changes_and_archive_exact_document_
         fs::read(repo.migrated_path(doc.id(), 26)).unwrap(),
         original
     );
-    assert_eq!(raw(&root)["format_version"], 28);
+    assert_eq!(raw(&root)["format_version"], 29);
     let draft = Draft {
         document: doc.clone(),
         base_revision: doc.revision(),
@@ -239,7 +239,7 @@ fn future_native_and_shape_changing_history_are_refused_without_rewriting() {
     repo.save(&doc, None).unwrap();
     let template = raw(&root);
     let mut future = template.clone();
-    future["format_version"] = json!(29);
+    future["format_version"] = json!(30);
     let mut changed = template;
     changed["history"]["undo"][1]["objects"][0]["before"]["shape"] = json!("rectangle");
     for value in [future, changed] {

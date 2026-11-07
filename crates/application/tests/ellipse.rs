@@ -201,7 +201,7 @@ fn clipboard_ellipse_requires_v4_and_legacy_shape_forests_keep_v2_v3_selection()
     range["objects"][1]["line_width_pt"] = json!(10.001);
     invalid.push((range, "clipboard_fragment_invalid"));
     invalid.push((
-        json!({"format":"chemifree.clipboard","version":6,"future_body":[]}),
+        json!({"format":"chemifree.clipboard","version":7,"future_body":[]}),
         "clipboard_format_unsupported",
     ));
     for (payload, reason) in invalid {

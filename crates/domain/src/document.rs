@@ -72,11 +72,11 @@ pub const MAX_EDIT_REVISION: u64 = MAX_REVISION - 1;
 /// Entity changes kept across all history entries. With the entity limits this bounds the
 /// stored history, so a saved document stays within what storage providers read back.
 pub const HISTORY_CHANGE_LIMIT: usize = 100_000;
-/// Shared current-state admission budget when variable-sized text or polygons exist in content or history.
+/// Shared current-state admission budget when variable-sized text, polygons or splines exist in content or history.
 /// The caption-era public constant name is retained for compatibility.
 /// Physical encoding also reserves per-run metadata; see persistence_weight.
 pub const CAPTION_CONTENT_WEIGHT_LIMIT: usize = 48 * 1024 * 1024;
-/// Shared whole-history admission budget for variable-sized text or polygons. The latest edit must
+/// Shared whole-history admission budget for variable-sized text, polygons or splines. The latest edit must
 /// fit by itself; older undo entries make room. Runs without shadow retain v16 admission
 /// weights; physical encoding reserves at most 6/5 of history admission.
 pub const CAPTION_HISTORY_WEIGHT_LIMIT: usize = 8 * 1024 * 1024;
@@ -553,6 +553,18 @@ pub enum Command {
         parent: Option<ObjectId>,
         index: Option<usize>,
     },
+    /// Adds one open stroke-only cubic, preserving P0, C1, C2, P3 explicitly.
+    AddSpline {
+        points: [Point; 4],
+        line_width_pt: Option<f64>,
+        parent: Option<ObjectId>,
+        index: Option<usize>,
+    },
+    /// Replaces the complete cubic defining-point state without interpolation.
+    UpdateSplinePoints {
+        object: ObjectId,
+        points: [Point; 4],
+    },
     /// Adds a closed stroke-only polygon.
     AddPolygon {
         vertices: Vec<Point>,
@@ -746,6 +758,7 @@ pub enum EditError {
     GraphicGeometryInvalid,
     GraphicCommandMismatch,
     PolygonPersistenceLimit,
+    SplinePersistenceLimit,
     CaptionUnsupported(ObjectId),
     EmptyTransaction,
     TooManyCommands,
@@ -861,6 +874,7 @@ impl EditError {
             Self::GraphicGeometryInvalid => SceneError::GraphicGeometryInvalid,
             Self::GraphicCommandMismatch => SceneError::GraphicCommandMismatch,
             Self::PolygonPersistenceLimit => SceneError::PolygonPersistenceLimit,
+            Self::SplinePersistenceLimit => SceneError::SplinePersistenceLimit,
             Self::CaptionUnsupported(_) => SceneError::CaptionUnsupported,
             Self::UnknownObject(_) => SceneError::ObjectUnknown,
             Self::ObjectKindMismatch { .. } => SceneError::ObjectKindMismatch,
@@ -1030,8 +1044,9 @@ impl fmt::Display for EditError {
             Self::TransformEllipseUnsupported(object) => write!(formatter,
                 "ellipse {object} requires an exact quarter-turn rotation; arbitrary angles cannot be represented by its two axis-aligned bounding-box corners"
             ),
-            Self::GraphicGeometryInvalid => formatter.write_str("Graphic point count does not match its shape: polygons require 3–64 vertices; other shapes require exactly two points."),
-            Self::GraphicCommandMismatch => formatter.write_str("Polygon geometry requires its dedicated polygon command; two-point commands accept only two-point shapes."),
+            Self::GraphicGeometryInvalid => formatter.write_str("Graphic point count does not match its shape: polygons require 3–64 vertices, splines require exactly four defining points, and other shapes require exactly two points."),
+            Self::GraphicCommandMismatch => formatter.write_str("Polygon and spline geometry each require their dedicated command; two-point commands accept only two-point shapes."),
+            Self::SplinePersistenceLimit => formatter.write_str("The spline-bearing edit exceeds the shared variable-size persistence budget; reduce transaction size."),
             Self::PolygonPersistenceLimit => formatter.write_str("The polygon-bearing edit exceeds the shared variable-size persistence budget; reduce vertices or transaction size."),
             Self::CaptionPersistenceLimit => formatter.write_str("The text edit exceeds the persistence budget; reduce text or transaction size."),
             Self::DisplayLabelInvalid => formatter.write_str("Display label needs non-whitespace single-line Unicode text, at most 128 UTF-8 bytes; text does not define chemistry."),
@@ -2668,7 +2683,7 @@ impl Draft {
                 parent,
                 index,
             } => {
-                if graphic.shape == GraphicShape::Polygon {
+                if matches!(graphic.shape, GraphicShape::Polygon | GraphicShape::Spline) {
                     return Err(EditError::GraphicCommandMismatch);
                 }
                 graphic.validate()?;
@@ -2680,6 +2695,35 @@ impl Draft {
                     *index,
                 )?;
                 created = Created::Object(id);
+            }
+            Command::AddSpline {
+                points,
+                line_width_pt,
+                parent,
+                index,
+            } => {
+                let graphic = Graphic {
+                    shape: GraphicShape::Spline,
+                    points: points.to_vec(),
+                    line_width_pt: *line_width_pt,
+                };
+                graphic.validate()?;
+                let id = self.allocate_object()?;
+                self.content
+                    .scene
+                    .insert(id, SceneObject::Graphic(graphic), *parent, *index)?;
+                created = Created::Object(id);
+            }
+            Command::UpdateSplinePoints { object, points } => {
+                self.content.scene.require(*object, ObjectKind::Graphic)?;
+                if let Some(SceneObject::Graphic(graphic)) =
+                    self.content.scene.objects.get_mut(object)
+                {
+                    if graphic.shape != GraphicShape::Spline {
+                        return Err(EditError::GraphicCommandMismatch);
+                    }
+                    graphic.points = points.to_vec();
+                }
             }
             Command::AddPolygon {
                 vertices,
@@ -2728,7 +2772,7 @@ impl Draft {
                 if let Some(SceneObject::Graphic(graphic)) =
                     self.content.scene.objects.get_mut(object)
                 {
-                    if graphic.shape == GraphicShape::Polygon {
+                    if matches!(graphic.shape, GraphicShape::Polygon | GraphicShape::Spline) {
                         return Err(EditError::GraphicCommandMismatch);
                     }
                     graphic.points = points.to_vec();
@@ -3529,7 +3573,7 @@ impl Document {
     /// Checks a geometry-only transform of the authoritative selected union without editing.
     /// Positive angles rotate clockwise in page coordinates; horizontal reflection mirrors
     /// about y=pivot.y, vertical reflection about x=pivot.x. Quarter turns are exact affine
-    /// mappings. Arbitrary rotations are supported for atom positions, lines, arrows and polygons;
+    /// mappings. Arbitrary rotations are supported for atom positions, lines, arrows, polygons and cubic splines;
     /// any selected rectangle or ellipse, including descendants and degenerate geometry, requires
     /// an exact quarter turn. Diagonal/angled reflection is outside this bounded profile.
     /// Stored stereo remains unchanged, and may disagree with the transformed picture.
@@ -3696,8 +3740,10 @@ impl Document {
                 > CAPTION_CONTENT_WEIGHT_LIMIT
                 || changes.history_admission_weight() > CAPTION_HISTORY_WEIGHT_LIMIT)
         {
-            return Err(whole(if changes.has_polygon() {
+            return Err(whole(if changes.has_graphic_shape(GraphicShape::Polygon) {
                 EditError::PolygonPersistenceLimit
+            } else if changes.has_graphic_shape(GraphicShape::Spline) {
+                EditError::SplinePersistenceLimit
             } else {
                 EditError::CaptionPersistenceLimit
             }));

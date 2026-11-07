@@ -148,6 +148,7 @@ pub(crate) fn mapping(
                         | (GraphicShape::Ellipse, GraphicShapeDto::Ellipse)
                         | (GraphicShape::Arrow, GraphicShapeDto::Arrow)
                         | (GraphicShape::Polygon, GraphicShapeDto::Polygon)
+                        | (GraphicShape::Spline, GraphicShapeDto::Spline)
                 );
                 if !matches || graphic.line_width_pt != *line_width_pt {
                     return Err(invalid_mapping());

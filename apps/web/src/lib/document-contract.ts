@@ -98,21 +98,21 @@ export type CaptionAlignment = 'left' | 'center' | 'right'
 export interface CaptionRun { shadow?: boolean; outline?: boolean; underline?: boolean; color?: string | null; size_pt?: number | null; font?: LabelFont | null; text: string; script: 'baseline' | 'subscript' | 'superscript'; weight: 'normal' | 'bold'; style: 'normal' | 'italic' }
 
 export type GraphicShape = 'line' | 'rectangle' | 'arrow' | 'ellipse'
-export type SceneGraphicShape = GraphicShape | 'polygon'
+export type SceneGraphicShape = GraphicShape | 'polygon' | 'spline'
 
 export function isGraphicShape(value: unknown): value is GraphicShape {
   return value === 'line' || value === 'arrow' || value === 'rectangle' || value === 'ellipse'
 }
 
 export function isSceneGraphicShape(value: unknown): value is SceneGraphicShape {
-  return isGraphicShape(value) || value === 'polygon'
+  return isGraphicShape(value) || value === 'polygon' || value === 'spline'
 }
 export const MIN_POLYGON_VERTICES = 3
 export const MAX_POLYGON_VERTICES = 64
 
-/** Wire cardinality is shape-specific; polygons are never truncated into two-point graphics. */
+/** Wire cardinality is shape-specific; multi-point graphics are never truncated into two-point graphics. */
 export function graphicPointCountValid(shape: SceneGraphicShape, count: number): boolean {
-  return shape === 'polygon' ? Number.isInteger(count) && count >= MIN_POLYGON_VERTICES && count <= MAX_POLYGON_VERTICES : count === 2
+  return shape === 'polygon' ? Number.isInteger(count) && count >= MIN_POLYGON_VERTICES && count <= MAX_POLYGON_VERTICES : count === (shape === 'spline' ? 4 : 2)
 }
 
 export type SceneObject =
@@ -120,6 +120,7 @@ export type SceneObject =
   | { kind: 'group'; id: string; parent: string | null; children: string[] }
   | { kind: 'caption'; id: string; parent: string | null; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
   | { kind: 'graphic'; id: string; parent: string | null; shape: GraphicShape; points: [Position, Position]; line_width_pt?: number | null }
+  | { kind: 'graphic'; id: string; parent: string | null; shape: 'spline'; points: [Position, Position, Position, Position]; line_width_pt?: number | null }
   | { kind: 'graphic'; id: string; parent: string | null; shape: 'polygon'; points: Position[]; line_width_pt?: number | null }
 
 export interface ReferenceTarget {
@@ -740,6 +741,8 @@ export type Command =
   | { op: 'add_caption'; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[]; parent?: string; index?: number }
   | { op: 'update_caption'; object: string; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
   | { op: 'add_graphic'; shape: GraphicShape; points: [Position, Position]; parent?: string; index?: number }
+  | { op: 'add_spline'; points: [Position, Position, Position, Position]; parent?: string; index?: number }
+  | { op: 'update_spline_points'; object: string; points: [Position, Position, Position, Position] }
   | { op: 'add_polygon'; vertices: Position[]; parent?: string; index?: number }
   | { op: 'update_polygon_vertices'; object: string; vertices: Position[] }
   | { op: 'update_graphic_points'; object: string; points: [Position, Position] }
@@ -1174,7 +1177,7 @@ function isSceneObject(value: unknown): value is SceneObject {
         isSceneGraphicShape(value.shape) &&
         (value.line_width_pt === undefined || value.line_width_pt === null || (isFiniteNumber(value.line_width_pt) && value.line_width_pt >= SETTING_RANGES.line_width_pt[0] && value.line_width_pt <= SETTING_RANGES.line_width_pt[1])) &&
         Array.isArray(value.points) && graphicPointCountValid(value.shape, value.points.length) &&
-        value.points.every((point) => isRecord(point) && isFiniteNumber(point.x) && isFiniteNumber(point.y) && (value.shape !== 'polygon' || (Math.abs(point.x) <= 100_000 && Math.abs(point.y) <= 100_000)))
+        value.points.every((point) => isRecord(point) && isFiniteNumber(point.x) && isFiniteNumber(point.y) && ((value.shape !== 'polygon' && value.shape !== 'spline') || (Math.abs(point.x) <= 100_000 && Math.abs(point.y) <= 100_000)))
       )
     default:
       return false

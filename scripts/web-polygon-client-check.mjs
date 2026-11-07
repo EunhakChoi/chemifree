@@ -36,7 +36,7 @@ test('polygon editing is atomic, captured, no-op aware; legacy endpoints never t
 })
 test('v5 polygon copy retains every vertex and width; legacy profiles and malformed cardinality refuse',()=>{
  for(const width of [null,.1,10]){const v=fixture(width);assert.equal(matches(v),true);assert.deepEqual(sceneClipboardGraphicStyles(JSON.stringify(v.payload))[0],{id:'s6',shape:'polygon',lineWidth:width});for(const version of [2,3,4]){const p=structuredClone(v.payload);p.version=version;if(version===2)for(const o of p.objects)delete o.line_width_pt;assert.equal(sceneClipboardGraphicStyles(JSON.stringify(p)),null)}}
- for(const change of [(p)=>p.version=6,(p)=>delete p.objects[1].line_width_pt,(p)=>p.objects[1].line_width_pt=10.01,(p)=>p.objects[1].points=vertices.slice(0,2),(p)=>p.objects[1].points=Array(65).fill({x:0,y:0}),(p)=>p.objects[1].fill='solid',(p)=>p.objects[0].line_width_pt=null]){const v=fixture();change(v.payload);assert.equal(sceneClipboardGraphicStyles(JSON.stringify(v.payload)),null);assert.equal(matches(v),false)}
+ for(const change of [(p)=>p.version=7,(p)=>delete p.objects[1].line_width_pt,(p)=>p.objects[1].line_width_pt=10.01,(p)=>p.objects[1].points=vertices.slice(0,2),(p)=>p.objects[1].points=Array(65).fill({x:0,y:0}),(p)=>p.objects[1].fill='solid',(p)=>p.objects[0].line_width_pt=null]){const v=fixture();change(v.payload);assert.equal(sceneClipboardGraphicStyles(JSON.stringify(v.payload)),null);assert.equal(matches(v),false)}
  const v=fixture();const duplicate=JSON.stringify(v.payload).replace('"line_width_pt":10','"line_width_pt":1,"line_width_pt":10');assert.equal(sceneClipboardGraphicStyles(duplicate),null)
 })
 test('v5 old shapes parse but copies canonicalize; paste verifies every vertex and retained graph',()=>{

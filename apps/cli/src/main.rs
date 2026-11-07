@@ -881,16 +881,22 @@ fn document_text(response: &DocumentResponse) -> String {
                     GraphicShapeDto::Ellipse => "ellipse",
                     GraphicShapeDto::Arrow => "arrow",
                     GraphicShapeDto::Polygon => "polygon",
+                    GraphicShapeDto::Spline => "spline",
                 };
-                if shape == "polygon" {
+                if shape == "polygon" || shape == "spline" {
                     let vertices = points
                         .iter()
                         .map(|point| format!("({}, {})", point.x, point.y))
                         .collect::<Vec<_>>()
                         .join("–");
                     lines.push(format!(
-                        "  {id}  polygon in {}  {vertices} (closed)",
-                        parent.as_deref().unwrap_or("page")
+                        "  {id}  {shape} in {}  {vertices} ({})",
+                        parent.as_deref().unwrap_or("page"),
+                        if shape == "polygon" {
+                            "closed"
+                        } else {
+                            "P0, C1, C2, P3; open cubic"
+                        }
                     ));
                 } else {
                     lines.push(format!(

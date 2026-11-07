@@ -304,6 +304,7 @@ pub enum GraphicShapeDto {
     Ellipse,
     Arrow,
     Polygon,
+    Spline,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
@@ -660,6 +661,15 @@ pub enum CommandDto {
         parent: Option<String>,
         #[serde(default)]
         index: Option<usize>,
+    },
+    AddSpline {
+        points: [PointDto; 4],
+        parent: Option<String>,
+        index: Option<usize>,
+    },
+    UpdateSplinePoints {
+        object: String,
+        points: [PointDto; 4],
     },
     AddPolygon {
         vertices: Vec<PointDto>,
@@ -1391,6 +1401,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
                     GraphicShapeDto::Ellipse => GraphicShape::Ellipse,
                     GraphicShapeDto::Arrow => GraphicShape::Arrow,
                     GraphicShapeDto::Polygon => GraphicShape::Polygon,
+                    GraphicShapeDto::Spline => GraphicShape::Spline,
                 },
                 points: vec![point(points[0])?, point(points[1])?],
             },
@@ -1403,6 +1414,30 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
         } => Command::SetGraphicLineWidth {
             object: instance_id(object)?,
             line_width_pt: *line_width_pt,
+        },
+        CommandDto::AddSpline {
+            points,
+            parent,
+            index,
+        } => Command::AddSpline {
+            points: [
+                point(points[0])?,
+                point(points[1])?,
+                point(points[2])?,
+                point(points[3])?,
+            ],
+            line_width_pt: None,
+            parent: parent.as_deref().map(instance_id).transpose()?,
+            index: *index,
+        },
+        CommandDto::UpdateSplinePoints { object, points } => Command::UpdateSplinePoints {
+            object: instance_id(object)?,
+            points: [
+                point(points[0])?,
+                point(points[1])?,
+                point(points[2])?,
+                point(points[3])?,
+            ],
         },
         CommandDto::AddPolygon {
             vertices,
@@ -2781,6 +2816,7 @@ impl DocumentResponse {
                                         GraphicShape::Ellipse => GraphicShapeDto::Ellipse,
                                         GraphicShape::Arrow => GraphicShapeDto::Arrow,
                                         GraphicShape::Polygon => GraphicShapeDto::Polygon,
+                                        GraphicShape::Spline => GraphicShapeDto::Spline,
                                     },
                                     points: graphic
                                         .points

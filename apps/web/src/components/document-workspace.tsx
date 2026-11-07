@@ -882,6 +882,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             graphicShape={graphicShape}
             serviceGeneration={editor.serviceGeneration}
             onGraphicCreate={(creation) => void editor.createGraphic(creation)}
+            onSplineCreate={(creation) => void editor.createSpline(creation)}
             onPolygonCreate={(creation) => void editor.createPolygon(creation)}
             onGraphicPoints={(edit) => void editor.apply((latest) => graphicPointsCommands(latest, edit))}
             onCommands={(commands, before) => void editor.apply(

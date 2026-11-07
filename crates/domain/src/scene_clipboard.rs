@@ -245,7 +245,16 @@ impl Fragment {
                 let graphic = graphic
                     .translated(offset)
                     .map_err(SceneFragmentError::Invalid)?;
-                commands.push(if graphic.shape == crate::scene::GraphicShape::Polygon {
+                commands.push(if graphic.shape == crate::scene::GraphicShape::Spline {
+                    Command::AddSpline {
+                        points: graphic.points.try_into().map_err(|_| {
+                            SceneFragmentError::Invalid(EditError::GraphicGeometryInvalid)
+                        })?,
+                        line_width_pt: graphic.line_width_pt,
+                        parent: None,
+                        index: None,
+                    }
+                } else if graphic.shape == crate::scene::GraphicShape::Polygon {
                     Command::AddPolygon {
                         vertices: graphic.points,
                         line_width_pt: graphic.line_width_pt,
