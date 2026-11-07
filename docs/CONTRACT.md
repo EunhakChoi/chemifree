@@ -1,6 +1,6 @@
 # Chemifree local API v1
 
-Current P35 evidence: #184 and #187–199 are merged with passing check/browser CI; #185 supplies fixed graph-preserving Et display. P35 remains in progress: independent caption styling and document-wide chemical label typography do not establish general abbreviation label text/run editing. Later execution-pending statements describe their implementation sessions. The [completion audit](verification/p35-completion-audit.md) reconciles current evidence and boundaries; this documentation audit ran no product checks.
+Bounded P35 is done against the roadmap editing/storage scope under the approved graph-preserving display decision. Caption/chemical typography, editable Et text (#201), explicit retained-fragment displays (#202) and script runs (#203) are merged with passing final-head PR check/browser CI. #203 merge `84ef063` also passed [post-merge main CI 42322504482](https://github.com/EunhakChoi/chemifree/actions/runs/42322504482). The [completion audit](verification/p35-completion-audit.md) records the acceptance evidence, actual Codex/independent reviews and finding fixes. Implementation-session notes marked historical below describe what was unrun then; they are superseded by that delivery evidence. General scientific/rendering requirements and the documented unsupported behavior remain incomplete. This documentation correction reran no product checks.
 
 
 Rust DTOs are shared by HTTP and the CLI in `crates/application/src/` (`lib.rs`, `contract.rs`, `error.rs`). The browser keeps a hand-maintained mirror with runtime validation in `apps/web/src/lib/contract.ts` and `apps/web/src/lib/document-contract.ts`. There is no generated SDK.
@@ -248,11 +248,15 @@ stores cosmetic `display_labels` separately from retained-graph membership and
 includes complete before/after history; see the file format below. This P35o slice
 does not define new fragment membership; P35p's explicit bounded membership is
 described next. General multistyle atom/abbreviation labels, text-to-graph
-parsing and external display-label roundtrip remain unsupported. P35 remains
-`in_progress`. Checks are authored; test/build/browser execution and both required
-PR reviews are pending. See [the P35o record](verification/p35o-display-label.md).
+parsing and external display-label roundtrip remain unsupported. This slice shipped
+in [#201](https://github.com/EunhakChoi/chemifree/pull/201), with successful final-head
+[check/browser CI 42311153640](https://github.com/EunhakChoi/chemifree/actions/runs/42311153640).
+Its Codex and independent review dispositions are recorded in the
+[completion audit](verification/p35-completion-audit.md#merged-delivery-and-ci).
+Bounded P35 is done; [the P35o record](verification/p35o-display-label.md) preserves
+its historical implementation-session observations separately from current delivery.
 
-### Explicit retained-graph fragment display (P35p candidate)
+### Explicit retained-graph fragment display (P35p)
 
 `{ "op":"contract_fragment", "instance":"s1", "anchor":"a2", "members":["a2","a3","a4"], "text":"iPr" }`
 contracts an explicitly selected existing fragment. `set_fragment_display_text`
@@ -305,11 +309,15 @@ Native clipboard, Cut preparation and graph template export refuse selections
 intersecting retained members with `clipboard_abbreviation_display_unsupported`;
 the UI instructs expansion first. External label roundtrip, a nickname dictionary,
 text-to-graph parsing, arbitrary graph replacement and general multistyle chemical
-labels remain unsupported. Native v24 persistence is described below. P35 stays
-`in_progress`; this candidate's execution and both reviews are pending. See
-[the P35p record](verification/p35p-fragment-display.md).
+labels remain unsupported. P35p introduced native v24 plain-text persistence;
+current v25 script-run persistence is described below. This slice shipped in
+[#202](https://github.com/EunhakChoi/chemifree/pull/202), with successful final-head
+[check/browser CI 42316586336](https://github.com/EunhakChoi/chemifree/actions/runs/42316586336).
+The [completion audit](verification/p35-completion-audit.md#merged-delivery-and-ci)
+records its Codex/independent review dispositions and bounded P35 completion.
+[The P35p record](verification/p35p-fragment-display.md) retains historical session notes.
 
-### Retained fragment display script runs (P35q candidate)
+### Retained fragment display script runs (P35q)
 
 `{ "op":"set_fragment_display_runs", "instance":"s1", "anchor":"a2", "runs":[{"text":"R","script":"baseline"},{"text":"2","script":"subscript"}] }`
 replaces the complete run list of an existing fragment display. Each run requires
@@ -349,9 +357,15 @@ remain unchanged. P35p eligibility, overlap, automatic reveal and geometry rules
 remain binding. Export retains the full graph and reports `abbreviation_display`
 rendering loss; native clipboard/Cut/template member intersections still refuse
 until expansion. No per-run font/color/weight/style override, dictionary, chemical
-parser or external display-run roundtrip is introduced. P35 remains `in_progress`.
-This candidate has not yet passed execution or either required review; see
-[the P35q record](verification/p35q-fragment-display-runs.md).
+parser or external display-run roundtrip is introduced. This slice shipped in
+[#203](https://github.com/EunhakChoi/chemifree/pull/203), with successful final-head
+[check/browser PR CI 42320918256](https://github.com/EunhakChoi/chemifree/actions/runs/42320918256)
+and [post-merge main CI 42322504482](https://github.com/EunhakChoi/chemifree/actions/runs/42322504482).
+Codex and the independent reviewer identified the same post-reopen browser ink
+assertion error; the fixed assertion and saved/reopened script-position regression
+are recorded in the [audit](verification/p35-completion-audit.md#203-merged-evidence-and-post-merge-main-ci).
+Bounded P35 is done. [The P35q record](verification/p35q-fragment-display-runs.md)
+separates historical implementation-session pending statements from this verified delivery.
 
 ## User graph template files (P34d)
 
@@ -2324,11 +2338,12 @@ rules. Captions currently have no chemical-format mapping. MOL/SDF, SMILES and b
 CDXML/CDX drawing export report each caption as a dropped `caption` rendering loss and
 require digest-bound consent before returning content. Rich-tree CDXML/CDX interchange
 continues its separate existing contract and does not become editor-caption roundtrip.
-P35 remains in progress. Written regression scope and unexecuted checks are recorded in
+Historical implementation-session regression scope and then-unexecuted checks are recorded in
 [the P35a verification record](verification/p35a-unicode-caption.md) and
 [the P35b verification record](verification/p35b-caption-weight-style.md),
 [the P35d verification record](verification/p35d-caption-font-family.md) and
-[the P35c verification record](verification/p35c-caption-alignment.md).
+[the P35c verification record](verification/p35c-caption-alignment.md). Current merged
+PR/CI evidence and bounded P35 completion are recorded in the [audit](verification/p35-completion-audit.md).
 
 ## Compatibility and verification
 
@@ -2343,12 +2358,14 @@ Additive fields, endpoints, commands, and capability IDs may be introduced withi
 None of these checks validate chemical behavior or compatibility with any other application.
 
 
-P35i independent caption run shadow (P35 in progress): `shadow` is a boolean; omission means false, explicit null and other types are malformed. It composes with every existing run field and never changes graph identity, text, advances or anchor. The shared application provides UI/API/CLI, replay and undo/redo. Chemifree renders a second copy at (+1,+1) pt with opacity 0.35 and zero blur, using the effective run color (theme foreground for null); hollow outlines stay hollow and underline rectangles receive the same shadow. This is an independent visual policy, without a claim of legacy rendering equivalence. Only visible shaped glyph/stroke ink and positive-width underlines enter the translated union; whitespace, invisible formatting and zero-advance shaping follow browser measurements. Fit/selection/hit bounds use the current actual SVG viewport measurement provenance.
+P35i independent caption run shadow: `shadow` is a boolean; omission means false, explicit null and other types are malformed. It composes with every existing run field and never changes graph identity, text, advances or anchor. The shared application provides UI/API/CLI, replay and undo/redo. Chemifree renders a second copy at (+1,+1) pt with opacity 0.35 and zero blur, using the effective run color (theme foreground for null); hollow outlines stay hollow and underline rectangles receive the same shadow. This is an independent visual policy, without a claim of legacy rendering equivalence. Only visible shaped glyph/stroke ink and positive-width underlines enter the translated union; whitespace, invisible formatting and zero-advance shaping follow browser measurements. Fit/selection/hit bounds use the current actual SVG viewport measurement provenance.
 
 Native document/draft v17 requires boolean shadow in every current/history run. v8–16 forbid that field and migrate to false, preserving all original bytes in versioned archives before replacement. Future v26 is refused untouched (v19 adds label style and v20 adds underline, below). Shadow=false keeps the exact v16 admission weights (160 without outline, 192 with it); shadow=true admits at224 bytes/run. Physical metadata reserves192 bytes for at most185 encoded metadata bytes. History physical weight is at most6/5 of its8MiB admission; current admission is48MiB and at most32,000 runs add at most1,024,000 physical bytes. The conservative complete-file bound is61,421,978 bytes, below64MiB with more than5MiB spare, including the existing4096-byte envelope. Existing maximal109-caption current/undo/redo states must not be trimmed or refused during migration. External caption roundtrip and scientific labels remain unsupported.
 
 
-Shadow compositing policy: all shadow glyphs and underline rectangles paint together in one translated SVG group behind every foreground glyph and underline. The group receives opacity0.35 once, so overlapping descenders/underline shadows do not accumulate opacity and later-run shadows cannot cover foreground ink. A real-browser regression rasterizes the actual detached shadow tree with frozen computed styles onto a transparent canvas and asserts nonempty alpha≤90/255, including g/j descenders, alongside DOM paint order and the existing geometry/theme checks. Written only; execution remains parent-owned.
+Shadow compositing policy: all shadow glyphs and underline rectangles paint together in one translated SVG group behind every foreground glyph and underline. The group receives opacity0.35 once, so overlapping descenders/underline shadows do not accumulate opacity and later-run shadows cannot cover foreground ink. A real-browser regression rasterizes the actual detached shadow tree with frozen computed styles onto a transparent canvas and asserts nonempty alpha≤90/255, including g/j descenders, alongside DOM paint order and the existing geometry/theme checks. Historical session note: this regression was initially written without execution.
+Merged #194 and subsequent caption browser CI evidence in the
+[completion audit](verification/p35-completion-audit.md) supersede that session status.
 
 
 ### Chemical label weight (P35j)
@@ -2398,8 +2415,10 @@ external label-style roundtrip and legacy rendering equivalence remain unsupport
 Regression code is written for all three families at 4/72 pt, scripted H/count,
 isotope/charge, list queries and Et, real SVG ink versus shared trim/fit/hit/selection,
 caption independence, preferences/replay/history, native old-byte archives and
-payload compatibility. Execution and both PR reviews are pending parent-owned
-isolated verification; this implementation run used formatting/diff inspection only.
+payload compatibility. Historical implementation-session note: that run used
+formatting/diff inspection only and left execution/reviews pending. Merged #195
+and its passing CI/review dispositions in the [audit](verification/p35-completion-audit.md)
+supersede that historical verification status.
 
 ### Chemical label style (P35k)
 
@@ -2427,8 +2446,9 @@ not write; overwrite/recovery archives exact prior bytes. Future v26 is refused
 untouched. Existing settings reservations, caption history admission and the
 physical 64 MiB bound are unchanged. Native clipboard/template versions remain
 unchanged: omission of style means normal; explicit null/unknown/type errors are
-refused, and exact destination matching includes style. P35 remains in progress;
+refused, and exact destination matching includes style. Bounded P35 is done;
 external style roundtrip and general font registration remain unimplemented.
+Merged #196 verification is recorded in the [audit](verification/p35-completion-audit.md).
 
 
 ## Chemical label underline (P35l, bounded)
@@ -2461,11 +2481,13 @@ payloads may omit the field (false); explicit null or a nonboolean is invalid.
 Copy validation compares the complete migrated style. External exports keep the
 existing `drawing_settings` loss rather than pretending to preserve this styling.
 
-P35 remains `in_progress`. New checks are authored but have not been run in the
-P35l implementation session; there is no browser or scientific validation claim.
+Historical P35l session note: checks were authored but not run in that session.
+Merged #197 and passing browser/check CI in the [audit](verification/p35-completion-audit.md)
+supersede that execution status. Bounded P35 is done without a general scientific
+validation or renderer-equivalence claim.
 
 
-## Chemical label outline (P35m, in progress)
+## Chemical label outline (P35m)
 
 `label_outline` is a document boolean, default false. Preferences copy it to new
 documents; HTTP, CLI and queued edits, reset, replay, undo/redo, save, recovery and
@@ -2490,12 +2512,13 @@ style matching includes outline. Existing nondefault-settings interchange losses
 cover this style. Existing history admission and 64 MiB read limits are retained.
 
 Checks are registered as `npm run test:browser:label-outline` in CI and client,
-application, clipboard and strict-native boundary coverage. They have not been
-executed in this implementation session, at the user's request. P35 remains
-`in_progress`; Further chemical label typography remains future work; shadow is described in P35n below.
+application, clipboard and strict-native boundary coverage. Historical session
+note: they were not executed in that implementation session, at the user's request.
+Merged #198 verification in the [audit](verification/p35-completion-audit.md)
+supersedes that status. Bounded P35 is done; shadow is described in P35n below.
 
 
-## Chemical label shadow (P35n, in progress)
+## Chemical label shadow (P35n)
 
 `label_shadow` is a document boolean, default false, copied from preferences only
 when creating a document. It is shared by settings/reset/templates, HTTP/CLI,
@@ -2535,6 +2558,8 @@ covered by the existing migration fixture extended through v21.
 actual fonts, sizes, weight/style, fill/outline/underline, both themes, overlapping
 shadow alpha, rendering order, translated ink/fit/trim/hit/selection, graph/Et,
 settings/native history, switched documents and late font loading. Client,
-application, clipboard and strict-native boundary checks accompany it. These
-checks have not been executed in this implementation session at the user's
-request. P35 remains `in_progress`; no legacy rendering equivalence is claimed.
+application, clipboard and strict-native boundary checks accompany it. Historical
+session note: these checks were not executed in that implementation session at
+the user's request. Merged #199 and its passing PR CI in the
+[audit](verification/p35-completion-audit.md) supersede that session status.
+Bounded P35 is done; no legacy rendering equivalence is claimed.

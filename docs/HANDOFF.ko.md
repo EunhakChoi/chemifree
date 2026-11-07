@@ -8,17 +8,21 @@
 - Escape/pointercancel/lost capture/blur/Fit/Reset은 preview를 버린다. document/revision/selection/tool/target geometry/kind/group 변화는 gesture를 무효화하며 큐에서 다시 검증한다. restart 후 미확정 edit 자동 재전송은 없다. bounding-box resize·multi/group/rotation handles·새 도형/image/clip/layers/style/과학 화살표 의미는 미지원이다.
 - HEAD79434f2 source 대조만 했다. P36은 `in_progress`; 선행 P36a PR#204 merge pending과 P36b full checks·Codex/독립 fresh review·PR CI pending을 구분한다. 부모/web 담당의 진행 중 general smoke를 성공으로 쓰지 않는다. [P36b 기록](verification/p36b-graphic-endpoint-drag.md).
 
-## P36a 기존 graphic 두 점 좌표 편집 후보
+## P36a 기존 graphic 두 점 좌표 편집 (#204 merged, main CI pending)
 
 - `update_graphic_points`는 concrete graphic object ID와 정확히 두 points를 받아 기존 line/arrow/rectangle의 좌표만 교체한다. 각 x/y는 finite·inclusive±100000 pt이며 reversed/coincident도 허용한다. arrow의 두 번째 점은 tip, rectangle은 저장 순서를 보존한 두 opposite corners다. shape/ID·group/parent·roots/order·incoming/outgoing references·다른 객체·graph/placement/stereo/settings를 유지한다. 반응/전자 의미는 추론하지 않는다.
 - 필드/두 점 개수/type/null·shape 등 unknown field는 invalid_request, 범위 초과·없는 객체·다른 kind는 invalid_command다. 전체 transaction 원자성·동일점 no-op·Undo/Redo·selection·revision·same-process replay를 공유하며 새 native schema/version 없이 v25 object/history/draft/save 경로를 쓴다.
 - 실제 Graphic endpoints panel은 선택한 scene graphic1개의 x1/y1/x2/y2를 pt로 편집한다. decimal/scientific 입력·invalid/busy/no-op/IME gate와 captured document/revision/target 검증을 적용한다. 큐에서 revision·geometry·group/target이 바뀌면 lapse하며 restart 후 미확정 편집은 자동 재전송하지 않는다.
 - resize/endpoint drag handles·새 도형·curve/reaction/electron arrows·scientific glyph·image·clip/layer/style/layout은 추가하지 않는다. P36은 `in_progress`; Rust0650f7a·web66eac34 소스를 대조했으며 테스트·빌드·browser·두 리뷰·PR CI는 대기다. [P36a 기록](verification/p36a-graphic-points.md). 이 문서 작업은 실행 검증이나 전체 P36 완료를 주장하지 않는다.
+- 배송 후속: P36a PR #204는 main26962b6으로 병합되었다. post-merge main CI는 부모 인계에서 pending이며 위 구현-session 검사/리뷰 대기 문구와 구분한다. P36 전체는 계속 `in_progress`다.
 
-## P35 현재 상태 정정 (main f29195a, #199)
+## P35 bounded 완료 (main #203, PR/main CI success)
 
-P35a–n과 Et 표시 #185는 병합되었고 각 PR의 check/browser CI가 통과했다. 아래 후보·실행 대기 문구는 구현 당시의 기록이며 현재 검증 상태가 아니다. 다만 fixed Et 이외 일반 약어 레이블의 생성·텍스트/run 편집은 구현되지 않아 P35 원 scope 완료는 입증하지 못했다. P35는 in_progress를 유지한다. [완료 근거 대조와 남은 범위](verification/p35-completion-audit.md)를 현재 기준으로 사용한다. 이번 문서 대조에서는 테스트·빌드·브라우저를 실행하지 않았다.
+P35a–n/Et #185 및 #201/#202에 더해 #203 fragment script runs가 main84ef063으로 병합되었다. #203 final head bdc331f의 PR CI42320918256과 post-merge main CI42322504482는 check/browser 모두 성공을 직접 확인했다. 기존 #201/#202의 PR CI와 리뷰/fix 근거도 감사에 보존했다.
 
+승인된 실제 graph 보존·display-only 정책 아래 unchanged P35 scope/acceptance의 caption multi-style/script/alignment, typed atom 편집의 의미 구분, retained Et/fragment text/script 편집, Unicode/long-text/run/codec index 검사 및 native history/save/reopen 근거가 충족되어 bounded P35를 `done`으로 기록한다. fixed-Et-only 공백은 해소되었으나 arbitrary atom rich runs·nickname atom union/dictionary/parser·external caption/display roundtrip·일반 legacy rendering 동등성을 구현한 것은 아니다. 상위 RENDER-01/STYLE-01은 partial 경계를 유지한다.
+
+이 문서 branch는 #204 main26962b6 위로 rebase하며 P36a 문서/요구사항을 보존했다. #204의 post-merge main CI는 부모 인계에서 pending이며 성공을 주장하지 않는다. P36은 `in_progress`다. 이 완료 문서 자체의 integration 검사·리뷰·CI는 별도이며 문서 작업에서 tests/build/browser를 재실행하지 않았다. [완료 근거와 제한](verification/p35-completion-audit.md)을 현재 기준으로 사용한다. 아래 후보·대기 문구는 각 구현 당시 기록이며 확정 배송/검증 상태는 감사가 우선한다.
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 

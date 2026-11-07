@@ -1,6 +1,10 @@
 # P36a existing graphic point-editing candidate
 
+Implementation-session follow-up (historical):
+
 Follow-up: this P36a record describes the numeric-form implementation session. [P36b](p36b-graphic-endpoint-drag.md) adds single-graphic canvas endpoint dragging; its verification is separate. P36a PR #204 merge remains pending in the parent handoff, and this documentation update claims no merge or successful P36b full checks/reviews/CI.
+
+Delivery follow-up: P36a PR #204 merged as26962b695ab2924370aecb63f0e231485e1cda04. Its post-merge main CI is pending in the parent handoff; this update makes no success claim for that run. The implementation-session verification notes below are historical. P36 remains in_progress, and no checks were rerun for this documentation rebase.
 
 This bounded candidate adds `update_graphic_points` for an existing line, arrow
 or rectangle. It requires a concrete graphic object ID and exactly two `{x,y}`

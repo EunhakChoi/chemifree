@@ -61,15 +61,16 @@
         },
         {
           "id": "MODEL-01.rest",
-          "summary": "Several chemical graphs and pages, text and other specialized scene objects, and specialized reaction or style references.",
+          "summary": "Multiple chemical graphs/pages, specialized scene objects beyond implemented independent captions and simple graphics, and reaction/style references beyond generic directed links remain unsupported. Open follow-ups are P36 for advanced graphic scene types, P37 for geometric object references, P40 for multiple pages, P49 for persistent reaction-role/mapping references, and the existing optional S05 for collaborative reference invariants. Bounded P35 caption/display editing is delivered and is no longer an unfinished follow-up; this does not claim the broader multi-graph model is complete.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P35",
+            "P36",
             "P37",
             "P40",
+            "P49",
             "S05"
           ]
         }
@@ -1705,14 +1706,13 @@
         },
         {
           "id": "RENDER-01.rest",
-          "summary": "Remaining general text, vector output, transforms and clipping beyond the editor canvas. Implemented independent single-line captions and chemical label typography use measured SVG bounds and native history; their merged PR/CI evidence and unsupported boundaries are reconciled in docs/verification/p35-completion-audit.md. This does not complete general rendering. P35o is an additional unverified candidate for one plain cosmetic Unicode display string on an existing retained ethyl graph: text:null resets Et, arbitrary text is never parsed and chemistry/identity/formula remain unchanged. Chemical exports report display loss; native v23 current/history and v1–22 exact-byte migration preserve the old graph. P35o alone does not provide general multistyle atom/abbreviation labels or fragment editing; original P35 scope stays in_progress and P35o execution/reviews are pending (docs/verification/p35o-display-label.md). P35p adds a separate unverified explicit retained-graph fragment display candidate (contract_fragment/set_fragment_display_text/expand_fragment): one plain single-line string up to128 UTF-8 bytes, connected acyclic neutral/default element members, one placement and one unmarked single external boundary at the explicit anchor. Query/local stereo, rings, multiple boundaries/placements and Et/fragment overlap refuse. Original graph/IDs/states/stereo/coordinates continue to supply scientific results; chemical exports retain the full graph with abbreviation_display rendering loss, and native clipboard/Cut/template member intersections refuse until expansion. Native v24 current/history fragment_displays are strict; v1–23 forbid the field and migrate empty with exact-byte archives before rewrite/recovery; future25 refuses untouched. General nickname dictionaries, text-to-graph parsing and external label roundtrip remain unsupported. Execution and both reviews are pending; P35 stays in_progress (docs/verification/p35p-fragment-display.md). P35q is a further unverified candidate for explicit baseline/subscript/superscript runs on retained fragment displays via set_fragment_display_runs: nonempty runs, nonblank single-line concatenation and total128 UTF-8 bytes. Plain-text commands reset to one baseline run; runs inherit document label style and measured SVG bounds, preserving run boundaries without guaranteed cross-run shaping. Scripts never infer chemistry; original graph and scientific calculations remain unchanged. Native v25 strictly requires runs without top-level text in current/history, v24 strictly requires text without runs and migrates every boundary to baseline; exact-byte document/draft archives precede replacement/recovery, and future v26 refuses untouched. Existing export loss and clipboard/Cut/template restrictions remain. Dictionary/parser/external run roundtrip and per-run font/color/weight/style overrides remain unsupported. P35 stays in_progress; execution and both reviews are pending (docs/verification/p35q-fragment-display-runs.md). P36a is a separate unverified candidate for updating the two stored points of an existing line/arrow/rectangle, preserving shape/ID/containment/order/references and chemical graph. It shares atomic transaction/no-op/replay/Undo/Redo and native v25 history; UI captures revision/target and guards invalid/IME/stale input. Finite inclusive±100000 pt, reversed/coincident points remain the existing geometry profile. No resize handles, new shapes, images, clipping, layers, graphic style controls or chemical arrow semantics are added. P36 stays in_progress; tests/build/browser, both reviews and PR CI are pending (docs/verification/p36a-graphic-points.md). P36b adds a further unverified canvas endpoint-drag candidate for one explicitly selected noncoincident line/arrow/rectangle in Select mode, including a directly selected group child. Inverse SVG screen coordinates respect pan/zoom; press offset/opposite point are retained. Pointer movement previews only, with one existing update_graphic_points on valid release; cancel/stale document/revision/selection/tool/exact target and restart guards prevent a silent commit/retry. Coincident points use the numeric form. Native v25 and existing geometry bounds/Undo/retention remain without command/schema changes. No general bounding-box/group/rotation handles or new shapes/semantics are added. Prior P36a #204 merge is pending separately from P36b full checks/reviews/CI; P36 stays in_progress (docs/verification/p36b-graphic-endpoint-drag.md).",
+          "summary": "Remaining general text, vector output, transforms and clipping beyond the editor canvas. Independent Unicode caption rich runs/alignment and document-wide chemical typography are delivered; #201 adds retained-Et plain text, #202 explicit eligible retained-fragment contraction/text/expansion and #203 literal baseline/subscript/superscript runs, resolving the former fixed-Et-only gap. Display edits preserve real graph/chemistry while typed atom-state edits can change meaning. #203 merged84ef063 from final head bdc331f with passing check/browser PR CI42320918256; the audit records actual review findings/fixes, source/regressions and #201/#202 CI. The evidence supports bounded P35 editing/storage acceptance under the approved graph-preserving display policy, without completing general RENDER-01. Bounded P35 is done after post-merge main CI42322504482 for84ef063 passed check/browser, separately from successful PR CI42320918256. This documentation reran no checks and has separate integration/review/CI gates. Shape/text bounds, unsupported arbitrary atom rich text/nickname union/dictionary/parser/external caption/display roundtrip and cross-run shaping guarantees remain explicit. Exact evidence and remaining gate: docs/verification/p35-completion-audit.md. P36a is a separate unverified candidate for updating the two stored points of an existing line/arrow/rectangle, preserving shape/ID/containment/order/references and chemical graph. It shares atomic transaction/no-op/replay/Undo/Redo and native v25 history; UI captures revision/target and guards invalid/IME/stale input. Finite inclusive±100000 pt, reversed/coincident points remain the existing geometry profile. No resize handles, new shapes, images, clipping, layers, graphic style controls or chemical arrow semantics are added. P36 stays in_progress; tests/build/browser, both reviews and PR CI are pending (docs/verification/p36a-graphic-points.md). P36b adds a further unverified canvas endpoint-drag candidate for one explicitly selected noncoincident line/arrow/rectangle in Select mode, including a directly selected group child. Inverse SVG screen coordinates respect pan/zoom; press offset/opposite point are retained. Pointer movement previews only, with one existing update_graphic_points on valid release; cancel/stale document/revision/selection/tool/exact target and restart guards prevent a silent commit/retry. Coincident points use the numeric form. Native v25 and existing geometry bounds/Undo/retention remain without command/schema changes. No general bounding-box/group/rotation handles or new shapes/semantics are added. Prior P36a #204 merge is pending separately from P36b full checks/reviews/CI; P36 stays in_progress (docs/verification/p36b-graphic-endpoint-drag.md). P36a #204 is merged26962b6, preserving the graphic-point scope above; its post-merge main CI remains pending in the parent handoff and P36 remains in_progress. Open follow-up routing after bounded P35 completion: remaining general text shaping/bounds/transform/clip/SVG belongs to planned P38; scene graphic behavior to in-progress P36; geometric annotations to P37 and page/PDF behavior to P40. Existing open codec, specialized-object, output and accessibility rows retain their own scopes. This removes completed P35 as a future-work owner without claiming general rendering is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
             "P22",
-            "P35",
             "P36",
             "P37",
             "P38",
@@ -1975,7 +1975,7 @@
         },
         {
           "id": "STYLE-01.4",
-          "summary": "Independent single-line Unicode captions have ordered baseline/subscript/superscript runs with per-run weight, style, inherited or generic font, size, opaque colour, underline, outline and shadow; whole-line alignment preserves the anchor. Chemical atom/query/H/isotope/charge and fixed graph-preserving Et labels have document-wide weight/style/underline/outline/shadow settings. Shared transactions, HTTP/CLI, native history/recovery and measured browser bounds carry these styles without changing chemical identity. This does not implement arbitrary atom or abbreviation text/run editing or external caption roundtrip (see docs/verification/p35-completion-audit.md).",
+          "summary": "Independent single-line Unicode captions preserve ordered baseline/subscript/superscript runs, per-run weight/style/font/size/colour/underline/outline/shadow and whole-line alignment. Chemical atom/query/H/isotope/charge and retained Et labels have document-wide typography. Merged #201 edits plain retained-Et display text/reset and #202 contracts explicit eligible real fragment members behind editable plain text. These display edits preserve graph/IDs/states/stereo/coordinates and scientific calculations; typed atom state edits can change chemistry. #203 adds literal baseline/subscript/superscript runs on retained fragments, merged84ef063 from bdc331f with passing check/browser PR CI42320918256. Shared native history/recovery and measured browser bounds support the merged paths. No arbitrary atom text, per-atom rich runs, dictionary/parser or external caption/display roundtrip is claimed; bounded P35 is done with successful PR CI42320918256 and post-merge main CI42322504482 at merge84ef063; this completion documentation still has separate integration/review/CI gates (docs/verification/p35-completion-audit.md).",
           "status": "implemented",
           "implementation": [
             "crates/domain/src/scene.rs",
@@ -1983,7 +1983,10 @@
             "crates/application/src/contract.rs",
             "crates/providers/src/file_format.rs",
             "apps/web/src/editor/scene-caption.tsx",
-            "apps/web/src/editor/label.ts"
+            "apps/web/src/editor/label.ts",
+            "crates/domain/src/document/abbreviation.rs",
+            "crates/domain/src/document/fragment_display.rs",
+            "apps/web/src/components/fragment-display-panel.tsx"
           ],
           "evidence": [
             "check:check:rust",
@@ -1994,13 +1997,14 @@
         },
         {
           "id": "STYLE-01.rest",
-          "summary": "Other computation preferences (NMR solvent and corrections, general numeric precision beyond mass display), remaining document style properties (general colours beyond caption run colour, bond spacing, margins, page size), arbitrary atom/abbreviation label text and run editing, named styles and general template libraries, automation settings beyond the current shared HTTP/CLI operations, and rendering with settings by the service. Implemented caption and document-wide chemical label typography is tracked separately in STYLE-01.4.",
+          "summary": "Other computation preferences (NMR solvent and corrections, general numeric precision beyond mass display), remaining document style properties (general colours beyond caption run colour, bond spacing, margins, page size), arbitrary atom text/per-atom rich runs and general abbreviation editing beyond the explicit retained-graph display profile, named styles and general template libraries, automation settings beyond current shared HTTP/CLI operations, and rendering with settings by the service. Caption and document-wide chemical typography, plus merged bounded Et/fragment display text editing, are tracked in STYLE-01.4; #203 fragment script runs are merged with passing final-head PR CI. Bounded P35 is done on merged PR/main CI evidence; general STYLE-01 stays partial and this completion documentation has its own integration/review/CI gates (see the completion audit). Open follow-ups now route graphic style controls to in-progress P36 and shared text shaping/rendering to planned P38, while P40 retains page settings, P60 numeric prediction precision, P66 NMR solvent/correction settings and P80 style/template carriers. P38 is a renderer/output task, not a promise to parse arbitrary atom text or add an undefined label editor; any such wider editor semantics still require explicit future scope. Completed P35 is not an open follow-up.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P35",
+            "P36",
+            "P38",
             "P40",
             "P60",
             "P66",

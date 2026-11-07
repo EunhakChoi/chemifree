@@ -1,5 +1,7 @@
 # P35p explicit retained-graph fragment display candidate
 
+Current evidence: this is an implementation-session record. Its pending execution/review wording is historical: merged #201/#202 and passing final-head check/browser CI are reconciled in [the P35 completion audit draft](p35-completion-audit.md). The #203 script-run follow-up is now merged with passing final-head PR CI; post-merge main CI42322504482 now passes and the audit records bounded P35 done, with broader unsupported behavior unchanged. No checks were rerun for this documentation draft.
+
 This candidate extends display contraction to explicitly selected existing fragment
 members. It does not define a chemical nickname language. `contract_fragment`
 requires instance, anchor, members and text; `set_fragment_display_text` requires

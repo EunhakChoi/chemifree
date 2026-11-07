@@ -1,11 +1,20 @@
 # P35 completion evidence audit
 
-P35 remains `in_progress` at main `f29195a` (#199). Caption and chemical-label
-appearance slices have shipped; that does not prove the original row's whole
-atom/abbreviation/caption label editing scope complete. This audit changes no
-product behavior and ran no tests, builds, browser checks or cargo checks.
+Bounded P35 is `done` against the unchanged roadmap editing/storage scope and
+acceptance under the recorded graph-preserving display decision. #203 merged as
+`84ef063`; final-head PR CI 42320918256 and post-merge main CI 42322504482 both
+passed `check` and `browser`. Editable Et text (#201), explicit fragment displays
+(#202) and script runs (#203) resolve the earlier fixed-Et-only gap. This does
+not complete general RENDER-01/STYLE-01 or the unsupported behaviors below.
 
-The candidate/pending statements in the P35a–n and P34i implementation records,
+This documentation branch was rebased onto main `26962b6` (#204), preserving
+P36a graphic-point documentation. #204's post-merge main CI is still pending in
+the parent handoff; no success is claimed for that separate change. This audit
+changes no product behavior and ran no tests, builds, browser checks or cargo
+checks. Its own documentation integration/review/CI are separate from the verified
+P35 delivery evidence.
+
+The candidate/pending statements in the P35a–q and P34i implementation records,
 and their copied README/CONTRACT/HANDOFF notes, describe those implementation
 sessions. The merged PR and CI evidence below supersedes that execution status;
 it does not turn unsupported behavior into implemented behavior.
@@ -17,30 +26,40 @@ The unchanged P35 scope is “다중 스타일 Unicode run, 위·아래 첨자, 
 문자·긴 텍스트·run 경계와 codec 인덱스를 검사한다. 텍스트 수정이 원자 의미를
 바꾸는 경우를 명시한다.” See [the roadmap JSON](../roadmap/implementation-roadmap.json).
 
-The approved public packet was consulted outside Git: its AGENTS.md,
+The prior `f29195a` audit consulted the approved public packet outside Git: its AGENTS.md,
 README.ko.md, `spec/phase7-implementation-entry.ko.md`, readiness requirements v2,
 `phase3-design-v3/semantics.ko.md`, `phase3-design-v3/document.schema.json`,
 `phase7-analysis-closure-checklist.json`, `deep-rendering-contracts.md`,
 `phase7-original-functional-supplement.md` and
-`integration-long-caption-contracts.json`. The packet is not copied here.
+`integration-long-caption-contracts.json`. The packet is not copied here. This
+follow-up uses that recorded specification comparison and the current
+implementation; it does not claim a new packet review.
 The semantics require ordered Unicode runs and explicit codec index/encoding
 mapping failures; external byte/UTF-16 positions must not become internal string
 indices. The Unicode supplement separates stored strings from platform-dependent
 serialization and visual appearance. The 66,000-character integration observation
 is one authored carrier case, explicitly not a universal length guarantee.
 
-The remaining scope discrepancy is general abbreviation label editing: the
-product offers only fixed `Et` display over an existing terminal ethyl graph,
-with no abbreviation text/run editor or general abbreviation kind. The public
-`document.schema.json` atom union explicitly includes `nickname` and `fragment`
-kinds carrying `label: string` and `expression: object | null`; a fixed Et display
-map does not implement those label-bearing atom kinds. Atom editing
-uses typed state fields, and chemical typography is document-wide rather than
-arbitrary rich runs on an atom label. These are real implementation boundaries.
-The inspected specifications do not settle the required additional abbreviation
-vocabulary, per-label editing model or whether arbitrary text must parse into a
-graph. Do not invent those semantics or narrow the original row to mark it done.
-A subsequent approved scope decision and implementation must resolve that gap.
+The recorded [user decision](p34i-ethyl-display.md#authorized-boundary) is to retain
+the actual chemical graph and contract its display. [The current contract](../CONTRACT.md#explicit-retained-graph-fragment-display-p35p)
+and subsequent P35o–q slices apply that decision to explicit text, member selection
+and script runs. Display strings and scripts never define chemistry. Editing
+typed atom state can change chemical meaning; editing display text cannot. No
+nickname dictionary or text-to-graph interpretation is inferred to fill a gap.
+
+Merged #201 supplies an existing Et display's plain-text editor/reset. Merged
+#202 supplies explicit eligible fragment membership, plain-text editing and
+expansion. Merged #203 supplies ordered baseline/subscript/superscript runs
+on that display. These address the former missing abbreviation editing path and
+must be assessed as graph-preserving display editing, rather than described as
+fixed Et. The public packet's `nickname`/`fragment` atom union carrying `label`
+and `expression` is still not implemented as those graph atom kinds: this product
+stores separate display metadata over real atoms. That distinction remains an
+explicit compatibility boundary, not a new arbitrary atom union or parser added
+by this audit. The acceptance assessment below uses that recorded decision and
+the unchanged roadmap wording. With successful post-merge main CI now recorded,
+that bounded roadmap row can be marked done without expanding its scientific or
+compatibility claims.
 
 ## Implemented acceptance evidence
 
@@ -51,11 +70,44 @@ A subsequent approved scope decision and implementation must resolve that gap.
 | Long text and limits | `caption.rs::byte_and_run_limits_are_not_character_or_utf16_limits` and client checks cover 1–32 runs and 16,384 UTF-8 bytes, including multibyte Korean boundaries and rejection beyond limits. `crates/domain/tests/caption_budget.rs` and provider caption migration fixtures cover admission/history and physical persistence bounds. These explicit refusals do not claim unlimited text or the external 66,000-character caption profile is admitted to the editor. |
 | Alignment | `caption.rs::whole_caption_alignment_keeps_anchor_runs_graph_and_one_undo_step`, `apps/web/src/editor/scene-caption.tsx`, and the caption browser script cover whole-single-line left/center/right alignment around a fixed anchor with natural advance including edge spaces. Script/style changes preserve the anchor; alignment is physical rather than logical bidi start/end. |
 | Atom semantics | `apps/web/src/editor/atom-edits.ts` builds `update_atom` commands for element/isotope/charge/H/radical/query/attachment state. These change recorded chemical state and can change graph identity/calculations; the visible label is derived from state by `apps/web/src/editor/label.ts`. Document settings font/size/carbon display and P35j–n weight/style/underline/outline/shadow change presentation only. They do not parse arbitrary atom label text or assign chemistry to captions. |
-| Et semantics | `crates/domain/src/document/abbreviation.rs` accepts only its explicit neutral C2/single-boundary profile. `crates/domain/tests/abbreviation.rs`, application/provider tests and `scripts/web-abbreviation-check.mjs` check graph/IDs/state/coordinates, selection, automatic unfolding, native history and save. Collapse/expand changes display metadata only. `Et` is fixed text, not a general substituent parser or editable abbreviation vocabulary. |
+| Et text semantics (#201, merged) | `crates/domain/src/document/abbreviation.rs` retains its neutral C2/single-boundary eligibility. `update_abbreviation_label` edits a nonempty single-line string up to128 UTF-8 bytes; explicit null resets Et. Domain/application/provider display-label checks and `scripts/web-display-label-check.mjs` cover literal Unicode, history/replay/reset, graph/identity/formula preservation and measured SVG bounds. This is now editable display text, without a substituent parser. |
+| Fragment membership/text (#202, merged) | `crates/domain/src/document/fragment_display.rs`, `crates/domain/tests/fragment_display.rs` and `crates/application/tests/fragment_display.rs` cover explicit member/anchor contraction, text edits, expansion, exact graph/ID/state/coordinate/identity preservation, refusals, history/replay and full-graph scientific/export behavior. `crates/providers/tests/fragment_display_format.rs` covers strict v24/current/history/draft and old-byte archives; `scripts/web-fragment-display-check.mjs` exercises the actual form, hidden members, whole-member dragging and native roundtrip. Bounds and eligible shapes remain explicit below. |
+| Fragment script runs (#203, merged) | `explicit_scripts_are_preserved_in_history_and_plain_text_resets_to_one_baseline_run`, `run_budget_uses_total_utf8_bytes_and_nonempty_runs_without_an_independent_count_limit` and provider v24/v25 migration/strict-history tests preserve complete ordered runs. Application `rich_run_edit_replays_as_one_transaction_and_plain_text_resets_scripts`, `scripts/web-fragment-display-client-check.mjs` and the production browser script cover Korean, combining/ZWJ text, exact run/text agreement, baseline reset, IME, sub/sup positions and native reopen. Final-head PR CI passes both jobs and #203 is merged, as detailed below. |
 | Measured rendering | `scene-caption.tsx`, `label.ts` and `scripts/web-label-{weight,style,underline,outline,shadow}-check.mjs` cover mounted SVG ink/advance, fit, trimming, picking and selection, family/size/style combinations, font completion and viewport/document provenance. Stored Unicode and bounds checks are distinct from universal glyph or legacy pixel equivalence. |
 | CDXML rich runs | `crates/providers/tests/cdxml.rs` and `cdxml_golden.rs` exercise the separate typed interchange tree with style-run Unicode text, XML entities, properties and ordered children. CDXML `<s>` child runs have text content rather than editor byte offsets. This tree does not import/export editor captions. |
 | CDX indices and strict encoding | `crates/providers/src/cdx/text.rs` converts encoded byte ranges into independent strings; `crates/providers/tests/cdx_reader.rs::style_runs_must_cover_the_text_in_order_with_known_fonts_and_colors` checks zero first index, ordering, range and known tables. `unstyled_text_is_latin_one_and_refuses_the_ambiguous_range`, `styled_text_applies_the_same_encoding_rules`, `font_charsets_and_platforms_are_never_guessed`, and writer `text_that_cannot_be_encoded_is_refused_not_approximated` keep the bounded Latin-1/charset restrictions explicit. Unsupported Korean/emoji encodings and ambiguous 0x80–0x9f are not guessed. |
 | CDX long framing | Reader `extended_lengths_carry_long_text_and_may_spell_short_values` and writer `long_text_uses_the_extended_length_and_reads_back` use 70,000 ASCII bytes and the extended property length; the writer asserts the 70,002-byte string payload and rereads it. This exercises binary framing separately from the editor's 16 KiB caption bound. |
+
+## Bounded acceptance assessment
+
+The shipped paths cover the roadmap's bounded editing-and-storage acceptance
+under the recorded graph-preserving display decision:
+
+- Multi-style Unicode runs, explicit subscript/superscript and alignment are
+  edited and saved by the independent caption path. Fragment displays additionally
+  edit explicit script runs and inherit the document's chemical typography.
+- Atom labels are edited through typed chemical state and derived presentation;
+  those state edits can change chemistry. Editable Et/fragment display text and
+  scripts preserve the actual graph and never infer chemistry. This explicitly
+  answers when a label edit changes atom meaning.
+- Korean, combining/ZWJ text, bounded long text, exact ordered run boundaries,
+  native history/drafts and saved/reopened measured glyph geometry have source,
+  regression and final-head PR CI evidence in the table. CDX byte-index/encoding
+  checks and long framing are separate codec evidence, not editor string offsets
+  or a promise of external caption/display roundtrip.
+
+The former missing abbreviation text/run path is resolved by #201–203. No
+additional product gap is identified within this explicit bounded profile. This
+assessment does not require inventing nickname chemistry, a dictionary/parser,
+per-atom arbitrary rich text, or universal rich-run styling/alignment for every
+label kind. Those broader unsupported behaviors remain below; it does not claim
+full legacy rendering compatibility or completion of RENDER-01/STYLE-01.
+
+Decision: mark bounded P35 `done`. Final-head PR CI and post-merge main CI both
+pass, and the acceptance evidence above identifies no remaining product gap
+within the approved bounded profile. This completion documentation still requires
+its own integration checks, reviews and CI; those do not turn #204 or any broader
+scientific/rendering requirement into completed work.
 
 ## Boundaries retained
 
@@ -69,11 +121,32 @@ These limits are recorded without introducing new P35 acceptance requirements.
 General logical text/line-break rendering in public rendering matrix R13 remains
 part of incomplete RENDER-01, not evidence of P35 completion.
 
-Arbitrary atom text, per-atom rich-text runs, abbreviation kinds beyond fixed Et,
-and external caption roundtrip remain absent. Caption transforms/arrange/graphics
+Arbitrary atom text, per-atom rich-text runs, nickname dictionaries, text-to-graph
+parsing and external caption/display-label roundtrip remain absent. Fragment
+displays require one explicit placement, neutral/default element members forming
+an induced connected acyclic unmarked-single-bond tree and exactly one unmarked
+single external boundary at the anchor. Query/nondefault states, rings, multiple
+boundaries/placements, member overlap with Et/another fragment and local
+marks/stereo/groups touching members or their outside neighbor refuse. Partial
+member geometry and affected chemistry reveal the display in the same Undo step;
+whole-member rigid transforms and outside-neighbor-only coordinate moves retain
+it. Expansion performs no layout. Native clipboard/Cut/template operations refuse
+member intersections until expansion.
+
+#203's display runs inherit document label typography, vary only script and keep
+their total128 UTF-8 byte single-line limit. They do not add per-run font, colour,
+weight/style overrides or alignment controls to fragments. Caption alignment and
+multi-style runs remain independently implemented as above. Native v25 requires
+runs without top-level text, v24 requires text without runs and migrates every
+current/history/draft display to one baseline run; exact-byte archives precede
+replacement/recovery, and future v26 refuses untouched. These merged rules have
+passing PR and post-merge main CI.
+
+Caption transforms/arrange/graphics
 clipboard refuse the whole unsupported request. Drawing exports report caption
 loss and require consent; chemical label styles use `drawing_settings` loss and
-Et uses `abbreviation_display` loss while retaining the complete chemical graph.
+Et and fragment displays use `abbreviation_display` loss while retaining the
+complete chemical graph.
 The separate CDXML/CDX rich-tree carrier cannot be cited as native editor-caption
 roundtrip. No original application DLL is used as an execution engine.
 
@@ -103,6 +176,9 @@ Those historical reviews are not reviews of this documentation change.
 | Chemical underline | [#197](https://github.com/EunhakChoi/chemifree/pull/197) | [42292016972](https://github.com/EunhakChoi/chemifree/actions/runs/42292016972) |
 | Chemical outline | [#198](https://github.com/EunhakChoi/chemifree/pull/198) | [42298128975](https://github.com/EunhakChoi/chemifree/actions/runs/42298128975) |
 | Chemical shadow | [#199](https://github.com/EunhakChoi/chemifree/pull/199) | [42304228461](https://github.com/EunhakChoi/chemifree/actions/runs/42304228461) |
+| Editable Et display text | [#201](https://github.com/EunhakChoi/chemifree/pull/201) | [42311153640](https://github.com/EunhakChoi/chemifree/actions/runs/42311153640) |
+| Explicit retained-fragment display | [#202](https://github.com/EunhakChoi/chemifree/pull/202) | [42316586336](https://github.com/EunhakChoi/chemifree/actions/runs/42316586336) |
+| Fragment display script runs | [#203](https://github.com/EunhakChoi/chemifree/pull/203) | [42320918256](https://github.com/EunhakChoi/chemifree/actions/runs/42320918256) |
 
 The final #199 run passed `check` at 2026-11-06 22:31:13 UTC and `browser` at
 22:33:54 UTC. Its body records a fresh isolated full check, smoke and the five
@@ -110,17 +186,104 @@ chemical-label, caption and abbreviation matrices; the final contract-only fix
 also received passing CI. Earlier failing runs and fixes are retained in their
 PRs and implementation records; a final pass does not erase those findings.
 
+The #201 metadata confirms merge `00332b5` at 2026-11-06 23:37:06 UTC and
+successful final-head `bfb54d7` CI `42311153640`; #202 confirms merge `2b35e6c` at
+2026-11-07 00:21:21 UTC and successful final-head `8d7efbe` CI `42316586336`.
+Both runs' `check` and `browser` jobs were read directly for this draft. These
+are PR runs, not new executions by this audit. #202's browser includes the actual
+retained-fragment form/Unicode/native-roundtrip scenario. PR bodies report full
+isolated checks and relevant browser matrices separately.
+
+#201 records an independent fresh-context review at `3a9a43e`, catalog-count and
+pre-retention history fixes, and Codex review at `7348123`; the missing supported
+v22 diagnostic was fixed in `bfb54d7`. #202 records independent review at
+`8fc2889` with no actionable finding and Codex's missing supported-v23 diagnostic,
+fixed in `411a773`. Its off-screen browser click failure was fixed in the test.
+These dispositions come from the merged PR bodies; they are not new reviews of
+this audit draft.
+
+## #203 merged evidence and post-merge main CI
+
+Read-only PR metadata confirms #203 merged as
+`84ef063a8f39a859b575c9fe3cdd5ce674f40397` at 2026-11-07 01:09:37 UTC.
+Its final head is `bdc331f8171643a474791c6d313eb4019e54800b` and
+[PR CI run 42320918256](https://github.com/EunhakChoi/chemifree/actions/runs/42320918256)
+passed both `check` and `browser`; both jobs were read directly for this update.
+The browser includes retained-fragment/display-label/Et/caption matrices and the
+general smoke. The PR body separately reports successful isolated full
+`npm run check`, 110 conformance cases, traceability, routes, no-skip general
+smoke and focused Rust/frontend checks. This audit reran none of them.
+
+Codex and the independent fresh-context reviewer both reviewed `9be4dd8` and
+identified the wrong post-reopen browser ink assertion label. `9b2e150` fixed
+it and added an exact saved/reopened script-position comparison. The independent
+review reported no other actionable finding; no repeat review was requested.
+The operation catalog later gained the four existing fragment-display command
+rows and scene-tree capability links, with exact counts, public documentation and
+HTTP/CLI smoke updated. Focused operations/contract checks were rerun successfully
+according to the final PR body, and the final-head PR CI above covers the result.
+These are the actual reported review/fix dispositions, not a fresh review of this
+completion documentation.
+
+The earlier `9b2e150` browser job passed while its `check` timed out during
+conformance at the 15-minute limit. `e21b47b` raised that limit to 25 minutes;
+the successful final-head run supersedes the old pending snapshot, without
+turning that timeout into a pass.
+
+[Post-merge main CI run 42322504482](https://github.com/EunhakChoi/chemifree/actions/runs/42322504482)
+for `84ef063` passed both `check` and `browser`; the job results were read directly
+for this update. This is separate from final-head PR run 42320918256, not an audit
+rerun. Together with the source/acceptance and review dispositions above, it
+supports the bounded P35 `done` decision.
+
+Main `26962b6` later merged P36a through #204. Its own post-merge main CI remains
+pending in the parent handoff. P36 remains `in_progress`; neither the #203 pass
+nor this documentation-only rebase proves #204's main run successful. This
+completion documentation's own integration checks, reviews and CI also remain
+separate from already verified product delivery.
+
 ## Documentation integration checks still required
+
+Completed P35 is no longer an open follow-up of the three remaining catch-all
+parts. Their open roadmap scopes, rather than a label-only replacement ID, own
+the remaining work:
+
+| Catch-all | Open follow-ups and scope |
+| --- | --- |
+| `MODEL-01.rest` | In-progress P36 covers advanced graphic scene types; planned P37 geometric references, P40 multiple pages and P49 persistent reaction-role/mapping references. Existing optional S05 retains collaborative reference invariants. Independent captions/simple graphics are excluded from the unsupported summary; the broader multi-graph model is still not claimed complete. |
+| `RENDER-01.rest` | P35 is removed; existing planned P38 owns general shaping/bounds/transform/clip/SVG, with P36 graphics, P37 annotations, P40 page/PDF and the existing open codec/specialized-object/output/accessibility rows retaining their narrower scopes. |
+| `STYLE-01.rest` | P36 graphic controls and planned P38 shared rendering replace P35 as the relevant open style/rendering owners; P40 page settings, P60 numeric prediction precision, P66 solvent/corrections and P80 style/template carriers remain. P38 does not promise an undefined arbitrary atom-text editor or parser; any such wider editor semantics need explicit future scope. |
+
+This is traceability routing, not new feature authorization or an implementation
+status promotion. Requirement/part/conformance counts are unchanged. The missing
+fresh `target/conformance/report.json` remains a separate isolated-full-check
+prerequisite; no report was fabricated or copied into the execution evidence.
 
 The parent integration should run `npm run test:traceability` and
 `npm run test:checks`, validate that the roadmap HTML embeds the same JSON, and
-review the new `STYLE-01.4` evidence links. This audit intentionally performs no
+review the updated `STYLE-01.4` evidence links. This audit intentionally performs no
 execution verification. Product checks need rerunning only if integration changes
 product code or exposes a concrete concern; this commit changes documentation.
 
-Parent integration follow-up: the first isolated `test:traceability` invocation
+Historical original-audit integration follow-up: the first isolated `test:traceability` invocation
 reported stale HANDOFF/TRACEABILITY summary totals after adding `STYLE-01.4`
 (109/60 rather than 110/61), and a missing fresh `target/conformance/report.json`.
 Both summary lines now use the checker-provided exact 110-part/61-implemented
 text. Conformance generation and verification remain parent-owned; this correction
 ran no tests and does not claim the traceability check has passed.
+
+## Completion documentation review follow-up (#205)
+
+Codex P1 identified completed P35 still listed as an open catch-all follow-up.
+`241cbca` rerouted the remaining MODEL-01/RENDER-01/STYLE-01 scope to open rows,
+with rationale above. The parent reports subsequent conformance/traceability
+checks passed; that supersedes the earlier missing-fresh-report note as current
+integration status, without representing a new run by this documentation patch.
+
+Codex P2 identified the CONTRACT banner and P35o/p/q paragraphs still describing
+P35 as in progress and their execution/reviews as pending. The current contract
+now states bounded completion, links merged #201–203 and verified PR/main CI, and
+points to the actual review/fix dispositions above. Other P35 implementation-session
+notes are explicitly historical. Unsupported scientific, arbitrary-label and
+external-roundtrip boundaries remain unchanged. This correction changes only
+documentation and does not claim this documentation PR's own final CI has passed.
