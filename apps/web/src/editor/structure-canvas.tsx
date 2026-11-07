@@ -1009,7 +1009,7 @@ export function StructureCanvas({
       )}
     </svg>
       </div>
-      <p id="canvas-view-help" className="text-xs text-muted-foreground">Ctrl/⌘ + wheel: zoom at pointer. Focus canvas: +/− zoom, 0 reset, F fit, arrows pan. Hold Space or middle-drag to pan; Pan view (H) also works with touch. View changes are not saved. Select: Shift-click toggles; drag empty canvas to select atom centers in the active placement and fully contained graphics. Shift-drag adds to the selection. Select whole placements and groups in Scene. Select exactly one line, arrow or rectangle to drag either endpoint; coincident endpoints use the numeric endpoint form.</p>
+      <p id="canvas-view-help" className="text-xs text-muted-foreground">Ctrl/⌘ + wheel: zoom at pointer. Focus canvas: +/− zoom, 0 reset, F fit, arrows pan. Hold Space or middle-drag to pan; Pan view (H) also works with touch. View changes are not saved. Select: Shift-click toggles; drag empty canvas to select atom centers in the active placement and fully contained graphics. Shift-drag adds to the selection. Select whole placements and groups in Scene.</p>
     </div>
   )
 }
