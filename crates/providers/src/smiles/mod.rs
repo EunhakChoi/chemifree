@@ -6,14 +6,16 @@
 //! hold. The reader reads tetrahedral marks (`@`, `@@`) of bracket atoms, the enhanced stereo
 //! group fields of a CXSMILES block (`a:`, `o<n>:`, `&<n>:`) and the directional bonds `/` and
 //! `\` as double-bond configurations; other mark classes and every other CX field are refused.
-//! The recorded writer preserves supported tetrahedral configurations and enhanced stereo
-//! groups, reporting other stereo (double-bond configurations included) as losses; it writes no
-//! `/` or `\`, and canonical writing remains stereo-insensitive. Query atoms, reaction SMILES
+//! The recorded writer preserves supported tetrahedral configurations, stored double-bond
+//! configurations (as `/` and `\`, see `double_bond_write`) and enhanced stereo groups,
+//! reporting the stereo it cannot place as losses; canonical writing remains
+//! stereo-insensitive. Query atoms, reaction SMILES
 //! and InChI are not implemented. The canonical form is Chemifree's own and is
 //! not the canonical form of any other toolkit.
 
 mod analysis;
 mod cx;
+mod double_bond_write;
 mod double_bonds;
 mod emit;
 mod reader;

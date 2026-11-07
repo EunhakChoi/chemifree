@@ -21,6 +21,10 @@
 //!
 //! Every other mark is refused with the span of the mark, never dropped. A mark on a ring-closure
 //! digit or an aromatic bond is refused by the reader before this module runs.
+//!
+//! The writer (`double_bond_write`) shares this module's table of sides ([`Mark::side_from`] and
+//! its inverse [`Mark::toward`]) and its judgements of what an end or a ring can state
+//! ([`Topology::write_fault`]), so that it writes only what the reader reads.
 
 use std::collections::{HashSet, VecDeque};
 
@@ -32,11 +36,50 @@ use chemifree_domain::stereo::Relation;
 /// Rings with fewer atoms than this have no double-bond configuration here.
 const MIN_RING_ATOMS: usize = 8;
 
+const CUMULATED: &str = "an end of this double bond carries a second double or triple bond";
+const SMALL_RING: &str = "the double bond is in a ring of fewer than eight atoms";
+
 /// A directional bond as written.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Mark {
     Slash,
     Backslash,
+}
+
+impl Mark {
+    /// The text of the mark.
+    pub(super) const fn symbol(self) -> &'static str {
+        match self {
+            Self::Slash => "/",
+            Self::Backslash => "\\",
+        }
+    }
+
+    /// The mark that reads the other way round.
+    pub(super) const fn flipped(self) -> Self {
+        match self {
+            Self::Slash => Self::Backslash,
+            Self::Backslash => Self::Slash,
+        }
+    }
+
+    /// The side of the atom at the other end of the bond, seen from the atom `from`.
+    /// `from_first` says whether `from` is written before the other atom: in `A/B` the bond goes
+    /// up from `A` to `B`, so `B` is above `A` and `A` is below `B`.
+    pub(super) const fn side_from(self, from_first: bool) -> Side {
+        match (self, from_first) {
+            (Self::Slash, true) | (Self::Backslash, false) => Side::Up,
+            (Self::Slash, false) | (Self::Backslash, true) => Side::Down,
+        }
+    }
+
+    /// The inverse of [`Mark::side_from`]: the mark that puts the other atom on `side`.
+    pub(super) const fn toward(side: Side, from_first: bool) -> Self {
+        match (side, from_first) {
+            (Side::Up, true) | (Side::Down, false) => Self::Slash,
+            (Side::Down, true) | (Side::Up, false) => Self::Backslash,
+        }
+    }
 }
 
 /// One bond as the reader decided it. `begin` is the atom written first.
@@ -48,10 +91,20 @@ pub(super) struct Linked<'a> {
     pub span: Span,
 }
 
+/// Above or below the double bond, seen from one of its ends.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Side {
+pub(super) enum Side {
     Up,
     Down,
+}
+
+impl Side {
+    pub(super) const fn opposite(self) -> Self {
+        match self {
+            Self::Up => Self::Down,
+            Self::Down => Self::Up,
+        }
+    }
 }
 
 /// A marked bond beside the end of a double bond, seen from that end.
@@ -63,7 +116,8 @@ struct Placed {
     span: Span,
 }
 
-struct Topology<'a> {
+/// The bonds and atoms the reader (and the writer, for what it must not write) judges.
+pub(super) struct Topology<'a> {
     atoms: &'a [&'a Atom],
     aromatic: &'a [bool],
     bonds: &'a [Linked<'a>],
@@ -117,7 +171,7 @@ pub(super) fn read(
         if topology.cumulated(index) {
             faults.push(
                 SmilesError::at(SmilesCode::DirectionalBondCumulated, first.span)
-                    .because("an end of this double bond carries a second double or triple bond"),
+                    .because(CUMULATED),
             );
         } else if topology.hangs_from_small_ring(index, &marks) {
             ring_only.insert(index);
@@ -146,7 +200,11 @@ pub(super) fn read(
 }
 
 impl<'a> Topology<'a> {
-    fn new(atoms: &'a [&'a Atom], aromatic: &'a [bool], bonds: &'a [Linked<'a>]) -> Self {
+    pub(super) fn new(
+        atoms: &'a [&'a Atom],
+        aromatic: &'a [bool],
+        bonds: &'a [Linked<'a>],
+    ) -> Self {
         let mut adjacent = vec![Vec::new(); atoms.len()];
         for (index, bond) in bonds.iter().enumerate() {
             adjacent[bond.begin].push((bond.end, index));
@@ -168,11 +226,7 @@ impl<'a> Topology<'a> {
             .filter_map(|&(neighbor, bond)| {
                 let linked = &self.bonds[bond];
                 // The neighbour is written after `end` when `end` begins the bond.
-                let after = linked.begin == end;
-                let side = match (linked.mark?, after) {
-                    (Mark::Slash, true) | (Mark::Backslash, false) => Side::Up,
-                    (Mark::Slash, false) | (Mark::Backslash, true) => Side::Down,
-                };
+                let side = linked.mark?.side_from(linked.begin == end);
                 Some(Placed {
                     bond,
                     neighbor,
@@ -269,6 +323,23 @@ impl<'a> Topology<'a> {
         false
     }
 
+    /// Why a configuration of the double bond `double` cannot be written as marks: the reader
+    /// would refuse the text. The judgements are the ones [`read`] makes of cumulated bonds,
+    /// ends and rings; only the reading of marks (conflicts) is left to the writer's placement.
+    pub(super) fn write_fault(&self, double: usize) -> Option<&'static str> {
+        let bond = &self.bonds[double];
+        if self.cumulated(double) {
+            return Some(CUMULATED);
+        }
+        if let Some(problem) = [bond.begin, bond.end]
+            .into_iter()
+            .find_map(|atom| self.end_problem(atom))
+        {
+            return Some(problem);
+        }
+        self.in_small_ring(double).then_some(SMALL_RING)
+    }
+
     fn configuration(
         &self,
         double: usize,
@@ -284,7 +355,7 @@ impl<'a> Topology<'a> {
         if self.cumulated(double) {
             return Err(
                 SmilesError::at(SmilesCode::DirectionalBondCumulated, first.span)
-                    .because("an end of this double bond carries a second double or triple bond"),
+                    .because(CUMULATED),
             );
         }
         // An end that cannot be read is judged before any conflict at either end.
@@ -310,7 +381,7 @@ impl<'a> Topology<'a> {
         if self.in_small_ring(double) {
             return Err(
                 SmilesError::at(SmilesCode::DirectionalBondSmallRing, first.span)
-                    .because("the double bond is in a ring of fewer than eight atoms"),
+                    .because(SMALL_RING),
             );
         }
         let relation = if begin[0].side == end[0].side {
@@ -325,5 +396,169 @@ impl<'a> Topology<'a> {
             relation,
             span: first.span,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chemifree_domain::element::Element;
+
+    use super::*;
+
+    fn atom(symbol: &str) -> Atom {
+        Atom::from(Element::from_symbol(symbol).expect("a known symbol"))
+    }
+
+    /// The reason `write_fault` gives for the bond `double` of a molecule given as atoms, flags
+    /// for atoms written in lower case, and `(begin, end, order)` bonds.
+    fn fault(
+        atoms: &[Atom],
+        aromatic: &[bool],
+        bonds: &[(usize, usize, BondOrder)],
+        double: usize,
+    ) -> Option<&'static str> {
+        let refs: Vec<&Atom> = atoms.iter().collect();
+        let linked: Vec<Linked<'_>> = bonds
+            .iter()
+            .map(|(begin, end, order)| Linked {
+                begin: *begin,
+                end: *end,
+                order,
+                mark: None,
+                span: Span::new(0, 0),
+            })
+            .collect();
+        Topology::new(&refs, aromatic, &linked).write_fault(double)
+    }
+
+    fn chain(symbols: &[&str]) -> Vec<Atom> {
+        symbols.iter().map(|symbol| atom(symbol)).collect()
+    }
+
+    #[test]
+    fn a_plain_carbon_double_bond_has_no_fault() {
+        let atoms = chain(&["F", "C", "C", "F"]);
+        let bonds = [
+            (0, 1, BondOrder::Single),
+            (1, 2, BondOrder::Double),
+            (2, 3, BondOrder::Single),
+        ];
+        assert_eq!(fault(&atoms, &[false; 4], &bonds, 1), None);
+    }
+
+    #[test]
+    fn a_cumulated_end_is_a_fault_the_domain_never_stores() {
+        let atoms = chain(&["F", "C", "C", "C", "F"]);
+        let bonds = [
+            (0, 1, BondOrder::Single),
+            (1, 2, BondOrder::Double),
+            (2, 3, BondOrder::Double),
+            (3, 4, BondOrder::Single),
+        ];
+        assert_eq!(fault(&atoms, &[false; 5], &bonds, 1), Some(CUMULATED));
+    }
+
+    #[test]
+    fn ends_the_reader_does_not_read_are_faults() {
+        let single = BondOrder::Single;
+        let double = BondOrder::Double;
+        // An aromatic atom, a charged atom, phosphorus.
+        let atoms = chain(&["F", "C", "C", "F"]);
+        let bonds = [
+            (0, 1, single.clone()),
+            (1, 2, double.clone()),
+            (2, 3, single.clone()),
+        ];
+        assert_eq!(
+            fault(&atoms, &[false, true, false, false], &bonds, 1),
+            Some("an aromatic atom is not a configurable end")
+        );
+        let mut charged = atoms.clone();
+        charged[2].charge = 1;
+        assert_eq!(
+            fault(&charged, &[false; 4], &bonds, 1),
+            Some("a charged atom is not a configurable end")
+        );
+        let phosphorus = chain(&["F", "P", "C", "F"]);
+        assert_eq!(
+            fault(&phosphorus, &[false; 4], &bonds, 1),
+            Some("only carbon and nitrogen ends are read")
+        );
+        // A carbon with three other neighbours; a nitrogen with two.
+        let crowded = chain(&["F", "C", "C", "F", "Cl", "Br"]);
+        let more = [
+            (0, 1, single.clone()),
+            (1, 2, double.clone()),
+            (2, 3, single.clone()),
+            (2, 4, single.clone()),
+            (2, 5, single.clone()),
+        ];
+        assert_eq!(
+            fault(&crowded, &[false; 6], &more, 1),
+            Some("a carbon end has at most two other neighbours")
+        );
+        let nitrogen = chain(&["F", "N", "C", "F", "Cl"]);
+        let two = [
+            (0, 1, single.clone()),
+            (1, 2, double),
+            (1, 4, single.clone()),
+            (2, 3, single),
+        ];
+        assert_eq!(
+            fault(&nitrogen, &[false; 5], &two, 1),
+            Some("a neutral nitrogen end has one other neighbour and a lone pair")
+        );
+    }
+
+    #[test]
+    fn a_hydrogen_stated_in_brackets_is_a_neighbour_of_the_end() {
+        let single = BondOrder::Single;
+        let mut atoms = chain(&["F", "C", "C", "F", "Cl"]);
+        let bonds = [
+            (0, 1, single.clone()),
+            (1, 2, BondOrder::Double),
+            (2, 3, single.clone()),
+            (1, 4, single),
+        ];
+        assert_eq!(fault(&atoms, &[false; 5], &bonds, 1), None);
+        atoms[1].hydrogens = Hydrogens::Specified(1);
+        assert_eq!(
+            fault(&atoms, &[false; 5], &bonds, 1),
+            Some("a carbon end has at most two other neighbours")
+        );
+        // An inferred count is not counted: the reader does not see those.
+        atoms[1].hydrogens = Hydrogens::Inferred;
+        assert_eq!(fault(&atoms, &[false; 5], &bonds, 1), None);
+    }
+
+    #[test]
+    fn the_ring_boundary_is_eight_atoms_for_the_writer_as_for_the_reader() {
+        for (size, expected) in [(7_usize, Some(SMALL_RING)), (8, None)] {
+            let atoms: Vec<Atom> = (0..size).map(|_| atom("C")).collect();
+            let mut bonds: Vec<(usize, usize, BondOrder)> = (0..size)
+                .map(|i| (i, (i + 1) % size, BondOrder::Single))
+                .collect();
+            bonds[1].2 = BondOrder::Double;
+            assert_eq!(
+                fault(&atoms, &vec![false; size], &bonds, 1),
+                expected,
+                "ring of {size}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_mark_and_the_side_it_names_are_inverse_for_both_directions() {
+        for mark in [Mark::Slash, Mark::Backslash] {
+            for from_first in [true, false] {
+                assert_eq!(Mark::toward(mark.side_from(from_first), from_first), mark);
+            }
+        }
+        // `A/B`: B is above A, A is below B.
+        assert_eq!(Mark::Slash.side_from(true), Side::Up);
+        assert_eq!(Mark::Slash.side_from(false), Side::Down);
+        assert_eq!(Mark::Backslash.side_from(true), Side::Down);
+        assert_eq!(Mark::Slash.symbol(), "/");
+        assert_eq!(Mark::Backslash.symbol(), "\\");
     }
 }

@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use chemifree_application::smiles::{
-    SmilesCode, SmilesError, SmilesSlot, SmilesStyle, SmilesWrite,
+    SmilesCode, SmilesError, SmilesSlot, SmilesStyle, SmilesWrite, Span,
 };
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
 use chemifree_domain::chemistry::{self, Finding};
@@ -21,6 +21,8 @@ use chemifree_domain::stereo_group::{GroupKind, StereoGroupTable};
 
 use super::MAX_INPUT_BYTES;
 use super::analysis::{self, is_writable_order};
+use super::double_bond_write::{self, Marking, Placement, Request};
+use super::double_bonds::{Linked, Topology};
 use super::emit::{self, Item, Link};
 use super::reader::{self, Parsed};
 use super::tables;
@@ -133,6 +135,8 @@ struct Rendered {
     parsed: Parsed,
     neighbors: Vec<Vec<usize>>,
     preceded: Vec<bool>,
+    /// For every link whether the text writes it as a ring-closure digit.
+    closure: Vec<bool>,
 }
 
 fn items(plans: &[Plan], bracket: &[bool], turns: &[Option<Turn>]) -> Vec<Item> {
@@ -199,6 +203,7 @@ fn render_with_turns(
                 parsed,
                 neighbors: emitted.neighbors,
                 preceded: emitted.preceded,
+                closure: emitted.closure,
             });
         }
         if repaired {
@@ -314,12 +319,18 @@ pub(super) fn write(
         return Err(fail(SmilesCode::BondEndpointsInvalid));
     }
     match style {
-        SmilesStyle::Recorded => recorded(graph, groups),
+        SmilesStyle::Recorded => recorded(graph, groups, double_bond_write::place),
         SmilesStyle::Canonical => canonical(graph),
     }
 }
 
-fn recorded(graph: &MoleculeGraph, groups: &StereoGroupTable) -> Result<SmilesWrite, Fail> {
+/// The recorded writer, with the placement of directional bonds given: a test replaces it with
+/// a wrong one to see the read-back check refuse its text.
+fn recorded(
+    graph: &MoleculeGraph,
+    groups: &StereoGroupTable,
+    place: impl Fn(&Marking<'_>) -> Placement,
+) -> Result<SmilesWrite, Fail> {
     if graph.atoms().len() + graph.bonds().len() > MAX_COMMANDS {
         return Err(fail(SmilesCode::CommandLimit));
     }
@@ -441,10 +452,11 @@ fn recorded(graph: &MoleculeGraph, groups: &StereoGroupTable) -> Result<SmilesWr
             begin: index[&bond.begin],
             end: index[&bond.end],
             order: bond.order.clone(),
+            mark: None,
         })
         .collect();
     let initial = render(&plans, &links, MAX_INPUT_BYTES)?;
-    let (rendered, mut losses) = recorded_stereo(graph, groups, &plans, &links, initial)?;
+    let (rendered, mut losses) = recorded_stereo(graph, groups, &plans, &links, initial, place)?;
     let source: HashMap<AtomId, &Atom> = graph.atoms().collect();
     let name = |ids: Vec<AtomId>| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
     losses.extend(aggregate(
@@ -492,13 +504,15 @@ fn recorded(graph: &MoleculeGraph, groups: &StereoGroupTable) -> Result<SmilesWr
 }
 
 /// Writes only configurations whose complete neighbour set is expressible by the reader.
-/// The emitted walk, including ring-label reuse and depth repair, decides the permutation.
+/// The emitted walk, including ring-label reuse and depth repair, decides the permutation of a
+/// tetrahedral center and the symbol of a directional bond.
 fn recorded_stereo(
     graph: &MoleculeGraph,
     groups: &StereoGroupTable,
     plans: &[Plan],
     links: &[Link],
     initial: Rendered,
+    place: impl Fn(&Marking<'_>) -> Placement,
 ) -> Result<(Rendered, Vec<Loss>), Fail> {
     let index: HashMap<AtomId, usize> = plans
         .iter()
@@ -506,10 +520,18 @@ fn recorded_stereo(
         .map(|(i, plan)| (plan.id, i))
         .collect();
     let source: HashMap<AtomId, &Atom> = graph.atoms().collect();
+    let link_of_bond: HashMap<BondId, usize> = graph
+        .bonds()
+        .enumerate()
+        .map(|(link, (bond, _))| (bond, link))
+        .collect();
     let mut turns = vec![None; plans.len()];
     let mut retained = BTreeMap::new();
     let mut losses = Vec::new();
     for (key, state) in graph.stereo().iter() {
+        if let (StereoKey::DoubleBond(_), StereoState::DoubleBond(_)) = (key, state) {
+            continue;
+        }
         let supported = match (key, state) {
             (
                 StereoKey::Center(atom),
@@ -559,17 +581,11 @@ fn recorded_stereo(
                 StereoKey::DoubleBond(bond) => format!("bonds[{bond}]"),
             };
             losses.push(stereo_loss("stereo_configuration", path,
-                "This configuration is not a supported tetrahedral center; unknown, lone-pair and double-bond configurations are not written."));
+                "This configuration is not a supported tetrahedral center; unknown and lone-pair configurations are not written."));
         }
     }
-    let marked: Vec<String> = graph
-        .bonds()
-        .filter(|(_, bond)| bond.mark.is_some())
-        .map(|(id, _)| id.to_string())
-        .collect();
-    losses.extend(aggregate("stereo_marks", "bonds", &marked,
-        "Drawn wedge, hash, wavy and crossed marks are not written; only supported stored tetrahedral configurations are emitted.",
-        LossDisposition::Dropped, SemanticImpact::Stereo, LossConsent::Required));
+    let (requests, double_bond_losses) = double_bond_requests(graph.stereo().iter(), &link_of_bond);
+    losses.extend(double_bond_losses);
     if plans.len() + links.len() + retained.len() > MAX_COMMANDS {
         return Err(fail(SmilesCode::CommandLimit));
     }
@@ -578,6 +594,39 @@ fn recorded_stereo(
     } else {
         render_with_turns(plans, links, MAX_INPUT_BYTES, &turns)?
     };
+    // The directional bonds are placed on the text as the tetrahedral marks leave it.
+    let placement = place_double_bonds(graph, plans, links, &rendered, &requests, &place);
+    for (index, reason) in &placement.omitted {
+        losses.push(stereo_loss(
+            "stereo_configuration",
+            format!("bonds[{}]", requests[*index].bond),
+            reason,
+        ));
+    }
+    let written: Vec<&Request> = placement
+        .retained
+        .iter()
+        .map(|&index| &requests[index])
+        .collect();
+    let marked: Vec<String> = graph
+        .bonds()
+        .filter(|(_, bond)| bond.mark.is_some())
+        .map(|(id, _)| id.to_string())
+        .collect();
+    losses.extend(aggregate("stereo_marks", "bonds", &marked,
+        "Drawn wedge, hash, wavy and crossed marks are not written; only supported stored tetrahedral and double-bond configurations are emitted.",
+        LossDisposition::Dropped, SemanticImpact::Stereo, LossConsent::Required));
+    if placement.marks.iter().any(Option::is_some) {
+        let marked_links: Vec<Link> = links
+            .iter()
+            .zip(&placement.marks)
+            .map(|(link, &mark)| Link {
+                mark,
+                ..link.clone()
+            })
+            .collect();
+        rendered = render_with_turns(plans, &marked_links, MAX_INPUT_BYTES, &turns)?;
+    }
     let position: HashMap<AtomId, usize> = rendered
         .order
         .iter()
@@ -651,7 +700,7 @@ fn recorded_stereo(
         "Group identifiers are not stored in CXSMILES; a reader assigns its own identifiers while preserving the emitted kind, number and members.",
         LossDisposition::Dropped, SemanticImpact::Stereo, LossConsent::NotRequired,
     ));
-    if plans.len() + links.len() + retained.len() + fields.len() > MAX_COMMANDS {
+    if plans.len() + links.len() + retained.len() + written.len() + fields.len() > MAX_COMMANDS {
         return Err(fail(SmilesCode::CommandLimit));
     }
     if !fields.is_empty() {
@@ -685,8 +734,116 @@ fn recorded_stereo(
         return Err(fail(SmilesCode::ReadbackMismatch)
             .because("a tetrahedral configuration or enhanced group differs"));
     }
+    if !double_bond_write::read_back_matches(
+        &parsed.read.stereo.double_bonds,
+        &parsed.read.bonds,
+        &rendered.order,
+        &plans.iter().map(|plan| plan.id).collect::<Vec<_>>(),
+        links,
+        &written,
+    ) {
+        return Err(fail(SmilesCode::ReadbackMismatch)
+            .because("a double-bond configuration differs from the one written"));
+    }
     rendered.parsed = parsed;
     Ok((rendered, losses))
+}
+
+/// The double-bond configurations among `records` as placement requests, and a loss for each
+/// configuration of a bond the drawing does not have. The requests are in bond-identifier order:
+/// placement is greedy in the order of the requests and the bond identifiers decide which of two
+/// conflicting configurations is kept, so the order does not depend on the order of `records`.
+fn double_bond_requests<'a>(
+    records: impl IntoIterator<Item = (StereoKey, &'a StereoState)>,
+    link_of_bond: &HashMap<BondId, usize>,
+) -> (Vec<Request>, Vec<Loss>) {
+    let mut requests = Vec::new();
+    let mut losses = Vec::new();
+    for (key, state) in records {
+        let (StereoKey::DoubleBond(bond), StereoState::DoubleBond(state)) = (key, state) else {
+            continue;
+        };
+        match link_of_bond.get(&bond) {
+            Some(&link) => requests.push(Request {
+                bond,
+                link,
+                state: *state,
+            }),
+            None => losses.push(stereo_loss(
+                "stereo_configuration",
+                format!("bonds[{bond}]"),
+                "This double-bond configuration belongs to a bond that is not in the drawing.",
+            )),
+        }
+    }
+    requests.sort_by_key(|request| request.bond);
+    (requests, losses)
+}
+
+/// Places the directional bonds of `requests` on the text `rendered`, judging each end and ring
+/// as the reader will: the atoms are taken with the hydrogens the text states.
+fn place_double_bonds(
+    graph: &MoleculeGraph,
+    plans: &[Plan],
+    links: &[Link],
+    rendered: &Rendered,
+    requests: &[Request],
+    place: &impl Fn(&Marking<'_>) -> Placement,
+) -> Placement {
+    if requests.is_empty() {
+        return Placement {
+            marks: vec![None; links.len()],
+            retained: Vec::new(),
+            omitted: Vec::new(),
+        };
+    }
+    // Looked up by identifier, not by position: `plans` and the graph's atoms are not zipped
+    // on the assumption that both list the atoms in the same order.
+    let by_id: HashMap<AtomId, &Atom> = graph.atoms().collect();
+    let written: Vec<Atom> = plans
+        .iter()
+        .zip(&rendered.bracket)
+        .map(|(plan, &bracketed)| {
+            let mut atom = by_id[&plan.id].clone();
+            atom.hydrogens = if bracketed {
+                let count = u8::try_from(plan.hydrogens)
+                    .expect("a written hydrogen count is at most MAX_WRITTEN_HYDROGENS");
+                Hydrogens::Specified(count)
+            } else {
+                Hydrogens::Inferred
+            };
+            atom
+        })
+        .collect();
+    let atoms: Vec<&Atom> = written.iter().collect();
+    let aromatic: Vec<bool> = plans.iter().map(|plan| plan.aromatic).collect();
+    let linked: Vec<Linked<'_>> = links
+        .iter()
+        .map(|link| Linked {
+            begin: link.begin,
+            end: link.end,
+            order: &link.order,
+            mark: None,
+            span: Span::new(0, 0),
+        })
+        .collect();
+    let topology = Topology::new(&atoms, &aromatic, &linked);
+    let mut position = vec![0; plans.len()];
+    for (at, &plan) in rendered.order.iter().enumerate() {
+        position[plan] = at;
+    }
+    let ids: Vec<AtomId> = plans.iter().map(|plan| plan.id).collect();
+    let bonds: Vec<BondId> = graph.bonds().map(|(id, _)| id).collect();
+    place(&Marking {
+        requests,
+        ids: &ids,
+        links,
+        bonds: &bonds,
+        topology: &topology,
+        neighbors: &rendered.neighbors,
+        closure: &rendered.closure,
+        position: &position,
+    })
 }
 
 fn stereo_loss(feature: &str, source_path: String, reason: &str) -> Loss {
@@ -778,6 +935,7 @@ fn canonical_with(
             begin: *begin,
             end: *end,
             order: order.clone(),
+            mark: None,
         });
     }
     let mut plans = Vec::with_capacity(form.atoms.len());
@@ -934,6 +1092,207 @@ mod tests {
         }
     }
 
+    /// `text` as a drawing in which the double bonds listed are stored trans. Each entry is
+    /// `(index, begin, end)`: the bond's position among the text's bonds, counted from zero, and
+    /// the text atoms, counted from zero, that its two ends are configured against.
+    fn drawing_with_trans_bonds(text: &str, stored: &[(usize, usize, usize)]) -> MoleculeGraph {
+        use chemifree_domain::document::{
+            AtomRef, BondRef, Command, Document, DocumentId, NewAtomPositions, Point,
+        };
+        use chemifree_domain::stereo::{BondConfiguration, Relation, SlotRef};
+
+        let read = reader::parse(text).unwrap().read;
+        let id = |index: usize| AtomRef::Id(AtomId::from_serial(index as u32 + 1).unwrap());
+        let mut commands: Vec<Command> = read
+            .atoms
+            .iter()
+            .map(|entry| Command::AddAtom {
+                atom: entry.atom.clone(),
+                positions: NewAtomPositions::Single(Point::new(0.0, 0.0).unwrap()),
+                bond_to: None,
+            })
+            .collect();
+        commands.extend(read.bonds.iter().map(|bond| Command::AddBond {
+            begin: id(bond.begin),
+            end: id(bond.end),
+            order: bond.order.clone(),
+        }));
+        commands.extend(
+            stored
+                .iter()
+                .map(|&(index, begin, end)| Command::SetBondConfiguration {
+                    bond: BondRef::Created(read.atoms.len() + index),
+                    configuration: Some(BondConfiguration::Relative {
+                        begin_neighbor: SlotRef::Atom(id(begin)),
+                        end_neighbor: SlotRef::Atom(id(end)),
+                        relation: Relation::OppositeSides,
+                    }),
+                }),
+        );
+        let mut document = Document::new(DocumentId::parse("readback").unwrap(), "R").unwrap();
+        document.apply(&commands).unwrap();
+        MoleculeGraph::from_document(&document)
+    }
+
+    /// `CC=CC=CC` as a drawing in which only the first double bond (b2) is stored, trans.
+    fn one_configured_bond() -> MoleculeGraph {
+        drawing_with_trans_bonds("CC=CC=CC", &[(1, 0, 3)])
+    }
+
+    fn refused_reason(place: impl Fn(&Marking<'_>) -> Placement) -> (SmilesCode, String) {
+        let error = recorded(&one_configured_bond(), &StereoGroupTable::default(), place)
+            .expect_err("the read-back check refuses the text");
+        (error.code, error.reason.unwrap_or_default())
+    }
+
+    #[test]
+    fn the_unaltered_placement_writes_the_stored_configuration() {
+        let written = recorded(
+            &one_configured_bond(),
+            &StereoGroupTable::default(),
+            double_bond_write::place,
+        )
+        .unwrap();
+        assert_eq!(written.text, "C/C=C/C=CC");
+    }
+
+    #[test]
+    fn a_placement_that_states_the_other_relation_fails_the_read_back() {
+        let (code, reason) = refused_reason(|marking| {
+            let mut placement = double_bond_write::place(marking);
+            for mark in placement.marks.iter_mut().skip(2) {
+                *mark = mark.map(|mark| mark.flipped());
+            }
+            placement
+        });
+        assert_eq!(code, SmilesCode::ReadbackMismatch);
+        assert!(reason.contains("double-bond configuration"), "{reason}");
+    }
+
+    #[test]
+    fn a_placement_that_states_an_extra_configuration_fails_the_read_back() {
+        // Marking C4-C5 as well makes the second double bond (b4) marked at both ends.
+        let (code, reason) = refused_reason(|marking| {
+            let mut placement = double_bond_write::place(marking);
+            placement.marks[4] = Some(super::super::double_bonds::Mark::Slash);
+            placement
+        });
+        assert_eq!(code, SmilesCode::ReadbackMismatch);
+        assert!(reason.contains("double-bond configuration"), "{reason}");
+    }
+
+    #[test]
+    fn a_placement_that_states_nothing_fails_the_read_back() {
+        let (code, reason) = refused_reason(|marking| {
+            let mut placement = double_bond_write::place(marking);
+            placement.marks.fill(None);
+            placement
+        });
+        assert_eq!(code, SmilesCode::ReadbackMismatch);
+        assert!(reason.contains("double-bond configuration"), "{reason}");
+    }
+
+    #[test]
+    fn a_configuration_on_a_bond_that_is_not_double_is_left_out_with_a_loss() {
+        // A drawing never stores a configuration on a bond that is not double, but a graph copy
+        // can have a bond order changed after it was taken: the stored b2 becomes single here.
+        let mut graph = one_configured_bond();
+        let configured = BondId::from_serial(2).unwrap();
+        for (bond, data) in graph.bonds_mut() {
+            if bond == configured {
+                data.order = BondOrder::Single;
+            }
+        }
+        let written = recorded(
+            &graph,
+            &StereoGroupTable::default(),
+            double_bond_write::place,
+        )
+        .expect("a configuration on a bond that is not double is left out, not refused");
+        assert_eq!(written.text, "CCCC=CC");
+        let consent: Vec<(&str, &str)> = written
+            .losses
+            .iter()
+            .filter(|loss| loss.consent == LossConsent::Required)
+            .map(|loss| (loss.feature.as_str(), loss.source_path.as_str()))
+            .collect();
+        assert_eq!(consent, [("stereo_configuration", "bonds[b2]")]);
+        assert!(
+            written.losses.iter().any(|loss| loss
+                .reason
+                .contains("the bond is not a double bond in the written text")),
+            "{:?}",
+            written.losses
+        );
+    }
+
+    #[test]
+    fn requests_are_in_bond_identifier_order_whatever_order_the_records_come_in() {
+        // Three stored double bonds, b2, b4 and b6, all trans.
+        let graph = drawing_with_trans_bonds("CC=CC=CC=CC", &[(1, 0, 3), (3, 2, 5), (5, 4, 7)]);
+        let link_of_bond: HashMap<BondId, usize> = graph
+            .bonds()
+            .enumerate()
+            .map(|(link, (bond, _))| (bond, link))
+            .collect();
+        let records: Vec<(StereoKey, &StereoState)> = graph.stereo().iter().collect();
+        assert_eq!(records.len(), 3, "each stored configuration is one record");
+        let serials = |requests: &[Request]| -> Vec<u32> {
+            requests
+                .iter()
+                .map(|request| request.bond.serial())
+                .collect()
+        };
+        let (in_order, _) = double_bond_requests(records.iter().copied(), &link_of_bond);
+        let (reversed, _) = double_bond_requests(records.iter().rev().copied(), &link_of_bond);
+        assert_eq!(serials(&in_order), [2, 4, 6]);
+        assert_eq!(
+            serials(&reversed),
+            [2, 4, 6],
+            "the records given in reverse order"
+        );
+    }
+
+    #[test]
+    fn a_mark_on_a_ring_closure_digit_is_refused_by_the_emitter() {
+        let read = reader::parse("C1CCCCCCC1").unwrap();
+        let plans: Vec<Plan> = (0..8)
+            .map(|i| Plan {
+                id: AtomId::from_serial(i + 1).unwrap(),
+                element: "C",
+                symbol: "C",
+                aromatic: false,
+                charge: 0,
+                isotope: None,
+                hydrogens: 2,
+                radical: Radical::None,
+                assumed_hydrogens: false,
+                assumed_radical: false,
+                guessed_hydrogens: false,
+                invalid_valence: false,
+            })
+            .collect();
+        assert_eq!(read.read.atoms.len(), 8);
+        let links: Vec<Link> = (0..8)
+            .map(|i| Link {
+                begin: i,
+                end: (i + 1) % 8,
+                order: BondOrder::Single,
+                // The last link closes the ring: it is written as a digit.
+                mark: (i == 7).then_some(super::super::double_bonds::Mark::Slash),
+            })
+            .collect();
+        let error = render(&plans, &links, MAX_INPUT_BYTES).err().unwrap();
+        assert_eq!(error.code, SmilesCode::ReadbackMismatch);
+        assert!(
+            error
+                .reason
+                .unwrap_or_default()
+                .contains("ring-closure digit"),
+            "a mark on a ring-closure digit is refused where it would be written"
+        );
+    }
+
     #[test]
     fn text_longer_than_the_limit_is_refused_not_returned() {
         let plans: Vec<Plan> = (0..4)
@@ -957,6 +1316,7 @@ mod tests {
                 begin: i,
                 end: i + 1,
                 order: BondOrder::Single,
+                mark: None,
             })
             .collect();
         // Four carbons chained: CCCC. The same plans fit in 4 bytes and not in 3.

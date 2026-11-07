@@ -508,33 +508,122 @@ fn a_text_of_exactly_the_command_bound_commits_with_its_configurations() {
     assert_eq!(document(&app, &id)["revision"], 0);
 }
 
+/// The consent-required losses of a refused export, by feature and source path.
+fn consent_losses(refused: &Value) -> Vec<(String, String)> {
+    refused["diagnostics"][0]["details"]["losses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|loss| {
+            (
+                loss["feature"].as_str().unwrap().to_owned(),
+                loss["source_path"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
 #[test]
-fn exporting_an_imported_double_bond_configuration_needs_consent_and_writes_no_marks() {
-    // The writers do not write `/` and `\` yet: recorded output reports the configuration as a
-    // consent-required loss, canonical output as the loss of all SMILES stereo.
-    for (source, recorded) in [("F/C=C/F", "FC=CF"), ("F/C=C\\F", "FC=CF")] {
+fn recorded_export_writes_an_imported_double_bond_configuration_as_marks_without_consent() {
+    // The same molecule, spelled the writer's way (the first mark is a `/`).
+    for (source, expected) in [
+        ("F/C=C/F", "F/C=C/F"),
+        ("F\\C=C\\F", "F/C=C/F"),
+        ("F/C=C\\F", "F/C=C\\F"),
+        ("C/C=C/C=C\\C", "C/C=C/C=C\\C"),
+    ] {
         let (app, _dir, id) = setup();
         import(&app, &id, 0, source);
         let before = document(&app, &id);
-        for (style, expected) in [("recorded", recorded), ("canonical", "")] {
-            let parameters = json!({"document_id": id, "format": "smiles", "style": style});
-            let refused = call(&app, "refused", "document.export", parameters.clone());
-            let found = &refused["diagnostics"][0];
-            assert_eq!(found["code"], "loss_consent_required", "{style}: {refused}");
-            assert_eq!(
-                found["details"]["features"],
-                json!(["stereo_configuration"])
-            );
-            assert_eq!(found["details"]["losses"][0]["source_path"], "bonds[b2]");
-            let mut accepted = parameters;
-            accepted["accepted_losses"] = found["details"]["loss_digest"].clone();
-            let written = call(&app, "accepted", "document.export", accepted);
-            let content = written["result"]["content"].as_str().unwrap();
-            assert!(!content.contains(['/', '\\']), "{style}: {content}");
-            if !expected.is_empty() {
-                assert_eq!(content, expected, "{source} {style}");
-            }
-            assert_eq!(document(&app, &id), before);
-        }
+        let parameters = json!({"document_id": id, "format": "smiles", "style": "recorded"});
+        let written = call(&app, "written", "document.export", parameters.clone());
+        assert_eq!(
+            written["result"]["content"], expected,
+            "{source}: {written}"
+        );
+        assert!(
+            written["loss_report"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|loss| {
+                    !["stereo_configuration", "stereo_marks"]
+                        .contains(&loss["feature"].as_str().unwrap())
+                }),
+            "{source}: preserved stereo must not be reported as lost: {written}"
+        );
+        assert_eq!(document(&app, &id), before, "{source}");
+        // The written text imports to the same stored configurations.
+        let (again, _again_dir, again_id) = setup();
+        import(&again, &again_id, 0, expected);
+        assert_eq!(
+            stored_bonds(&again, &again_id),
+            stored_bonds(&app, &id),
+            "{source}"
+        );
+        // Exporting twice gives the same reply content.
+        let twice = call(&app, "twice", "document.export", parameters);
+        assert_eq!(twice["result"]["content"], written["result"]["content"]);
+        assert_eq!(twice["loss_report"], written["loss_report"]);
     }
+}
+
+#[test]
+fn canonical_export_of_a_double_bond_configuration_still_needs_consent_and_writes_no_marks() {
+    let (app, _dir, id) = setup();
+    import(&app, &id, 0, "F/C=C/F");
+    let before = document(&app, &id);
+    let parameters = json!({"document_id": id, "format": "smiles", "style": "canonical"});
+    let refused = call(&app, "refused", "document.export", parameters.clone());
+    let found = &refused["diagnostics"][0];
+    assert_eq!(found["code"], "loss_consent_required", "{refused}");
+    assert_eq!(
+        found["details"]["features"],
+        json!(["stereo_configuration"])
+    );
+    assert_eq!(found["details"]["losses"][0]["source_path"], "bonds[b2]");
+    let mut accepted = parameters;
+    accepted["accepted_losses"] = found["details"]["loss_digest"].clone();
+    let written = call(&app, "accepted", "document.export", accepted);
+    let content = written["result"]["content"].as_str().unwrap();
+    assert!(!content.contains(['/', '\\']), "{content}");
+    assert_eq!(document(&app, &id), before);
+}
+
+#[test]
+fn a_configuration_the_marks_cannot_state_needs_consent_with_the_same_loss_every_time() {
+    // CC=CC=CC=CC with the outer double bonds (b2, b6) stored and the middle one (b4) not.
+    let (app, _dir, id) = setup();
+    import(&app, &id, 0, "CC=CC=CC=CC");
+    let stored = call(
+        &app,
+        "store",
+        "document.transaction",
+        json!({"document_id": id, "expected_revision": 1, "commands": [
+            {"op":"set_bond_configuration","bond":"b2","configuration":{"kind":"relative",
+                "begin_neighbor":"a1","end_neighbor":"a4","relation":"opposite_sides"}},
+            {"op":"set_bond_configuration","bond":"b6","configuration":{"kind":"relative",
+                "begin_neighbor":"a5","end_neighbor":"a8","relation":"opposite_sides"}},
+        ]}),
+    );
+    assert_eq!(stored["outcome"], "ok", "{stored}");
+    let before = document(&app, &id);
+    let parameters = json!({"document_id": id, "format": "smiles", "style": "recorded"});
+    let first = call(&app, "first", "document.export", parameters.clone());
+    let found = &first["diagnostics"][0];
+    assert_eq!(found["code"], "loss_consent_required", "{first}");
+    assert_eq!(
+        consent_losses(&first),
+        [("stereo_configuration".to_owned(), "bonds[b6]".to_owned())]
+    );
+    let reason = found["details"]["losses"][0]["reason"].as_str().unwrap();
+    assert!(reason.contains("double bond b4"), "{reason}");
+    // The same document asks for the same consent, loss and digest.
+    let second = call(&app, "second", "document.export", parameters.clone());
+    assert_eq!(second["diagnostics"], first["diagnostics"]);
+    let mut accepted = parameters;
+    accepted["accepted_losses"] = found["details"]["loss_digest"].clone();
+    let written = call(&app, "accepted", "document.export", accepted);
+    assert_eq!(written["result"]["content"], "C/C=C/C=CC=CC", "{written}");
+    assert_eq!(document(&app, &id), before);
 }

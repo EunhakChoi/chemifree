@@ -16,6 +16,7 @@ use chemifree_application::smiles::{SmilesCode, SmilesError};
 use chemifree_domain::document::BondOrder;
 use chemifree_domain::stereo::Turn;
 
+use super::double_bonds::Mark;
 use super::{MAX_BRANCH_DEPTH, MAX_RING_LABEL};
 
 /// One atom to write.
@@ -38,6 +39,11 @@ pub(super) struct Link {
     pub begin: usize,
     pub end: usize,
     pub order: BondOrder,
+    /// A directional bond, as it reads when `begin` is written before `end`; [`emit`] writes
+    /// the other symbol when the walk reaches `end` first. Only a single bond that the walk
+    /// writes in the chain or a branch can carry one: a ring-closure bond, or any other order,
+    /// makes [`emit`] refuse.
+    pub mark: Option<Mark>,
 }
 
 pub(super) struct Emitted {
@@ -47,6 +53,8 @@ pub(super) struct Emitted {
     /// Neighbours in the exact order the reader encounters them, excluding bracket H.
     pub neighbors: Vec<Vec<usize>>,
     pub preceded: Vec<bool>,
+    /// For every link whether the walk wrote it as a ring-closure digit.
+    pub closure: Vec<bool>,
 }
 
 fn atom_text(item: &Item) -> String {
@@ -92,6 +100,25 @@ fn bond_text(link: &Link, items: &[Item]) -> Result<&'static str, SmilesError> {
             Err(SmilesError::new(SmilesCode::BondKindNotWritable))
         }
     }
+}
+
+/// The text of the bond that joins `child` to the atom written before it. A directional mark is
+/// written as the walk meets it: the symbol of [`Link::mark`] when the parent is `begin`.
+fn chain_bond_text(link: &Link, items: &[Item], child: usize) -> Result<&'static str, SmilesError> {
+    let Some(mark) = link.mark else {
+        return bond_text(link, items);
+    };
+    if link.order != BondOrder::Single {
+        return Err(SmilesError::new(SmilesCode::ReadbackMismatch)
+            .because("a directional bond is placed on a bond that is not single"));
+    }
+    let parent_is_begin = link.end == child;
+    Ok(if parent_is_begin {
+        mark
+    } else {
+        mark.flipped()
+    }
+    .symbol())
 }
 
 fn label_text(label: usize) -> String {
@@ -234,6 +261,7 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
     let mut depth = 0_usize;
     let mut neighbors = vec![Vec::new(); items.len()];
     let mut preceded = vec![false; items.len()];
+    let mut closure = vec![false; links.len()];
     while let Some(step) = work.pop() {
         match step {
             Work::Dot => text.push('.'),
@@ -250,7 +278,7 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
             }
             Work::Atom(atom, via) => {
                 if let Some(link) = via {
-                    text.push_str(bond_text(&links[link], items)?);
+                    text.push_str(chain_bond_text(&links[link], items, atom)?);
                     let edge = &links[link];
                     neighbors[atom].push(if edge.begin == atom {
                         edge.end
@@ -273,6 +301,7 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
                     });
                     text.push_str(&label_text(label));
                     taken[label] = false;
+                    closure[link] = true;
                 }
                 let mut opening = walk.opens[atom].clone();
                 opening.sort_unstable();
@@ -283,6 +312,10 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
                     };
                     taken[label] = true;
                     label_of[link] = label;
+                    if links[link].mark.is_some() {
+                        return Err(SmilesError::new(SmilesCode::ReadbackMismatch)
+                            .because("a directional bond is placed on a ring-closure digit"));
+                    }
                     text.push_str(bond_text(&links[link], items)?);
                     text.push_str(&label_text(label));
                 }
@@ -303,5 +336,6 @@ pub(super) fn emit(items: &[Item], links: &[Link]) -> Result<Emitted, SmilesErro
         order,
         neighbors,
         preceded,
+        closure,
     })
 }

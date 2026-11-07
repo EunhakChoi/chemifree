@@ -1,5 +1,5 @@
 {
-  "suite_version": 32,
+  "suite_version": 33,
   "cases": [
     "cases/caption-shadow-history.json",
     "cases/transaction-all-or-nothing.json",
@@ -100,6 +100,8 @@
     "cases/smiles-stereo-read-refusals-change-nothing.json",
     "cases/smiles-directional-bond-read-configuration.json",
     "cases/smiles-directional-bond-refusals-change-nothing.json",
+    "cases/smiles-directional-bond-write-recorded.json",
+    "cases/smiles-directional-bond-write-omissions.json",
     "cases/cdxml-drawing-export-stereo-groups-round-trip.json",
     "cases/cdx-drawing-export-stereo-groups-round-trip.json",
     "cases/cdxml-cdx-drawing-export-stereo-loss-consent.json",
