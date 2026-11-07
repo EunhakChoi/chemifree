@@ -571,7 +571,7 @@ impl Entry {
 }
 
 /// The parts of a document transaction: each command, and what a document cannot hold yet.
-const TRANSACTION_PARTS: [Entry; 53] = [
+const TRANSACTION_PARTS: [Entry; 57] = [
     runs("attach_ring", "Connects a fresh regular carbon ring to an existing atom along an explicit direction in the only placement (size 5 or 6, default 6; pattern single by default, or explicit kekule for size 6). Connector stays single. Ordinary bond-addition stereo clearing and group notes apply. No fusion, aromaticity inference or layout."),
 
     runs(
@@ -632,6 +632,10 @@ const TRANSACTION_PARTS: [Entry; 53] = [
     runs("update_abbreviation_label", "Changes or resets cosmetic display text on a collapsed retained ethyl graph; text never defines chemistry."),
     runs("collapse_ethyl", "Displays a checked existing terminal ethyl graph as Et; chemistry and positions are retained."),
     runs("expand_ethyl", "Reveals the original stored ethyl drawing."),
+    runs("contract_fragment", "Contracts explicitly named supported fragment members behind bounded display text, retaining the complete chemical graph and coordinates. Text does not define chemistry."),
+    runs("set_fragment_display_text", "Sets fragment display text as one baseline run, retaining the graph and member IDs. Text does not define chemistry."),
+    runs("set_fragment_display_runs", "Replaces fragment display runs with explicit baseline, subscript, or superscript treatment under the shared 128 UTF-8 byte single-line bound. Runs do not define chemistry."),
+    runs("expand_fragment", "Reveals retained fragment members at their stored coordinates without changing the chemical graph."),
     runs("add_caption", "Adds an independent single-line Unicode caption with explicit script, weight, style, generic font family and nullable size_pt (finite 4–72 pt; null/omission follows drawing size), and nullable color (canonical opaque sRGB #RRGGBB; null/omission follows theme foreground) runs."),
     runs("update_caption", "Replaces a caption anchor and its complete script, weight, style, generic font family and nullable size_pt (finite 4–72 pt; null/omission follows drawing size), and nullable color (canonical opaque sRGB #RRGGBB; null/omission follows theme foreground) runs."),
     runs(
@@ -765,6 +769,10 @@ const TRANSACTION_PARTS: [Entry; 53] = [
         "add_graphic",
         "add_caption",
         "update_caption",
+        "contract_fragment",
+        "set_fragment_display_text",
+        "set_fragment_display_runs",
+        "expand_fragment",
         "group",
         "ungroup",
         "reorder",

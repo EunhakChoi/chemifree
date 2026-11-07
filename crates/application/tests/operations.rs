@@ -702,6 +702,10 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "update_abbreviation_label",
             "collapse_ethyl",
             "expand_ethyl",
+            "contract_fragment",
+            "set_fragment_display_text",
+            "set_fragment_display_runs",
+            "expand_fragment",
             "add_caption",
             "update_caption",
             "add_graphic",
@@ -749,6 +753,10 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "add_graphic",
             "add_caption",
             "update_caption",
+            "contract_fragment",
+            "set_fragment_display_text",
+            "set_fragment_display_runs",
+            "expand_fragment",
             "group",
             "ungroup",
             "reorder",
@@ -801,12 +809,12 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "split_stereo_group"
         ]
     );
-    assert_eq!(commands.len(), 42, "{commands:?}");
+    assert_eq!(commands.len(), 46, "{commands:?}");
     assert_eq!(capabilities.len(), 11, "{capabilities:?}");
     assert_eq!(
         transaction["sub_operations"].as_array().unwrap().len(),
-        53,
-        "42 command rows and 11 capability rows"
+        57,
+        "46 command rows and 11 capability rows"
     );
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }
