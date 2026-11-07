@@ -637,7 +637,12 @@ export function StructureCanvas({
       setHover((current) => (sameLocated(current, next) ? current : next))
       return
     }
-    if (!active || distance({ x: event.clientX, y: event.clientY }, active.start) < DRAG_THRESHOLD) return
+    if (!active) return
+    if (distance({ x: event.clientX, y: event.clientY }, active.start) < DRAG_THRESHOLD) {
+      // A release here creates nothing; discard any preview from an earlier excursion.
+      if (gesture.kind === 'graphic-create') setPreview(null)
+      return
+    }
     if (gesture.kind === 'graphic-create') {
       if (tool !== 'graphic' || !graphicCreationCurrent(document, graphicShape, serviceGeneration, gesture.creation)) { cancelPointer(); return }
       setPreview(graphicPointValid(point) ? { kind: 'graphic-create', creation: { ...gesture.creation, points: [{ ...gesture.start }, { ...point }] } } : null)

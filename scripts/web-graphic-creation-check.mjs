@@ -183,6 +183,26 @@ createRoot(document.getElementById('root')).render(<Harness/> )
   const at=await screenPoint({x:0,y:0})
   await page.mouse.move(at.x,at.y);await page.mouse.down();await page.mouse.move(at.x+1,at.y+1);await page.mouse.up()
   assert.equal(writes.length,beforeCancelWrites)
+  stage='round-trip graphic drags clear preview below threshold before release'
+  for(const shape of ['line','arrow','rectangle']){
+    await choose(shape)
+    for(const pixels of [1,2]){
+      const before=(await snapshot()).document
+      const count=writes.length
+      await begin({x:0,y:0},{x:40,y:20});await previewPoints(shape,[{x:0,y:0},{x:40,y:20}])
+      const origin=await screenPoint({x:0,y:0})
+      await page.mouse.move(origin.x+pixels,origin.y,{steps:4})
+      await preview().waitFor({state:'detached',timeout:5000})
+      assert.equal(await canvas.evaluate((svg)=>svg.hasPointerCapture(window.creationPointerId)),true,'returning below threshold keeps gesture ownership until release')
+      assert.deepEqual((await snapshot()).document,before,'round-trip preview stays outside document state')
+      assert.equal(writes.length,count,'round-trip pointer moves never write')
+      await page.mouse.up();await idle()
+      assert.deepEqual((await snapshot()).document,before,'release below threshold creates no graphic')
+      assert.equal(writes.length,count,'release below threshold sends no transaction')
+    }
+  }
+  await choose('line')
+  stage='escape, pointercancel, lost capture and blur discard previews'
   for(const cancel of ['escape','pointercancel','lostcapture','blur']){
     await begin({x:0,y:0},{x:40,y:20});await preview().waitFor()
     if(cancel==='escape')await page.keyboard.press('Escape')
