@@ -1395,9 +1395,9 @@ try {
       const transaction = catalog.result.operations.find((operation) => operation.id === 'document.transaction')
       const commandRows = transaction.sub_operations.filter((part) => part.commands === undefined)
       const capabilityRows = transaction.sub_operations.filter((part) => part.commands !== undefined)
-      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [57, 46, 11],
-        'Fragment display contraction, text/run editing and expansion are command rows; the 11 capability rows are unchanged')
-      for (const command of ['contract_fragment', 'set_fragment_display_text', 'set_fragment_display_runs', 'expand_fragment', 'set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing',
+      assert.deepEqual([transaction.sub_operations.length, commandRows.length, capabilityRows.length], [58, 47, 11],
+        'Graphic point updates and fragment display contraction, text/run editing and expansion are command rows; the 11 capability rows are unchanged')
+      for (const command of ['update_graphic_points', 'contract_fragment', 'set_fragment_display_text', 'set_fragment_display_runs', 'expand_fragment', 'set_bond_mark', 'set_atom_configuration', 'set_bond_configuration', 'set_configuration_from_drawing',
         'create_stereo_group', 'delete_stereo_group', 'set_stereo_group_kind', 'set_stereo_group_number',
         'add_stereo_group_members', 'remove_stereo_group_members', 'merge_stereo_groups', 'split_stereo_group']) {
         assert.equal(commandRows.find((part) => part.id === command)?.execution, 'executable', command)

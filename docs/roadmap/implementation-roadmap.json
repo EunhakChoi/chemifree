@@ -1442,7 +1442,7 @@
    "acceptance": "회전·clip·그룹·레이어와 이미지 수명·저장·Undo를 검사하고 화살표 위치를 반응 역할로 자동 단정하지 않는다.",
    "kind": "core",
    "id": "P36",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1451,7 +1451,8 @@
    "depends_on": [
     "P32",
     "P35"
-   ]
+   ],
+   "note": "P36a is an unverified bounded candidate for update_graphic_points on an existing line/arrow/rectangle: exactly two finite document points within inclusive±100000 pt, reversed/coincident points allowed, unchanged points no-op. Shape/ID/group/parent/order/references and chemical graph/placement/stereo/settings remain intact. Shared atomic transaction/revision/replay/Undo/Redo and existing native v25 scene history apply without schema/version change. The actual Graphic endpoints form captures document/revision/target/points, rejects stale queued targets and invalid/busy/IME submissions, and does not automatically resend unknown edits into a restarted process. This adds no resize handles, new shapes, reaction/electron semantics, images, clipping, layers or graphic styles/layout. Rust0650f7a and web66eac34 source were inspected; tests/build/browser, Codex and independent fresh review, and PR CI remain pending. P36 stays in_progress; this does not complete its broader original scope. docs/verification/p36a-graphic-points.md."
   },
   {
    "phase": "editor",

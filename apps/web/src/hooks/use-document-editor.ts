@@ -1106,12 +1106,12 @@ export function useDocumentEditor() {
         return mutate((document, restartedFrom) => {
           if (typeof edit === 'function') {
             const commands = edit(document.document)
-            if (restartedFrom && commands?.some((command) => command.op === 'contract_fragment' || command.op === 'set_fragment_display_text' || command.op === 'set_fragment_display_runs' || command.op === 'expand_fragment')) return null
+            if (restartedFrom && commands?.some((command) => command.op === 'contract_fragment' || command.op === 'set_fragment_display_text' || command.op === 'set_fragment_display_runs' || command.op === 'expand_fragment' || command.op === 'update_graphic_points')) return null
             return commands?.length ? client.transact(id(), revision(document), commands, snapshots(document.document)) : null
           }
           if (!edit.length || shown?.id !== document.document.id) return null
           if (restartedFrom) {
-            if (edit.some((command) => command.op === 'contract_fragment' || command.op === 'set_fragment_display_text' || command.op === 'set_fragment_display_runs' || command.op === 'expand_fragment')) return null
+            if (edit.some((command) => command.op === 'contract_fragment' || command.op === 'set_fragment_display_text' || command.op === 'set_fragment_display_runs' || command.op === 'expand_fragment' || command.op === 'update_graphic_points')) return null
             // Built on an older view than the one the restarted service matched: it lapses.
             if (restartedFrom.document.revision !== shown.revision) return null
             return client.transact(shown.id, revision(document), edit, snapshots(document.document))

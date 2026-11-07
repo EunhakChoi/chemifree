@@ -552,6 +552,11 @@ pub enum Command {
         parent: Option<ObjectId>,
         index: Option<usize>,
     },
+    /// Replaces only an existing graphic's two points; shape, identity and links stay intact.
+    UpdateGraphicPoints {
+        object: ObjectId,
+        points: [Point; 2],
+    },
     /// Puts at least two objects sharing one parent into a new group, which takes the place of
     /// the earliest of them; they keep their order.
     Group {
@@ -2628,6 +2633,14 @@ impl Draft {
                     *index,
                 )?;
                 created = Created::Object(id);
+            }
+            Command::UpdateGraphicPoints { object, points } => {
+                self.content.scene.require(*object, ObjectKind::Graphic)?;
+                if let Some(SceneObject::Graphic(graphic)) =
+                    self.content.scene.objects.get_mut(object)
+                {
+                    graphic.points = *points;
+                }
             }
             Command::Group { objects } => {
                 if objects.is_empty() {

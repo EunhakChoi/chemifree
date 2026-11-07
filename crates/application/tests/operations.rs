@@ -709,6 +709,7 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "add_caption",
             "update_caption",
             "add_graphic",
+            "update_graphic_points",
             "group",
             "ungroup",
             "reorder",
@@ -751,6 +752,7 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
         carried_out_by("scene_tree"),
         [
             "add_graphic",
+            "update_graphic_points",
             "add_caption",
             "update_caption",
             "contract_fragment",
@@ -809,12 +811,12 @@ fn the_transaction_catalog_lists_exactly_the_commands_that_run() {
             "split_stereo_group"
         ]
     );
-    assert_eq!(commands.len(), 46, "{commands:?}");
+    assert_eq!(commands.len(), 47, "{commands:?}");
     assert_eq!(capabilities.len(), 11, "{capabilities:?}");
     assert_eq!(
         transaction["sub_operations"].as_array().unwrap().len(),
-        57,
-        "46 command rows and 11 capability rows"
+        58,
+        "47 command rows and 11 capability rows"
     );
     assert_eq!(document_count(&app), 1, "no part changed anything");
 }

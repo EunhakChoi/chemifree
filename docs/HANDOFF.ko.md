@@ -1,5 +1,12 @@
 # Chemifree 새 세션 인계
 
+## P36a 기존 graphic 두 점 좌표 편집 후보
+
+- `update_graphic_points`는 concrete graphic object ID와 정확히 두 points를 받아 기존 line/arrow/rectangle의 좌표만 교체한다. 각 x/y는 finite·inclusive±100000 pt이며 reversed/coincident도 허용한다. arrow의 두 번째 점은 tip, rectangle은 저장 순서를 보존한 두 opposite corners다. shape/ID·group/parent·roots/order·incoming/outgoing references·다른 객체·graph/placement/stereo/settings를 유지한다. 반응/전자 의미는 추론하지 않는다.
+- 필드/두 점 개수/type/null·shape 등 unknown field는 invalid_request, 범위 초과·없는 객체·다른 kind는 invalid_command다. 전체 transaction 원자성·동일점 no-op·Undo/Redo·selection·revision·same-process replay를 공유하며 새 native schema/version 없이 v25 object/history/draft/save 경로를 쓴다.
+- 실제 Graphic endpoints panel은 선택한 scene graphic1개의 x1/y1/x2/y2를 pt로 편집한다. decimal/scientific 입력·invalid/busy/no-op/IME gate와 captured document/revision/target 검증을 적용한다. 큐에서 revision·geometry·group/target이 바뀌면 lapse하며 restart 후 미확정 편집은 자동 재전송하지 않는다.
+- resize/endpoint drag handles·새 도형·curve/reaction/electron arrows·scientific glyph·image·clip/layer/style/layout은 추가하지 않는다. P36은 `in_progress`; Rust0650f7a·web66eac34 소스를 대조했으며 테스트·빌드·browser·두 리뷰·PR CI는 대기다. [P36a 기록](verification/p36a-graphic-points.md). 이 문서 작업은 실행 검증이나 전체 P36 완료를 주장하지 않는다.
+
 ## P35 현재 상태 정정 (main f29195a, #199)
 
 P35a–n과 Et 표시 #185는 병합되었고 각 PR의 check/browser CI가 통과했다. 아래 후보·실행 대기 문구는 구현 당시의 기록이며 현재 검증 상태가 아니다. 다만 fixed Et 이외 일반 약어 레이블의 생성·텍스트/run 편집은 구현되지 않아 P35 원 scope 완료는 입증하지 못했다. P35는 in_progress를 유지한다. [완료 근거 대조와 남은 범위](verification/p35-completion-audit.md)를 현재 기준으로 사용한다. 이번 문서 대조에서는 테스트·빌드·브라우저를 실행하지 않았다.

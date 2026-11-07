@@ -723,6 +723,7 @@ export type Command =
   | { op: 'add_caption'; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[]; parent?: string; index?: number }
   | { op: 'update_caption'; object: string; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
   | { op: 'add_graphic'; shape: GraphicShape; points: [Position, Position]; parent?: string; index?: number }
+  | { op: 'update_graphic_points'; object: string; points: [Position, Position] }
   | { op: 'group'; objects: string[] }
   | { op: 'ungroup'; group: string }
   | { op: 'reorder'; object: string; index: number }
