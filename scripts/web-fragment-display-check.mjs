@@ -97,10 +97,16 @@ createRoot(document.getElementById('root')).render(<Harness />)
   const snapshot = async () => JSON.parse(await page.getByLabel('Et snapshot', { exact: true }).textContent())
   const compact = (text = 'Et') => page.getByRole('img', { name: `Display label ${text} at a2; text does not define chemistry; retained fragment graph`, exact: true })
   async function documentPoint(x, y) {
-    return page.locator('svg[data-structure-canvas]').evaluate((svg, at) => {
+    const canvas = page.locator('svg[data-structure-canvas]')
+    // Raw mouse coordinates do not scroll like locator.click(); the form and
+    // snapshot output can place the canvas below the viewport.
+    await canvas.scrollIntoViewIfNeeded()
+    return canvas.evaluate((svg, at) => {
       const point = svg.createSVGPoint()
       point.x = at.x; point.y = at.y
       const screen = point.matrixTransform(svg.getScreenCTM())
+      const target = document.elementFromPoint(screen.x, screen.y)
+      if (!target || !svg.contains(target)) throw new Error('Document point is outside the exposed canvas')
       return { x: screen.x, y: screen.y }
     }, { x, y })
   }
@@ -130,8 +136,10 @@ createRoot(document.getElementById('root')).render(<Harness />)
   await inkInsideSharedBox(text)
   const hiddenPoint=await documentPoint(300,140)
   await page.mouse.click(hiddenPoint.x,hiddenPoint.y)
+  await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Et selection"]').textContent).length === 0)
   assert.deepEqual(JSON.parse(await page.getByLabel('Et selection',{exact:true}).textContent()),[],'hidden member centers cannot select the fragment')
   await compact(text).click()
+  await page.waitForFunction(() => JSON.parse(document.querySelector('[aria-label="Et selection"]').textContent).length === 5)
   assert.deepEqual(JSON.parse(await page.getByLabel('Et selection',{exact:true}).textContent()).sort(),['a2','a3','a4','b2','b3'])
   stage = 'label drag moves every retained member with a common delta'
   const beforeMove=(await snapshot()).document.scene.instances[0].positions
