@@ -36,7 +36,7 @@ fn graphic(shape: GraphicShape, x: f64) -> Command {
         graphic: Graphic {
             line_width_pt: None,
             shape,
-            points: [point(x, 0.0), point(x + 10.0, 10.0)],
+            points: vec![point(x, 0.0), point(x + 10.0, 10.0)],
         },
         parent: None,
         index: None,
@@ -205,7 +205,7 @@ fn paste_builds_graphics_then_bottom_up_groups_and_selects_only_new_roots() {
         Some(&SceneObject::Graphic(Graphic {
             line_width_pt: None,
             shape: GraphicShape::Rectangle,
-            points: [point(50.0, 20.0), point(60.0, 30.0)]
+            points: vec![point(50.0, 20.0), point(60.0, 30.0)]
         }))
     );
     assert_eq!(
@@ -414,7 +414,7 @@ fn malformed_trees_duplicates_and_external_references_are_refused_before_plannin
         object: SceneObject::Graphic(Graphic {
             line_width_pt: None,
             shape: GraphicShape::Line,
-            points: [point(0.0, 0.0), point(1.0, 1.0)],
+            points: vec![point(0.0, 0.0), point(1.0, 1.0)],
         }),
     });
     assert_eq!(loose.validate(), Err(SceneFragmentError::InvalidTree));
@@ -440,7 +440,7 @@ fn deep_fragment(groups: u32) -> Fragment {
             object: SceneObject::Graphic(Graphic {
                 line_width_pt: None,
                 shape: GraphicShape::Line,
-                points: [point(0.0, 0.0), point(1.0, 1.0)],
+                points: vec![point(0.0, 0.0), point(1.0, 1.0)],
             }),
         });
     }
@@ -449,7 +449,7 @@ fn deep_fragment(groups: u32) -> Fragment {
         object: SceneObject::Graphic(Graphic {
             line_width_pt: None,
             shape: GraphicShape::Line,
-            points: [point(0.0, 0.0), point(1.0, 1.0)],
+            points: vec![point(0.0, 0.0), point(1.0, 1.0)],
         }),
     });
     Fragment {
@@ -536,7 +536,7 @@ fn actual_objects_plus_references_obey_the_single_transaction_command_limit() {
             object: SceneObject::Graphic(Graphic {
                 line_width_pt: None,
                 shape: GraphicShape::Line,
-                points: [point(0.0, 0.0), point(1.0, 1.0)],
+                points: vec![point(0.0, 0.0), point(1.0, 1.0)],
             }),
         })
         .collect();

@@ -42,7 +42,7 @@ fn graphic(x: f64) -> Graphic {
     Graphic {
         line_width_pt: None,
         shape: GraphicShape::Line,
-        points: [point(x, 0.0), point(x + 5.0, 0.0)],
+        points: vec![point(x, 0.0), point(x + 5.0, 0.0)],
     }
 }
 
@@ -200,7 +200,7 @@ fn selected_bonds_move_both_endpoints_once_and_do_not_follow_scene_references() 
         Some(&SceneObject::Graphic(Graphic {
             line_width_pt: None,
             shape: GraphicShape::Line,
-            points: [point(43.0, -2.0), point(48.0, -2.0)]
+            points: vec![point(43.0, -2.0), point(48.0, -2.0)]
         }))
     );
     assert_eq!(
@@ -262,7 +262,9 @@ fn overlapping_parent_child_and_graph_targets_move_every_geometry_once() {
             shape: graphic.shape,
             points: graphic
                 .points
-                .map(|position| point(position.x() + 7.0, position.y() + 4.0)),
+                .into_iter()
+                .map(|position| point(position.x() + 7.0, position.y() + 4.0))
+                .collect(),
         };
         assert_eq!(document.object(id), Some(&SceneObject::Graphic(expected)));
     }
@@ -350,7 +352,7 @@ fn invalid_final_graphic_and_nonfinite_deltas_abort_all_movement() {
             graphic: Graphic {
                 line_width_pt: None,
                 shape: GraphicShape::Line,
-                points: [point(MAX_COORDINATE - 1.0, 0.0), point(MAX_COORDINATE, 0.0)],
+                points: vec![point(MAX_COORDINATE - 1.0, 0.0), point(MAX_COORDINATE, 0.0)],
             },
             parent: None,
             index: None,

@@ -35,7 +35,7 @@ fn line(x: f64) -> Graphic {
     Graphic {
         line_width_pt: None,
         shape: GraphicShape::Line,
-        points: [point(x, 0.0), point(x + 10.0, 0.0)],
+        points: vec![point(x, 0.0), point(x + 10.0, 0.0)],
     }
 }
 
@@ -81,7 +81,10 @@ fn tree(document: &Document) -> Vec<String> {
 
 fn graphic_points(document: &Document, serial: u32) -> [(f64, f64); 2] {
     match document.object(object(serial)) {
-        Some(SceneObject::Graphic(graphic)) => graphic.points.map(|p| (p.x(), p.y())),
+        Some(SceneObject::Graphic(graphic)) => {
+            let points: [Point; 2] = graphic.points.clone().try_into().unwrap();
+            points.map(|p| (p.x(), p.y()))
+        }
         other => panic!("s{serial} is not a graphic: {other:?}"),
     }
 }
@@ -149,7 +152,7 @@ fn graphics_are_added_to_the_page_or_into_a_group_at_an_index() {
                 Graphic {
                     line_width_pt: None,
                     shape: GraphicShape::Arrow,
-                    points: [point(0.0, 0.0), point(5.0, 5.0)],
+                    points: vec![point(0.0, 0.0), point(5.0, 5.0)],
                 },
                 None,
                 Some(0),

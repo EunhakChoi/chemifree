@@ -34,7 +34,7 @@ fn graphic(left: f64, top: f64, right: f64, bottom: f64) -> Command {
         graphic: Graphic {
             line_width_pt: None,
             shape: GraphicShape::Rectangle,
-            points: [point(left, top), point(right, bottom)],
+            points: vec![point(left, top), point(right, bottom)],
         },
         parent: None,
         index: None,
@@ -49,7 +49,7 @@ fn arrange(objects: &[u32], arrangement: ObjectArrangement) -> Command {
 fn bounds(document: &Document, id: u32) -> Bounds {
     match document.object(object(id)).unwrap() {
         SceneObject::Graphic(graphic) => {
-            let [a, b] = graphic.points;
+            let [a, b]: [Point; 2] = graphic.points.clone().try_into().unwrap();
             Bounds {
                 left: a.x().min(b.x()),
                 right: a.x().max(b.x()),

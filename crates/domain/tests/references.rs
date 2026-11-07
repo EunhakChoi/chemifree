@@ -30,7 +30,7 @@ fn graphic(x: f64) -> Command {
         graphic: Graphic {
             line_width_pt: None,
             shape: GraphicShape::Line,
-            points: [
+            points: vec![
                 Point::new(x, 0.0).unwrap(),
                 Point::new(x + 5.0, 0.0).unwrap(),
             ],

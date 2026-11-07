@@ -22,7 +22,7 @@ fn copied_widths_keep_native26_and_recovery_undo_without_rewriting_the_source() 
                 graphic: Graphic {
                     line_width_pt: Some(2.75),
                     shape: GraphicShape::Line,
-                    points: [
+                    points: vec![
                         Point::new(0.0, 0.0).unwrap(),
                         Point::new(10.0, 10.0).unwrap(),
                     ],
@@ -34,7 +34,7 @@ fn copied_widths_keep_native26_and_recovery_undo_without_rewriting_the_source() 
                 graphic: Graphic {
                     line_width_pt: None,
                     shape: GraphicShape::Arrow,
-                    points: [
+                    points: vec![
                         Point::new(20.0, 0.0).unwrap(),
                         Point::new(30.0, 10.0).unwrap(),
                     ],
@@ -87,7 +87,7 @@ fn copied_widths_keep_native26_and_recovery_undo_without_rewriting_the_source() 
     app.save("styled-target", None, 2).unwrap();
     let target_path = root.path().join("documents/styled-target.json");
     let native: Value = serde_json::from_slice(&fs::read(&target_path).unwrap()).unwrap();
-    assert_eq!(native["format_version"], 27);
+    assert_eq!(native["format_version"], 28);
     assert_eq!(
         native["document"]["objects"][1]["state"]["line_width_pt"],
         2.75

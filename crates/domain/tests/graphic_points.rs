@@ -18,7 +18,7 @@ fn point(x: f64, y: f64) -> Point {
 }
 fn points(doc: &Document, id: u32) -> [Point; 2] {
     match doc.object(object(id)).unwrap() {
-        SceneObject::Graphic(graphic) => graphic.points,
+        SceneObject::Graphic(graphic) => graphic.points.clone().try_into().unwrap(),
         other => panic!("expected graphic, got {other:?}"),
     }
 }
@@ -52,7 +52,7 @@ fn drawing() -> Document {
             graphic: Graphic {
                 line_width_pt: None,
                 shape: GraphicShape::Line,
-                points: [point(0.0, 0.0), point(10.0, 0.0)],
+                points: vec![point(0.0, 0.0), point(10.0, 0.0)],
             },
             parent: None,
             index: None,
@@ -61,7 +61,7 @@ fn drawing() -> Document {
             graphic: Graphic {
                 line_width_pt: None,
                 shape: GraphicShape::Arrow,
-                points: [point(20.0, 0.0), point(30.0, 0.0)],
+                points: vec![point(20.0, 0.0), point(30.0, 0.0)],
             },
             parent: None,
             index: None,
@@ -70,7 +70,7 @@ fn drawing() -> Document {
             graphic: Graphic {
                 line_width_pt: None,
                 shape: GraphicShape::Rectangle,
-                points: [point(40.0, 0.0), point(50.0, 10.0)],
+                points: vec![point(40.0, 0.0), point(50.0, 10.0)],
             },
             parent: None,
             index: None,
@@ -234,7 +234,7 @@ fn absent_and_wrong_kind_targets_roll_back_earlier_edits_and_identifier_allocati
                     graphic: Graphic {
                         line_width_pt: None,
                         shape: GraphicShape::Line,
-                        points: [point(0.0, 0.0), point(1.0, 1.0)],
+                        points: vec![point(0.0, 0.0), point(1.0, 1.0)],
                     },
                     parent: None,
                     index: None,
