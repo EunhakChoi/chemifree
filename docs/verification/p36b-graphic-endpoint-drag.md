@@ -69,7 +69,7 @@ automatic layout and reaction/electron-arrow semantics remain unsupported by
 this slice. It does not claim complete P36 acceptance or external-renderer parity.
 
 Verification status: this documentation pass inspected source/diffs and ran no
-tests, builds or browser checks. P36a PR #204 merge is pending in the parent
-handoff; it is distinct from P36b's pending full checks, Codex and independent
+tests, builds or browser checks. P36a PR #204 merge was pending in the parent
+handoff at that time (historical; #204 has since merged); it is distinct from P36b's pending full checks, Codex and independent
 fresh-context reviews/finding dispositions, and PR CI. General smoke in progress
-is not recorded as passed. No merge or successful full verification is claimed.
+is not recorded as passed. No merge or successful full verification was claimed at that time (historical: #206 has since merged, see the delivery follow-up above).

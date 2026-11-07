@@ -149,12 +149,14 @@ product tests, builds or browsers.
   trigger of the main failure is unconfirmed and that a service-generation setter
   can return before React commits the new generation. Main CI run 42353217355 on
   `4198438` succeeded (check and browser).
-- **Caption shadow pixel failure (cause not determined):** the first attempt of
+- **Caption shadow ink failure (cause not determined, tracked in [#220](https://github.com/EunhakChoi/chemifree/issues/220)):** the first attempt of
   PR #217's CI run 42351443496 passed the spline check but its browser job failed
-  at the step "Unicode caption form, canvas and native roundtrip"; the PR body
-  records the assertion as `scripts/web-caption-check.mjs:513`, the existing
-  caption shadow pixel check. Re-running the job (attempt 2) passed, as did the
-  final main run above. **The cause of the first failure is not determined.** A
+  at the step "Unicode caption form, canvas and native roundtrip", stage
+  "independent shadows with measured glyph and underline ink". The failure log
+  points at `scripts/web-caption-check.mjs:513:12` (`false !== true`); at
+  origin/main that line is `assert.equal(evidence.fits, true)`, a shadow ink fit
+  check rather than the alpha-pixel check a few lines above. Re-running the job
+  (attempt 2) passed, as did the final main run above. **The cause of the first failure is not determined.** A
   passing rerun is not an explanation, and this record offers none.
 - **Reviews of #216:** (1) the independent fresh-context review of `eb40cfa`
   found one P2, addressed by `2c140fd` and its regression as recorded above;
@@ -168,11 +170,11 @@ product tests, builds or browsers.
   the PR has no reply or recorded disposition; no code in the PR after the review
   touches that file. Main's `structure-canvas.tsx` still draws the shadow group
   before scene objects (source inspection only, not a render check). **This P2 is
-  therefore recorded as an unaddressed known limitation, not as fixed or
-  accepted.**
+  therefore a known limitation, tracked in
+  [#219](https://github.com/EunhakChoi/chemifree/issues/219).**
 - **#217 reviews:** the PR body records an independent fresh-context review of
   `3530168` with no issues and a Codex review of the same commit with no findings.
   Those reviews concern the test-only fix, not image behavior.
 - **Status:** P36 stays `in_progress` and the roadmap graphics row is not marked
-  done. P36 was stopped after this PNG image at the user's instruction: no further
-  P36 slice starts without an explicit request.
+  done. The user stopped P36 after this PNG image (2026-11-07 session); the next
+  scope is set by the user's next request, not by a standing project rule.

@@ -1,5 +1,7 @@
 # P36e styled graphics clipboard candidate
 
+Delivery follow-up (checked with `gh pr view` and `gh run list`, 2026-11-07 UTC): P36e merged as #210 (`d1f257c`) and its main CI [run 42335557133](https://github.com/EunhakChoi/chemifree/actions/runs/42335557133) succeeded. Statements below that call checks, reviews, CI or the PR pending or open describe the implementation session and are historical; see the P36 status table in [the handoff](../HANDOFF.ko.md). P36 remains `in_progress`.
+
 Original source inspection covered web `c9cdf4cf` and Rust v3 implementation/test
 commit `30ebb34c`. This update inspects the duplicate-key fix `d1717d8b` (the
 rebased equivalent of original `5bfcafa`) and settings fix `c51c957`. Known
@@ -111,7 +113,7 @@ focused reproduction/fix and sandbox results, not runs by this documentation
 agent and not successful full-project or GitHub CI evidence. The source and
 regressions above were inspected here; the documentation pass did not reproduce
 the failures or rerun the passing gates. Full checks and PR/main CI remain
-pending, and no merged P36e delivery or repeat review round is asserted.
+pending and no merged delivery was asserted at that time (historical: P36e merged as #210, see the delivery follow-up above); no repeat review round is asserted.
 
 Colour/dash/fill/arrowhead settings, captions/instances in forests, external
 graphics transports and broader P36 completion remain outside this candidate.

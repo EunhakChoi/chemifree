@@ -5,7 +5,7 @@ Compatibility follow-up: [P36e](p36e-styled-graphics-clipboard.md) adds candidat
 Source inspection covers Rust production `e6e3b45` and the concurrently edited
 web draft. The parent reports27 targeted Rust tests passed for that production
 change. This documentation pass did not execute them; web/full checks, reviews
-and PR CI remain pending. P36 remains `in_progress` against its broader scope.
+and PR CI remained pending when this was written (historical: P36d has since merged as #208, `53e7437`, with main CI run 42333431290 success; see the [P36 status table](../HANDOFF.ko.md)). P36 remains `in_progress` against its broader scope.
 
 `set_graphic_line_width` requires a concrete existing line/arrow/rectangle object
 and required nullable `line_width_pt`. Null dynamically inherits document width;
@@ -91,6 +91,6 @@ run. Web/full results, Codex/independent review findings/dispositions and curren
 PR CI remain pending. Preceding P36c #207 merged `afe6410`; its
 [post-merge main run42329036170](https://github.com/EunhakChoi/chemifree/actions/runs/42329036170)
 later completed with failure in the browser job (checked with `gh run list`); #209 followed. P36d itself merged as #208 (`53e7437`) with successful main run 42333431290. This documentation work reran no
-product tests/builds/browser checks and claims neither P36d merge nor full P36
-completion. Colour/dash/fill/arrowhead controls, general graphic styles/images,
+product tests/builds/browser checks and does not claim full P36
+completion (P36d itself merged as #208, see above). Colour/dash/fill/arrowhead controls, general graphic styles/images,
 clipping/layers/layout and external equivalence remain outside this slice.
