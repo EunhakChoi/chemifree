@@ -45,6 +45,14 @@ export interface GraphicEndpointGesture {
   start: Position
 }
 
+/** Whole-object preview geometry shared by the stroke and its endpoint handles. */
+export function translatedGraphicPoints(points: readonly [Position, Position], delta: Position): [Position, Position] {
+  return [
+    { x: points[0].x + delta.x, y: points[0].y + delta.y },
+    { x: points[1].x + delta.x, y: points[1].y + delta.y },
+  ]
+}
+
 /** Preserve the press offset inside the handle and move only the chosen endpoint. */
 export function graphicEndpointPoints(gesture: GraphicEndpointGesture, at: Position): [Position, Position] | null {
   const points: [Position, Position] = [{ ...gesture.edit.graphic.points[0] }, { ...gesture.edit.graphic.points[1] }]

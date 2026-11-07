@@ -1,5 +1,5 @@
 import { graphicCreationCurrent, type GraphicCreation } from '@/editor/graphic-creation'
-import { graphicPointValid, graphicEndpointCurrent, graphicEndpointPoints, selectedGraphic, type GraphicEndpointGesture, type GraphicPointsEdit } from '@/editor/graphic-points'
+import { translatedGraphicPoints, graphicPointValid, graphicEndpointCurrent, graphicEndpointPoints, selectedGraphic, type GraphicEndpointGesture, type GraphicPointsEdit } from '@/editor/graphic-points'
 import { compactDisplaysIn, abbreviationTargets, compactView, ethylLabel } from '@/editor/abbreviation'
 import type { GraphicShape, RingPattern, RingSize } from '@/lib/document-contract'
 import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
@@ -639,8 +639,8 @@ export function StructureCanvas({
     }
     if (!active) return
     if (distance({ x: event.clientX, y: event.clientY }, active.start) < DRAG_THRESHOLD) {
-      // A release here makes no edit; discard earlier creation or endpoint previews.
-      if (gesture.kind === 'graphic-create' || gesture.kind === 'endpoint') setPreview(null)
+      // A release here makes no edit; discard earlier graphic or movement previews.
+      if (gesture.kind === 'graphic-create' || gesture.kind === 'endpoint' || gesture.kind === 'move') setPreview(null)
       return
     }
     if (gesture.kind === 'graphic-create') {
@@ -856,6 +856,8 @@ export function StructureCanvas({
   const graphicPreview = preview?.kind === 'graphic-create' && tool === 'graphic' && graphicCreationCurrent(document, graphicShape, serviceGeneration, preview.creation) ? preview.creation : null
   const endpointPreview = preview?.kind === 'endpoint' && tool === 'select' && graphicEndpointCurrent(document, selection, preview.gesture) ? preview : null
   const endpointGraphic = tool === 'select' && onGraphicPoints && !disabled ? selectedGraphic(document, selection) : null
+  const movedEndpointPoints = endpointGraphic && preview?.kind === 'move' && preview.scope.graphics.has(endpointGraphic.id)
+    ? translatedGraphicPoints(endpointGraphic.points, preview.delta) : null
 
   const sceneObjects = document.scene?.objects
   const byId = new Map(sceneObjects?.map((object) => [object.id, object]) ?? [])
@@ -982,10 +984,7 @@ export function StructureCanvas({
         )
         if (object.kind === 'graphic') return (
           <SceneGraphic key={object.id} object={endpointPreview?.gesture.edit.graphic.id === object.id ? { ...object, points: endpointPreview.points } : preview?.kind === 'move' && preview.scope.graphics.has(object.id) ? {
-            ...object, points: [
-              { x: object.points[0].x + preview.delta.x, y: object.points[0].y + preview.delta.y },
-              { x: object.points[1].x + preview.delta.x, y: object.points[1].y + preview.delta.y },
-            ],
+            ...object, points: translatedGraphicPoints(object.points, preview.delta),
           } : object} selected={sceneSelected(object)} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} onPointerDown={(event) => {
             if (tool !== 'select' || disabled || event.button !== 0 || pointer.current?.id !== event.pointerId) return
             event.stopPropagation()
@@ -1001,7 +1000,7 @@ export function StructureCanvas({
       </g>}
       {endpointGraphic && <g data-editor-overlay="" aria-label={`Endpoints of ${endpointGraphic.shape} ${endpointGraphic.id}`}>
         {([0, 1] as const).map((endpoint) => {
-          const at = endpointPreview?.gesture.edit.graphic.id === endpointGraphic.id ? endpointPreview.points[endpoint] : endpointGraphic.points[endpoint]
+          const at = endpointPreview?.gesture.edit.graphic.id === endpointGraphic.id ? endpointPreview.points[endpoint] : (movedEndpointPoints ?? endpointGraphic.points)[endpoint]
           return <circle key={endpoint} data-graphic-endpoint={endpoint} data-endpoint-object={endpointGraphic.id}
             role="img" aria-label={`Endpoint ${endpoint + 1} of ${endpointGraphic.shape} ${endpointGraphic.id}; drag to edit or use the numeric endpoint form`}
             cx={at.x} cy={at.y} r={6 * unitsPerPixel} strokeWidth={1.5 * unitsPerPixel} className="fill-background stroke-primary cursor-crosshair"
