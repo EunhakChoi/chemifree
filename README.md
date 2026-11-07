@@ -97,7 +97,7 @@ Native graph version 1 and graphic-forest versions 2/3 are separate profiles and
 
 The catalog lists 40 operations, with 30 executable in the default profile.
 
-The scene can also contain ordered groups and simple line, rectangle, arrow, and candidate axis-aligned ellipse graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Each document owns its style (bond length and width, label font and size, carbon labels, and display unit); style changes are undoable. Data-directory preferences separately hold the theme, defaults copied into newly created documents, and mass-result display decimal places. **Document style** and **Preferences** edit these settings in the web UI; general numeric precision and NMR preferences remain unavailable.
+The scene can also contain ordered groups and simple line, rectangle, arrow, and candidate axis-aligned ellipse and closed polygon graphics. Directed references from scene objects to objects, atoms, or bonds record relationships without computing chemistry. Grouping, movement, ordering, references, and selection participate in the same undo/redo history. Each document owns its style (bond length and width, label font and size, carbon labels, and display unit); style changes are undoable. Data-directory preferences separately hold the theme, defaults copied into newly created documents, and mass-result display decimal places. **Document style** and **Preferences** edit these settings in the web UI; general numeric precision and NMR preferences remain unavailable.
 
 If preferences could not be read when the page started, open **Preferences** and choose **Retry preferences** after the local service is available; a successful read applies the saved theme.
 
@@ -490,3 +490,24 @@ review of `4e56f5e` reported no findings. Codex's stale-status P2 is addressed b
 this documentation correction; full isolated local validation and PR CI remain
 in progress/pending, with no merge/main-CI success claimed. See the
 [P36h record](docs/verification/p36h-ellipse.md) for logs and exact scope.
+
+
+P36i adds a closed stroke-only **Polygon** candidate with 3–64 ordered bounded
+vertices. The64 cap is a Chemifree resource policy; repeated, crossing and
+degenerate vertices stay exact. Existing shapes retain exactly two points, while
+`add_polygon`/`update_polygon_vertices` handle whole polygon lists. Graphic click
+drafts write only on explicit Finish; numeric list edits replace all vertices,
+with captured/stale/restart guards and no automatic unknown-edit replay into a
+replacement process. Native28/clipboard5 admit polygons with strict old headers,
+shape counts and canonical older-profile output when no polygon is copied.
+Polygon/history-only content shares48MiB current/8MiB history budgets and older
+undo retention; polygon-bearing overflow has its own reason while caption-only
+errors keep their existing code. Graph/scientific state and export rendering
+losses remain. Earlier shape/version notes describe their historical slices.
+P36 stays `in_progress`. Existing logs and [PR #214](https://github.com/EunhakChoi/chemifree/pull/214)
+record passed Rust clippy/55 focused tests and five mutations, web lint/typecheck/
+client/build, polygon/ellipse/creation/endpoint browsers and three web mutations.
+Independent review of `13cebd5` and Codex review of `f1a7978` reported no findings.
+Full isolated local validation and CI remain in progress; no merge/main-CI success
+is claimed. See [P36i record](docs/verification/p36i-polygon.md) for exact evidence
+and limits.

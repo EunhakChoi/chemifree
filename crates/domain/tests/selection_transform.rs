@@ -57,7 +57,7 @@ fn add_graphic(shape: GraphicShape, points: [Point; 2]) -> Command {
         graphic: Graphic {
             line_width_pt: None,
             shape,
-            points,
+            points: points.to_vec(),
         },
         parent: None,
         index: None,
@@ -199,7 +199,7 @@ fn overlapping_group_child_atom_and_bond_targets_rotate_once_with_correct_rectan
         Some(&SceneObject::Graphic(Graphic {
             line_width_pt: None,
             shape: GraphicShape::Rectangle,
-            points: [point(-1.0, 1.0), point(-2.0, 3.0)]
+            points: vec![point(-1.0, 1.0), point(-2.0, 3.0)]
         })),
         "opposite-corner identities are transformed directly, not replaced by an enclosing AABB"
     );
@@ -208,7 +208,7 @@ fn overlapping_group_child_atom_and_bond_targets_rotate_once_with_correct_rectan
         Some(&SceneObject::Graphic(Graphic {
             line_width_pt: None,
             shape: GraphicShape::Arrow,
-            points: [point(-1.0, 5.0), point(-2.0, 6.0)]
+            points: vec![point(-1.0, 5.0), point(-2.0, 6.0)]
         })),
         "arrow endpoint order remains intact"
     );
@@ -332,7 +332,7 @@ fn arbitrary_rotations_support_atoms_lines_and_arrows_with_an_advisory_only_for_
         Some(&SceneObject::Graphic(Graphic {
             line_width_pt: None,
             shape: GraphicShape::Rectangle,
-            points: [point(1.0, 1.0), point(3.0, 2.0)]
+            points: vec![point(1.0, 1.0), point(3.0, 2.0)]
         }))
     );
     let only_graphics = document

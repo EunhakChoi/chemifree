@@ -242,12 +242,22 @@ impl Fragment {
             if let Some(SceneObject::Graphic(graphic)) = objects.get(id) {
                 let target = allocate(&mut next)?;
                 targets.insert(*id, target);
-                commands.push(Command::AddGraphic {
-                    graphic: graphic
-                        .translated(offset)
-                        .map_err(SceneFragmentError::Invalid)?,
-                    parent: None,
-                    index: None,
+                let graphic = graphic
+                    .translated(offset)
+                    .map_err(SceneFragmentError::Invalid)?;
+                commands.push(if graphic.shape == crate::scene::GraphicShape::Polygon {
+                    Command::AddPolygon {
+                        vertices: graphic.points,
+                        line_width_pt: graphic.line_width_pt,
+                        parent: None,
+                        index: None,
+                    }
+                } else {
+                    Command::AddGraphic {
+                        graphic,
+                        parent: None,
+                        index: None,
+                    }
                 });
             }
         }

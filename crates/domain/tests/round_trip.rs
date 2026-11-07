@@ -123,7 +123,7 @@ fn command(random: &mut Random, scene: &Scene) -> Command {
                 graphic: Graphic {
                     line_width_pt: None,
                     shape: random.pick(&shapes).unwrap(),
-                    points: [point(random), point(random)],
+                    points: vec![point(random), point(random)],
                 },
                 parent,
                 index: random.chance(50).then(|| random.below(siblings + 1)),

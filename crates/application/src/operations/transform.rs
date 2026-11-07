@@ -37,8 +37,8 @@ pub struct TransformedPositionView {
 pub struct TransformedGraphicView {
     pub object: String,
     pub shape: GraphicShapeDto,
-    pub before: [PositionView; 2],
-    pub after: [PositionView; 2],
+    pub before: Vec<PositionView>,
+    pub after: Vec<PositionView>,
 }
 
 /// A checked geometry transform and the immutable source snapshot. The advisory is not
@@ -132,9 +132,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         GraphicShape::Rectangle => GraphicShapeDto::Rectangle,
                         GraphicShape::Ellipse => GraphicShapeDto::Ellipse,
                         GraphicShape::Arrow => GraphicShapeDto::Arrow,
+                        GraphicShape::Polygon => GraphicShapeDto::Polygon,
                     },
-                    before: target.before.points.map(position),
-                    after: target.after.points.map(position),
+                    before: target.before.points.iter().copied().map(position).collect(),
+                    after: target.after.points.iter().copied().map(position).collect(),
                 })
                 .collect(),
             drawing_stereo_may_change: plan.drawing_stereo_may_change,

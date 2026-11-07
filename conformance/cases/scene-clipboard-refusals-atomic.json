@@ -1198,12 +1198,12 @@
       "document": "target",
       "request": {
         "contract": 1,
-        "request_id": "scene-paste-future-v5",
+        "request_id": "scene-paste-future-v6",
         "profile": "preserve-semantics",
         "operation": "document.clipboard_scene_paste",
         "parameters": {
           "expected_revision": 3,
-          "payload": "{\"format\":\"chemifree.clipboard\",\"version\":5,\"future_body\":{\"commands\":[]}}",
+          "payload": "{\"format\":\"chemifree.clipboard\",\"version\":6,\"future_body\":{\"commands\":[]}}",
           "offset": {
             "x": 0,
             "y": 0

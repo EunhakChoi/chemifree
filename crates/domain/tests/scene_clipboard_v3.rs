@@ -30,7 +30,7 @@ fn source() -> Document {
             graphic: Graphic {
                 line_width_pt: Some(1.2),
                 shape: GraphicShape::Line,
-                points: [
+                points: vec![
                     Point::new(0.0, 0.0).unwrap(),
                     Point::new(10.0, 5.0).unwrap(),
                 ],
@@ -42,7 +42,7 @@ fn source() -> Document {
             graphic: Graphic {
                 line_width_pt: None,
                 shape: GraphicShape::Arrow,
-                points: [
+                points: vec![
                     Point::new(20.0, 0.0).unwrap(),
                     Point::new(30.0, 5.0).unwrap(),
                 ],
@@ -94,7 +94,7 @@ fn styled_copy_paste_keeps_nullable_width_offsets_refs_and_source_graph_unchange
                 graphic: Graphic {
                     line_width_pt: Some(10.0),
                     shape: GraphicShape::Rectangle,
-                    points: [Point::new(100.0, 100.0).unwrap(); 2],
+                    points: vec![Point::new(100.0, 100.0).unwrap(); 2],
                 },
                 parent: None,
                 index: None,

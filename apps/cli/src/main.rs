@@ -880,15 +880,28 @@ fn document_text(response: &DocumentResponse) -> String {
                     GraphicShapeDto::Rectangle => "rectangle",
                     GraphicShapeDto::Ellipse => "ellipse",
                     GraphicShapeDto::Arrow => "arrow",
+                    GraphicShapeDto::Polygon => "polygon",
                 };
-                lines.push(format!(
-                    "  {id}  {shape} in {}  ({}, {})–({}, {})",
-                    parent.as_deref().unwrap_or("page"),
-                    points[0].x,
-                    points[0].y,
-                    points[1].x,
-                    points[1].y
-                ));
+                if shape == "polygon" {
+                    let vertices = points
+                        .iter()
+                        .map(|point| format!("({}, {})", point.x, point.y))
+                        .collect::<Vec<_>>()
+                        .join("–");
+                    lines.push(format!(
+                        "  {id}  polygon in {}  {vertices} (closed)",
+                        parent.as_deref().unwrap_or("page")
+                    ));
+                } else {
+                    lines.push(format!(
+                        "  {id}  {shape} in {}  ({}, {})–({}, {})",
+                        parent.as_deref().unwrap_or("page"),
+                        points[0].x,
+                        points[0].y,
+                        points[1].x,
+                        points[1].y
+                    ));
+                }
                 if let Some(width) = line_width_pt {
                     lines.push(format!("    line width: {width} pt (override)"));
                 }

@@ -89,7 +89,7 @@ fn current_file_and_draft_round_trip_both_history_sides_and_unicode() {
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/fragment-native.json");
     let raw: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(raw["format_version"], 27);
+    assert_eq!(raw["format_version"], 28);
     assert_eq!(
         raw["document"]["fragment_displays"][0]["members"],
         json!(["a2", "a3", "a4"])
@@ -169,7 +169,7 @@ fn malformed_current_history_and_future_headers_refuse_without_rewriting_bytes()
         }
     }
     let mut future = template.clone();
-    future["format_version"] = json!(28);
+    future["format_version"] = json!(29);
     variants.push(future);
     for raw in variants {
         for draft in [false, true] {
@@ -223,7 +223,7 @@ fn v23_migrates_empty_and_archives_exact_original_but_refuses_even_empty_smuggli
     repo.save(&loaded, Some(loaded.revision())).unwrap();
     assert_eq!(fs::read(repo.migrated_path(doc.id(), 23)).unwrap(), bytes);
     let rewritten: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(rewritten["format_version"], 27);
+    assert_eq!(rewritten["format_version"], 28);
     assert_eq!(v23(rewritten), old);
 }
 

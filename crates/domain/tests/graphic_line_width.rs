@@ -46,7 +46,7 @@ fn drawing() -> Document {
             graphic: Graphic {
                 line_width_pt: None,
                 shape,
-                points: [point(0.0, 0.0), point(10.0, 20.0)],
+                points: vec![point(0.0, 0.0), point(10.0, 20.0)],
             },
             parent: None,
             index: None,
@@ -160,7 +160,7 @@ fn invalid_widths_and_wrong_targets_fail_atomically_without_allocating_ids() {
             graphic: Graphic {
                 line_width_pt: Some(f64::NAN),
                 shape: GraphicShape::Line,
-                points: [point(0.0, 0.0), point(1.0, 1.0)],
+                points: vec![point(0.0, 0.0), point(1.0, 1.0)],
             },
             parent: None,
             index: None,

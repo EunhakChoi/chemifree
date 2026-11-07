@@ -2,8 +2,9 @@
 //!
 //! The page holds an ordered containment tree of scene objects: molecule scene instances (each
 //! draws the document's chemical graph with one position per atom), groups (which contain other
-//! objects), and simple graphics (a line, rectangle, ellipse, or arrow). Every object has exactly one
-//! parent, the page or a group, and its place among that parent's children is its drawing order.
+//! objects), and simple graphics (a line, rectangle, ellipse, arrow, or polygon). Every object
+//! has exactly one parent, the page or a group, and its place among that parent's children is
+//! its drawing order.
 //! All kinds share one identifier space (`s1`, `s2`, …) that is never reused.
 //!
 //! A selection names scene objects, atoms, and bonds. It is document state: each history entry
@@ -29,6 +30,8 @@ use crate::settings::{LABEL_SIZE_RANGE, LINE_WIDTH_RANGE, LabelFont, SettingsErr
 
 /// Scene objects a document holds, of every kind together.
 pub const MAX_OBJECTS: usize = 1_000;
+/// Internal resource-budget policy for one polygon; not a chemical constraint.
+pub const MAX_POLYGON_VERTICES: usize = 64;
 /// How deeply objects nest: a page root is at depth 1, a group's child one deeper.
 pub const MAX_DEPTH: usize = 16;
 /// Directed references held separately from the containment tree.
@@ -68,6 +71,8 @@ pub enum GraphicShape {
     Ellipse,
     /// A line with its head at the second point.
     Arrow,
+    /// An ordered, closed, stroke-only path with bounded vertices.
+    Polygon,
 }
 
 /// A simple graphic. It records geometry only; it has no chemical meaning.
@@ -76,11 +81,19 @@ pub struct Graphic {
     /// None inherits the document line width dynamically; Some is an explicit point value.
     pub line_width_pt: Option<f64>,
     pub shape: GraphicShape,
-    pub points: [Point; 2],
+    /// Exactly two endpoints/corners for the original shapes, or 3–64 ordered polygon vertices.
+    pub points: Vec<Point>,
 }
 
 impl Graphic {
     pub(crate) fn validate(&self) -> Result<(), EditError> {
+        let valid_count = match self.shape {
+            GraphicShape::Polygon => (3..=MAX_POLYGON_VERTICES).contains(&self.points.len()),
+            _ => self.points.len() == 2,
+        };
+        if !valid_count {
+            return Err(EditError::GraphicGeometryInvalid);
+        }
         if self
             .line_width_pt
             .is_some_and(|width| !width.is_finite() || !LINE_WIDTH_RANGE.contains(&width))
@@ -91,11 +104,14 @@ impl Graphic {
     }
 
     pub(crate) fn translated(&self, delta: Vector) -> Result<Self, EditError> {
-        let [first, second] = self.points;
         Ok(Self {
             line_width_pt: self.line_width_pt,
             shape: self.shape,
-            points: [first.translated(delta)?, second.translated(delta)?],
+            points: self
+                .points
+                .iter()
+                .map(|point| point.translated(delta))
+                .collect::<Result<_, _>>()?,
         })
     }
 }
@@ -280,6 +296,12 @@ pub enum SceneError {
     CaptionInvalid,
     /// An edit would exceed the caption-safe persistence/history reservation.
     CaptionPersistenceLimit,
+    /// The stored point count does not meet the shape-specific geometry profile.
+    GraphicGeometryInvalid,
+    /// Polygon and two-point geometry commands are distinct.
+    GraphicCommandMismatch,
+    /// A polygon-bearing edit cannot fit the shared variable-size persistence budget.
+    PolygonPersistenceLimit,
     /// This operation cannot preserve a caption.
     CaptionUnsupported,
     /// A command names a scene object that does not exist.
@@ -324,9 +346,12 @@ pub enum SceneError {
 
 impl SceneError {
     /// Every code, in documentation order.
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 28] = [
         Self::CaptionInvalid,
         Self::CaptionPersistenceLimit,
+        Self::GraphicGeometryInvalid,
+        Self::GraphicCommandMismatch,
+        Self::PolygonPersistenceLimit,
         Self::CaptionUnsupported,
         Self::AbbreviationInvalid,
         Self::FragmentDisplayInvalid,
@@ -357,6 +382,9 @@ impl SceneError {
         match self {
             Self::CaptionInvalid => "caption_invalid",
             Self::CaptionPersistenceLimit => "caption_persistence_limit",
+            Self::GraphicGeometryInvalid => "graphic_geometry_invalid",
+            Self::GraphicCommandMismatch => "graphic_command_mismatch",
+            Self::PolygonPersistenceLimit => "polygon_persistence_limit",
             Self::CaptionUnsupported => "caption_unsupported",
             Self::AbbreviationInvalid => "abbreviation_invalid",
             Self::FragmentDisplayInvalid => "fragment_display_invalid",

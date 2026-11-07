@@ -35,7 +35,7 @@ fn drawing(points: [Point; 2]) -> Document {
             graphic: Graphic {
                 shape: GraphicShape::Ellipse,
                 line_width_pt: Some(2.75),
-                points,
+                points: points.to_vec(),
             },
             parent: None,
             index: None,
@@ -44,7 +44,7 @@ fn drawing(points: [Point; 2]) -> Document {
             graphic: Graphic {
                 shape: GraphicShape::Line,
                 line_width_pt: None,
-                points: [point(0.0, 0.0), point(20.0, 10.0)],
+                points: vec![point(0.0, 0.0), point(20.0, 10.0)],
             },
             parent: None,
             index: None,

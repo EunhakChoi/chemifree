@@ -1,6 +1,8 @@
-import type { Command, DocumentView, Position, SceneObject } from '@/lib/document-contract'
+import { isGraphicShape, type Command, type DocumentView, type Position, type SceneObject, type GraphicShape } from '@/lib/document-contract'
 
 export type GraphicObject = Extract<SceneObject, { kind: 'graphic' }>
+export type TwoPointGraphicObject = Extract<GraphicObject, { shape: GraphicShape }>
+export type PolygonGraphicObject = Extract<GraphicObject, { shape: 'polygon' }>
 
 export function graphicPointValid(point: Position): boolean {
   return Number.isFinite(point.x) && Number.isFinite(point.y) && Math.abs(point.x) <= 100_000 && Math.abs(point.y) <= 100_000
@@ -17,13 +19,13 @@ export function parseGraphicCoordinate(text: string): number | null {
 export interface GraphicPointsEdit {
   documentId: string
   revision: number
-  graphic: GraphicObject
+  graphic: TwoPointGraphicObject
   points: [Position, Position]
 }
 
 /** A captured endpoint edit lapses when the target or revision changes in the request queue. */
 export function graphicPointsCommands(latest: DocumentView, edit: GraphicPointsEdit): Command[] | null {
-  if (latest.id !== edit.documentId || latest.revision !== edit.revision) return null
+  if (!isGraphicShape(edit.graphic.shape) || edit.points.length !== 2 || latest.id !== edit.documentId || latest.revision !== edit.revision) return null
   const current = latest.scene?.objects?.find((object) => object.id === edit.graphic.id)
   if (JSON.stringify(current) !== JSON.stringify(edit.graphic)) return null
   if (!edit.points.every((point) => graphicPointValid(point))) return null
@@ -32,10 +34,10 @@ export function graphicPointsCommands(latest: DocumentView, edit: GraphicPointsE
 }
 
 /** Handles require one explicit graphic target; group or mixed selections have no handles. */
-export function selectedGraphic(document: DocumentView, selected: ReadonlySet<string>): GraphicObject | null {
+export function selectedGraphic(document: DocumentView, selected: ReadonlySet<string>): TwoPointGraphicObject | null {
   if (selected.size !== 1) return null
   const object = document.scene?.objects?.find((item) => selected.has(item.id))
-  if (!object || object.kind !== 'graphic') return null
+  if (!object || object.kind !== 'graphic' || object.shape === 'polygon') return null
   return object.points[0].x === object.points[1].x && object.points[0].y === object.points[1].y ? null : object
 }
 
@@ -46,11 +48,17 @@ export interface GraphicEndpointGesture {
 }
 
 /** Whole-object preview geometry shared by the stroke and its endpoint handles. */
-export function translatedGraphicPoints(points: readonly [Position, Position], delta: Position): [Position, Position] {
-  return [
-    { x: points[0].x + delta.x, y: points[0].y + delta.y },
-    { x: points[1].x + delta.x, y: points[1].y + delta.y },
-  ]
+export function translatedGraphicPoints(points: readonly [Position, Position], delta: Position): [Position, Position]
+export function translatedGraphicPoints(points: readonly Position[], delta: Position): Position[]
+export function translatedGraphicPoints(points: readonly Position[], delta: Position): Position[] {
+  return points.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y }))
+}
+
+/** Whole-object translation retains every polygon vertex and all graphic metadata. */
+export function translatedGraphicObject(object: GraphicObject, delta: Position): GraphicObject {
+  return object.shape === 'polygon'
+    ? { ...object, points: translatedGraphicPoints(object.points, delta) }
+    : { ...object, points: translatedGraphicPoints(object.points, delta) }
 }
 
 /** Preserve the press offset inside the handle and move only the chosen endpoint. */

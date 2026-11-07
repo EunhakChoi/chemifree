@@ -29,7 +29,7 @@ fn drawing() -> Document {
         graphic: Graphic {
             line_width_pt: None,
             shape,
-            points: [
+            points: vec![
                 Point::new(-0.0000000123456789, 2.0).unwrap(),
                 Point::new(10.0, 20.0).unwrap(),
             ],
@@ -79,7 +79,7 @@ fn widths_round_trip_both_history_sides_drafts_and_null_reset() {
     doc.apply(&[set(None)]).unwrap();
     doc.undo().unwrap();
     let raw = save_template(&root, &repo, &doc);
-    assert_eq!(raw["format_version"], 27);
+    assert_eq!(raw["format_version"], 28);
     assert_eq!(raw["document"]["objects"][1]["state"]["line_width_pt"], 0.1);
     assert_eq!(repo.load(doc.id()).unwrap(), Some(doc.clone()));
     let mut reopened = repo.load(doc.id()).unwrap().unwrap();
@@ -157,7 +157,7 @@ fn current_and_history_fields_are_required_and_invalid_values_refuse_without_rew
         }
     }
     let mut future = template;
-    future["format_version"] = json!(28);
+    future["format_version"] = json!(29);
     let path = root.path().join("documents/width-native.json");
     let bytes = serde_json::to_vec(&future).unwrap();
     fs::write(&path, &bytes).unwrap();
@@ -313,7 +313,7 @@ fn maximum_graphic_history_with_long_float_lexemes_stays_within_existing_storage
             SceneObject::Graphic(Graphic {
                 line_width_pt: Some(0.10000000000000002),
                 shape: GraphicShape::Rectangle,
-                points: [
+                points: vec![
                     Point::new(tiny, tiny).unwrap(),
                     Point::new(-tiny, -tiny).unwrap(),
                 ],

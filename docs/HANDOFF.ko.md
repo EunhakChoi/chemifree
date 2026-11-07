@@ -1,5 +1,14 @@
 # Chemifree 새 세션 인계
 
+## P36i closed stroke-only polygon 후보 (최종 검사 대기)
+
+- ordered3–64 vertices의 closed stroke-only scene graphic이다. finite·inclusive±100000pt, 반복/collinear/self-crossing/coincident/zero-area·마지막 first 반복을 그대로 보존하며 implicit last→first edge 외 점을 합성하지 않는다.64는 공개 명세가 아닌 Chemifree 내부 budget 선택이다. chemistry/regular polygon/area/winding 의미는 없다.
+- add_polygon(vertices,parent?,index?)와 update_polygon_vertices(object,vertices)는 별도 명령이다. public add는 width 상속으로 시작한다. 기존 line/arrow/rectangle/ellipse는 exact2를 유지하며 old command/polygon command 혼용은 graphic_command_mismatch, 잘못된 점 개수는 graphic_geometry_invalid다. 전체 atomic/no-op/replay/history·ID/shape/width/parent/refs·graph/stereo 보존을 공유한다. polygon 자유각 변환은 모든 vertex를 방문하나 ellipse/rectangle 제한은 남는다.
+- Graphic Polygon 클릭은 local draft만 늘리고 explicit Finish가 page-root add_polygon1개를 쓴다.64에서 자동 종료하지 않으며 Remove last/Cancel이 있다. document/revision/tool/shape/observed-service 변경과 Escape/window cancel은 draft를 폐기한다. Finish는 첫 click revision·복사 vertices·service를 큐에서 검증하고 restart의 unknown create를 새 프로세스에 자동 replay하지 않는다. numeric vertex-list Apply는 전체 교체·invalid/IME/stale/no-op guard이며 polygon endpoint/vertex drag handles는 없다.
+- native28 current/history/draft; v1–27 polygon/history-only 금지·retention 전 shape cardinality 검사, ellipse27+/width26+ strict와 old exact-byte archive·future29 refusal 유지. polygon/current/history-only가 shared48MiB current/8MiB undo 예산을 켜고256+96/vertex를 예약한다. 최신 edit 단독 초과는 원자 거절, 오래된 undo는 byte/count 한도로 trim한다. polygon-bearing overflow는 polygon_persistence_limit이나 caption-only overflow는 기존 caption_persistence_limit을 유지한다.
+- copied polygon forest→clipboard5(모든 graphic nullable width 필수), 없으면 ellipse4/explicit3/inherit2. v2–4 polygon 금지, v2 width 금지·v3–5 필수, v5 old-shape 입력은 허용하되 recopy는 실제 내용으로 canonical2/3/4다. old consumer 호환/silent downgrade 없음. graph v1·settings-match·64KiB/500command·refs/Cut/freshID/offset 경계 유지. export는 graph 유지+scene_object rendering loss다.
+- P36은 in_progress다. 현재 source/authored checks만 대조했으며 Rust/web final/full·양 리뷰/CI 결과는 확인 전 pending이다. 기존 P36a–h shape/native/clipboard·배송 대기는 각 당시 기록으로 구분하고 P36h 결과를 P36i 통과로 쓰지 않는다. fill/open path/curves/vertex drag/snap/scale/skew/images/clip/layers/scientific graphics는 미구현이다. [P36i 기록](verification/p36i-polygon.md).
+
 ## P36h axis-aligned ellipse 후보 (검증 대기)
 
 - Ellipse는 정확히 두 opposite bounding-box corners로 저장하고 순서를 보존한다. finite·inclusive±100000 pt, reversed/coincident/zero-axis도 허용한다. stroke-only이며 zero-axis는 실제 획·hit stroke가 보이지 않아 Scene 선택과 numeric corner form을 쓴다. distinct corners의 기존 handle은 bounding corners를 편집한다.

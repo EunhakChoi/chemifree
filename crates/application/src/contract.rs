@@ -303,6 +303,7 @@ pub enum GraphicShapeDto {
     Rectangle,
     Ellipse,
     Arrow,
+    Polygon,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
@@ -659,6 +660,15 @@ pub enum CommandDto {
         parent: Option<String>,
         #[serde(default)]
         index: Option<usize>,
+    },
+    AddPolygon {
+        vertices: Vec<PointDto>,
+        parent: Option<String>,
+        index: Option<usize>,
+    },
+    UpdatePolygonVertices {
+        object: String,
+        vertices: Vec<PointDto>,
     },
     UpdateGraphicPoints {
         object: String,
@@ -1380,8 +1390,9 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
                     GraphicShapeDto::Rectangle => GraphicShape::Rectangle,
                     GraphicShapeDto::Ellipse => GraphicShape::Ellipse,
                     GraphicShapeDto::Arrow => GraphicShape::Arrow,
+                    GraphicShapeDto::Polygon => GraphicShape::Polygon,
                 },
-                points: [point(points[0])?, point(points[1])?],
+                points: vec![point(points[0])?, point(points[1])?],
             },
             parent: parent.as_deref().map(instance_id).transpose()?,
             index: *index,
@@ -1392,6 +1403,28 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
         } => Command::SetGraphicLineWidth {
             object: instance_id(object)?,
             line_width_pt: *line_width_pt,
+        },
+        CommandDto::AddPolygon {
+            vertices,
+            parent,
+            index,
+        } => Command::AddPolygon {
+            vertices: vertices
+                .iter()
+                .copied()
+                .map(point)
+                .collect::<Result<_, _>>()?,
+            line_width_pt: None,
+            parent: parent.as_deref().map(instance_id).transpose()?,
+            index: *index,
+        },
+        CommandDto::UpdatePolygonVertices { object, vertices } => Command::UpdatePolygonVertices {
+            object: instance_id(object)?,
+            vertices: vertices
+                .iter()
+                .copied()
+                .map(point)
+                .collect::<Result<_, _>>()?,
         },
         CommandDto::UpdateGraphicPoints { object, points } => Command::UpdateGraphicPoints {
             object: instance_id(object)?,
@@ -2116,7 +2149,7 @@ pub enum SceneObjectView {
         parent: Option<String>,
         line_width_pt: Option<f64>,
         shape: GraphicShapeDto,
-        points: [PositionView; 2],
+        points: Vec<PositionView>,
     },
 }
 
@@ -2747,11 +2780,16 @@ impl DocumentResponse {
                                         GraphicShape::Rectangle => GraphicShapeDto::Rectangle,
                                         GraphicShape::Ellipse => GraphicShapeDto::Ellipse,
                                         GraphicShape::Arrow => GraphicShapeDto::Arrow,
+                                        GraphicShape::Polygon => GraphicShapeDto::Polygon,
                                     },
-                                    points: graphic.points.map(|point| PositionView {
-                                        x: point.x(),
-                                        y: point.y(),
-                                    }),
+                                    points: graphic
+                                        .points
+                                        .iter()
+                                        .map(|point| PositionView {
+                                            x: point.x(),
+                                            y: point.y(),
+                                        })
+                                        .collect(),
                                 },
                             }
                         })

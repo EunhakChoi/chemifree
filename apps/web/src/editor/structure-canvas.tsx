@@ -1,8 +1,10 @@
+import { PolygonDraftControls } from '@/components/polygon-draft-controls'
+import { appendPolygonVertex, polygonDraftCurrent, polygonVerticesValid, type PolygonCreation } from '@/editor/polygon'
 import { graphicLineWidth } from '@/editor/graphic-line-width'
 import { graphicCreationCurrent, type GraphicCreation } from '@/editor/graphic-creation'
-import { translatedGraphicPoints, graphicPointValid, graphicEndpointCurrent, graphicEndpointPoints, selectedGraphic, type GraphicEndpointGesture, type GraphicPointsEdit } from '@/editor/graphic-points'
+import { translatedGraphicObject, translatedGraphicPoints, graphicPointValid, graphicEndpointCurrent, graphicEndpointPoints, selectedGraphic, type GraphicEndpointGesture, type GraphicPointsEdit } from '@/editor/graphic-points'
 import { compactDisplaysIn, abbreviationTargets, compactView, ethylLabel } from '@/editor/abbreviation'
-import type { GraphicShape, RingPattern, RingSize } from '@/lib/document-contract'
+import type { SceneGraphicShape, RingPattern, RingSize } from '@/lib/document-contract'
 import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
 import { SceneCaption } from '@/editor/scene-caption'
@@ -65,6 +67,7 @@ const DRAG_THRESHOLD = 3
  */
 type Drag =
   | { kind: 'graphic-create'; start: Position; creation: GraphicCreation }
+  | { kind: 'polygon-vertex'; start: Position; creation: PolygonCreation }
   | ({ kind: 'endpoint' } & GraphicEndpointGesture)
   | { kind: 'attach'; start: Position; atom: string; instance: string | null; size: RingSize; pattern: RingPattern }
   | { kind: 'move'; start: Position; selected: Set<string>; instance: string | null; scope: SelectionGeometry }
@@ -135,9 +138,10 @@ interface StructureCanvasProps {
   onActivePlacementChange: (instance: string | null) => void
   /** A captured endpoint edit; the parent checks its revision again in the queue. */
   onGraphicPoints?: (edit: GraphicPointsEdit) => void
-  graphicShape?: GraphicShape | null
+  graphicShape?: SceneGraphicShape | null
   serviceGeneration?: number
   onGraphicCreate?: (creation: GraphicCreation) => void
+  onPolygonCreate?: (creation: PolygonCreation) => void
   onCommands: (commands: Command[], selectionBefore?: ReadonlySet<string>) => void
   /** A stereo-mark gesture, built from the document on screen; the parent sends it to the latest. */
   onMark: (intent: MarkIntent) => void
@@ -185,6 +189,7 @@ export function StructureCanvas({
   graphicShape = null,
   serviceGeneration = 0,
   onGraphicCreate,
+  onPolygonCreate,
   onMark,
   rings = [],
   cipLabels = [],
@@ -199,6 +204,12 @@ export function StructureCanvas({
   const setDrag = (next: Drag | null) => { drag.current = next }
   const [interacting, setInteracting] = useState(false)
   const [preview, setPreview] = useState<Preview>(null)
+  const polygonContext = JSON.stringify([document.id, document.revision, tool, graphicShape, serviceGeneration])
+  const [draftContext, setDraftContext] = useState(polygonContext)
+  const [polygonDraft, setPolygonDraft] = useState<PolygonCreation | null>(null)
+  // Reset before rendering a changed editing context so returning to the tool cannot revive a draft.
+  if (draftContext !== polygonContext) { setDraftContext(polygonContext); setPolygonDraft(null) }
+  const activePolygon = polygonDraft && tool === 'graphic' && polygonDraftCurrent(document, graphicShape, serviceGeneration, polygonDraft) ? polygonDraft : null
   const [hover, setHover] = useState<Located | null>(null)
   const selectedGeometry = selectionGeometry(document, selection, activePlacement)
   const [captionMeasurement, setCaptionMeasurement] = useState<{ document: DocumentView; boxes: Map<string, Box>; labelMetrics: LabelMetrics; fontsReady: boolean; viewBox: string | undefined } | null>(null)
@@ -451,11 +462,12 @@ export function StructureCanvas({
   const cancelExpiredGraphic = useEffectEvent(() => {
     const gesture = drag.current
     if (gesture?.kind === 'endpoint' && (tool !== 'select' || !graphicEndpointCurrent(document, selection, gesture))) cancelPointer()
+    if (gesture?.kind === 'polygon-vertex' && (tool !== 'graphic' || !polygonDraftCurrent(document, graphicShape, serviceGeneration, gesture.creation))) cancelPointer()
     if (gesture?.kind === 'graphic-create' && (tool !== 'graphic' || !graphicCreationCurrent(document, graphicShape, serviceGeneration, gesture.creation))) cancelPointer()
   })
   useEffect(() => { cancelExpiredGraphic() }, [document, selection, tool, graphicShape, serviceGeneration])
 
-  const cancelFromWindow = useEffectEvent(() => cancelPointer())
+  const cancelFromWindow = useEffectEvent(() => { cancelPointer(); setPolygonDraft(null) })
 
   useEffect(() => {
     function onBlur() { space.current = false; cancelFromWindow() }
@@ -507,7 +519,7 @@ export function StructureCanvas({
       space.current = true
       return
     }
-    if (key === 'escape') { cancelPointer(); return }
+    if (key === 'escape') { cancelPointer(); setPolygonDraft(null); return }
     if (pointer.current) return
     if (key === '+' || key === '=') zoom(1.25)
     else if (key === '-') zoom(0.8)
@@ -584,6 +596,10 @@ export function StructureCanvas({
     const point = toDocument(event)
     if (!point) return
     if (tool === 'graphic') {
+      if (graphicShape === 'polygon') {
+        if (onPolygonCreate && graphicPointValid(point)) setDrag({ kind: 'polygon-vertex', start: point, creation: { documentId: document.id, revision: document.revision, serviceGeneration, vertices: [] } })
+        return
+      }
       if (graphicShape && onGraphicCreate && graphicPointValid(point)) {
         setDrag({ kind: 'graphic-create', start: point, creation: { documentId: document.id, revision: document.revision, serviceGeneration, shape: graphicShape, points: [{ ...point }, { ...point }] } })
       }
@@ -682,6 +698,12 @@ export function StructureCanvas({
     // document and drops them if what they name is gone.
     if (active.pan || !gesture || !point) return
     const dragged = distance({ x: event.clientX, y: event.clientY }, active.start) >= DRAG_THRESHOLD
+    if (gesture.kind === 'polygon-vertex') {
+      if (!dragged && tool === 'graphic' && polygonDraftCurrent(document, graphicShape, serviceGeneration, gesture.creation) && graphicPointValid(gesture.start)) {
+        setPolygonDraft((current) => appendPolygonVertex(current && polygonDraftCurrent(document, graphicShape, serviceGeneration, current) ? current : gesture.creation, gesture.start))
+      }
+      return
+    }
     if (gesture.kind === 'graphic-create') {
       if (dragged && tool === 'graphic' && graphicPointValid(point) && graphicCreationCurrent(document, graphicShape, serviceGeneration, gesture.creation)) {
         onGraphicCreate?.({ ...gesture.creation, points: [{ ...gesture.start }, { ...point }] })
@@ -729,6 +751,7 @@ export function StructureCanvas({
 
   function gestureCommands(gesture: Drag, point: Position, dragged: boolean): Command[] {
     switch (gesture.kind) {
+      case 'polygon-vertex':
       case 'graphic-create':
       case 'endpoint':
         return []
@@ -905,7 +928,16 @@ export function StructureCanvas({
   )
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2" onKeyDownCapture={(event) => { if (event.key === 'Escape' && activePolygon) { event.preventDefault(); event.stopPropagation(); cancelPointer(); setPolygonDraft(null) } }}>
+      {tool === 'graphic' && graphicShape === 'polygon' && <PolygonDraftControls count={activePolygon?.vertices.length ?? 0} available={Boolean(onPolygonCreate)} onFinish={() => {
+        if (!activePolygon || !onPolygonCreate || !polygonVerticesValid(activePolygon.vertices)) return
+        cancelPointer()
+        setPolygonDraft(null)
+        onPolygonCreate(activePolygon)
+      }} onRemove={() => {
+        cancelPointer()
+        setPolygonDraft((current) => current && polygonDraftCurrent(document, graphicShape, serviceGeneration, current) && current.vertices.length > 1 ? { ...current, vertices: current.vertices.slice(0, -1) } : null)
+      }} onCancel={() => { cancelPointer(); setPolygonDraft(null) }} />}
       <div role="toolbar" aria-label="Canvas view" className="flex flex-wrap items-center gap-1">
         <Button size="sm" variant="outline" disabled={interacting} onClick={() => zoom(1.25)}>Zoom in</Button>
         <Button size="sm" variant="outline" disabled={interacting} onClick={() => zoom(0.8)}>Zoom out</Button>
@@ -984,9 +1016,7 @@ export function StructureCanvas({
             }} />
         )
         if (object.kind === 'graphic') return (
-          <SceneGraphic key={object.id} object={endpointPreview?.gesture.edit.graphic.id === object.id ? { ...object, points: endpointPreview.points } : preview?.kind === 'move' && preview.scope.graphics.has(object.id) ? {
-            ...object, points: translatedGraphicPoints(object.points, preview.delta),
-          } : object} selected={sceneSelected(object)} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} onPointerDown={(event) => {
+          <SceneGraphic key={object.id} object={endpointPreview?.gesture.edit.graphic.id === object.id ? { ...endpointPreview.gesture.edit.graphic, points: endpointPreview.points } : preview?.kind === 'move' && preview.scope.graphics.has(object.id) ? translatedGraphicObject(object, preview.delta) : object} selected={sceneSelected(object)} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} onPointerDown={(event) => {
             if (tool !== 'select' || disabled || event.button !== 0 || pointer.current?.id !== event.pointerId) return
             event.stopPropagation()
             const point = toDocument(event)
@@ -996,6 +1026,12 @@ export function StructureCanvas({
         const drawing = drawings.find((item) => item.id === object.id)
         return drawing ? drawInstance(drawing) : null
       }) : drawings.map(drawInstance)}
+      {activePolygon && <g data-editor-overlay="" data-polygon-draft="" pointerEvents="none">
+        {activePolygon.vertices.length >= 3
+          ? <SceneGraphic object={{ kind: 'graphic', id: 'polygon-preview', parent: null, shape: 'polygon', points: activePolygon.vertices }} selected={false} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} />
+          : <polyline points={activePolygon.vertices.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" className="stroke-foreground" strokeWidth={settingsOf(document).line_width_pt} />}
+        {activePolygon.vertices.map((point, index) => <circle key={index} data-polygon-draft-vertex={index} cx={point.x} cy={point.y} r={3 * unitsPerPixel} className="fill-primary" role="img" aria-label={`Draft polygon vertex ${index + 1}`} />)}
+      </g>}
       {graphicPreview && <g data-editor-overlay="" data-graphic-create-preview={graphicPreview.shape} pointerEvents="none">
         <SceneGraphic object={{ kind: 'graphic', id: 'preview', parent: null, shape: graphicPreview.shape, points: graphicPreview.points }} selected={false} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} />
       </g>}
@@ -1057,6 +1093,15 @@ function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPer
   onPointerDown?: (event: PointerEvent<SVGGElement>) => void
 }) {
   const lineWidth = graphicLineWidth(object, documentLineWidth)
+  if (object.shape === 'polygon') {
+    const points = object.points.map((point) => `${point.x},${point.y}`).join(' ')
+    const underlay = graphicUnderlay(lineWidth, unitsPerPixel)
+    return <g data-scene-object={object.id} onPointerDown={onPointerDown} strokeLinecap="round" strokeLinejoin="round">
+      <polygon points={points} fill="none" stroke="transparent" strokeWidth={Math.max(10 * unitsPerPixel, lineWidth)} />
+      {selected && <polygon points={points} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
+      <polygon points={points} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
+    </g>
+  }
   const [a, b] = object.points
   const length = Math.hypot(b.x - a.x, b.y - a.y)
   const ux = length > 0 ? (b.x - a.x) / length : 0
