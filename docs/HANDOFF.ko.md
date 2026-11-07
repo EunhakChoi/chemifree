@@ -7,6 +7,15 @@ P35a–n과 Et 표시 #185는 병합되었고 각 PR의 check/browser CI가 통�
 
 이 문서는 완료된 작업과 다음 개발 경계를 전달한다. 인계 문서를 읽는 것만으로 다음 기능 구현을 시작하지 않으며, 새 세션에서 사용자가 요청한 범위를 따른다.
 
+## P35p 명시 retained-graph fragment display 후보
+
+- `contract_fragment`는 existing member IDs·instance·anchor·plain text를 명시해 화면만 축약한다. `set_fragment_display_text`로 문자열을 바꾸고 `expand_fragment`로 원래 좌표를 드러낸다. 문자열은 nonempty 한 줄·최대128 UTF-8 bytes이며 null/reset dictionary·화학 해석은 없다. 실제 graph/ID/state/stereo/좌표와 모든 과학 계산을 보존한다.
+- 단일 명시 배치, anchor를 포함한 unique1–2000 member(문서 atom 한도 내), 중성 기본 element·induced connected acyclic single tree·anchor 외부 unmarked single boundary 정확히1개만 지원한다. query/nondefault states·ring·다중 boundary/배치·Et/다른 fragment 겹침·member/외부 이웃의 local mark/stereo/group은 거절한다. 부분 geometry나 관련 chemistry 변경은 같은 Undo 단계에서 자동 펼치며 전체 rigid move/transform은 표시를 유지한다.
+- UI는 explicit member/anchor/text·실제 retained IDs와 “Display text does not define chemistry”를 보여 준다. label typography·실제 SVG shared trim/fit/hit/selection bounds를 쓰고 화학 export는 full graph와 `abbreviation_display` rendering loss다. native clipboard/Cut/template export는 member 교차를 거절하고 Expand를 안내한다.
+- native v24 document/draft current/history는 `fragment_displays`를 필수로 읽는다. v1–23는 empty/current/history-only 새 필드를 모두 거절하며 empty map으로 migration한다. 읽기는 쓰지 않고 첫 overwrite/recovery 전에 exact old bytes를 보관한다. future v25는 untouched 거절한다. 기존 current48MiB/history8MiB admission·physical64MiB 한도에 member/text를 포함한다.
+- 이 항목은 P35o 이후 추가 후보이며 P35a–n 병합/CI 근거와 별개다. P35는 `in_progress`; 일반 nickname dictionary·text-to-graph·external label roundtrip·일반 multistyle chemical label은 미지원이다. 테스트·빌드·cargo check·browser와 Codex/독립 subagent 리뷰는 대기다. 문서 source 대조만 했으며 실행 검증을 주장하지 않는다. [P35p 기록](verification/p35p-fragment-display.md).
+- 기존 Et 정책과 같이 외부 boundary 이웃 원자의 좌표만 이동하면 표시를 유지한다. 그 이웃의 atom state·boundary bond·local stereo 변경이나 retained member의 부분 이동은 자동 펼친다.
+
 ## P35o 기존 ethyl 그래프의 plain display label 후보
 
 - 기존 collapsed ethyl의 표시 문자열만 한 줄 nonempty Unicode·최대128 UTF-8 bytes로 편집한다. `update_abbreviation_label`의 필수 `text`는 문자열 또는 명시 `null`이며 null은 기본 `Et`로 reset한다. 공백만인 문자열·control·줄 구분자는 거절한다.

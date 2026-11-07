@@ -10,6 +10,11 @@ const namedAtoms = (neighbors: string[]) => neighbors.filter((id) => id !== IMPL
 
 function referencedIds(command: Command): string[] {
   switch (command.op) {
+    case 'contract_fragment':
+      return [command.instance, command.anchor, ...command.members]
+    case 'set_fragment_display_text':
+    case 'expand_fragment':
+      return [command.instance, command.anchor]
     case 'collapse_ethyl':
       return [command.instance, command.anchor, command.terminal]
     case 'update_abbreviation_label':

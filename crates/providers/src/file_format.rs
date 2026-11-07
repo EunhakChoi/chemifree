@@ -1,7 +1,8 @@
-//! Chemifree document file format, version 23 (`*.json`), and the recovery draft format that
+//! Chemifree document file format, version 24 (`*.json`), and the recovery draft format that
 //! wraps the same document and history. This is Chemifree's own working format, not an
 //! interchange format such as MOL or CDXML.
 //!
+//! Version 24 adds explicit fragment_displays; versions 1–23 migrate as empty, including history.
 //! Version 23 adds cosmetic display_labels; versions 1–22 retain default Et, including history.
 //! Version 22 adds label_shadow; versions 1–21 migrate as false, including history.
 //! Version 21 adds label_outline; versions 1–20 migrate as false, including history.
@@ -33,7 +34,7 @@
 //! positions into one page `p1` and one instance `s1`. Versions 2 and 3 reconstruct root
 //! order and its history from their instances. Versions 1–4 receive the built-in settings.
 //! Versions 1–5 have no stereo marks or configurations, and versions 1–6 have no stereo groups,
-//! so they read with none. Reading never writes; the next write is version 23. Other versions
+//! so they read with none. Reading never writes; the next write is version 24. Other versions
 //! are refused.
 
 use std::collections::BTreeSet;
@@ -41,7 +42,7 @@ use std::collections::BTreeSet;
 use chemifree_application::{Draft, DraftInfo};
 use chemifree_domain::document::{
     Atom, AtomId, Bond, BondId, BondOrder, Change, ChangeSet, Document, DocumentId, DocumentParts,
-    GroupId, MOLECULE_ID, ObjectId, PAGE_ID, Point, PositionKey,
+    FragmentDisplay, GroupId, MOLECULE_ID, ObjectId, PAGE_ID, Point, PositionKey,
 };
 use chemifree_domain::element::Element;
 use chemifree_domain::scene::{
@@ -62,9 +63,9 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 const FORMAT: &str = "chemifree.document";
-const FORMAT_VERSION: u32 = 23;
+const FORMAT_VERSION: u32 = 24;
 const DRAFT_FORMAT: &str = "chemifree.draft";
-const DRAFT_FORMAT_VERSION: u32 = 23;
+const DRAFT_FORMAT_VERSION: u32 = 24;
 /// The version before graph and scene were separated; read and migrated, never written.
 const VERSION_1: u32 = 1;
 /// The version before recorded hydrogen, radical, query, and attachment states; read and
@@ -79,7 +80,7 @@ const VERSION_6: u32 = 6;
 /// The one instance a version 1 document becomes.
 const MIGRATED_INSTANCE: u32 = 1;
 
-/// Current v23 scene/history: groups, styled/aligned captions, and Et display maps.
+/// Current v24 scene/history: groups, styled/aligned captions, and Et display maps.
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneFile {
@@ -103,6 +104,8 @@ struct SceneDraftFile {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct SceneDocument {
+    #[serde(default)]
+    fragment_displays: Vec<StoredFragmentDisplay>,
     #[serde(default)]
     abbreviations: Vec<StoredAbbreviation>,
     #[serde(default)]
@@ -380,6 +383,8 @@ struct SceneHistory {
 #[serde(deny_unknown_fields)]
 struct SceneChangeSet {
     #[serde(default)]
+    fragment_displays: Vec<StoredFragmentDisplayChange>,
+    #[serde(default)]
     abbreviations: Vec<StoredAbbreviationChange>,
     #[serde(default)]
     display_labels: Vec<StoredDisplayLabelChange>,
@@ -395,6 +400,56 @@ struct SceneChangeSet {
     stereo: Vec<Keyed<StoredStereoState>>,
     stereo_groups: Vec<Keyed<StoredGroup>>,
     selection: StoredChange<StoredSelection>,
+}
+
+/// Graph membership is explicit. Display text has no chemical interpretation.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredFragmentDisplay {
+    instance: String,
+    anchor: String,
+    members: Vec<String>,
+    text: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredFragmentDisplayState {
+    members: Vec<String>,
+    text: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StoredFragmentDisplayChange {
+    instance: String,
+    anchor: String,
+    #[serde(deserialize_with = "required_option")]
+    before: Option<StoredFragmentDisplayState>,
+    #[serde(deserialize_with = "required_option")]
+    after: Option<StoredFragmentDisplayState>,
+}
+
+fn stored_fragment_display(display: &FragmentDisplay) -> StoredFragmentDisplayState {
+    StoredFragmentDisplayState {
+        members: display.members.iter().map(ToString::to_string).collect(),
+        text: display.text.clone(),
+    }
+}
+
+fn read_fragment_display(display: StoredFragmentDisplayState) -> Result<FragmentDisplay, String> {
+    let mut members: Vec<AtomId> = display
+        .members
+        .iter()
+        .map(|id| atom_id(id))
+        .collect::<Result<_, _>>()?;
+    // Lists may arrive in any order. Sorting preserves duplicates for domain rejection
+    // and makes current/history sides compare by the same canonical representation.
+    members.sort_unstable();
+    Ok(FragmentDisplay {
+        members,
+        text: display.text,
+    })
 }
 
 /// Cosmetic strings are separate from the existing graph membership history.
@@ -520,6 +575,7 @@ mod v6 {
 impl From<v6::Document> for SceneDocument {
     fn from(value: v6::Document) -> Self {
         Self {
+            fragment_displays: Vec::new(),
             abbreviations: Vec::new(),
             display_labels: Vec::new(),
             id: value.id,
@@ -555,6 +611,7 @@ impl From<v6::History> for SceneHistory {
 impl From<v6::ChangeSet> for SceneChangeSet {
     fn from(value: v6::ChangeSet) -> Self {
         Self {
+            fragment_displays: Vec::new(),
             abbreviations: Vec::new(),
             display_labels: Vec::new(),
             title: value.title,
@@ -783,6 +840,7 @@ impl From<v4::ChangeSet> for v5::ChangeSet {
 impl From<v5::Document> for SceneDocument {
     fn from(value: v5::Document) -> Self {
         Self {
+            fragment_displays: Vec::new(),
             abbreviations: Vec::new(),
             display_labels: Vec::new(),
             id: value.id,
@@ -830,6 +888,7 @@ impl From<v5::History> for SceneHistory {
 impl From<v5::ChangeSet> for SceneChangeSet {
     fn from(value: v5::ChangeSet) -> Self {
         Self {
+            fragment_displays: Vec::new(),
             abbreviations: Vec::new(),
             display_labels: Vec::new(),
             title: value.title,
@@ -1298,6 +1357,7 @@ struct Header {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Version {
     Current,
+    TwentyThree,
     TwentyTwo,
     TwentyOne,
     Twenty,
@@ -1332,6 +1392,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
     }
     match header.format_version {
         version if version == current => Ok(Version::Current),
+        23 => Ok(Version::TwentyThree),
         22 => Ok(Version::TwentyTwo),
         21 => Ok(Version::TwentyOne),
         20 => Ok(Version::Twenty),
@@ -1356,7 +1417,7 @@ fn version(bytes: &[u8], format: &str, current: u32, kind: &str) -> Result<Versi
         VERSION_1 => Ok(Version::One),
         version => Err(format!(
             "unsupported {kind} format {format:?} version {version}; this build reads versions \
-             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, and \
+             {VERSION_1}, {VERSION_2}, {VERSION_3}, {VERSION_4}, {VERSION_5}, {VERSION_6}, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, and \
              {current}"
         )),
     }
@@ -1401,6 +1462,16 @@ type Current = (SceneDocument, SceneHistory);
 fn stored(document: &Document) -> Current {
     let parts = document.to_parts();
     let stored = SceneDocument {
+        fragment_displays: parts
+            .fragment_displays
+            .iter()
+            .map(|(key, display)| StoredFragmentDisplay {
+                instance: key.instance.to_string(),
+                anchor: key.atom.to_string(),
+                members: display.members.iter().map(ToString::to_string).collect(),
+                text: display.text.clone(),
+            })
+            .collect(),
         display_labels: parts
             .display_labels
             .iter()
@@ -1510,7 +1581,7 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
     Ok(probe.document.revision)
 }
 
-/// The earlier version of a document file this build reads (1 to 22), which a save
+/// The earlier version of a document file this build reads (1 to 23), which a save
 /// replaces only after keeping a copy of it; `None` otherwise.
 pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
     earlier(version(bytes, FORMAT, FORMAT_VERSION, "document"))
@@ -1530,6 +1601,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
         Ok(Version::Five) => Some(VERSION_5),
         Ok(Version::Six) => Some(VERSION_6),
         Ok(Version::Fourteen) => Some(14),
+        Ok(Version::TwentyThree) => Some(23),
         Ok(Version::TwentyTwo) => Some(22),
         Ok(Version::TwentyOne) => Some(21),
         Ok(Version::Twenty) => Some(20),
@@ -1549,7 +1621,7 @@ fn earlier(version: Result<Version, String>) -> Option<u32> {
     }
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1 to 22 file
+/// Parses and fully validates a stored document, including its history; a version 1 to 23 file
 /// is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let format = version(bytes, FORMAT, FORMAT_VERSION, "document")?;
@@ -1558,6 +1630,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     check_settings_fields(bytes, format)?;
     let parts = match format {
         Version::Current
+        | Version::TwentyThree
         | Version::TwentyTwo
         | Version::TwentyOne
         | Version::Twenty
@@ -1608,7 +1681,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1 to 22 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1 to 23 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let format = version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")?;
     check_abbreviation_fields(bytes, format)?;
@@ -1616,6 +1689,7 @@ pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     check_settings_fields(bytes, format)?;
     let (parts, base_revision, saved_at_ms) = match format {
         Version::Current
+        | Version::TwentyThree
         | Version::TwentyTwo
         | Version::TwentyOne
         | Version::Twenty
@@ -1684,6 +1758,7 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     let current = matches!(
         format,
         Version::Current
+            | Version::TwentyThree
             | Version::TwentyTwo
             | Version::TwentyOne
             | Version::Twenty
@@ -1711,10 +1786,19 @@ fn check_abbreviation_fields(bytes: &[u8], format: Version) -> Result<(), String
     }
     if states
         .iter()
-        .any(|state| state.get("display_labels").is_some() != (format == Version::Current))
+        .any(|state| state.get("fragment_displays").is_some() != (format == Version::Current))
     {
         return Err(
-            "display_labels are required in v23 and forbidden in v1–22, including history.".into(),
+            "fragment_displays are required in v24 and forbidden in v1–23, including history."
+                .into(),
+        );
+    }
+    if states.iter().any(|state| {
+        state.get("display_labels").is_some()
+            != matches!(format, Version::Current | Version::TwentyThree)
+    }) {
+        return Err(
+            "display_labels are required in v23+ and forbidden in v1–22, including history.".into(),
         );
     }
     if states
@@ -1737,6 +1821,7 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
     let current = matches!(
         format,
         Version::Current
+            | Version::TwentyThree
             | Version::TwentyTwo
             | Version::TwentyOne
             | Version::Twenty
@@ -1747,11 +1832,12 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_weight").is_some() != current
             || (current && !matches!(settings["label_weight"].as_str(), Some("normal" | "bold")))
         {
-            return Err("label_weight is required as normal or bold in v18–23 and forbidden in v1–17, including history.".into());
+            return Err("label_weight is required as normal or bold in v18–24 and forbidden in v1–17, including history.".into());
         }
         let styled = matches!(
             format,
             Version::Current
+                | Version::TwentyThree
                 | Version::TwentyTwo
                 | Version::TwentyOne
                 | Version::Twenty
@@ -1760,31 +1846,38 @@ fn check_settings_fields(bytes: &[u8], format: Version) -> Result<(), String> {
         if settings.get("label_style").is_some() != styled
             || (styled && !matches!(settings["label_style"].as_str(), Some("normal" | "italic")))
         {
-            return Err("label_style is required as normal or italic in v19–23 and forbidden in v1–18, including history.".into());
+            return Err("label_style is required as normal or italic in v19–24 and forbidden in v1–18, including history.".into());
         }
         let underlined = matches!(
             format,
-            Version::Current | Version::TwentyTwo | Version::TwentyOne | Version::Twenty
+            Version::Current
+                | Version::TwentyThree
+                | Version::TwentyTwo
+                | Version::TwentyOne
+                | Version::Twenty
         );
         if settings.get("label_underline").is_some() != underlined
             || (underlined && !settings["label_underline"].is_boolean())
         {
-            return Err("label_underline is required as a boolean in v20–23 and forbidden in v1–19, including history.".into());
+            return Err("label_underline is required as a boolean in v20–24 and forbidden in v1–19, including history.".into());
         }
         let outlined = matches!(
             format,
-            Version::Current | Version::TwentyTwo | Version::TwentyOne
+            Version::Current | Version::TwentyThree | Version::TwentyTwo | Version::TwentyOne
         );
         if settings.get("label_outline").is_some() != outlined
             || (outlined && !settings["label_outline"].is_boolean())
         {
-            return Err("label_outline is required as a boolean in v21–23 and forbidden in v1–20, including history.".into());
+            return Err("label_outline is required as a boolean in v21–24 and forbidden in v1–20, including history.".into());
         }
-        let shadowed = matches!(format, Version::Current | Version::TwentyTwo);
+        let shadowed = matches!(
+            format,
+            Version::Current | Version::TwentyThree | Version::TwentyTwo
+        );
         if settings.get("label_shadow").is_some() != shadowed
             || (shadowed && !settings["label_shadow"].is_boolean())
         {
-            return Err("label_shadow is required as a boolean in v22–23 and forbidden in v1–21, including history.".into());
+            return Err("label_shadow is required as a boolean in v22–24 and forbidden in v1–21, including history.".into());
         }
         Ok(())
     };
@@ -1882,6 +1975,7 @@ fn refuse_earlier_captions(format: Version, parts: &DocumentParts) -> Result<(),
     if matches!(
         format,
         Version::Current
+            | Version::TwentyThree
             | Version::TwentyTwo
             | Version::TwentyOne
             | Version::Twenty
@@ -1939,6 +2033,22 @@ fn scene_parts(stored: SceneDocument, history: SceneHistory) -> Result<DocumentP
         return Err(format!("a document holds exactly one page, {PAGE_ID:?}"));
     }
     Ok(DocumentParts {
+        fragment_displays: stored
+            .fragment_displays
+            .into_iter()
+            .map(|entry| {
+                Ok((
+                    PositionKey {
+                        instance: instance_id(&entry.instance)?,
+                        atom: atom_id(&entry.anchor)?,
+                    },
+                    read_fragment_display(StoredFragmentDisplayState {
+                        members: entry.members,
+                        text: entry.text,
+                    })?,
+                ))
+            })
+            .collect::<Result<_, String>>()?,
         display_labels: stored
             .display_labels
             .into_iter()
@@ -2217,6 +2327,22 @@ fn read_scene_change_set(stored: SceneChangeSet) -> Result<ChangeSet, String> {
         instances: Vec::new(),
         positions: stored.positions,
     })?;
+    set.fragment_displays = stored
+        .fragment_displays
+        .into_iter()
+        .map(|entry| {
+            Ok((
+                PositionKey {
+                    instance: instance_id(&entry.instance)?,
+                    atom: atom_id(&entry.anchor)?,
+                },
+                Change {
+                    before: entry.before.map(read_fragment_display).transpose()?,
+                    after: entry.after.map(read_fragment_display).transpose()?,
+                },
+            ))
+        })
+        .collect::<Result<_, String>>()?;
     set.display_labels = stored
         .display_labels
         .into_iter()
@@ -2408,6 +2534,7 @@ fn parts<A: AtomRecord, B: BondRecord>(
         .collect::<Result<_, _>>()?;
     migrate_history_roots(&roots, &mut undo, &mut redo);
     Ok(DocumentParts {
+        fragment_displays: Vec::new(),
         abbreviations: Vec::new(),
         display_labels: Vec::new(),
         id: document_id(&stored.id)?,
@@ -2465,6 +2592,7 @@ fn migrate(stored: v1::Document, history: v1::History) -> Result<DocumentParts, 
             .collect()
     };
     Ok(DocumentParts {
+        fragment_displays: Vec::new(),
         abbreviations: Vec::new(),
         display_labels: Vec::new(),
         id: document_id(&stored.id)?,
@@ -2512,6 +2640,7 @@ fn migrate_change_set(set: v1::ChangeSet, instance: ObjectId) -> Result<ChangeSe
         }
     }
     Ok(ChangeSet {
+        fragment_displays: Vec::new(),
         abbreviations: Vec::new(),
         display_labels: Vec::new(),
         title: set.title.map(|change| Change {
@@ -3003,6 +3132,16 @@ fn stored_point(point: &Point) -> StoredPoint {
 
 fn stored_scene_change_set(set: &ChangeSet) -> SceneChangeSet {
     SceneChangeSet {
+        fragment_displays: set
+            .fragment_displays
+            .iter()
+            .map(|(key, change)| StoredFragmentDisplayChange {
+                instance: key.instance.to_string(),
+                anchor: key.atom.to_string(),
+                before: change.before.as_ref().map(stored_fragment_display),
+                after: change.after.as_ref().map(stored_fragment_display),
+            })
+            .collect(),
         display_labels: set
             .display_labels
             .iter()
@@ -3114,6 +3253,7 @@ fn to_change_set<A: AtomRecord, B: BondRecord>(
     };
     let to_point = |stored: StoredPoint| point(stored.x, stored.y);
     Ok(ChangeSet {
+        fragment_displays: Vec::new(),
         abbreviations: Vec::new(),
         display_labels: Vec::new(),
         title: stored.title.map(|change| Change {

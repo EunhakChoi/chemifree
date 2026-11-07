@@ -133,7 +133,7 @@ impl std::error::Error for FragmentError {}
 ///
 /// # Errors
 /// Refuses scene-object targets, absent targets/placement, empty selections, selected enhanced
-/// group members, compact Et displays, non-self-contained stereo and fragments exceeding the transaction budget.
+/// group members, compact Et or explicit fragment displays, non-self-contained stereo and fragments exceeding the transaction budget.
 pub fn copy_fragment(
     document: &Document,
     selection: &Selection,
@@ -154,6 +154,11 @@ pub fn copy_fragment(
         let bond = document.bond(*id).ok_or(FragmentError::UnknownSelection)?;
         atoms.insert(bond.begin);
         atoms.insert(bond.end);
+    }
+    if document.fragment_displays().any(|(key, display)| {
+        key.instance == instance && display.members.iter().any(|id| atoms.contains(id))
+    }) {
+        return Err(FragmentError::AbbreviationDisplay);
     }
     if document.abbreviations().any(|(key, terminal)| {
         key.instance == instance && (atoms.contains(&key.atom) || atoms.contains(&terminal))

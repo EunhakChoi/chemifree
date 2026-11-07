@@ -1,4 +1,4 @@
-import { abbreviationsIn, abbreviationTargets, compactView, ethylLabel } from '@/editor/abbreviation'
+import { compactDisplaysIn, abbreviationTargets, compactView, ethylLabel } from '@/editor/abbreviation'
 import type { RingPattern, RingSize } from '@/lib/document-contract'
 import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
@@ -334,10 +334,13 @@ export function StructureCanvas({
     }
     return all.map((placement) => {
       const view = compactView(placedView(document, placement), placement.id)
-      const compactAnchors = new Map(abbreviationsIn(document, placement.id).map((item) => [item.anchor, item.display_label]))
+      const compactAnchors = new Map(compactDisplaysIn(document, placement.id).map((item) => [item.anchor, item]))
       const index = atomIndex(view)
       const left = leaningRight(view)
-      const labels = new Map<string, AtomLabel | null>(view.atoms.map((atom) => [atom.id, compactAnchors.has(atom.id) ? ethylLabel(style, compactAnchors.get(atom.id)) : layoutOf(atom, left.has(atom.id))]))
+      const labels = new Map<string, AtomLabel | null>(view.atoms.map((atom) => {
+        const compact = compactAnchors.get(atom.id)
+        return [atom.id, compact ? ethylLabel(style, compact.text, !compact.ethyl) : layoutOf(atom, left.has(atom.id))]
+      }))
       const sides = bondSides(view, index, rings)
       const frame =
         all.length > 1 && placement.id !== null && view.atoms.length > 0
@@ -372,10 +375,10 @@ export function StructureCanvas({
 
   const captionCount = document.scene?.objects?.filter((object) => object.kind === 'caption').length ?? 0
   const styledLabels = settingsOf(document).label_weight === 'bold' || settingsOf(document).label_style === 'italic' || settingsOf(document).label_underline || settingsOf(document).label_outline || settingsOf(document).label_shadow
-  const measuredLabels = styledLabels || (document.abbreviations ?? []).some((item) => item.display_label !== 'Et')
+  const measuredLabels = styledLabels || (document.abbreviations ?? []).some((item) => item.display_label !== 'Et') || (document.fragment_displays?.length ?? 0) > 0
   const chemicalMeasurementComplete = !measuredLabels || drawings.every((drawing) =>
     [...drawing.labels.entries()].every(([id, label]) => label === null ||
-      (!styledLabels && !abbreviationsIn(document, drawing.id).some((item) => item.anchor === id && item.display_label !== 'Et')) ||
+      (!styledLabels && !compactDisplaysIn(document, drawing.id).some((item) => item.anchor === id && (!item.ethyl || item.text !== 'Et'))) ||
       label.chunks.every((chunk) => chunk.measured)))
   const captionMeasurementComplete = chemicalMeasurementComplete && ((captionCount === 0 && !measuredLabels) || (captionMeasurement?.document === document &&
     captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount))
@@ -534,9 +537,9 @@ export function StructureCanvas({
       : bond !== undefined && positions?.has(bond.begin) && positions.has(bond.end)
     let next = current
     const targets = kind === 'atom' ? abbreviationTargets(document, instance, id) : [id]
-    const compact = kind === 'atom' ? abbreviationsIn(document, instance).find((item) => item.anchor === id) : undefined
-    // Collapse preserves the atom-pair selection; its internal bond may be implicit.
-    const targetSelected = compact ? next.has(compact.anchor) && next.has(compact.terminal) : next.has(id)
+    const compact = kind === 'atom' ? compactDisplaysIn(document, instance).find((item) => item.anchor === id) : undefined
+    // Contraction preserves member selection; internal bonds may be implicit.
+    const targetSelected = compact ? compact.members.every((member) => next.has(member)) : next.has(id)
     const deselected = additive && targetSelected
     if (additive) {
       if (deselected) targets.forEach((target) => { next.delete(target) })
@@ -544,7 +547,7 @@ export function StructureCanvas({
     } else if (!covered) {
       next = new Set(targets)
     } else if (targets.length > 1) {
-      // A selected boundary bond covers the anchor geometrically, but not its hidden pair.
+      // A selected boundary bond covers the anchor geometrically, but not hidden members.
       targets.forEach((target) => { next.add(target) })
     }
     onSelectionChange(next)
@@ -713,8 +716,8 @@ export function StructureCanvas({
   function clickCommands(hit: Hit, instance: string | null, point: Position): Command[] {
     if (tool === 'erase') {
       if (hit?.kind === 'atom') {
-        const item = abbreviationsIn(document, instance).find((item) => item.anchor === hit.id)
-        return [{ op: 'delete_atoms', atoms: item ? [item.anchor, item.terminal] : [hit.id] }]
+        const item = compactDisplaysIn(document, instance).find((item) => item.anchor === hit.id)
+        return [{ op: 'delete_atoms', atoms: item ? item.members : [hit.id] }]
       }
       if (hit?.kind === 'bond') return [{ op: 'delete_bonds', bonds: [hit.id] }]
       return []
@@ -1071,8 +1074,12 @@ const DrawingLayer = memo(function DrawingLayer({
       >
         {drawing.view.atoms.map((atom) => {
           const label = drawing.labels.get(atom.id)
+          const compact = compactDisplaysIn(drawing.view, drawing.id).find((item) => item.anchor === atom.id)
+          const name = compact
+            ? `Display label ${compact.text} at ${atom.id}; text does not define chemistry; ${compact.ethyl ? 'underlying ethyl graph' : 'retained fragment graph'}`
+            : atomName(atom, placement)
           return label ? (
-            <AtomMark key={atom.id} id={atom.id} name={abbreviationsIn(drawing.view, drawing.id).some((item) => item.anchor === atom.id) ? `Display label ${abbreviationsIn(drawing.view, drawing.id).find((item) => item.anchor === atom.id)?.display_label} at ${atom.id}; text does not define chemistry; underlying ethyl graph` : atomName(atom, placement)} label={label} at={position(atom.id)} />
+            <AtomMark key={atom.id} id={atom.id} name={name} label={label} at={position(atom.id)} />
           ) : null
         })}
       </g>

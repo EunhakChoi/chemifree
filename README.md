@@ -368,3 +368,19 @@ v23 stores current/history metadata and preserves exact v1–22 bytes before
 replacement/recovery. General multistyle atom/abbreviation labels and fragment
 editing remain unsupported. P35 stays `in_progress`; execution and both required
 PR reviews are pending. See [P35o record](docs/verification/p35o-display-label.md).
+
+P35p adds an unverified bounded candidate for explicit display contraction of an
+existing connected acyclic neutral/default element fragment with one unmarked
+single boundary at an explicit anchor and exactly one placement. The user supplies
+members and one plain single-line text (up to 128 UTF-8 bytes), edits that text or
+expands the display. Text does not define chemistry: the original graph, IDs,
+states, stereo and coordinates supply every scientific result. Unsupported local
+stereo, query states, rings, multiple boundaries/placements and overlapping
+contractions refuse. The canvas uses shared measured label bounds; chemical
+exports keep the full graph with a rendering loss, and native clipboard/Cut/template
+export require expansion before intersecting member selections. Native v24 strictly
+stores current/history fragment maps; v1–23 migrate empty with exact-byte archives
+before replacement, and v25 refuses untouched. General nickname dictionaries,
+text-to-graph parsing and external label roundtrip remain unsupported. P35 stays
+`in_progress`; tests/build/browser execution and both reviews are pending.
+See [P35p record](docs/verification/p35p-fragment-display.md).

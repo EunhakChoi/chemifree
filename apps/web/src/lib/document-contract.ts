@@ -314,9 +314,13 @@ export const LABEL_FONTS: readonly LabelFont[] = ['sans-serif', 'serif', 'monosp
 export const CARBON_LABELS: readonly CarbonLabels[] = ['default', 'all']
 export const DISPLAY_UNITS: readonly DisplayUnit[] = ['pt', 'mm', 'cm', 'in']
 
+export interface FragmentDisplayView { instance: string; anchor: string; members: string[]; text: string }
+
 export interface AbbreviationView { instance: string; anchor: string; terminal: string; display_label: string }
 
 export interface DocumentView {
+  /** User-named fragment presentation; the full chemical graph remains retained. */
+  fragment_displays?: FragmentDisplayView[]
   /** Et presentation only; atoms, bonds and coordinates remain complete. */
   abbreviations?: AbbreviationView[]
   id: string
@@ -705,6 +709,9 @@ export type Command =
   | { op: 'collapse_ethyl'; instance: string; anchor: string; terminal: string }
   | { op: 'update_abbreviation_label'; instance: string; anchor: string; text: string | null }
   | { op: 'expand_ethyl'; instance: string; anchor: string }
+  | { op: 'contract_fragment'; instance: string; anchor: string; members: string[]; text: string }
+  | { op: 'set_fragment_display_text'; instance: string; anchor: string; text: string }
+  | { op: 'expand_fragment'; instance: string; anchor: string }
   | { op: 'add_caption'; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[]; parent?: string; index?: number }
   | { op: 'update_caption'; object: string; anchor: Position; alignment: CaptionAlignment; runs: CaptionRun[] }
   | { op: 'add_graphic'; shape: GraphicShape; points: [Position, Position]; parent?: string; index?: number }
@@ -1248,6 +1255,56 @@ function isAbbreviations(document: Record<string, unknown>, atoms: AtomView[], b
   return true
 }
 
+/** Validate retained fragment metadata before any rendering can hide atoms. */
+function isFragmentDisplays(document: Record<string, unknown>, atoms: AtomView[], bonds: BondView[]): boolean {
+  const value = document.fragment_displays
+  // Older snapshots predate fragment display metadata.
+  if (value === undefined) return true
+  if (!Array.isArray(value)) return false
+  if (value.length === 0) return true
+  if (!isRecord(document.scene) || !Array.isArray(document.scene.instances) || document.scene.instances.length !== 1) return false
+  const placement = document.scene.instances[0]
+  if (!isRecord(placement)) return false
+  const occupied = new Set<string>()
+  if (Array.isArray(document.abbreviations)) for (const item of document.abbreviations) {
+    if (isRecord(item) && typeof item.anchor === 'string' && typeof item.terminal === 'string') {
+      occupied.add(item.anchor); occupied.add(item.terminal)
+    }
+  }
+  for (const item of value) {
+    if (!isRecord(item) || item.instance !== placement.id || typeof item.anchor !== 'string' || !validDisplayLabel(item.text) ||
+      !Array.isArray(item.members) || item.members.length === 0 || !item.members.every((id): id is string => typeof id === 'string')) return false
+    const members = new Set(item.members)
+    if (members.size !== item.members.length || !members.has(item.anchor)) return false
+    for (const id of members) {
+      const atom = atoms.find((entry) => entry.id === id)
+      if (occupied.has(id) || !atom || atom.kind !== 'element' || atom.charge !== 0 || atom.isotope !== null || atom.hydrogens?.mode !== 'inferred' || atom.radical !== 'none' || atom.attachment_points?.length !== 0) return false
+      occupied.add(id)
+    }
+    const local = new Set(members)
+    const internal = bonds.filter((bond) => members.has(bond.begin) && members.has(bond.end))
+    const boundary = bonds.filter((bond) => members.has(bond.begin) !== members.has(bond.end))
+    if (internal.length !== members.size - 1 || boundary.length !== 1 || internal.some((bond) => bond.order !== 'single' || bond.mark != null)) return false
+    const edge = boundary[0]
+    if (edge.order !== 'single' || edge.mark != null || (members.has(edge.begin) ? edge.begin : edge.end) !== item.anchor) return false
+    local.add(members.has(edge.begin) ? edge.end : edge.begin)
+    const visited = new Set([item.anchor])
+    let previous = -1
+    while (visited.size !== previous) {
+      previous = visited.size
+      for (const bond of internal) if (visited.has(bond.begin) || visited.has(bond.end)) { visited.add(bond.begin); visited.add(bond.end) }
+    }
+    if (visited.size !== members.size || bonds.some((bond) => bond.mark != null && (local.has(bond.begin) || local.has(bond.end)))) return false
+    if (isRecord(document.stereo)) {
+      const stereo = document.stereo
+      if (Array.isArray(stereo.atoms) && stereo.atoms.some((record) => isRecord(record) && typeof record.atom === 'string' && local.has(record.atom))) return false
+      if (Array.isArray(stereo.bonds) && stereo.bonds.some((record) => isRecord(record) && bonds.some((bond) => bond.id === record.bond && (local.has(bond.begin) || local.has(bond.end))))) return false
+      if (Array.isArray(stereo.groups) && stereo.groups.some((group) => isRecord(group) && Array.isArray(group.members) && group.members.some((id) => typeof id === 'string' && local.has(id)))) return false
+    }
+  }
+  return true
+}
+
 /** Rejects malformed snapshots, including bonds that name atoms the snapshot lacks. */
 export function isDocumentResponse(value: unknown): value is DocumentResponse {
   if (!isRecord(value) || value.api_version !== API_VERSION) return false
@@ -1274,6 +1331,7 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     (document.stereo === undefined || isStereoView(document.stereo, document.atoms, document.bonds)) &&
     isScene(document, document.atoms) &&
     isAbbreviations(document, document.atoms, document.bonds) &&
+    isFragmentDisplays(document, document.atoms, document.bonds) &&
     isSceneTree(document, document.atoms, document.bonds) &&
     (document.settings === undefined || isSettings(document.settings, true)) &&
     isRecord(session) &&
