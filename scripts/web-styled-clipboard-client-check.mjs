@@ -96,3 +96,37 @@ test('v3 paste mapping preserves nullable widths, outside objects, references an
   after.scene.objects.find((o) => o.id === 's9').line_width_pt = null
   assert.deepEqual(paste(after), mapping.objects, 'v3 all-null input pastes as inheritance')
 })
+
+for (const [name, duplicate] of [
+  ['conflicting width', (text) => text.replace('"line_width_pt":0.1', '"line_width_pt":0.1,"line_width_pt":10')],
+  ['identical width', (text) => text.replace('"line_width_pt":0.1', '"line_width_pt":0.1,"line_width_pt":0.1')],
+  ['escaped width key', (text) => text.replace('"line_width_pt":0.1', String.raw`"line_width_pt":0.1,"line_\u0077idth_pt":10`)],
+  ['nested coordinate', (text) => text.replace('"x":1', '"x":2,"x":1')],
+  ['document setting', (text) => text.replace('"line_width_pt":1.2', '"line_width_pt":3,"line_width_pt":1.2')],
+]) test(`clipboard summaries and successful copy replies reject duplicate ${name}`, () => {
+  const value = styledCopy()
+  const text = duplicate(JSON.stringify(value.payload))
+  assert.doesNotThrow(() => JSON.parse(text), 'this is valid JSON syntax, so ordinary JSON.parse cannot enforce the boundary')
+  assert.equal(sceneClipboardGraphicStyles(text), null, 'ambiguous values are not previewed')
+  assert.equal(sceneClipboardCopyMatches(text, value.copy.copied, value.copy.roots, requested, value.source.document, value.source.document.settings), false)
+})
+
+const { parseStrictJson } = await import('../apps/web/src/lib/strict-json.ts')
+
+test('strict JSON scan distinguishes escaped strings, punctuation and nested object scopes', () => {
+  const text = String.raw`{"a":[{"key":"quoted \"key\": 1, { [ , }","slash":"\\"},{"key":"second scope","unicode":"\u0077"}],"key":"outer"}`
+  assert.deepEqual(parseStrictJson(text), JSON.parse(text))
+  assert.deepEqual(parseStrictJson('[{"a":1},{"a":2}]'), [{a:1},{a:2}])
+  assert.deepEqual(parseStrictJson('{"a":{"a":[{"a":1}]}}'), {a:{a:[{a:1}]}})
+  assert.deepEqual(parseStrictJson('{"a" \t\n : [{"a"\r : 1}]}'), {a:[{a:1}]})
+  const scalar = 'key: { , [ "quoted" \\ end'
+  assert.equal(parseStrictJson(JSON.stringify(scalar)), scalar)
+  const deep = '['.repeat(2000)+'0'+']'.repeat(2000)
+  assert.doesNotThrow(() => parseStrictJson(deep), 'the duplicate scan uses an iterative stack within the caller byte bound')
+})
+
+for (const text of ['{"a":1,"a":2}', '{"a":{"b":1,"b":2}}', '[{"a":1,"\\u0061":2}]', String.raw`{"a\"b":1,"a\u0022b":2}`, String.raw`{"a\/b":1,"a/b":2}`, '{"a":1,}', '{"a":"unterminated}', '{']) {
+  test(`strict JSON refuses duplicate keys or malformed grammar: ${text}`, () => {
+    assert.throws(() => parseStrictJson(text), SyntaxError)
+  })
+}

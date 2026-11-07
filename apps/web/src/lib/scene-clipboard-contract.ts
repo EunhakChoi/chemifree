@@ -1,4 +1,5 @@
 import { MAX_NATIVE_CLIPBOARD_BYTES, SETTING_RANGES, type DocumentView, type GraphicShape, type NativeClipboardIdMapping, type Position, type SceneObject, type SceneReference, type SelectionView } from '@/lib/document-contract'
+import { parseStrictJson } from '@/lib/strict-json'
 
 type GraphicObject = Extract<SceneObject, { kind: 'graphic' | 'group' }>
 type PayloadObject = (Omit<Extract<GraphicObject, { kind: 'graphic' }>, 'parent' | 'line_width_pt'> & { line_width_pt: number | null }) | Omit<Extract<GraphicObject, { kind: 'group' }>, 'parent'>
@@ -60,7 +61,7 @@ function payloadOf(text: string): GraphicPayload | null {
   if (text.length > MAX_NATIVE_CLIPBOARD_BYTES || new TextEncoder().encode(text).length > MAX_NATIVE_CLIPBOARD_BYTES) return null
   let value: unknown
   try {
-    value = JSON.parse(text)
+    value = parseStrictJson(text)
   } catch {
     return null
   }

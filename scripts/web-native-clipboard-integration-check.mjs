@@ -378,20 +378,22 @@ try {
   stage = 'malformed styled text is not displayed and is refused without a destination edit'
   const beforeInvalid = await shown()
   for (const [name,mutate,reason] of [
+    ['duplicate width',(payload)=>JSON.stringify(payload).replace('"line_width_pt":0.1','"line_width_pt":0.1,"line_width_pt":10'),'clipboard_fragment_invalid'],
     ['missing v3 width',(payload)=>{delete payload.objects.find((object)=>object.kind==='graphic').line_width_pt},'clipboard_fragment_invalid'],
     ['out-of-range width',(payload)=>{payload.objects.find((object)=>object.kind==='graphic').line_width_pt=10.01},'clipboard_fragment_invalid'],
     ['v2 width field',(payload)=>{payload.version=2},'clipboard_fragment_invalid'],
     ['future version',(payload)=>{payload.version=4},'clipboard_format_unsupported'],
   ]) {
-    const malformed=JSON.parse(sceneCopy.payload);mutate(malformed)
+    const malformed=JSON.parse(sceneCopy.payload)
+    const text=mutate(malformed)??JSON.stringify(malformed)
     await button('Paste graphics…').click()
-    await page.getByRole('textbox',{name:'Native graphics text',exact:true}).fill(JSON.stringify(malformed))
-    assert.equal(await page.getByRole('list',{name:'Clipboard graphic line widths'}).count(),0,name)
+    await page.getByRole('textbox',{name:'Native graphics text',exact:true}).fill(text)
     const refused=await operation('document.clipboard_scene_paste',()=>button('Paste graphics').click(),'error')
     assert.equal(refused.diagnostics[0].details.reason,reason,name)
     await page.getByRole('alert').waitFor()
     assert.deepEqual(stable(await shown()),stable(beforeInvalid),name)
     assert.deepEqual(stable(await snapshot(scene)),stable(beforeInvalid),name)
+    assert.equal(await page.getByRole('list',{name:'Clipboard graphic line widths'}).count(),0,name+' has no ambiguous preview after server refusal')
     await button('Close').click()
   }
   stage = 'styled forest Cut retains clipboard widths and restores them with Undo'
