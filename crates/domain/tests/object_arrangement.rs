@@ -32,6 +32,7 @@ fn empty() -> Document {
 fn graphic(left: f64, top: f64, right: f64, bottom: f64) -> Command {
     Command::AddGraphic {
         graphic: Graphic {
+            line_width_pt: None,
             shape: GraphicShape::Rectangle,
             points: [point(left, top), point(right, bottom)],
         },

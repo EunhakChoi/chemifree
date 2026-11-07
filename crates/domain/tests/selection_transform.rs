@@ -54,7 +54,11 @@ fn rotate(degrees: f64) -> SelectionTransform {
 }
 fn add_graphic(shape: GraphicShape, points: [Point; 2]) -> Command {
     Command::AddGraphic {
-        graphic: Graphic { shape, points },
+        graphic: Graphic {
+            line_width_pt: None,
+            shape,
+            points,
+        },
         parent: None,
         index: None,
     }
@@ -193,6 +197,7 @@ fn overlapping_group_child_atom_and_bond_targets_rotate_once_with_correct_rectan
     assert_eq!(
         document.object(object(3)),
         Some(&SceneObject::Graphic(Graphic {
+            line_width_pt: None,
             shape: GraphicShape::Rectangle,
             points: [point(-1.0, 1.0), point(-2.0, 3.0)]
         })),
@@ -201,6 +206,7 @@ fn overlapping_group_child_atom_and_bond_targets_rotate_once_with_correct_rectan
     assert_eq!(
         document.object(object(4)),
         Some(&SceneObject::Graphic(Graphic {
+            line_width_pt: None,
             shape: GraphicShape::Arrow,
             points: [point(-1.0, 5.0), point(-2.0, 6.0)]
         })),
@@ -324,6 +330,7 @@ fn arbitrary_rotations_support_atoms_lines_and_arrows_with_an_advisory_only_for_
     assert_eq!(
         document.object(object(3)),
         Some(&SceneObject::Graphic(Graphic {
+            line_width_pt: None,
             shape: GraphicShape::Rectangle,
             points: [point(1.0, 1.0), point(3.0, 2.0)]
         }))

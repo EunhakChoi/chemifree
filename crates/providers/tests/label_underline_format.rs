@@ -27,6 +27,9 @@ fn strip_underlines(value: &mut Value) {
             object.remove("label_shadow");
             object.remove("display_labels");
             object.remove("fragment_displays");
+            if object.get("kind").and_then(Value::as_str) == Some("graphic") {
+                object.remove("line_width_pt");
+            }
             for child in object.values_mut() {
                 strip_underlines(child);
             }
@@ -48,7 +51,7 @@ fn document_and_draft_require_underline_in_current_and_both_history_directions()
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/label-underline.json");
     let template: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(template["format_version"], 25);
+    assert_eq!(template["format_version"], 26);
     for location in [
         "/document/settings",
         "/history/undo/0/settings/before",
@@ -102,14 +105,14 @@ fn document_and_draft_require_underline_in_current_and_both_history_directions()
 }
 
 #[test]
-fn old_headers_forbid_underline_even_in_history_and_future_26_is_untouched() {
+fn old_headers_forbid_underline_even_in_history_and_future_27_is_untouched() {
     let root = tempfile::tempdir().unwrap();
     let repo = FileDocumentRepository::new(root.path());
     let doc = document();
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/label-underline.json");
     let template: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    for version in [16, 17, 18, 19, 26] {
+    for version in [16, 17, 18, 19, 27] {
         for location in [
             "/document/settings",
             "/history/undo/0/settings/before",
@@ -153,8 +156,8 @@ fn old_headers_forbid_underline_even_in_history_and_future_26_is_untouched() {
                     repo.load(doc.id()).unwrap_err().to_string()
                 };
                 assert!(
-                    reason.contains(if version == 26 {
-                        "version 26"
+                    reason.contains(if version == 27 {
+                        "version 27"
                     } else {
                         "label_underline"
                     }),

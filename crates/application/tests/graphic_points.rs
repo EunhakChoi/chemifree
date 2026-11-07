@@ -99,8 +99,8 @@ fn update_replay_noop_save_reopen_and_history_preserve_parent_references_and_gra
     )
     .unwrap();
     assert_eq!(
-        raw["format_version"], 25,
-        "point edits reuse the existing native graphic state"
+        raw["format_version"], 26,
+        "point edits preserve native graphic state and inherit line width"
     );
     let undone = serde_json::to_value(app.undo(&id, None, 4).unwrap()).unwrap();
     assert_eq!(

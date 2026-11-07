@@ -186,7 +186,7 @@ fn marks_and_configurations_round_trip_with_their_history_in_version_6() {
     assert!(walked.stereo().get(StereoKey::Center(atom(7))).is_none());
 
     let file = read_json(&root.path().join("documents").join(format!("{ID}.json")));
-    assert_eq!(file["format_version"], 25);
+    assert_eq!(file["format_version"], 26);
     let stereo = &file["document"]["stereo"];
     assert!(
         stereo.as_array().is_some_and(|records| records.len() == 2),
@@ -257,7 +257,7 @@ fn a_recovery_draft_carries_marks_configurations_and_history() {
     let draft_path = root.path().join("drafts").join(format!("{ID}.json"));
     let file = read_json(&draft_path);
     assert_eq!(file["format"], "chemifree.draft");
-    assert_eq!(file["format_version"], 25);
+    assert_eq!(file["format_version"], 26);
     assert_eq!(file["document"]["stereo"].as_array().unwrap().len(), 2);
     repository.release_draft(&id());
     assert_eq!(repository.claim_draft(&id()), Ok(Some(Ok(draft))));
@@ -341,7 +341,7 @@ fn a_version_5_file_reads_with_no_stereo_and_its_first_save_keeps_the_original_b
             .unwrap(),
         format!("{ID}.v5.json")
     );
-    assert_eq!(read_json(&path)["format_version"], 25);
+    assert_eq!(read_json(&path)["format_version"], 26);
     assert_eq!(repository.load(&id()).unwrap(), Some(document));
     assert!(root.path().join("migrated").is_dir());
 }
@@ -384,7 +384,7 @@ fn a_version_5_draft_is_recovered_and_its_bytes_are_kept() {
     let redone = app.redo(ID, None, 4).unwrap();
     assert_eq!(redone.document.revision, 5);
     app.autosave(ID, None).unwrap();
-    assert_eq!(read_json(&draft_path)["format_version"], 25);
+    assert_eq!(read_json(&draft_path)["format_version"], 26);
     assert_eq!(fs::read(archive).unwrap(), original, "never overwritten");
 }
 
@@ -732,6 +732,9 @@ fn strip_label_weights(value: &mut serde_json::Value) {
             object.remove("label_shadow");
             object.remove("display_labels");
             object.remove("fragment_displays");
+            if object.get("kind").and_then(Value::as_str) == Some("graphic") {
+                object.remove("line_width_pt");
+            }
             for child in object.values_mut() {
                 strip_label_weights(child);
             }
