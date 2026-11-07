@@ -448,6 +448,9 @@ fn every_scene_reason_code_is_distinct_and_stable() {
         [
             "caption_invalid",
             "caption_persistence_limit",
+            "graphic_geometry_invalid",
+            "graphic_command_mismatch",
+            "polygon_persistence_limit",
             "caption_unsupported",
             "abbreviation_invalid",
             "fragment_display_invalid",
