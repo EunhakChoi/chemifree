@@ -703,9 +703,10 @@ interactive resize handles, image clipboard transport, OCR and image-to-graph
 conversion remain unsupported. Focused Rust/web execution and mutations are
 recorded in the [P36k record](verification/p36k-embedded-image.md). Independent
 review of `eb40cfa` found that history replay could bypass image pixel limits;
-the fix and regression verification remain pending. The pixel limits above are
-the intended contract, not a claim that every replayed state already enforces
-them. Full integrated validation, Codex review and CI remain pending.
+the shared content validator now checks the current pixel limit for every restored
+and replayed state. A regression rejects both undo- and redo-only over-limit
+states without rewriting the native bytes. Follow-up clippy and 52 focused tests
+passed; full integrated validation, Codex review and CI remain pending.
 
 ## Single open cubic spline profile (P36j candidate)
 
