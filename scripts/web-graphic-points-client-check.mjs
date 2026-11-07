@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { sceneCutSource } from './lib/scene-cut-fixture.mjs'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
-const { graphicPointsCommands, parseGraphicCoordinate } = await import('../apps/web/src/editor/graphic-points.ts')
+const { graphicPointsCommands, parseGraphicCoordinate, selectedGraphic, graphicEndpointCurrent, graphicEndpointPoints } = await import('../apps/web/src/editor/graphic-points.ts')
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 
 test('graphic coordinates accept the existing finite decimal point boundary without geometry restrictions', () => {
@@ -48,4 +48,33 @@ test('queued endpoint edits lapse after another revision, document switch, move,
     const changed=structuredClone(document);mutate(changed)
     assert.equal(graphicPointsCommands(changed,edit),null)
   }
+})
+
+test('endpoint handles require one explicit noncoincident graphic, excluding ancestor and mixed selection',()=>{
+ const document=sceneCutSource().document
+ assert.equal(selectedGraphic(document,new Set(['s6'])).id,'s6')
+ for(const ids of [[],['s4'],['a1'],['s6','s5'],['s6','a1'],['removed']])assert.equal(selectedGraphic(document,new Set(ids)),null)
+ const coincident=structuredClone(document)
+ coincident.scene.objects.find((object)=>object.id==='s6').points=[{x:1,y:1},{x:1,y:1}]
+ assert.equal(selectedGraphic(coincident,new Set(['s6'])),null,'coincident points use the numeric form')
+})
+
+test('endpoint drag preserves press offset and opposite point and refuses expired target context',()=>{
+ const document=sceneCutSource().document
+ const graphic=selectedGraphic(document,new Set(['s5']))
+ const before=structuredClone(document)
+ const gesture={endpoint:1,start:{x:32,y:13},edit:{documentId:document.id,revision:document.revision,graphic,points:graphic.points}}
+ const points=graphicEndpointPoints(gesture,{x:42,y:3})
+ assert.deepEqual(points,[{x:1,y:12},{x:41,y:2}],'offset inside a handle does not jump its endpoint')
+ assert.deepEqual(graphicPointsCommands(document,{...gesture.edit,points}),[{op:'update_graphic_points',object:'s5',points}])
+ assert.equal(graphicEndpointCurrent(document,new Set(['s5']),gesture),true)
+ assert.equal(graphicEndpointCurrent({...document,revision:document.revision+1},new Set(['s5']),gesture),false)
+ assert.equal(graphicEndpointCurrent({...document,id:'another'},new Set(['s5']),gesture),false)
+ assert.equal(graphicEndpointCurrent(document,new Set(['s6']),gesture),false)
+ assert.equal(graphicEndpointCurrent(document,new Set(['s5','s6']),gesture),false)
+ const moved=structuredClone(document);moved.scene.objects.find((object)=>object.id==='s5').points[0].x=2
+ assert.equal(graphicEndpointCurrent(moved,new Set(['s5']),gesture),false)
+ assert.equal(graphicEndpointPoints(gesture,{x:Infinity,y:1}),null)
+ assert.equal(graphicEndpointPoints(gesture,{x:100100,y:1}),null)
+ assert.deepEqual(document,before)
 })
