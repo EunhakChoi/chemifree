@@ -504,5 +504,10 @@ Polygon/history-only content shares48MiB current/8MiB history budgets and older
 undo retention; polygon-bearing overflow has its own reason while caption-only
 errors keep their existing code. Graph/scientific state and export rendering
 losses remain. Earlier shape/version notes describe their historical slices.
-P36 stays `in_progress`; Rust/web final, full, reviews and CI results remain
-pending until confirmed. See [P36i record](docs/verification/p36i-polygon.md).
+P36 stays `in_progress`. Existing logs and [PR #214](https://github.com/EunhakChoi/chemifree/pull/214)
+record passed Rust clippy/55 focused tests and five mutations, web lint/typecheck/
+client/build, polygon/ellipse/creation/endpoint browsers and three web mutations.
+Independent review of `13cebd5` and Codex review of `f1a7978` reported no findings.
+Full isolated local validation and CI remain in progress; no merge/main-CI success
+is claimed. See [P36i record](docs/verification/p36i-polygon.md) for exact evidence
+and limits.

@@ -1,10 +1,12 @@
 # P36i bounded polygon candidate
 
-This record describes current P36i source and authored checks. Rust/web final and
-integration checks are still running in the parent handoff; no completed execution
-result, full-local pass, review disposition or PR/main CI success is established
-here. This documentation pass reads source only and runs no product tests/builds/
-browser checks. P36 remains `in_progress` against its broader scope. Earlier
+This record describes the P36i candidate in [PR #214](https://github.com/EunhakChoi/chemifree/pull/214),
+reviewed at `f1a797848867668187ca30a192271ccbd35a9ded` before this correction.
+Completed focused Rust/web execution and both reviews are recorded below from
+existing logs and PR evidence. This documentation pass reads those records and
+runs no product tests/builds/browser checks. Full isolated local validation and
+CI remain in progress per the parent handoff; no full-local/CI pass, merge or
+post-merge main success is claimed. P36 remains `in_progress`. Earlier
 P36a–h version/no-new-shape statements are historical slice boundaries; P36i adds
 the polygon profile and native28/graphics clipboard5 described here.
 
@@ -135,7 +137,7 @@ images/scientific symbols or scale/skew/vertex/resize/rotation gesture controls.
 The internal64 bound and mandatory closed stroke profile are explicit Chemifree
 choices, not general specification or original-application equivalence.
 
-## Inspected source and authored verification; results pending
+## Source and authored verification scope
 
 - `crates/domain/src/scene.rs`, `document.rs`, `document/persistence.rs` and
   scene clipboard/transform paths: shape/cardinality/commands, all-vertex geometry,
@@ -156,5 +158,34 @@ choices, not general specification or original-application equivalence.
   profiles and stale/restart/history/native paths. Script content/registration is
   not execution evidence.
 
-Rust/web final/integration/full runs and both reviews/CI remain pending here.
-This documentation update does not reuse P36h passes as P36i results.
+## Completed focused execution and reviews
+
+The following existing agent logs under `/tmp/chemifree-work/` were read for this
+correction, alongside the #214 body. They are local run records, not executions
+by the documentation agent or completed full/CI delivery evidence. P36h results
+are not reused as P36i passes.
+
+| Record | Confirmed completed scope |
+| --- | --- |
+| `p36i-rust-final.log` | Isolated Rust clippy and 55 focused tests passed: HTTP polygon1, application polygon4, CLI polygon1, domain polygon6, provider polygon_format4, application operations11, domain caption_budget5 and scene23. All groups report zero failures; sandbox exit 0. Polygon and provider tests were repeated after mutation restoration; those repeats are not extra unique cases in 55. |
+| `p36i-rust-final.log` mutation section | Five intentional private mutations were detected: history-only budgeting, cardinality, budget, clipboard and native27 admission. The record then reruns the restored polygon/provider groups successfully and ends `FINAL VERIFICATION AND FIVE PRIVATE MUTATIONS PASSED`. These expected mutant failures are sensitivity evidence, not unresolved production failures. |
+| `p36i-web-gate-3.log` | Isolated lint (`eslint --max-warnings 0`), typecheck, complete client command and production web build passed; every client group has zero failures, including all 6 polygon client cases, final sandbox exit 0. |
+| `p36i-web-browser-4.log` | Service-backed polygon, ellipse, Graphic creation and graphic endpoint browser checks passed, sandbox exit 0. Polygon covers explicit Finish/no-write draft, closed-stroke hit, 3–64 vertices, whole-list editing, move/rotation, styled v5 and native28 restart. Prior-shape browsers cover their own retained geometry/preview/cancel/stale/restart/native behavior. This log does not establish a general browser-smoke run. |
+| `p36i-polygon-final.log` | A final polygon browser run passed the same stated polygon scope, sandbox exit 0. |
+| `p36i-web-mutation-2.log` | Three mutations were detected: 65th vertex admission, moving only the first two points and accepting polygon under v4. Restored source then passed all 6 polygon client cases, sandbox exit 0. |
+| `p36i-conformance-record.log` | Separate record generation completed 110 conformance cases: 110 passed, zero failed/not run, sandbox exit 0. That run does not establish completion of later full isolated checks. |
+
+The #214 body records an independent fresh-context subagent review of
+`13cebd51e50244461933debd23dab702b78afeda` on 2026-11-07 UTC with no findings.
+This is the exact reviewed commit, not an additional review of this documentation
+correction. The [Codex review summary](https://github.com/EunhakChoi/chemifree/pull/214#issuecomment-6702712381)
+records completed review of `f1a797848867668187ca30a192271ccbd35a9ded` at
+2026-11-07 05:16:55 UTC, with no findings and no unresolved findings. The absence
+of a formal review submission is not treated as the evidence; the completed
+summary explicitly identifies the reviewed commit and result.
+
+Full isolated local validation and CI remain in progress in the parent handoff.
+The PR is open; no merge or post-merge main-CI result is claimed. The focused
+passes and review results do not complete broader P36 acceptance or remove the
+unsupported behavior above. This correction changes documentation only and
+reruns no product checks.
