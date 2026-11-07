@@ -139,7 +139,7 @@ fn a_refused_text_leaves_the_document_unchanged() {
         ("F[C@H](Cl)Br |a:1", "malformed_input"),
         ("F[C@TH1H](Cl)Br", "unsupported_feature"),
         ("[S@](=O)(C)CC", "unsupported_feature"),
-        ("F/C=C/F", "unsupported_feature"),
+        ("F/P=C/F", "unsupported_feature"),
         ("C[C@H](F)", "unsupported_feature"),
     ] {
         let reply = import(&app, &id, 1, source);
@@ -281,4 +281,260 @@ fn accepting_attachment_loss_preserves_the_same_snapshots_stereo() {
     assert_eq!(written["result"]["snapshot"]["document"], before);
     assert_eq!(written["result"]["content"], source);
     assert_eq!(document(&app, &id), before);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Directional bonds `/` and `\` (P29c2a): stored double-bond configurations, no marks
+// ---------------------------------------------------------------------------------------------
+
+fn cip(app: &App, id: &str) -> Value {
+    call(app, "cip", "chem.cip", json!({"document_id": id}))
+}
+
+fn stored_bonds(app: &App, id: &str) -> Value {
+    document(app, id)["stereo"]["bonds"].clone()
+}
+
+/// The CIP descriptor of the one double bond `chem.cip` lists for the document.
+fn descriptor(app: &App, id: &str) -> Value {
+    let reply = cip(app, id);
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    let bonds = reply["result"]["bonds"].as_array().unwrap();
+    assert_eq!(bonds.len(), 1, "{reply}");
+    bonds[0]["descriptor"].clone()
+}
+
+#[test]
+fn a_directional_import_stores_the_double_bond_configuration_with_no_mark() {
+    for (source, relation, descriptor_expected) in [
+        ("Cl/C=C\\F", "same_side", "Z"),
+        ("Cl/C=C/F", "opposite_sides", "E"),
+        ("Cl\\C=C/F", "same_side", "Z"),
+        // The chlorine is above the first carbon and the fluorine written first is above too.
+        ("C(/Cl)=C\\F", "opposite_sides", "E"),
+    ] {
+        let (app, _dir, id) = setup();
+        let done = import(&app, &id, 0, source);
+        assert_eq!(done["document_revision"], 1, "{source}: {done}");
+        // Cl, C, C, F are a1..a4 (the branch form is C, Cl, C, F) and b2 is the double bond: the
+        // configuration names the marked neighbour of each end.
+        let begin = if source.starts_with("C(") { "a2" } else { "a1" };
+        assert_eq!(
+            stored_bonds(&app, &id),
+            json!([{"bond": "b2",
+                    "configuration": {"kind":"relative","begin_neighbor":begin,
+                                      "end_neighbor":"a4","relation":relation}}]),
+            "{source}"
+        );
+        assert_eq!(descriptor(&app, &id), descriptor_expected, "{source}");
+        assert!(
+            document(&app, &id)["bonds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|bond| bond["mark"].is_null()),
+            "no bond carries a mark: {source}"
+        );
+    }
+}
+
+#[test]
+fn an_unmarked_lower_neighbour_is_the_stored_reference_with_the_relation_flipped() {
+    // C0 C1 F2 C3 F4: the fluorines are both above, so they are on the same side; the store
+    // names the lowest neighbour of the first carbon, C1, which is on the other side.
+    let (app, _dir, id) = setup();
+    import(&app, &id, 0, "C(C)(/F)=C/F");
+    assert_eq!(
+        stored_bonds(&app, &id),
+        json!([{"bond": "b3", "configuration": {"kind":"relative","begin_neighbor":"a2",
+                "end_neighbor":"a5","relation":"opposite_sides"}}])
+    );
+    assert_eq!(descriptor(&app, &id), "Z");
+}
+
+#[test]
+fn every_double_bond_of_a_conjugated_chain_is_stored() {
+    let (app, _dir, id) = setup();
+    import(&app, &id, 0, "C/C=C/C=C\\C");
+    assert_eq!(
+        stored_bonds(&app, &id),
+        json!([
+            {"bond": "b2", "configuration": {"kind":"relative","begin_neighbor":"a1","end_neighbor":"a4","relation":"opposite_sides"}},
+            {"bond": "b4", "configuration": {"kind":"relative","begin_neighbor":"a3","end_neighbor":"a6","relation":"same_side"}}
+        ])
+    );
+}
+
+#[test]
+fn a_double_bond_served_by_its_neighbour_adds_no_record_and_no_loss() {
+    let (app, _dir, id) = setup();
+    let done = import(&app, &id, 0, "C/C=C/C=CC");
+    assert_eq!(done["document_revision"], 1, "{done}");
+    assert_eq!(stored_bonds(&app, &id).as_array().map(Vec::len), Some(1));
+    let features: Vec<&str> = done["loss_report"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|loss| loss["feature"].as_str().unwrap())
+        .collect();
+    assert_eq!(features, ["generated_layout"], "{done}");
+}
+
+#[test]
+fn a_ring_double_bond_of_eight_atoms_is_stored_and_labelled_by_cip_because_it_is_stored() {
+    let (app, _dir, id) = setup();
+    import(&app, &id, 0, "C1CC/C=C\\CCC1");
+    assert_eq!(stored_bonds(&app, &id).as_array().map(Vec::len), Some(1));
+    // `chem.cip` lists every stored configuration, in a ring or not, in both scopes.
+    assert_eq!(descriptor(&app, &id), "Z");
+    let scanned = call(
+        &app,
+        "scan",
+        "chem.cip",
+        json!({"document_id": id, "scope": "stereogenic"}),
+    );
+    assert_eq!(scanned["result"]["bonds"][0]["bond"], "b4", "{scanned}");
+    assert_eq!(
+        scanned["result"]["bonds"][0]["descriptor"], "Z",
+        "{scanned}"
+    );
+    // The same ring with no marks stores nothing, and the scan leaves ring double bonds out.
+    let (app, _dir, id) = setup();
+    import(&app, &id, 0, "C1CCC=CCCC1");
+    let unmarked = call(
+        &app,
+        "scan",
+        "chem.cip",
+        json!({"document_id": id, "scope": "stereogenic"}),
+    );
+    assert_eq!(unmarked["result"]["bonds"], json!([]), "{unmarked}");
+}
+
+#[test]
+fn directional_refusals_name_their_cause_and_leave_the_document_unchanged() {
+    let (app, _dir, id) = setup();
+    import(&app, &id, 0, "CCO");
+    let before = document(&app, &id);
+    for (source, code, family, offset) in [
+        ("C/C=C", "directional_bond_incomplete", "malformed_input", 1),
+        (
+            "F/CC",
+            "directional_bond_without_double_bond",
+            "malformed_input",
+            1,
+        ),
+        (
+            "C/C(\\F)=C/C",
+            "directional_bond_conflict",
+            "invalid_chemistry",
+            4,
+        ),
+        (
+            "C1C/C=C\\CCC1",
+            "directional_bond_small_ring",
+            "unsupported_feature",
+            3,
+        ),
+        (
+            "F/C=C=C/F",
+            "directional_bond_cumulated",
+            "unsupported_feature",
+            1,
+        ),
+        (
+            "F/P=C/F",
+            "directional_bond_end_unsupported",
+            "unsupported_feature",
+            1,
+        ),
+        (
+            "C/1=C/CCCCCCC1",
+            "directional_bond_unsupported",
+            "unsupported_feature",
+            1,
+        ),
+        (
+            "c1ccc/cc1",
+            "directional_bond_unsupported",
+            "unsupported_feature",
+            5,
+        ),
+    ] {
+        let reply = import(&app, &id, 1, source);
+        assert_eq!(reply["outcome"], "error", "{source}: {reply}");
+        let found = &reply["diagnostics"][0];
+        assert_eq!(found["code"], code, "{source}: {reply}");
+        assert_eq!(found["details"]["family"], family, "{source}: {reply}");
+        assert_eq!(found["details"]["offset"], offset, "{source}: {reply}");
+        assert_eq!(found["details"]["length"], 1, "{source}: {reply}");
+        assert!(found["details"]["reason"].is_string(), "{source}: {reply}");
+        assert_eq!(document(&app, &id), before, "{source}");
+    }
+}
+
+#[test]
+fn a_replayed_directional_import_returns_the_original_reply() {
+    let (app, _dir, id) = setup();
+    let source = "C/C=C/C=C\\C";
+    let base = json!({"document_id":id,"expected_revision":0,"format":"smiles","source":source});
+    let mut preview = base.clone();
+    preview["preview"] = json!(true);
+    let preview = call(&app, "dir-p", "document.import", preview);
+    let mut commit = base;
+    commit["preview_digest"] = preview["result"]["preview_digest"].clone();
+    commit["accept_loss"] = json!(true);
+    let first = call(&app, "dir", "document.import", commit.clone());
+    assert_eq!(first["document_revision"], 1, "{first}");
+    let replay = call(&app, "dir", "document.import", commit);
+    assert_eq!(replay["document_revision"], 1, "{replay}");
+    assert_eq!(replay["loss_report"], first["loss_report"], "{replay}");
+    assert_eq!(replay["result"], first["result"], "{replay}");
+    assert_eq!(stored_bonds(&app, &id).as_array().map(Vec::len), Some(2));
+}
+
+#[test]
+fn a_text_of_exactly_the_command_bound_commits_with_its_configurations() {
+    // 62 units of `C/C=C/C` are 248 atoms, 186 bonds and 62 configurations, 496 commands;
+    // `CC.C` adds 3 atoms and a bond: 500, the bound of one transaction.
+    let units = vec!["C/C=C/C"; 62].join(".");
+    let (app, _dir, id) = setup();
+    let done = import(&app, &id, 0, &format!("{units}.CC.C"));
+    assert_eq!(done["document_revision"], 1, "{done}");
+    assert_eq!(stored_bonds(&app, &id).as_array().map(Vec::len), Some(62));
+    let (app, _dir, id) = setup();
+    let refused = import(&app, &id, 0, &format!("{units}.CC.C.C"));
+    assert_eq!(refused["outcome"], "error", "{refused}");
+    assert_eq!(refused["diagnostics"][0]["code"], "command_limit");
+    assert_eq!(document(&app, &id)["revision"], 0);
+}
+
+#[test]
+fn exporting_an_imported_double_bond_configuration_needs_consent_and_writes_no_marks() {
+    // The writers do not write `/` and `\` yet: recorded output reports the configuration as a
+    // consent-required loss, canonical output as the loss of all SMILES stereo.
+    for (source, recorded) in [("F/C=C/F", "FC=CF"), ("F/C=C\\F", "FC=CF")] {
+        let (app, _dir, id) = setup();
+        import(&app, &id, 0, source);
+        let before = document(&app, &id);
+        for (style, expected) in [("recorded", recorded), ("canonical", "")] {
+            let parameters = json!({"document_id": id, "format": "smiles", "style": style});
+            let refused = call(&app, "refused", "document.export", parameters.clone());
+            let found = &refused["diagnostics"][0];
+            assert_eq!(found["code"], "loss_consent_required", "{style}: {refused}");
+            assert_eq!(
+                found["details"]["features"],
+                json!(["stereo_configuration"])
+            );
+            assert_eq!(found["details"]["losses"][0]["source_path"], "bonds[b2]");
+            let mut accepted = parameters;
+            accepted["accepted_losses"] = found["details"]["loss_digest"].clone();
+            let written = call(&app, "accepted", "document.export", accepted);
+            let content = written["result"]["content"].as_str().unwrap();
+            assert!(!content.contains(['/', '\\']), "{style}: {content}");
+            if !expected.is_empty() {
+                assert_eq!(content, expected, "{source} {style}");
+            }
+            assert_eq!(document(&app, &id), before);
+        }
+    }
 }

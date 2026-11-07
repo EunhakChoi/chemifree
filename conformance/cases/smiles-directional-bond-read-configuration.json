@@ -1,0 +1,275 @@
+{
+  "id": "smiles-directional-bond-read-configuration",
+  "title": "SMILES directional bonds / and \\ beside double bonds are imported as stored double-bond configurations with no bond mark: Cl\\C=C/F is cis and labelled Z, and C/C=C/C=CC states only its fully marked double bond (E)",
+  "requirements": [
+    "CODEC-05",
+    "STEREO-01"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "p1",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "Cl\\C=C/F",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0,
+        "model_id": "chemifree-smiles-1",
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "generated_layout"
+            }
+          ]
+        }
+      },
+      "document": "d",
+      "capture": {
+        "digest1": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "i1",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "Cl\\C=C/F",
+          "expected_revision": 0,
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1
+      },
+      "document": "d",
+      "substitute": {
+        "/parameters/preview_digest": "digest1"
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "bonds": [
+            {
+              "id": "b1",
+              "mark": null
+            },
+            {
+              "id": "b2",
+              "mark": null
+            },
+            {
+              "id": "b3",
+              "mark": null
+            }
+          ],
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b2",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a1",
+                  "end_neighbor": "a4",
+                  "relation": "same_side"
+                }
+              }
+            ],
+            "groups": []
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "cip1",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "model_id": "chemifree-cip-1",
+        "result": {
+          "scope": "stored",
+          "atoms": [],
+          "bonds": [
+            {
+              "bond": "b2",
+              "state": "assigned",
+              "descriptor": "Z"
+            }
+          ]
+        },
+        "document_revision": 1
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "p2",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C/C=C/C=CC",
+          "expected_revision": 1,
+          "preview": true
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1,
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "generated_layout"
+            }
+          ]
+        }
+      },
+      "document": "d",
+      "capture": {
+        "digest2": "/result/preview_digest"
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "i2",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "C/C=C/C=CC",
+          "expected_revision": 1,
+          "preview_digest": null
+        }
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 2
+      },
+      "document": "d",
+      "substitute": {
+        "/parameters/preview_digest": "digest2"
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 2,
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b2",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a1",
+                  "end_neighbor": "a4",
+                  "relation": "same_side"
+                }
+              },
+              {
+                "bond": "b5",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a5",
+                  "end_neighbor": "a8",
+                  "relation": "opposite_sides"
+                }
+              }
+            ],
+            "groups": []
+          }
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "cip2",
+        "profile": "preserve-semantics",
+        "operation": "chem.cip",
+        "parameters": {}
+      },
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "scope": "stored",
+          "bonds": [
+            {
+              "bond": "b2",
+              "state": "assigned",
+              "descriptor": "Z"
+            },
+            {
+              "bond": "b5",
+              "state": "assigned"
+            }
+          ]
+        },
+        "document_revision": 2
+      }
+    },
+    {
+      "call": "undo",
+      "document": "d",
+      "expected_revision": 2,
+      "expect": {
+        "document": {
+          "revision": 3,
+          "stereo": {
+            "atoms": [],
+            "bonds": [
+              {
+                "bond": "b2",
+                "configuration": {
+                  "kind": "relative",
+                  "begin_neighbor": "a1",
+                  "end_neighbor": "a4",
+                  "relation": "same_side"
+                }
+              }
+            ],
+            "groups": []
+          }
+        }
+      }
+    }
+  ]
+}

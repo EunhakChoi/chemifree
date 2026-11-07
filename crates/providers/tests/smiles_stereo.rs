@@ -248,9 +248,8 @@ fn marks_the_drawing_cannot_hold_are_refused_with_their_span() {
         ("F[C@AL1](Cl)Br", SmilesCode::StereoClassUnsupported, 3, 4),
         // A mark outside a bracket is not SMILES at all.
         ("C@C", SmilesCode::UnexpectedCharacter, 1, 1),
-        // Directional bonds are not read.
-        ("F/C=C/F", SmilesCode::DirectionalBondUnsupported, 1, 1),
-        ("F\\C=C\\F", SmilesCode::DirectionalBondUnsupported, 1, 1),
+        // A directional bond beside no double bond is not a configuration (tests/smiles_double_bonds.rs).
+        ("F/CC", SmilesCode::DirectionalBondWithoutDoubleBond, 1, 1),
     ] {
         assert_eq!(refused(text), (code, offset, length), "{text}");
     }

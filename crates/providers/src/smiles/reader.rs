@@ -24,6 +24,7 @@ use chemifree_domain::stereo::Turn;
 
 use super::analysis::{self, determine_radical};
 use super::cx;
+use super::double_bonds::{self, Linked, Mark};
 use super::stereo::Neighborhoods;
 use super::tables;
 use super::{MAX_BRANCH_DEPTH, MAX_INPUT_BYTES, MAX_RING_LABEL};
@@ -73,6 +74,16 @@ struct ReadBond {
     symbol: Option<BondOrder>,
     /// The bond symbol when one was written, else the atom pair's later atom.
     span: Span,
+    /// The `/` or `\` written for this bond; the bond is single.
+    mark: Option<Mark>,
+}
+
+/// A bond symbol read and not yet followed by the atom or ring label it belongs to. The
+/// direction of `/` and `\` is part of it, so whoever takes the symbol takes the mark.
+struct PendingBond {
+    order: BondOrder,
+    span: Span,
+    mark: Option<Mark>,
 }
 
 struct OpenRing {
@@ -125,7 +136,7 @@ struct Reader<'a> {
     anchor: Option<usize>,
     /// The atom whose ring labels are being read.
     current: Option<usize>,
-    pending: Option<(BondOrder, Span)>,
+    pending: Option<PendingBond>,
     dot: Option<Span>,
     /// Bracket atoms that named an atom class, by atom index; the class is not kept.
     classes: Vec<(usize, Span)>,
@@ -218,12 +229,9 @@ impl Reader<'_> {
                 b'(' => self.open_branch()?,
                 b')' => self.close_branch()?,
                 b'.' => self.dot_token()?,
-                b'-' | b'=' | b'#' | b':' => self.bond_token(byte)?,
+                b'-' | b'=' | b'#' | b':' | b'/' | b'\\' => self.bond_token(byte)?,
                 b'$' => {
                     return Err(at(SmilesCode::QuadrupleBondUnsupported, self.here()));
-                }
-                b'/' | b'\\' => {
-                    return Err(at(SmilesCode::DirectionalBondUnsupported, self.here()));
                 }
                 b'0'..=b'9' | b'%' => self.ring_token()?,
                 _ => self.atom_token()?,
@@ -241,7 +249,7 @@ impl Reader<'_> {
                 let span = self
                     .pending
                     .as_ref()
-                    .map_or_else(|| self.here(), |(_, span)| *span);
+                    .map_or_else(|| self.here(), |pending| pending.span);
                 Some(at(SmilesCode::DanglingBond, span))
             }
             Prev::Dot => Some(at(
@@ -323,11 +331,14 @@ impl Reader<'_> {
 
     fn bond_token(&mut self, byte: u8) -> Result<(), Fail> {
         let span = self.here();
-        let symbol = match byte {
-            b'-' => BondOrder::Single,
-            b'=' => BondOrder::Double,
-            b'#' => BondOrder::Triple,
-            _ => BondOrder::Aromatic,
+        // `/` and `\` are single bonds that also state a direction.
+        let (symbol, mark) = match byte {
+            b'-' => (BondOrder::Single, None),
+            b'/' => (BondOrder::Single, Some(Mark::Slash)),
+            b'\\' => (BondOrder::Single, Some(Mark::Backslash)),
+            b'=' => (BondOrder::Double, None),
+            b'#' => (BondOrder::Triple, None),
+            _ => (BondOrder::Aromatic, None),
         };
         let next = match self.previous {
             Prev::Start | Prev::Dot => return Err(at(SmilesCode::BondWithoutAtom, span)),
@@ -337,7 +348,11 @@ impl Reader<'_> {
             Prev::Atom => Prev::Bond,
             Prev::Open | Prev::Close => Prev::DetachedBond,
         };
-        self.pending = Some((symbol, span));
+        self.pending = Some(PendingBond {
+            order: symbol,
+            span,
+            mark,
+        });
         self.previous = next;
         self.position += 1;
         Ok(())
@@ -347,7 +362,20 @@ impl Reader<'_> {
         let start = self.position;
         let symbol = match self.previous {
             Prev::Atom => None,
-            Prev::Bond => self.pending.take().map(|(symbol, _)| symbol),
+            Prev::Bond => {
+                let pending = self.pending.take();
+                // Toolkits disagree on which atom a mark on a ring digit is relative to.
+                if let Some(PendingBond {
+                    mark: Some(_),
+                    span,
+                    ..
+                }) = pending
+                {
+                    return Err(at(SmilesCode::DirectionalBondUnsupported, span)
+                        .because("a mark on a ring-closure digit is not read"));
+                }
+                pending.map(|pending| pending.order)
+            }
             Prev::Start => return Err(at(SmilesCode::RingDigitAtStart, self.here())),
             Prev::Open => return Err(at(SmilesCode::RingDigitAfterBranchOpen, self.here())),
             Prev::Close => return Err(at(SmilesCode::RingDigitAfterBranchClose, self.here())),
@@ -431,7 +459,7 @@ impl Reader<'_> {
             (Some(symbol), _) | (None, Some(symbol)) => Some(symbol),
             (None, None) => None,
         };
-        self.add_bond(open.atom, atom, joined, span)?;
+        self.add_bond(open.atom, atom, joined, None, span)?;
         self.neighborhoods.close_ring(atom, open.atom, open.slot);
         Ok(())
     }
@@ -441,6 +469,7 @@ impl Reader<'_> {
         begin: usize,
         end: usize,
         symbol: Option<BondOrder>,
+        mark: Option<Mark>,
         span: Span,
     ) -> Result<(), Fail> {
         self.command_budget(span)?;
@@ -452,6 +481,7 @@ impl Reader<'_> {
             end,
             symbol,
             span,
+            mark,
         });
         Ok(())
     }
@@ -471,11 +501,11 @@ impl Reader<'_> {
         self.neighborhoods.add_atom(atom.chirality);
         self.atoms.push(atom.read);
         if let Some(anchor) = self.anchor {
-            let (symbol, span) = match self.pending.take() {
-                Some((symbol, span)) => (Some(symbol), span),
-                None => (None, Span::new(start, self.position - start)),
+            let (symbol, span, mark) = match self.pending.take() {
+                Some(pending) => (Some(pending.order), pending.span, pending.mark),
+                None => (None, Span::new(start, self.position - start), None),
             };
-            self.add_bond(anchor, index, symbol, span)?;
+            self.add_bond(anchor, index, symbol, mark, span)?;
             self.neighborhoods.chain_bond(anchor, index);
         }
         self.anchor = Some(index);
@@ -787,6 +817,10 @@ impl Reader<'_> {
         for (index, bond) in self.bonds.iter().enumerate() {
             let ring = on_ring.contains(&bond_id(index));
             let both_aromatic = self.atoms[bond.begin].aromatic && self.atoms[bond.end].aromatic;
+            if bond.mark.is_some() && both_aromatic && ring {
+                return Err(at(SmilesCode::DirectionalBondUnsupported, bond.span)
+                    .because("a mark on a bond of an aromatic ring is not read"));
+            }
             orders.push(match &bond.symbol {
                 Some(BondOrder::Aromatic) if !ring => {
                     return Err(at(SmilesCode::AromaticBondOutsideRing, bond.span));
@@ -927,6 +961,20 @@ impl Reader<'_> {
                 .map(|(bond, order)| (bond.begin, bond.end, order))
                 .collect();
             let centers = self.neighborhoods.centers(&finished, &bonds)?;
+            let aromatic: Vec<bool> = atoms.iter().map(|entry| entry.aromatic).collect();
+            let linked: Vec<Linked<'_>> = self
+                .bonds
+                .iter()
+                .zip(&orders)
+                .map(|(bond, order)| Linked {
+                    begin: bond.begin,
+                    end: bond.end,
+                    order,
+                    mark: bond.mark,
+                    span: bond.span,
+                })
+                .collect();
+            let double_bonds = double_bonds::read(&finished, &aromatic, &linked)?;
             let groups = match block {
                 Some((open, close)) => {
                     let marked: HashSet<usize> = centers.iter().map(|center| center.atom).collect();
@@ -937,16 +985,22 @@ impl Reader<'_> {
                 None => Vec::new(),
             };
             // One command per atom, bond, configuration and group in one transaction.
-            let total = atoms.len() + self.bonds.len() + centers.len() + groups.len();
+            let total =
+                atoms.len() + self.bonds.len() + centers.len() + double_bonds.len() + groups.len();
             if total > MAX_COMMANDS {
                 let span = groups
                     .last()
                     .map(|group| group.span)
+                    .or_else(|| double_bonds.last().map(|found| found.span))
                     .or_else(|| centers.last().map(|center| center.span))
                     .unwrap_or_else(|| Span::new(0, 0));
                 return Err(at(SmilesCode::CommandLimit, span));
             }
-            SmilesStereo { centers, groups }
+            SmilesStereo {
+                centers,
+                double_bonds,
+                groups,
+            }
         };
         let read = SmilesRead {
             atoms: atoms

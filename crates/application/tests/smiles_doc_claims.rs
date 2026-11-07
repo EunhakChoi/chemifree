@@ -506,9 +506,14 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
     assert!(bullet.contains("`C(.C)C`") && bullet.contains("`C.(C)C`"));
     assert_eq!(accepted("C(.C)C").bonds.len(), 1);
     assert_eq!(refusal("C.(C)C"), Some("branch_without_atom"));
-    // Two digits of hydrogens, and a directional bond, are refused.
+    // Two digits of hydrogens, and a directional bond on a ring-closure digit, are refused; a
+    // directional bond beside a double bond is read.
     assert_eq!(refusal("[CH10]"), Some("invalid_hydrogen_count"));
-    assert_eq!(refusal("F/C=C/F"), Some("directional_bond_unsupported"));
+    assert_eq!(
+        refusal("C/1=C/CCCCCCC1"),
+        Some("directional_bond_unsupported")
+    );
+    assert_eq!(accepted("F/C=C/F").stereo.double_bonds.len(), 1);
     // The simple ions of the valence model need no consent; a metal does, and so does an
     // unlisted charge. This is what makes `[Na+].[Cl-]` a plain salt.
     assert!(bullet.contains("`[Na+].[Cl-]`"));
@@ -624,27 +629,35 @@ fn the_handoff_smiles_bullet_agrees_with_the_codec() {
     }
 }
 
-/// The "Stereo read" section names exactly the stereo refusal codes the codec has: a code the
-/// text cites exists, and a stereo or CXSMILES code of the codec is cited.
+/// The "Stereo read" and "SMILES double-bond direction" sections name exactly the stereo refusal
+/// codes the codec has: a code the text cites exists, and a stereo, CXSMILES or directional-bond
+/// code of the codec is cited.
 #[test]
-fn the_stereo_read_section_cites_every_stereo_code_and_only_real_ones() {
+fn the_stereo_read_sections_cite_every_stereo_code_and_only_real_ones() {
     let section = contract_section();
-    let start = section
-        .find("### Stereo read (P29c)")
-        .expect("the SMILES section has a Stereo read subsection");
-    let rest = &section[start..];
-    let end = rest[3..].find("\n### ").map_or(rest.len(), |at| at + 3);
-    let stereo = &rest[..end];
+    let subsection = |heading: &str| {
+        let start = section
+            .find(heading)
+            .unwrap_or_else(|| panic!("the SMILES section has {heading}"));
+        let rest = &section[start..];
+        let end = rest[3..].find("\n### ").map_or(rest.len(), |at| at + 3);
+        rest[..end].to_owned()
+    };
+    let stereo = [
+        subsection("### Stereo read (P29c)"),
+        subsection("### SMILES double-bond direction (P29c2a)"),
+    ]
+    .join("\n");
     let stereo_like = |code: &str| {
         code.starts_with("stereo_")
             || code.starts_with("cxsmiles_")
-            || code == "directional_bond_unsupported"
+            || code.starts_with("directional_bond_")
     };
     for code in SmilesCode::ALL.iter().map(|code| code.as_str()) {
         if stereo_like(code) && !code.starts_with("stereo_group") {
             assert!(
                 stereo.contains(&format!("`{code}`")),
-                "the section does not cite `{code}`"
+                "the sections do not cite `{code}`"
             );
         }
     }

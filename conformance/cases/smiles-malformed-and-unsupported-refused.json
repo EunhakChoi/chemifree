@@ -79,7 +79,7 @@
         "operation": "document.import",
         "parameters": {
           "format": "smiles",
-          "source": "F/C=C/F",
+          "source": "c1ccc/cc1",
           "expected_revision": 0,
           "preview": true
         }
@@ -92,7 +92,7 @@
             "code": "directional_bond_unsupported",
             "details": {
               "class": "unsupported",
-              "offset": 1
+              "offset": 5
             }
           }
         ]
