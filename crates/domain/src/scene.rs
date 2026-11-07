@@ -25,7 +25,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::document::{AtomId, BondId, EditError, ObjectId, Point, PositionKey, Vector};
-use crate::settings::{LABEL_SIZE_RANGE, LabelFont};
+use crate::settings::{LABEL_SIZE_RANGE, LINE_WIDTH_RANGE, LabelFont, SettingsError};
 
 /// Scene objects a document holds, of every kind together.
 pub const MAX_OBJECTS: usize = 1_000;
@@ -71,14 +71,27 @@ pub enum GraphicShape {
 /// A simple graphic. It records geometry only; it has no chemical meaning.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Graphic {
+    /// None inherits the document line width dynamically; Some is an explicit point value.
+    pub line_width_pt: Option<f64>,
     pub shape: GraphicShape,
     pub points: [Point; 2],
 }
 
 impl Graphic {
+    pub(crate) fn validate(&self) -> Result<(), EditError> {
+        if self
+            .line_width_pt
+            .is_some_and(|width| !width.is_finite() || !LINE_WIDTH_RANGE.contains(&width))
+        {
+            return Err(SettingsError::LineWidthOutOfRange.into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn translated(&self, delta: Vector) -> Result<Self, EditError> {
         let [first, second] = self.points;
         Ok(Self {
+            line_width_pt: self.line_width_pt,
             shape: self.shape,
             points: [first.translated(delta)?, second.translated(delta)?],
         })
@@ -583,8 +596,10 @@ impl SceneTree {
         let mut pending: Vec<(ObjectId, usize)> = self.roots.iter().map(|id| (*id, 1)).collect();
         while let Some((id, depth)) = pending.pop() {
             let object = self.get(id)?;
-            if let SceneObject::Caption(caption) = object {
-                caption.validate()?;
+            match object {
+                SceneObject::Caption(caption) => caption.validate()?,
+                SceneObject::Graphic(graphic) => graphic.validate()?,
+                _ => {}
             }
             if !seen.insert(id) {
                 return Err(EditError::SceneTreeInvalid(format!(

@@ -50,6 +50,7 @@ pub enum SceneFragmentError {
     UnknownSelection(ObjectId),
     InstanceUnsupported(ObjectId),
     CaptionUnsupported(ObjectId),
+    GraphicLineWidthUnsupported(ObjectId),
     GroupTooSmall(ObjectId),
     InvalidTree,
     DepthLimit,
@@ -71,6 +72,9 @@ impl SceneFragmentError {
             Self::UnknownSelection(_) => "clipboard_scene_selection_unknown",
             Self::InstanceUnsupported(_) => "clipboard_scene_instance_unsupported",
             Self::CaptionUnsupported(_) => "clipboard_scene_caption_unsupported",
+            Self::GraphicLineWidthUnsupported(_) => {
+                "clipboard_scene_graphic_line_width_unsupported"
+            }
             Self::GroupTooSmall(_) => "clipboard_scene_group_too_small",
             Self::InvalidTree => "clipboard_scene_invalid_tree",
             Self::DepthLimit => "clipboard_scene_depth_limit",
@@ -90,6 +94,7 @@ impl fmt::Display for SceneFragmentError {
         match self {
             Self::UnknownSelection(id)
             | Self::CaptionUnsupported(id)
+            | Self::GraphicLineWidthUnsupported(id)
             | Self::InstanceUnsupported(id)
             | Self::GroupTooSmall(id) => {
                 write!(formatter, "{}: {id}", self.as_str())
@@ -128,7 +133,11 @@ fn walk(
     match object {
         SceneObject::Instance => return Err(SceneFragmentError::InstanceUnsupported(id)),
         SceneObject::Caption(_) => return Err(SceneFragmentError::CaptionUnsupported(id)),
-        SceneObject::Graphic(_) => {}
+        SceneObject::Graphic(graphic) => {
+            if graphic.line_width_pt.is_some() {
+                return Err(SceneFragmentError::GraphicLineWidthUnsupported(id));
+            }
+        }
         SceneObject::Group { children } => {
             if children.len() < 2 {
                 return Err(SceneFragmentError::GroupTooSmall(id));

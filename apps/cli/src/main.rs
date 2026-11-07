@@ -873,6 +873,7 @@ fn document_text(response: &DocumentResponse) -> String {
                 parent,
                 shape,
                 points,
+                line_width_pt,
             } => {
                 let shape = match shape {
                     GraphicShapeDto::Line => "line",
@@ -887,6 +888,9 @@ fn document_text(response: &DocumentResponse) -> String {
                     points[1].x,
                     points[1].y
                 ));
+                if let Some(width) = line_width_pt {
+                    lines.push(format!("    line width: {width} pt (override)"));
+                }
             }
         }
     }

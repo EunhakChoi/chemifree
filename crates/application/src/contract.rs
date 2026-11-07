@@ -663,6 +663,11 @@ pub enum CommandDto {
         object: String,
         points: [PointDto; 2],
     },
+    SetGraphicLineWidth {
+        object: String,
+        #[serde(deserialize_with = "nullable")]
+        line_width_pt: Option<f64>,
+    },
     Group {
         objects: Vec<String>,
     },
@@ -1368,6 +1373,7 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             index,
         } => Command::AddGraphic {
             graphic: Graphic {
+                line_width_pt: None,
                 shape: match shape {
                     GraphicShapeDto::Line => GraphicShape::Line,
                     GraphicShapeDto::Rectangle => GraphicShape::Rectangle,
@@ -1377,6 +1383,13 @@ fn to_command(command: &CommandDto) -> Result<Command, Refusal> {
             },
             parent: parent.as_deref().map(instance_id).transpose()?,
             index: *index,
+        },
+        CommandDto::SetGraphicLineWidth {
+            object,
+            line_width_pt,
+        } => Command::SetGraphicLineWidth {
+            object: instance_id(object)?,
+            line_width_pt: *line_width_pt,
         },
         CommandDto::UpdateGraphicPoints { object, points } => Command::UpdateGraphicPoints {
             object: instance_id(object)?,
@@ -2099,6 +2112,7 @@ pub enum SceneObjectView {
     Graphic {
         id: String,
         parent: Option<String>,
+        line_width_pt: Option<f64>,
         shape: GraphicShapeDto,
         points: [PositionView; 2],
     },
@@ -2725,6 +2739,7 @@ impl DocumentResponse {
                                 SceneObject::Graphic(graphic) => SceneObjectView::Graphic {
                                     id,
                                     parent,
+                                    line_width_pt: graphic.line_width_pt,
                                     shape: match graphic.shape {
                                         GraphicShape::Line => GraphicShapeDto::Line,
                                         GraphicShape::Rectangle => GraphicShapeDto::Rectangle,

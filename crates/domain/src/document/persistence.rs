@@ -56,6 +56,9 @@ fn admission_object_weight(object: &SceneObject) -> usize {
 fn object_weight_with(object: &SceneObject, admission: bool) -> usize {
     match object {
         SceneObject::Instance => 128,
+        // Native v26's width field still fits this reservation: at most 244 JSON
+        // bytes for id/state, the longest shape and five <=25-byte f64 lexemes.
+        // Keeping it unchanged preserves every old current/history admission limit.
         SceneObject::Graphic(_) => 256,
         SceneObject::Group { children } => 128 + ids_weight(children.len()),
         SceneObject::Caption(caption) => caption.runs.iter().fold(256_usize, |total, run| {
