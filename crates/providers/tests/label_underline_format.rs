@@ -48,7 +48,7 @@ fn document_and_draft_require_underline_in_current_and_both_history_directions()
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/label-underline.json");
     let template: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(template["format_version"], 24);
+    assert_eq!(template["format_version"], 25);
     for location in [
         "/document/settings",
         "/history/undo/0/settings/before",
@@ -102,14 +102,14 @@ fn document_and_draft_require_underline_in_current_and_both_history_directions()
 }
 
 #[test]
-fn old_headers_forbid_underline_even_in_history_and_future_25_is_untouched() {
+fn old_headers_forbid_underline_even_in_history_and_future_26_is_untouched() {
     let root = tempfile::tempdir().unwrap();
     let repo = FileDocumentRepository::new(root.path());
     let doc = document();
     repo.save(&doc, None).unwrap();
     let path = root.path().join("documents/label-underline.json");
     let template: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    for version in [16, 17, 18, 19, 25] {
+    for version in [16, 17, 18, 19, 26] {
         for location in [
             "/document/settings",
             "/history/undo/0/settings/before",
@@ -153,8 +153,8 @@ fn old_headers_forbid_underline_even_in_history_and_future_25_is_untouched() {
                     repo.load(doc.id()).unwrap_err().to_string()
                 };
                 assert!(
-                    reason.contains(if version == 25 {
-                        "version 25"
+                    reason.contains(if version == 26 {
+                        "version 26"
                     } else {
                         "label_underline"
                     }),

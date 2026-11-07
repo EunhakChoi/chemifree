@@ -58,7 +58,7 @@ async fn explicit_branched_unicode_display_replay_and_refusal_keep_the_graph_ove
     assert_eq!(post(&api, &path, parameters).await.1, contracted);
     assert_eq!(
         contracted["document"]["fragment_displays"],
-        json!([{"instance":"s1","anchor":"a2","members":["a2","a3","a4"],"text":"한 e\u{301} 🧪"}])
+        json!([{"instance":"s1","anchor":"a2","members":["a2","a3","a4"],"text":"한 e\u{301} 🧪","runs":[{"text":"한 e\u{301} 🧪","script":"baseline"}]}])
     );
     for field in ["atoms", "bonds", "scene", "stereo", "settings"] {
         assert_eq!(contracted["document"][field], drawn["document"][field]);

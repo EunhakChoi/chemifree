@@ -86,6 +86,14 @@ fn cli_contracts_edits_text_refuses_nested_members_and_expands_without_graph_cha
         "Ph 한 e\u{301} 🧪"
     );
     assert_eq!(
+        replies[0]["result"]["document"]["fragment_displays"][0]["runs"],
+        json!([{"text":"OMe","script":"baseline"}])
+    );
+    assert_eq!(
+        replies[1]["result"]["document"]["fragment_displays"][0]["runs"],
+        json!([{"text":"Ph 한 e\u{301} 🧪","script":"baseline"}])
+    );
+    assert_eq!(
         replies[2]["diagnostics"][0]["details"]["reason"],
         "fragment_display_invalid"
     );
