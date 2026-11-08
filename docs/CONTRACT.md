@@ -709,9 +709,11 @@ states without rewriting the native bytes. Follow-up clippy and 52 focused tests
 passed. Codex review of `5ea2107` in
 [PR #216](https://github.com/EunhakChoi/chemifree/pull/216) completed without
 findings. #216 merged as `7bec5ea`. A later Codex review of `f69f8de` left one
-unresolved P2: an image ordered before a molecule instance is drawn after the
-global chemical label-shadow group and can cover that instance's shadow; this is
-a known limitation tracked in [#219](https://github.com/EunhakChoi/chemifree/issues/219). The merge commit's main CI run 42350215647 failed
+unresolved P2: an image ordered before a molecule instance was drawn after the
+global chemical label-shadow group and could cover that instance's shadow. That
+known limitation was tracked in [#219](https://github.com/EunhakChoi/chemifree/issues/219)
+and fixed under #219 by painting chemical label shadows per run of consecutive
+instances. The merge commit's main CI run 42350215647 failed
 in a spline cancellation browser test; #217 (`4198438`) fixed the test and main
 run 42353217355 succeeded. A caption-shadow ink-fit check (`scripts/web-caption-check.mjs:513`) failed once in #217's CI
 and passed on rerun; its cause is not determined ([#220](https://github.com/EunhakChoi/chemifree/issues/220)). The closing record is in the
@@ -3218,9 +3220,16 @@ retained-graph Et glyphs. Radical dots/text, attachment marks and independent
 captions keep their own style. Graph, recorded states and stereo are unchanged.
 
 Chemifree adopts its P35i caption shadow policy for chemical glyphs: a +1,+1 pt
-copy in the current foreground color, opacity 0.35, no blur. All chemical shadow
-copies across placements are rendered together in one SVG opacity group before
-foreground drawing; overlap within the shadow stays at 0.35. Filled glyphs,
+copy in the current foreground color, opacity 0.35, no blur. Chemical shadows are
+grouped per run of consecutive instances in scene order: an image, graphic or
+caption ends a run, while a `group` object paints nothing and does not. The
+shadow copies of one run are rendered together in one SVG opacity group painted
+just before that run's first foreground, so overlap within a run stays at 0.35
+and an object painted before the run cannot cover its shadow. A later run's
+shadow paints above earlier runs' foreground where they overlap, as the instance
+itself does, and the shadows of different runs composite separately. Without an
+image, graphic or caption between instances there is one group before every
+foreground. Filled glyphs,
 hollow outline strokes and positive-width explicit underline rectangles keep
 their appearance in the copy. Shadow duplicates carry no foreground measurement
 selectors, atom labels, hit targets or accessible names.

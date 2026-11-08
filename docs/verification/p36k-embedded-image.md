@@ -171,7 +171,9 @@ product tests, builds or browsers.
   touches that file. Main's `structure-canvas.tsx` still draws the shadow group
   before scene objects (source inspection only, not a render check). **This P2 is
   therefore a known limitation, tracked in
-  [#219](https://github.com/EunhakChoi/chemifree/issues/219).**
+  [#219](https://github.com/EunhakChoi/chemifree/issues/219).** It was fixed
+  under #219 afterwards: chemical label shadows are painted per run of consecutive
+  instances (see the CONTRACT section "Chemical label shadow").
 - **#217 reviews:** the PR body records an independent fresh-context review of
   `3530168` with no issues and a Codex review of the same commit with no findings.
   Those reviews concern the test-only fix, not image behavior.
