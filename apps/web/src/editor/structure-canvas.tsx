@@ -1347,22 +1347,38 @@ function ChunkText({ chunk, at, shadow = false, ...rest }: { chunk: LabelChunk; 
  * shadowed label gets no group.
  */
 function shadowRunsFrom(objects: readonly SceneObject[] | undefined, drawings: readonly Drawing[]): ReadonlyMap<string | null, readonly Drawing[]> {
+  // Like Array.prototype.find, the first drawing with an id wins.
+  const drawingById = new Map<string | null, Drawing>()
+  for (const drawing of drawings) {
+    if (!drawingById.has(drawing.id)) drawingById.set(drawing.id, drawing)
+  }
   const runs: Drawing[][] = []
   if (objects) {
     let current: Drawing[] | null = null
     for (const object of objects) {
-      if (object.kind === 'group') continue
-      if (object.kind === 'image' || object.kind === 'caption' || object.kind === 'graphic') {
-        current = null
-        continue
+      switch (object.kind) {
+        case 'group':
+          break
+        case 'image':
+        case 'caption':
+        case 'graphic':
+          current = null
+          break
+        case 'instance': {
+          const drawing = drawingById.get(object.id)
+          if (!drawing) break
+          if (current === null) {
+            current = []
+            runs.push(current)
+          }
+          current.push(drawing)
+          break
+        }
+        default: {
+          const unreachable: never = object
+          throw new Error(`Unsupported scene object: ${String(unreachable)}`)
+        }
       }
-      const drawing = drawings.find((item) => item.id === object.id)
-      if (!drawing) continue
-      if (current === null) {
-        current = []
-        runs.push(current)
-      }
-      current.push(drawing)
     }
   } else if (drawings.length > 0) {
     runs.push([...drawings])
