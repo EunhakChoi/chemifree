@@ -1,5 +1,5 @@
 {
-  "suite_version": 33,
+  "suite_version": 34,
   "cases": [
     "cases/caption-shadow-history.json",
     "cases/transaction-all-or-nothing.json",
@@ -114,6 +114,9 @@
     "cases/native-clipboard-copy-paste-history.json",
     "cases/native-clipboard-refusals-atomic.json",
     "cases/scene-clipboard-forest-history.json",
-    "cases/scene-clipboard-refusals-atomic.json"
+    "cases/scene-clipboard-refusals-atomic.json",
+    "cases/svg-export-drawing.json",
+    "cases/svg-export-needs-consent.json",
+    "cases/svg-import-refused.json"
   ]
 }

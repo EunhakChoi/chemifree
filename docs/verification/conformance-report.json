@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 33,
+  "suite_version": 34,
   "results": [
     {
       "id": "caption-shadow-history",
@@ -192,7 +192,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "95fee6f8e777ba7c1faeb0e64f6efd387d68a41cbc5490ae873ac68c9333f59c"
+      "case_sha256": "ceff9f88f4128785d21c3bcd2bcb9dea82457c948b162394345e4a68605c2058"
     },
     {
       "id": "formula-and-mass",
@@ -1559,21 +1559,60 @@
       "pending": null,
       "failure": null,
       "case_sha256": "8820fb728cfbebf0152b2a051bceef76bb9669cbb09083924bf868ac16320c30"
+    },
+    {
+      "id": "svg-export-drawing",
+      "title": "A carbon chain ending in an oxygen exports its recorded SVG drawing and reports the chemical graph as not drawn",
+      "requirements": [
+        "RENDER-01"
+      ],
+      "axis": "scene",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "fcb77b29ad68ced2bfbfd2f7308018fbab06530a939f14db6cfb1f68a07a05db"
+    },
+    {
+      "id": "svg-export-needs-consent",
+      "title": "SVG export refuses an undrawn stated configuration until its loss digest is repeated, and an edit to the drawing makes that digest stale",
+      "requirements": [
+        "RENDER-01"
+      ],
+      "axis": "scene",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "1d5b811e31a0601aa186b92f9e86d2bc42cef398f4148118e10d11a73013c01b"
+    },
+    {
+      "id": "svg-import-refused",
+      "title": "SVG is written by export only: an SVG import is refused with unsupported_format and the document revision stays unchanged",
+      "requirements": [
+        "RENDER-01"
+      ],
+      "axis": "scene",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "a6ad43445056ba4bbf38e92628f5251bacc7d8e4a73cec42c468ae20019018d9"
     }
   ],
   "counts": {
     "accept": {
-      "passed": 83,
+      "passed": 85,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 31,
+      "passed": 32,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 114,
+      "passed": 117,
       "failed": 0,
       "not_run": 0
     }

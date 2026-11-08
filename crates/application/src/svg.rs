@@ -14,6 +14,7 @@
 mod font;
 mod geometry;
 mod label;
+mod losses;
 mod writer;
 
 use std::collections::BTreeMap;
@@ -25,6 +26,7 @@ use crate::{DocumentView, SceneObjectView};
 pub use font::ADVANCE_TABLE_ID;
 pub use geometry::{LabelBox, Pattern, Point, Stroke};
 pub use label::{AtomLabel, LabelRun};
+pub(crate) use losses::svg_losses;
 
 /// The version of the drawing's markup and geometry. A change to either changes it.
 pub const SVG_MODEL: &str = "chemifree-svg-1";

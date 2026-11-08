@@ -1,8 +1,50 @@
 # Chemifree 새 세션 인계
 
-## P38a1 현재 기준: renderer core, not exposed
+## P38a SVG 도면 export
 
-P38a1 renderer core, not exposed. `crates/application/src/svg.rs`는 `DocumentView`를 SVG 텍스트로 그리는 순수 Rust 코어다. 노출 경로(작업, CLI, HTTP, 적합성 사례, 손실 보고)는 아직 없다(P38a2 이후). web 기하·라벨과의 일치는 `scripts/svg-parity-client-check.mjs`와 고정 parity 자료가 검사한다. P38은 `in_progress`이며 완료가 아니다. 기록: [P38a1](verification/p38a1-svg-renderer.md).
+상태는 `partial`이다. P38a2는 P38a1 렌더러 코어(PR #225, 병합 커밋 `5fefd05d`)를 `document.export`(`format: "svg"`, HTTP·CLI·연산 계약 1)에 연결한다. 이것은 bounded SVG drawing export(P38a)다. 일반 SVG 출력이나 브라우저 캔버스와 같은 그림이라는 주장은 없다. P38은 `in_progress`이고 RENDER-01은 partial이며, 둘 다 완료가 아니다.
+
+**범위**
+
+- 요청 `{ format: "svg", document_id, accepted_losses? }`(`accepted_losses`는 손실 다이제스트 문자열)는 캡처한 스냅샷을 SVG 텍스트로 돌려준다. 결과는 `content`, `media_type`(`image/svg+xml`), `view_box`, `font_table`, `snapshot`이다. 문서, 이력, dirty 상태는 바뀌지 않는다.
+- 원자, 결합, 라벨(원소 또는 질의 기호, H 개수, 전하, 동위원소), 7개 결합 차수 전부, 쐐기·해시·물결 결합을 그린다. 모든 인스턴스를 그린다. 검은색 고정, 투명 배경, pt 단위다.
+- 원자가 있으면 outcome은 `partial`이다. 화학 그래프는 ID와 상태를 포함해 그림으로만 나가므로 `chemical_graph` 손실이 생긴다. 빈 문서는 0×0 SVG와 `ok`다.
+- SVG 가져오기는 `unsupported_format`으로 거절한다. 웹 패널은 없고 `render.scene`은 여전히 `operation_not_implemented`다.
+
+**그리지 않거나 다르게 그리는 것**
+
+시각 특성과 입체 설정은 `accepted_losses` 동의가 필요하다. 제목, 선택, 장면 참조, 장면 그룹은 동의 없이 손실로만 보고한다.
+
+- 라디칼 점과 부착점 표시
+- 이중 결합이 아닌 결합의 교차 입체 표시와 결합 차수에 맞지 않는 입체 표시(일반 결합으로 그린다; 이중 결합의 교차 표시는 교차하는 두 선으로 그리므로 손실이 아니다)
+- 입체 배치와 향상 입체 그룹
+- 라벨 꾸밈 bold·italic·underline·outline·shadow(보통 글자로 그린다)
+- 질의 라벨 목록이 3개를 넘는 경우(잘라서 "…"로 그린다)
+- Et·fragment 축약 표시(전체 그래프로 그린다)
+- 캡션, 그래픽, 이미지
+
+**결정**
+
+- 렌더러는 `crates/application`의 `svg` 모듈이 `DocumentView`를 받아 SVG 텍스트를 만드는 순수 함수다. I/O와 provider 트레이트가 없다.
+- 글꼴은 문서 `label_font`의 일반 계열 키워드를 쓰고, 폭은 `label.ts`에서 옮긴 고정 표(`ADVANCE_TABLE_ID`)로 계산한다. 뷰어 글꼴이 더 넓으면 글자가 예약 상자를 넘을 수 있다.
+- 여백은 4 pt(바깥쪽으로 0.01 단위 반올림)다. 수치는 JS `Math.round` 의미로 0.01 단위 반올림하고, ID와 데이터 속성은 출력하지 않는다.
+- 동의는 손실 목록의 다이제스트에 묶인다. 편집으로 바뀌면 `loss_consent_changed`로 다시 요구한다. 새 오류 코드는 없다.
+- 전용 CLI 하위 명령은 두지 않는다. 호출은 `operations`로만 한다.
+
+검증: 마지막 수정 뒤 샌드박스에서 `npm run check` 종료 코드 0(cargo 테스트 2397 통과·0 실패, 적합성 117/117). 새 테스트의 변이 6개(알 수 없는 인자 허용, 동의 무시, 캡션 손실 제거, 교차 이중 결합 손실 보고, SVG import 허용, `chemical_graph` 동의 필수화)가 모두 테스트나 적합성 사례를 실패시켰다. 브라우저 검사와 뷰어에서의 시각 확인은 하지 않았다. 자세한 내용은 `docs/verification/p38a-svg-export.md`.
+
+PR과 CI 링크: PR 본문과 리뷰 기록 댓글에 둔다.
+
+**다음 단계 (P38b 후보; 순서와 범위는 사용자의 다음 요청이 정한다)**
+
+1. 글자 셰이핑과 경계 엔진(측정 근거로 뷰어 글꼴 차이 줄이기)
+2. 클리핑과 레이어
+3. 장면 그래픽, 캡션, 이미지의 SVG 출력(지금은 동의 손실로만 보고)
+4. 웹과 공유하는 렌더러와 `render.scene` 연결 여부
+
+## P38a1 기록: renderer core (PR #225)
+
+P38a1 renderer core (PR #225). `crates/application/src/svg.rs`는 `DocumentView`를 SVG 텍스트로 그리는 순수 Rust 코어다. 이 기록 시점에는 노출 경로(작업, CLI, HTTP, 적합성 사례, 손실 보고)가 없었고, 노출은 P38a2가 위 섹션대로 연결한다. web 기하·라벨과의 일치는 `scripts/svg-parity-client-check.mjs`와 고정 parity 자료가 검사한다. P38은 `in_progress`이며 완료가 아니다. 기록: [P38a1](verification/p38a1-svg-renderer.md).
 
 ## P36 현재 기준: P36a–k 병합 현황 (#204–#217 확인)
 
@@ -621,7 +663,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 112개(implemented 63, partial 13, unverified 3, not_implemented 33) · conformance 사례 114개(passed 114: accept 83·reject 31, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 113개(implemented 64, partial 13, unverified 3, not_implemented 33) · conformance 사례 117개(passed 117: accept 85·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

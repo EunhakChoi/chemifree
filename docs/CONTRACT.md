@@ -47,7 +47,7 @@ Capabilities: `{ api_version, capabilities: [{ id, label, status, description }]
 | `runtime_inspection` | `available` |
 | `document_editing` | `available` — drawing model only |
 | `structure_analysis` | `available` — the explicitly labeled bounded valence inspection only; operation catalog specifies other operations |
-| `format_conversion` | `available` — the explicitly labeled bounded V2000 and V3000 MOL/SDF, CDXML, CDX and SMILES subsets |
+| `format_conversion` | `available` — only with at least one format codec attached; its label names the attached formats, for example "MOL/SDF, CDXML, CDX, SMILES and SVG subsets" with all three codecs or "MOL/SDF and SVG subsets" with MOL/SDF alone (bounded V2000 and V3000 MOL/SDF, rich CDXML, bounded CDX, bounded OpenSMILES, and the bounded SVG drawing export, P38a, partial, export only); `not_implemented` without a codec |
 | `local_model_loading` | `not_implemented` |
 | `persistence` | `available` — local Chemifree JSON files |
 | `authentication` | `not_implemented` |
@@ -89,7 +89,7 @@ Reply: `{ envelope, contract, request_id, operation, profile, outcome, document_
 | `history.undo`, `history.redo`, `document.save` | `{ document_id, expected_revision }` | same |
 | `document.close` | `{ document_id, discard_unsaved?, expected_revision? }` | `{ document_id, discarded_changes }` |
 | `document.import` | `{ document_id, expected_revision, format, source, record, preview?, preview_digest?, accept_loss? }` (`format` `mol`, `sdf`, `mol-v2000` or `mol-v3000`) | MOL/SDF (V2000 or V3000, detected per record) preview or one atomic document edit; see below |
-| `document.export` | `{ format, records: [{ document_id, fields? }], ctab?, accepted_losses? }` (MOL/SDF; `format` `mol`, `sdf`, `mol-v2000` or `mol-v3000`) | Staged MOL/SDF text (`ctab` `v2000` by default, `v3000` or `auto`), source-index maps and losses, with consent for stereo the file cannot carry; see below |
+| `document.export` | `{ format, records: [{ document_id, fields? }], ctab?, accepted_losses? }` (MOL/SDF; `format` `mol`, `sdf`, `mol-v2000` or `mol-v3000`); `{ format: "svg", document_id, accepted_losses? }` (SVG) | Staged MOL/SDF text (`ctab` `v2000` by default, `v3000` or `auto`), source-index maps and losses, with consent for stereo the file cannot carry; see below. SVG: `{ content, media_type, view_box, font_table, snapshot }` with `loss_report` and consent for the losses marked yes; see [SVG drawing export (P38a)](#svg-drawing-export-p38a) |
 | `document.import`, `document.export` | [Rich CDXML/CDX or editor projection](#cdxml-interchange) | Rich tree, preview, created document, or CDXML text / CDX base64 content |
 | `chem.validate` | `{ document_id }` | `{ snapshot: { document, session, recovery }, atoms: [{ atom_id, bond_order_sum, hydrogens, status, reason }] }`; [policy and limits](#valence-inspection) |
 | `chem.properties` | `{ document_id, scope, property, selection?, data_registration_id? }` | Formula, selected mass or distribution, the analyzed snapshot and calculation metadata; [policy and limits](#formula-and-mass-properties) |
@@ -1816,6 +1816,58 @@ The input is read, then written, and every row is run by the same test: the reco
 
 Not implemented, and refused rather than approximated: see the first paragraph of this section. The web panel (`apps/web/src/components/smiles-panel.tsx`) keeps line breaks in its text area, shows error positions in characters with the bytes in parentheses, and offers a result only for the form, drawing and service it was made for. P33g adds explicit text clipboard transport and replaces preview-local uncertain retry with the shared immutable import attempt. **Check SMILES import outcome** remains available after source edits invalidate the old preview and checks only the original request; a restarted service requires explicit reconciliation. See [the clipboard bridge](#explicit-smiles-text-clipboard-bridge-p33g) for its limits and recovery rules.
 
+## SVG drawing export (P38a)
+
+`document.export` with `format` `svg` writes one SVG drawing of a document's atoms and bonds. This is a bounded SVG drawing export (P38a), status partial: it is export only, it draws the items listed below, and it reports what it leaves out through the loss table. No web UI exposes it, `render.scene` stays `outcome: "unsupported"` (see [Operation contract 1](#operation-contract-1)), and the wider P38 item is still open. The SVG format is listed and executable only in an application built with at least one format codec attached (the API, the CLI and the conformance runner attach all of them); a bare application without codecs refuses `document.export` as not running (outcome `unsupported`, diagnostic `operation_not_implemented`), like every other export format.
+
+**Request and result.** The parameters are `{ format: "svg", document_id, accepted_losses? }`. `accepted_losses` is the `loss_digest` of an earlier refusal, as under Consent below. Unknown or malformed parameters are `invalid_request`. The result is `{ content, media_type, view_box, font_table, snapshot }`: `content` is a UTF-8 SVG document, `media_type` is `image/svg+xml`, `view_box` is `{ x, y, width, height }` in pt, `font_table` is `chemifree-label-advance-1` (see Fonts below), and `snapshot` is the document, session and recovery captured with the drawing, as in `document.snapshot`. The reply's `model_id` is `chemifree-svg-1`, the version of the drawing's markup and geometry; a change to either changes it. The export captures the drawing under its session lock and renders outside that lock. It changes neither the document, its undo history nor its dirty state.
+
+**What is drawn.** Every molecule instance on the page is drawn, with no frame around each one.
+
+- Bonds: all seven bond orders, with wedge, hash and wavy marks. Line width comes from the document settings.
+- Atom labels follow the label rules: a bonded carbon that records nothing is a bare vertex, every other atom is labelled, and with the carbon-label setting at `all`, every carbon is labelled too. A label shows the element or query symbol, the hydrogen count (an unknown count is `?`), the charge and the isotope, in the document's label font and size.
+- Drawn in a simpler form: bold, italic, underline, outline and shadow label styling is drawn as plain text, and an abbreviation or fragment display is drawn as its full graph.
+- A crossed mark on a double bond is drawn as two crossing lines. A crossed mark on any other bond order, or a stereo mark that does not fit its bond order, is drawn as the plain bond order (a consent loss).
+- Not drawn: radical dots and attachment marks (they are left out of label boxes), stereo configurations and enhanced stereo groups, captions, graphics, images, scene groups and references, the selection and the title.
+- All ink is fixed black (`#000000`) on a transparent background; there is no background rectangle.
+
+**Units and view box.** Coordinates and sizes are in pt: the root `width` and `height` are in pt, and the `viewBox` uses the same user units, so one unit is one pt. Numbers are rounded to the hundredth of a pt, and the output carries no IDs or data attributes. The view box is tight. Each drawn atom point is grown by the reach of bond ink for the drawing's line width, each label box by a 4 pt margin on every side, and every edge is then moved outward to the hundredth.
+
+**Decision: atom-less documents.** A document with no atoms has the empty box at the origin, so its SVG is 0 by 0 pt (`viewBox="0 0 0 0"`). Its outcome follows the loss rule like any other drawing: `ok` when it has no losses (an empty document), `partial` otherwise.
+
+**Fonts.** Text uses a generic family from the document's label font: `sans-serif`, `serif` or `monospace`. Fonts are not embedded and glyphs are not converted to outlines, so the viewer's installed font chooses the glyph shapes. Label widths come from the static advance table `chemifree-label-advance-1` (`font_table`), not from the viewer; a character the table does not list uses a fixed fallback advance. A viewer whose font is wider than the table can draw text beyond its reserved box, where it may overlap a bond or, at the drawing's edge, be cut off by the view box.
+
+**Baseline.** Labels are centred with `text-anchor="middle"` and `dominant-baseline="central"`. Some non-browser viewers ignore `dominant-baseline`; in those, labels may not be centred on their atoms.
+
+**Losses.** The loss features are the 16 below, in this fixed order; a drawing reports the ones it contains. Each has disposition `dropped`, a `source_path` that starts with `document`, and ID lists in ascending ID order. The consent column says whether the feature needs `accepted_losses`; a `no` loss still appears in `loss_report` and makes the outcome `partial`. Every drawing with an atom reports `chemical_graph`, so a plain drawing exports without consent but with outcome `partial`: the SVG is a picture, and its graph is not machine-readable.
+
+| feature | `source_path` | `semantic_impact` | consent | when |
+| --- | --- | --- | --- | --- |
+| `chemical_graph` | `document` | `chemistry` | no | any atom: the graph, IDs and states are a picture, not machine-readable |
+| `title` | `document.title` | `document` | no | a title other than the default |
+| `selection` | `document.selection` | `document` | no | a non-empty selection |
+| `scene_references` | `document.scene.references` | `document` | no | any reference |
+| `scene_group` | `document.scene.objects[sN]` | `document` | no | each group, which has no ink of its own |
+| `label_typography` | `document.settings` | `rendering` | yes | a label style is set: bold, italic, underline, outline or shadow |
+| `radical_mark` | `document.atoms[a1, a4]` | `chemistry` | yes | an atom with a radical |
+| `attachment_point_mark` | `document.atoms[..]` | `chemistry` | yes | an attachment point |
+| `query_label_truncated` | `document.atoms[..]` | `chemistry` | yes | a list query with more than 3 elements; the label is drawn with `…` |
+| `stereo_mark` | `document.bonds[..]` | `stereo` | yes | a crossed mark on a bond that is not double, or a mark that does not fit its bond order |
+| `stereo_configuration` | `document.stereo` | `stereo` | yes | any stated center or double-bond configuration |
+| `stereo_group` | `document.stereo.groups[..]` | `stereo` | yes | any enhanced stereo group |
+| `abbreviation_display` | `document.abbreviations[inst:anchor]`, `document.fragment_displays[..]` | `rendering` | yes | each one; the full graph is drawn |
+| `caption` | `document.scene.objects[sN]` | `rendering` | yes | each caption |
+| `graphic` | `document.scene.objects[sN]` | `rendering` | yes | each graphic |
+| `image` | `document.scene.objects[sN]` | `rendering` | yes | each image |
+
+**Consent.** Only a loss marked `yes` must be accepted before content is returned: the `chemical_graph` loss and the other losses marked `no` do not need `accepted_losses`, although they still appear in `loss_report` and make the outcome `partial`. Without a matching `accepted_losses`, the export is refused with `loss_consent_required`: there is no `result`, and `diagnostics[0].details` holds `features` (each name once, in first-seen order), `losses` (the consent-needing entries) and `loss_digest`, a SHA-256 over those entries and the `content` bytes. Repeat the request with `accepted_losses` set to that `loss_digest` to receive the content. If an edit has changed the output or those losses, the old digest is refused with `loss_consent_changed`, and `details` hold the current losses and digest. When no loss needs consent, `accepted_losses` is ignored. This is the digest flow of the CDX and SMILES exports.
+
+**Import.** `document.import` with `format` `svg` is refused rather than parsed: outcome `error`, no `result`, the diagnostic `unsupported_format`, and no change to the document. SVG is written by `document.export` only.
+
+**Errors.** The section adds no error code. It uses `invalid_request` (unknown or malformed parameters), `document_not_found` (no document with that `document_id`), `loss_consent_required` and `loss_consent_changed` (consent), and `unsupported_format` (the import refusal). Each is an operation diagnostic with outcome `error`; see [Errors](#errors).
+
+**Not included.** Text shaping or measured glyph bounds, font embedding or glyph outlines, clipping, layers, drawing of scene groups, captions, graphics or images (those are losses here), and any web or desktop control for SVG export. The operation is reached through `POST /api/v1/operations` and `chemifree operations`; there is no CLI convenience subcommand.
+
 ## Standard InChI and InChIKey
 
 P30 is complete for the bounded Linux generation profile below ([PR #149](https://github.com/EunhakChoi/chemifree/pull/149), merge `853bb8c391b606028d70809d0f30ca76d68e0d62`). `chem.inchi` is a read-only optional provider operation (`model_id: "chemifree-standard-inchi-1"`), not an import/export format, graph identity policy or dedicated web panel. Parameters are `{ document_id, accepted_losses? }`; unknown fields are refused. It captures the open document's graph, groups and snapshot, computes outside the session lock, and returns `snapshot`, `inchi`, `inchikey`, `aux_info`, `warnings`, `native_code`, `native_message`, `native_log`, `standard_semantics`, `provider` and `standard: true`. The provider identity includes name, registered version, checked library SHA-256 build identity and effective options. Nothing changes in the document or its history.
@@ -2607,6 +2659,7 @@ Allowed web origins default to `http://127.0.0.1:5173`, `http://localhost:5173`,
 | 500 | `document_unreadable`, `preferences_unreadable`, `internal_error` |
 | 501 | `setting_not_implemented` |
 | 503 | `storage_failed`, `resource_limit`; also mapped, but reached by no current route: `time_limit`, `cancelled` (see below) |
+| operation reply, HTTP 200 | `unsupported_format` (`document.import` with `format` `svg`; see [SVG drawing export (P38a)](#svg-drawing-export-p38a)) |
 
 `time_limit` and `cancelled` (computation stopped, nothing changed) are diagnostics of operation replies only, which HTTP answers with 200; no v1 route returns them as an HTTP error, and a `cancelled` reply is never delivered over HTTP because its client has gone. The error-code mapping in `apps/api/src/lib.rs` does list them as 503, so a future route that returned them as an `ApiError` would answer 503; no current route does. The CLI uses the same codes, exit status 1. `recovery_pending`, `draft_in_use`, `draft_outdated`, `draft_not_found`, the list query, rename, delete, trash, and restore (and `saved_at_ms`), `request_in_progress`, and the `reason` and `session.draft_failure` fields were added within v1; clients should treat unknown codes by their HTTP status. `request_in_progress` is an exception to read carefully: the outcome is not known yet, so it is not a failure. Ask again later with the same `request_id`. Before it existed, a retry of a running request waited for it and then got its reply. A process keeps at most 64 open sessions. When a new one is needed, a clean session is evicted (the lowest document ID; `recover-as-copy` evicts its own source only when no other session is clean), and `resource_limit` is returned only when all hold unsaved changes; nothing is changed then.
 

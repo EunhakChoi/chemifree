@@ -24,6 +24,7 @@ mod selection_scope;
 mod smiles;
 mod stereo;
 mod substructure;
+mod svg;
 pub(crate) mod template;
 mod transform;
 pub use template::{TemplateAtom, TemplateAttachment, TemplateInspection, TemplateReplacement};
@@ -91,6 +92,7 @@ pub use substructure::{
     AtomPair, BondPair, MATCH_CODES, MappingView, MatchCodeRow, SubstructureLimits,
     SubstructureResult, SubstructureStereo,
 };
+use svg::{SvgExportParameters, SvgExportResult};
 use transform::TransformParameters;
 pub use transform::{TransformPlanResult, TransformedGraphicView, TransformedPositionView};
 
@@ -261,6 +263,8 @@ pub enum OperationResult {
     CtExport(CtExportResult),
     SmilesPreview(Box<SmilesPreviewResult>),
     SmilesExport(Box<SmilesExportResult>),
+    /// `document.export` with `format: "svg"`: a bounded SVG drawing and its document snapshot.
+    SvgExport(Box<SvgExportResult>),
     /// `chem.validate`: inspection and the exact document snapshot it used.
     Valence(Box<ValenceResult>),
     /// `chem.properties` over one immutable document snapshot.
@@ -483,6 +487,9 @@ enum Backend {
     Smiles,
     Interchange,
     Ct,
+    /// The bounded SVG drawing: export only. It has no codec of its own, but it is served only
+    /// by an application with a format codec connected.
+    Svg,
     /// The format names a provider that is not connected.
     NotConnected(&'static str),
 }
@@ -1885,6 +1892,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Some("mol" | "sdf" | "mol-v2000" | "mol-v3000") => {
                 (Backend::Ct, "MOL/SDF", self.ctfile_codec.is_some())
             }
+            // SVG has no provider of its own, so it has no `connected` check. Document import and
+            // export are executable only when a format codec is attached (see `with_format_text`).
+            // Under preserve-semantics, a bare `Application::new` refuses both as not_running
+            // before this call; legacy-observed refuses them earlier as profile_unavailable.
+            Some("svg") => return Backend::Svg,
             _ if self.ctfile_codec.is_none() && self.interchange_codec.is_some() => {
                 return Backend::Interchange;
             }
@@ -2717,6 +2729,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         Err(invalid) => known.invalid(invalid),
                     }
                 }
+                Backend::Svg => known.invalid(diagnostic(
+                    "unsupported_format",
+                    "SVG is written by document.export only; it cannot be imported.",
+                    Map::new(),
+                )),
                 Backend::NotConnected(provider) => known.invalid(not_connected(provider)),
             },
             Op::DocumentExport => match self.format_backend(&parameters_value) {
@@ -2735,6 +2752,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         Err(invalid) => known.invalid(invalid),
                     }
                 }
+                Backend::Svg => match parameters::<SvgExportParameters>(parameters_value) {
+                    Ok(p) => self.svg_export(known, p),
+                    Err(invalid) => known.invalid(invalid),
+                },
                 Backend::NotConnected(provider) => known.invalid(not_connected(provider)),
             },
             Op::ChemProperties => match parameters::<PropertiesParameters>(parameters_value) {

@@ -1615,6 +1615,45 @@ try {
     await both((id) => request('op-save-import', 'document.save', { document_id: id, expected_revision: 3 }))
     await both((id) => request('op-close', 'document.close', { document_id: id }))
 
+    {
+      // SVG drawing export (P38a). A radical dot is a loss the picture does not draw, so the first
+      // export asks for consent with its digest. The accepted export is partial because the atoms
+      // are a picture, not a machine-readable graph. both() compares whole replies, so the content
+      // and the digest also agree between HTTP and the CLI.
+      const outerHttp = httpDoc
+      const outerCli = cliDoc
+      const svgCreate = request('op-svg-create', 'document.create', { title: 'SVG parity' })
+      httpDoc = (await viaHttp(svgCreate)).body.result.document.id
+      cliDoc = (await viaCli(svgCreate)).result.document.id
+      const svgDraw = (id) => request('op-svg-draw', 'document.transaction', {
+        document_id: id,
+        expected_revision: 0,
+        commands: [
+          { op: 'add_atom', element: 'C', position: { x: 0, y: 0 }, radical: 'doublet' },
+          { op: 'add_atom', element: 'O', position: { x: 26, y: 15 }, bond_to: { atom: 'a1', order: 'single' } },
+        ],
+      })
+      assert.equal((await both(svgDraw)).document_revision, 1)
+      const svgBefore = await both((id) => request('op-svg-before', 'document.snapshot', { document_id: id }))
+      const svgRefused = await both((id) => request('op-svg-refused', 'document.export', { format: 'svg', document_id: id }))
+      assert.deepEqual(
+        [svgRefused.outcome, svgRefused.diagnostics[0].code, svgRefused.diagnostics[0].details.features],
+        ['error', 'loss_consent_required', ['radical_mark']])
+      const lossDigest = svgRefused.diagnostics[0].details.loss_digest
+      const svgAccepted = await both((id) => request('op-svg-accepted', 'document.export', {
+        format: 'svg', document_id: id, accepted_losses: lossDigest }))
+      assert.equal(svgAccepted.outcome, 'partial')
+      assert.match(svgAccepted.result.content, /<svg\b/)
+      // An SVG is written by document.export only: importing the one just written is refused.
+      const svgImported = await both((id) => request('op-svg-import', 'document.import', {
+        document_id: id, expected_revision: 1, format: 'svg', source: svgAccepted.result.content }))
+      assert.deepEqual([svgImported.outcome, svgImported.diagnostics[0].code], ['error', 'unsupported_format'])
+      const svgAfter = await both((id) => request('op-svg-after', 'document.snapshot', { document_id: id }))
+      assert.deepEqual(svgAfter.result, svgBefore.result, 'the exports and the refused import change neither graph nor history')
+      httpDoc = outerHttp
+      cliDoc = outerCli
+    }
+
     // The CLI reads at most 1 MiB per request; the line ending, LF or CRLF, does not count.
     const LINE_LIMIT = 1024 * 1024
     /** A capabilities request padded with JSON whitespace to exactly `size` bytes. */

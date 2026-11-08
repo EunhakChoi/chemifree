@@ -1,0 +1,74 @@
+{
+  "id": "svg-import-refused",
+  "title": "SVG is written by export only: an SVG import is refused with unsupported_format and the document revision stays unchanged",
+  "requirements": [
+    "RENDER-01"
+  ],
+  "axis": "scene",
+  "kind": "reject",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_atom",
+          "element": "C",
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "svg-import",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "svg",
+          "source": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10pt\" height=\"10pt\" viewBox=\"0 0 10 10\"/>",
+          "expected_revision": 1
+        }
+      },
+      "expect": {
+        "outcome": "error",
+        "result": null,
+        "diagnostics": [
+          {
+            "code": "unsupported_format"
+          }
+        ]
+      }
+    },
+    {
+      "call": "get",
+      "document": "d",
+      "expect": {
+        "document": {
+          "revision": 1,
+          "atoms": [
+            {
+              "id": "a1",
+              "element": "C"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
