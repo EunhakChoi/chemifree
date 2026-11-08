@@ -194,9 +194,13 @@ limitations, and next dependencies. Complete the cleanup below as part of handof
 
 - When testing is finished, retain required results and failure evidence outside
   disposable environments, then remove all completed disposable test environments
-  and their task-owned processes, temporary data, and worktrees. The sandbox
-  runner's shared build cache is kept between runs; it is capped at 50 GiB and the
-  runner trims it itself, so do not purge it per task.
+  and their task-owned processes, build outputs, temporary data, and worktrees.
+  The one exception is the local sandbox runner's shared build cache
+  (`~/.cache/chemifree/sandbox/target-shared`, outside the repository): the runner
+  caps it at 50 GiB and trims it, so keep it between tasks and do not purge it per
+  task. Clear it with `sandbox-run.sh --purge-all` only when a clean build is
+  needed or the cache is suspect. Cached builds do not change test results, so a
+  verification record need not say whether the cache was warm.
   Confirm no test, build, browser, server, or other task still uses them before
   stopping processes or deleting files. A pending rerun or investigation is ongoing
   work, not a completed environment.
