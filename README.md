@@ -63,7 +63,7 @@ but have not run in this implementation session. See the
 
 Use Node **22.22.2**, npm **11.13.0**, and Rust **1.95.0**. The repository includes `.nvmrc`, `packageManager`, and `rust-toolchain.toml`.
 
-`npm run check:rust` also needs **cargo-nextest 0.9.149** on `PATH`, either from `cargo install cargo-nextest --version 0.9.149 --locked` or from its prebuilt release binary.
+`npm run check:rust` also needs **cargo-nextest 0.9.149** on `PATH`, the version set by `nextest-version` in `.config/nextest.toml`. Install it with `cargo install cargo-nextest --version 0.9.149 --locked` or from its prebuilt release binary.
 
 ```bash
 npm ci
