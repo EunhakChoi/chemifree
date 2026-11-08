@@ -15,7 +15,11 @@ These mutation checks are run by hand. They do not use build caches: a stale cac
 ## 2. Determinism
 
 - Tests supply their own boundaries. The contract smoke starts the API on an ephemeral loopback port with a temporary data directory; the web client check runs against a scripted service rather than a live one (`npm run test:contracts`, `npm run test:client`).
-- The target practice is that sleeps are not synchronization: wait on an observable condition (a response, a file, a process exit), not on elapsed time. The suite does not yet meet this. `scripts/contract-smoke.mjs` has known exceptions: it sleeps 1.5 s after starting a CLI save that holds the cross-process lock, assuming the holder has taken the lock; it then sleeps 1 s after starting a second save, assuming that save is waiting on the lock (and asserts it has not exited); and it sleeps 300 ms after sending an HTTP save, assuming it holds the lock before the CLI save starts. Other sleeps in that script are polling loops (for a held lock, a stamp file or a session state), which wait on a condition. The exceptions are not a model to copy and are candidates for replacement by a condition wait.
+- The target practice is that sleeps are not synchronization: wait on an observable condition (a response, a file, a process exit), not on elapsed time. The suite does not yet meet this. In `scripts/contract-smoke.mjs` the lock waits now poll with a deadline (`waitUntil`). The other `sleep` calls are poll ticks (`waitUntil`, 20 ms; `untilSession`, 100 ms). Two fixed-time sleeps remain:
+  - `sleep(1_000)` checks that a second save is still running after a second while the holder keeps the lock. It remains because a save blocked on the document lock waits in `wait_for_lock`, which emits nothing observable; replacing it needs a production signal from `wait_for_lock` that a save is waiting.
+  - `sleep(400)` paces the edits in the continuous-edit loop. It assumes no gap between edits reaches the 2 s quiet period, so only the 10 s maximum wait starts the draft; the loop then requires the draft between 9.5 s and 13 s after the edits begin.
+
+  The remaining fixed-time sleeps are not a model to copy and are candidates for replacement by a condition wait.
 - A timing flake is a finding. Find the race and fix it; do not retry it away. CI runs the browser checks once, without retries, and the Playwright race behind issue #8 has its own check (`npm run test:browser:routes`).
 
 ## 3. Hostile but legal inputs and boundaries

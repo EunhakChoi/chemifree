@@ -82,6 +82,7 @@ function cli(...args) {
 
 /**
  * Starts a CLI process without waiting; `done` resolves with its result and duration.
+ * `stdout()` and `stderr()` return the output so far, for diagnosing a process that has not finished.
  * Durations use the monotonic clock: the wall clock can be stepped by time synchronization.
  */
 function cliProcess(args, extraEnv = {}) {
@@ -96,11 +97,45 @@ function cliProcess(args, extraEnv = {}) {
     running.delete(child)
     return { status, signal, stderr, body: stdout ? JSON.parse(stdout) : null, ms: Math.round(performance.now() - started) }
   })
-  return { child, done }
+  return { child, done, stdout: () => stdout, stderr: () => stderr }
 }
 
 const sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
 const DELAY = 'CHEMIFREE_TEST_COMMIT_DELAY_MS'
+
+/**
+ * Polls `condition` every 20 ms until it holds. The wait is bounded: if the condition still fails
+ * after `timeout` ms (10 s by default), the check fails with `description` rather than hanging.
+ * `failEarly` runs after each unmet check: it returns null to keep waiting, or the reason the wait
+ * cannot succeed, and the check then fails at once with `description` and that reason.
+ * The condition must be synchronous: an async predicate would always be truthy and end the wait at once.
+ */
+async function waitUntil(condition, description, timeout = 10_000, failEarly = () => null) {
+  const deadline = performance.now() + timeout
+  while (!condition()) {
+    const reason = failEarly()
+    if (reason !== null) assert.fail(`${description}: ${reason}`)
+    if (performance.now() >= deadline) assert.fail(`timed out after ${timeout} ms waiting for ${description}`)
+    await sleep(20)
+  }
+}
+
+/** Held once a non-blocking attempt to take the lock is refused. */
+const lockHeld = (path) => {
+  try {
+    execFileSync('flock', ['--nonblock', '--conflict-exit-code', '9', path, 'true'])
+    return false
+  } catch (error) {
+    if (error.status === 9) return true
+    throw error
+  }
+}
+
+/**
+ * Held once the lock file exists and a non-blocking attempt to take it is refused. The existence
+ * guard stops flock(1) from creating the lock file.
+ */
+const lockTaken = (path) => existsSync(path) && lockHeld(path)
 
 let api
 try {
@@ -318,6 +353,7 @@ try {
   // Six CLI processes save different titles from the same base at once. Each pauses inside
   // the lock between its base check and commit, so without the lock several would commit.
   const raced = cli('documents', 'create', '--title', 'Race', '--json').body.document.id
+  const racedLock = join(dataDir, 'locks', `${raced}.lock`)
   const racers = Array.from({ length: 6 }, (_, index) =>
     cliProcess(
       ['documents', 'apply', raced, '--expected-revision', '0', '--json', '--commands',
@@ -340,11 +376,22 @@ try {
       JSON.stringify([{ op: 'rename', title: 'Killed before commit' }])],
     { [DELAY]: '20000' },
   )
-  await sleep(1_500)
+  // A holder that exits before taking the lock fails the wait at once, reporting its own output.
+  const holderExited = () => {
+    const { child } = holder
+    if (child.exitCode === null && child.signalCode === null) return null
+    return `the CLI exited (code ${child.exitCode}, signal ${child.signalCode}). stdout: ${holder.stdout().trim()} stderr: ${holder.stderr().trim()}`
+  }
+  await waitUntil(() => lockTaken(racedLock), 'the holding save to take the document lock', undefined, holderExited)
   const waiter = cliProcess(['documents', 'apply', raced, '--expected-revision', '1', '--json', '--commands',
     JSON.stringify([{ op: 'rename', title: 'After the crash' }])])
+  // Nothing observable marks a save blocked on the lock, so this is a fixed window rather than a
+  // wait. It bounds how quickly a non-exclusive save is detected: one that did not wait for the
+  // lock would normally exit within this second. Still running does not prove it is blocked,
+  // since a save that is still starting up also runs. The status, title and timing assertions
+  // after the holder is killed show the save completing with its own change within 8 seconds.
   await sleep(1_000)
-  assert.equal(waiter.child.exitCode, null, 'the second save waits while the lock is held')
+  assert.equal(waiter.child.exitCode, null, 'the second save is still running one second after it started')
   holder.child.kill('SIGKILL')
   await holder.done
   const afterCrash = await waiter.done
@@ -353,16 +400,20 @@ try {
   assert.ok(afterCrash.ms < 8_000, `released promptly (${afterCrash.ms} ms)`)
 
   // HTTP and the CLI share the lock: a CLI save from the same base waits for the API's
-  // commit and is then refused as a conflict.
-  await restartApi('SIGTERM', { [DELAY]: '1500' })
+  // commit and is then refused as a conflict. The pause must be much longer than the 20 ms
+  // probe tick plus a stalled event loop, or the probe can miss the lock. The CLI below waits
+  // for it up to SAVE_LOCK_WAIT (5 s, crates/providers/src/file_store.rs), so the pause stays
+  // 2 s under that.
+  await restartApi('SIGTERM', { [DELAY]: '3000' })
   const racedPath = `/api/v1/documents/${raced}`
   await write(`${racedPath}/transactions`, {
     request_id: 'race-http',
     expected_revision: 2,
     commands: [{ op: 'rename', title: 'From HTTP' }],
   })
-  const httpSave = write(`${racedPath}/save`, { request_id: 'race-save', expected_revision: 3 })
-  await sleep(300)
+  // The save waits out the pause, so its request gets more time than the default 5 s timeout.
+  const httpSave = write(`${racedPath}/save`, { request_id: 'race-save', expected_revision: 3 }, 10_000)
+  await waitUntil(() => lockTaken(racedLock), 'the HTTP save to take the document lock')
   const cliRace = cliProcess(['documents', 'apply', raced, '--expected-revision', '2', '--json', '--commands',
     JSON.stringify([{ op: 'rename', title: 'From CLI' }])])
   assert.equal((await httpSave).status, 200)
@@ -587,23 +638,13 @@ try {
   const busyBytes = readFileSync(busyFile)
   const documentCount = () => readdirSync(join(dataDir, 'documents')).filter((name) => name.endsWith('.json')).length
   const busyDocuments = documentCount()
-  /** Held once a non-blocking attempt to take the lock is refused. */
-  const lockHeld = (path) => {
-    try {
-      execFileSync('flock', ['--nonblock', '--conflict-exit-code', '9', path, 'true'])
-      return false
-    } catch (error) {
-      if (error.status === 9) return true
-      throw error
-    }
-  }
   const timed = async (request) => {
     const started = performance.now()
     const result = await request
     return { ...result, ms: performance.now() - started }
   }
   const pausedSave = write(`${busyPath}/save`, { request_id: 'busy-save', expected_revision: 1 }, 30_000)
-  while (!existsSync(busyLock) || !lockHeld(busyLock)) await sleep(20)
+  await waitUntil(() => lockTaken(busyLock), 'the paused save to take its document lock')
   const asked = await timed(write(`${busyPath}/save`, { request_id: 'busy-save', expected_revision: 1 }))
   assert.deepEqual([asked.status, asked.body.code], [409, 'request_in_progress'])
   assert.ok(asked.ms < 1_000, `answered at once (${Math.round(asked.ms)} ms)`)
@@ -795,7 +836,7 @@ try {
   const crashing = (await write('/api/v1/documents', { request_id: 'crash-delete-create', title: 'Interrupted delete' })).body.document.id
   const killed = cliProcess(['documents', 'delete', crashing, '--expected-revision', '0', '--json'], { [DELAY]: '20000' })
   const stamp = join(dataDir, 'trash', `${crashing}.deleted`)
-  while (!existsSync(stamp)) await sleep(20) // Inside the delete: the stamp precedes the move.
+  await waitUntil(() => existsSync(stamp), 'the delete to write its stamp') // Inside the delete: the stamp precedes the move.
   killed.child.kill('SIGKILL')
   await killed.done
   assert.ok(existsSync(join(dataDir, 'documents', `${crashing}.json`)), 'still stored')
