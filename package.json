@@ -21,7 +21,7 @@
     "lint": "npm run lint --workspace @chemifree/web",
     "typecheck": "npm run typecheck --workspace @chemifree/web",
     "check:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked",
-    "test:client": "node scripts/web-client-check.mjs && node scripts/web-fragment-display-client-check.mjs && node scripts/web-graphic-points-client-check.mjs && node scripts/web-graphic-creation-client-check.mjs && node scripts/web-graphic-line-width-client-check.mjs && node scripts/web-styled-clipboard-client-check.mjs && node scripts/web-selection-rotation-client-check.mjs && node scripts/web-scene-order-client-check.mjs && node scripts/web-ellipse-client-check.mjs && node scripts/web-polygon-client-check.mjs && node scripts/web-spline-client-check.mjs && node scripts/web-image-client-check.mjs",
+    "test:client": "node scripts/web-client-check.mjs && node scripts/web-fragment-display-client-check.mjs && node scripts/web-graphic-points-client-check.mjs && node scripts/web-graphic-creation-client-check.mjs && node scripts/web-graphic-line-width-client-check.mjs && node scripts/web-styled-clipboard-client-check.mjs && node scripts/web-selection-rotation-client-check.mjs && node scripts/web-scene-order-client-check.mjs && node scripts/web-ellipse-client-check.mjs && node scripts/web-polygon-client-check.mjs && node scripts/web-spline-client-check.mjs && node scripts/web-image-client-check.mjs && node scripts/svg-parity-client-check.mjs",
     "test:contracts": "node scripts/contract-smoke.mjs",
     "test:browser": "node scripts/browser-smoke.mjs",
     "test:browser:stereo-manual": "node scripts/web-stereo-manual-check.mjs",

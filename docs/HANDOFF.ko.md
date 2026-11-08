@@ -1,5 +1,9 @@
 # Chemifree 새 세션 인계
 
+## P38a1 현재 기준: renderer core, not exposed
+
+P38a1 renderer core, not exposed. `crates/application/src/svg.rs`는 `DocumentView`를 SVG 텍스트로 그리는 순수 Rust 코어다. 노출 경로(작업, CLI, HTTP, 적합성 사례, 손실 보고)는 아직 없다(P38a2 이후). web 기하·라벨과의 일치는 `scripts/svg-parity-client-check.mjs`와 고정 parity 자료가 검사한다. P38은 `in_progress`이며 완료가 아니다. 기록: [P38a1](verification/p38a1-svg-renderer.md).
+
 ## P36 현재 기준: P36a–k 병합 현황 (#204–#217 확인)
 
 P36(그래픽)은 `in_progress`이며 완료가 아니다. 사용자가 2026-11-07 세션에서 **P36k PNG 이미지 이후 P36을 중단시켰다. 다음 범위는 사용자의 다음 요청이 정한다(상시 제약이 아니다).** 아래는 `gh pr view`와 `gh run list --branch main`으로 확인한 병합·main CI 사실이다. 슬라이스와 PR의 대응은 PR 제목과 기존 기록을 대조한 것이다. 이 표가 아래 각 P36 항목의 "대기/pending" 문구보다 우선하며, 그 문구는 작성 당시 기록으로 남긴다.
