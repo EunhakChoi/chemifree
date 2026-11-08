@@ -118,6 +118,29 @@ interface Drawing {
 const sameLocated = (a: Located | null, b: Located | null) =>
   a === b || (a !== null && b !== null && a.instance === b.instance && sameHit(a.hit, b.hit))
 
+/** The SVG measurement of one drawing's captions and labels, with the document it was taken from. */
+interface CaptionMeasurement {
+  document: DocumentView
+  boxes: Map<string, Box>
+  labelMetrics: LabelMetrics
+  fontsReady: boolean
+  viewBox: string | undefined
+}
+
+/**
+ * The measurement that still describes `document`. Its boxes depend only on what is drawn, so a
+ * new object with equal content keeps it; a different drawing drops it, whatever its revision.
+ */
+export function captionMeasurementFor(measurement: CaptionMeasurement | null, document: DocumentView): CaptionMeasurement | null {
+  if (measurement === null) return null
+  return measurement.document === document || drawnKey(measurement.document) === drawnKey(document) ? measurement : null
+}
+
+/** What the canvas draws or measures in a document. The revision number is left out: a drawing is identified by what it draws. */
+function drawnKey(document: DocumentView): string {
+  return JSON.stringify([document.id, document.atoms, document.bonds, document.scene, settingsOf(document), document.abbreviations ?? [], document.fragment_displays ?? []])
+}
+
 /** A missing, non-finite or singular screen transform cannot locate an edit. */
 function pointerPosition(svg: SVGSVGElement | null, event: { clientX: number; clientY: number }): Position | null {
   const matrix = svg?.getScreenCTM()
@@ -222,11 +245,10 @@ export function StructureCanvas({
   const activePolygon = polygonDraft && tool === 'graphic' && polygonDraftCurrent(document, graphicShape, serviceGeneration, polygonDraft) ? polygonDraft : null
   const [hover, setHover] = useState<Located | null>(null)
   const selectedGeometry = selectionGeometry(document, selection, activePlacement)
-  const [captionMeasurement, setCaptionMeasurement] = useState<{ document: DocumentView; boxes: Map<string, Box>; labelMetrics: LabelMetrics; fontsReady: boolean; viewBox: string | undefined } | null>(null)
-  const captionBoxes = useMemo<ReadonlyMap<string, Box>>(
-    () => captionMeasurement?.document === document ? captionMeasurement.boxes : new Map<string, Box>(),
-    [captionMeasurement, document],
-  )
+  const [captionMeasurement, setCaptionMeasurement] = useState<CaptionMeasurement | null>(null)
+  // An equal document keeps its measurement: an adopted autosave reply must not unmount caption hit boxes.
+  const measured = useMemo(() => captionMeasurementFor(captionMeasurement, document), [captionMeasurement, document])
+  const captionBoxes = useMemo<ReadonlyMap<string, Box>>(() => measured?.boxes ?? new Map<string, Box>(), [measured])
   useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
@@ -352,7 +374,7 @@ export function StructureCanvas({
   // the view box, and hit testing all use.
   const drawings = useMemo<Drawing[]>(() => {
     const settings = settingsOf(document)
-    const style = labelStyleOf(settings, captionMeasurement?.document === document ? captionMeasurement.labelMetrics : undefined)
+    const style = labelStyleOf(settings, measured?.labelMetrics)
     const lineWidth = settings.line_width_pt
     const spacing = bondSpacing(lineWidth)
     const reach = strokeReach(lineWidth, spacing) + 3
@@ -391,7 +413,7 @@ export function StructureCanvas({
           : null
       return { id: placement.id, view, atoms: index, labels, sides, strokes: drawingStrokes(view, labels, index, sides, spacing, lineWidth), frame, lineWidth, spacing, reach, font: style.font }
     })
-  }, [document, captionMeasurement])
+  }, [document, measured])
   // The view box holds every atom, label box, and placement frame (with its ID).
   const box = useMemo(
     () =>
@@ -418,18 +440,18 @@ export function StructureCanvas({
     [...drawing.labels.entries()].every(([id, label]) => label === null ||
       (!styledLabels && !compactDisplaysIn(document, drawing.id).some((item) => item.anchor === id && (!item.ethyl || item.text !== 'Et'))) ||
       label.chunks.every((chunk) => chunk.measured)))
-  const captionMeasurementComplete = chemicalMeasurementComplete && ((captionCount === 0 && !measuredLabels) || (captionMeasurement?.document === document &&
-    captionMeasurement.fontsReady && captionMeasurement.boxes.size === captionCount))
+  const captionMeasurementComplete = chemicalMeasurementComplete && ((captionCount === 0 && !measuredLabels) || (measured !== null &&
+    measured.fontsReady && measured.boxes.size === captionCount))
   const { containerRef, viewport, viewBox: canvasViewBox, zoom, fit, pan } = useCanvasViewport(document.id, box, {
     // Opening fit needs the first complete measurement, even though fitting will
     // change the viewport and require a second measurement there.
     boundsReady: captionMeasurementComplete,
-    measuredViewBox: (captionCount > 0 || measuredLabels) && captionMeasurement?.document === document ? captionMeasurement.viewBox : undefined,
+    measuredViewBox: (captionCount > 0 || measuredLabels) ? measured?.viewBox : undefined,
     contentIdentity: document,
   })
   // Font metrics can change with SVG scale. Completeness permits initial fitting;
   // readiness describes bounds measured in the viewport that is actually painted.
-  const captionBoundsReady = captionMeasurementComplete && ((captionCount === 0 && !measuredLabels) || captionMeasurement?.viewBox === canvasViewBox)
+  const captionBoundsReady = captionMeasurementComplete && ((captionCount === 0 && !measuredLabels) || measured?.viewBox === canvasViewBox)
   const unitsPerPixel = 1 / viewport.scale
 
   function drawingOf(instance: string | null) {
@@ -915,8 +937,37 @@ export function StructureCanvas({
     }
     return false
   }
+  // An instance painted above an image, graphic or caption draws its shadows with its own
+  // foreground, so that object cannot cover them. Shadows of instances below all such objects
+  // share one layer, painted before every foreground.
+  const instancesAboveObjects = useMemo(() => {
+    const objects = document.scene?.objects ?? []
+    const first = objects.findIndex((object) => object.kind === 'image' || object.kind === 'caption' || object.kind === 'graphic')
+    const fromFirst: SceneObject[] = first < 0 ? [] : objects.slice(first)
+    return new Set(fromFirst.filter((object) => object.kind === 'instance').map((object) => object.id))
+  }, [document])
+  const drawsOwnShadows = (drawing: Drawing) => drawing.id !== null && instancesAboveObjects.has(drawing.id)
+  // Group opacity composites one layer's shadows once, so overlapping shadows do not accumulate.
+  const shadowLayer = (layer: Drawing[]) => (
+    <g data-chemical-label-shadows="" opacity={0.35} transform="translate(1 1)" aria-hidden="true" pointerEvents="none">
+      {layer.map((drawing) => (
+        <g key={drawing.id ?? 'atoms'} className={cn('fill-foreground', drawing.font === 'sans-serif' && 'font-sans')}
+          fontFamily={drawing.font === 'sans-serif' ? undefined : drawing.font}>
+          {drawing.view.atoms.map((atom) => {
+            const label = drawing.labels.get(atom.id)
+            return label?.shadow ? label.chunks.map((chunk, index) => (
+              <g key={`${atom.id}-${index}`} data-chemical-shadow-atom={atom.id}>
+                <ChunkText chunk={chunk} at={position(drawing, atom.id)} shadow />
+              </g>
+            )) : null
+          })}
+        </g>
+      ))}
+    </g>
+  )
   const drawInstance = (drawing: Drawing) => (
     <g key={drawing.id ?? 'atoms'} data-instance={drawing.id ?? undefined}>
+      {drawsOwnShadows(drawing) && shadowLayer([drawing])}
       {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
       {/* Decorative chemical highlights must not become transient pointer targets. */}
       <g className="fill-primary/15 stroke-primary/40" pointerEvents="none">
@@ -996,7 +1047,7 @@ export function StructureCanvas({
       role="group"
       data-structure-canvas=""
       data-caption-bounds-ready={captionBoundsReady}
-      data-caption-measured-view-box={captionMeasurement?.document === document ? captionMeasurement.viewBox : undefined}
+      data-caption-measured-view-box={measured?.viewBox}
       aria-label={`${document.title}: ${document.atoms.length} atoms and ${document.bonds.length} bonds`}
       viewBox={canvasViewBox}
       data-viewport-scale={viewport.scale}
@@ -1019,22 +1070,8 @@ export function StructureCanvas({
       onLostPointerCapture={(event) => { if (pointer.current?.id === event.pointerId) cancelPointer() }}
       onPointerLeave={() => setHover(null)}
     >
-      {/* Group opacity composites every chemical shadow once before any foreground. */}
-      <g data-chemical-label-shadows="" opacity={0.35} transform="translate(1 1)" aria-hidden="true" pointerEvents="none">
-        {drawings.map((drawing) => (
-          <g key={drawing.id ?? 'atoms'} className={cn('fill-foreground', drawing.font === 'sans-serif' && 'font-sans')}
-            fontFamily={drawing.font === 'sans-serif' ? undefined : drawing.font}>
-            {drawing.view.atoms.map((atom) => {
-              const label = drawing.labels.get(atom.id)
-              return label?.shadow ? label.chunks.map((chunk, index) => (
-                <g key={`${atom.id}-${index}`} data-chemical-shadow-atom={atom.id}>
-                  <ChunkText chunk={chunk} at={position(drawing, atom.id)} shadow />
-                </g>
-              )) : null
-            })}
-          </g>
-        ))}
-      </g>
+      {/* Instances below every image, graphic and caption: their shadows paint before any foreground. */}
+      {shadowLayer(drawings.filter((drawing) => !drawsOwnShadows(drawing)))}
       {sceneObjects ? sceneObjects.map((object) => {
         if (object.kind === 'group') return null
         if (object.kind === 'image') return (

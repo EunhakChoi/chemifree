@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { ringSource } from './lib/ring-fixture.mjs'
 
@@ -189,4 +190,116 @@ for (const shadow of [null, 0, 1, 'true', 'false', [], {}]) test(`caption shadow
   const result = source()
   result.document.scene.objects.at(-1).runs[0].shadow = shadow
   assert.equal(isDocumentResponse(result), false)
+})
+
+// Node cannot load TSX and the alias hook maps `@/` only to `.ts`, so Vite loads the component
+// with the web app's own config. The component takes its caption boxes, label metrics and
+// readiness from the helper under test.
+describe('a caption measurement follows the drawn content, not the document object', () => {
+  let vite
+  let captionMeasurementFor
+  before(async () => {
+    const { createServer } = await import('vite')
+    vite = await createServer({
+      root: fileURLToPath(new URL('../apps/web/', import.meta.url)),
+      appType: 'custom',
+      logLevel: 'silent',
+      server: { middlewareMode: true, hmr: false, watch: null },
+    })
+    const canvas = await vite.ssrLoadModule('/src/editor/structure-canvas.tsx')
+    captionMeasurementFor = canvas.captionMeasurementFor
+  })
+  after(() => vite?.close())
+
+  const measurementOf = (document) => ({
+    document,
+    boxes: new Map([['s8', { x: 90, y: 20, width: 60, height: 30 }]]),
+    labelMetrics: { runs: new Map(), chunks: new Map() },
+    fontsReady: true,
+    viewBox: '0 0 300 200',
+  })
+
+  test('an adopted document with the same drawn content keeps the caption measurement', () => {
+    const { document } = source()
+    const measurement = measurementOf(document)
+    assert.equal(captionMeasurementFor(measurement, structuredClone(document)), measurement)
+  })
+
+  test('a caption that moved drops the caption measurement', () => {
+    const { document } = source()
+    const moved = structuredClone(document)
+    moved.scene.objects.at(-1).anchor = { x: 101, y: 40 }
+    assert.equal(captionMeasurementFor(measurementOf(document), moved), null)
+  })
+
+  test('the same revision number with other caption text drops the caption measurement', () => {
+    const { document } = source()
+    const other = structuredClone(document)
+    other.scene.objects.at(-1).runs[0].text = 'Other'
+    assert.equal(other.revision, document.revision)
+    assert.equal(captionMeasurementFor(measurementOf(document), other), null)
+  })
+})
+
+// The canvas paints scene objects in array order, so an image before an instance is painted under it.
+describe('a label shadow paints with the instance that draws it', () => {
+  let vite
+  let canvas
+  let createElement
+  let renderToStaticMarkup
+  before(async () => {
+    const { createServer } = await import('vite')
+    vite = await createServer({
+      root: fileURLToPath(new URL('../apps/web/', import.meta.url)),
+      appType: 'custom',
+      logLevel: 'silent',
+      server: { middlewareMode: true, hmr: false, watch: null },
+    })
+    canvas = await vite.ssrLoadModule('/src/editor/structure-canvas.tsx')
+    createElement = (await import('react')).createElement
+    renderToStaticMarkup = (await import('react-dom/server')).renderToStaticMarkup
+  })
+  after(() => vite?.close())
+
+  const instance = { kind: 'instance', id: 's1', parent: null, molecule: 'm1' }
+  const image = { kind: 'image', id: 'img', parent: null, mime_type: 'image/png', data_base64: 'iVBORw0KGgo=', origin: { x: -10, y: -10 }, size_pt: { x: 200, y: 200 }, pixel_width: 1, pixel_height: 1 }
+  const SHADOW = 'data-chemical-shadow-atom="a2"'
+  const FOREGROUND = 'data-atom-label="a2"'
+  const IMAGE = 'data-scene-image="img"'
+
+  function markupOf(objects) {
+    const { document } = ringSource()
+    document.settings.label_shadow = true
+    document.scene.objects = objects
+    document.scene.roots = objects.map((object) => object.id)
+    document.scene.references = []
+    return renderToStaticMarkup(createElement(canvas.StructureCanvas, {
+      document, tool: 'select', element: 'C', bondKind: 'single', selection: new Set(), activePlacement: 's1',
+      onSelectionChange() {}, onActivePlacementChange() {}, onCommands() {}, onMark() {},
+    }))
+  }
+  function paintedAt(html, marker) {
+    const index = html.indexOf(marker)
+    assert.notEqual(index, -1, `${marker} is not in the markup`)
+    return index
+  }
+
+  test('an image ordered before the molecule does not cover the molecule shadow', () => {
+    const html = markupOf([image, instance])
+    assert.ok(paintedAt(html, IMAGE) < paintedAt(html, SHADOW), 'the shadow must paint after the image')
+    assert.ok(paintedAt(html, 'data-instance="s1"') < paintedAt(html, SHADOW), 'the shadow must travel inside its instance')
+    assert.ok(paintedAt(html, SHADOW) < paintedAt(html, FOREGROUND), 'the shadow must paint before its foreground')
+  })
+
+  test('an image ordered after the molecule still covers its shadow and foreground', () => {
+    const html = markupOf([instance, image])
+    assert.ok(paintedAt(html, SHADOW) < paintedAt(html, IMAGE))
+    assert.ok(paintedAt(html, FOREGROUND) < paintedAt(html, IMAGE))
+  })
+
+  test('without images, one shared shadow layer paints before the foreground', () => {
+    const html = markupOf([instance])
+    assert.equal(html.split('data-chemical-label-shadows').length - 1, 1)
+    assert.ok(paintedAt(html, 'data-chemical-label-shadows') < paintedAt(html, FOREGROUND))
+  })
 })
