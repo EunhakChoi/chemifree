@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { ringSource } from './lib/ring-fixture.mjs'
 
@@ -189,4 +190,53 @@ for (const shadow of [null, 0, 1, 'true', 'false', [], {}]) test(`caption shadow
   const result = source()
   result.document.scene.objects.at(-1).runs[0].shadow = shadow
   assert.equal(isDocumentResponse(result), false)
+})
+
+// Node cannot load TSX and the alias hook maps `@/` only to `.ts`, so Vite loads the component
+// with the web app's own config. The component takes its caption boxes, label metrics and
+// readiness from the helper under test.
+describe('a caption measurement follows the drawn content, not the document object', () => {
+  let vite
+  let captionMeasurementFor
+  before(async () => {
+    const { createServer } = await import('vite')
+    vite = await createServer({
+      root: fileURLToPath(new URL('../apps/web/', import.meta.url)),
+      appType: 'custom',
+      logLevel: 'silent',
+      server: { middlewareMode: true, hmr: false, watch: null },
+    })
+    const canvas = await vite.ssrLoadModule('/src/editor/structure-canvas.tsx')
+    captionMeasurementFor = canvas.captionMeasurementFor
+  })
+  after(() => vite?.close())
+
+  const measurementOf = (document) => ({
+    document,
+    boxes: new Map([['s8', { x: 90, y: 20, width: 60, height: 30 }]]),
+    labelMetrics: { runs: new Map(), chunks: new Map() },
+    fontsReady: true,
+    viewBox: '0 0 300 200',
+  })
+
+  test('an adopted document with the same drawn content keeps the caption measurement', () => {
+    const { document } = source()
+    const measurement = measurementOf(document)
+    assert.equal(captionMeasurementFor(measurement, structuredClone(document)), measurement)
+  })
+
+  test('a caption that moved drops the caption measurement', () => {
+    const { document } = source()
+    const moved = structuredClone(document)
+    moved.scene.objects.at(-1).anchor = { x: 101, y: 40 }
+    assert.equal(captionMeasurementFor(measurementOf(document), moved), null)
+  })
+
+  test('the same revision number with other caption text drops the caption measurement', () => {
+    const { document } = source()
+    const other = structuredClone(document)
+    other.scene.objects.at(-1).runs[0].text = 'Other'
+    assert.equal(other.revision, document.revision)
+    assert.equal(captionMeasurementFor(measurementOf(document), other), null)
+  })
 })

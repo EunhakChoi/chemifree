@@ -192,11 +192,11 @@ createRoot(document.getElementById('root')).render(<Harness />)
     const canvas = document.querySelector('[data-structure-canvas]')
     return canvas?.dataset.captionBoundsReady === 'true' && canvas.dataset.captionMeasuredViewBox === canvas.getAttribute('viewBox')
   }, undefined, { polling: 50 })
-  // A draft autosave reply arrives one second after an edit. It replaces the document object
-  // with identical content, which unmounts the caption hit box and clears readiness until the
-  // next frame measures again. Waiting for readiness and then reading leaves a gap in which that
-  // can happen, so the reader checks window.captionMeasuredNow in the same page task as its
-  // geometry reads and returns null when the canvas is between measurements.
+  // A draft autosave reply arrives one second after an edit. A reply with the same drawn content
+  // keeps the measurement, but an edit that changes the drawing clears readiness until the next
+  // frame measures again. Waiting for readiness and then reading leaves a gap in which that can
+  // happen, so the reader checks window.captionMeasuredNow in the same page task as its geometry
+  // reads and returns null when the canvas is between measurements.
   const measuredRead = async (read, argument) => {
     const deadline = Date.now() + 30_000
     while (Date.now() < deadline) {
@@ -616,26 +616,64 @@ createRoot(document.getElementById('root')).render(<Harness />)
     await waitForCaptionEdit(shadowRevision, before.runs)
     assert.deepEqual((await caption()).runs, before.runs)
   }
-  stage = 'caption ink is read only while the current document is measured'
+  stage = 'caption ink is read only while the current drawing is measured'
   await waitForCaptionMeasurement()
-  // Reproduce the state a draft autosave reply creates: a same-content document object, the
-  // hit box unmounted and measurement pending. Held frames keep it pending. The reload runs from
-  // the page because Playwright's own actionability checks wait for frames.
+  // Reads and fits are allowed only while the canvas measures the drawing it paints. The reader
+  // returns null otherwise, so both parts below share it.
+  const hitAndInk = (text) => {
+    if (!window.captionMeasuredNow(text)) return null
+    const hit = window.captionHitBox(text).getBBox(), ink = text.getBBox()
+    return { hit: [hit.x, hit.y, hit.width, hit.height], expected: [ink.x - 2, ink.y - 2, ink.width + 4, ink.height + 4] }
+  }
   assert.equal(await button('Reload caption drawing').count(), 1, 'the harness offers one reload control')
   await page.waitForFunction(() => [...document.querySelectorAll('button')].some((control) => control.textContent === 'Reload caption drawing' && !control.disabled), undefined, { polling: 50 })
+  // Part 1: a same-content document object keeps the measurement, as a draft autosave reply with the
+  // same content does. The reload fetches the drawing the service already holds, so the hit box stays
+  // while frames are held. The reload disables its button while it runs and enables it once its reply
+  // is applied. A poll of the button could miss that window, so the page records the disabled-to-enabled
+  // transition with a MutationObserver (a microtask, not a frame) and the poll waits for that record.
+  // The snapshot text is not a reliable signal: a same-content reply may serialize to the same text.
   try {
     await page.evaluate(() => {
+      const control = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Reload caption drawing')
+      let sawBusy = false
+      window.reloadLanded = false
+      const observer = new MutationObserver(() => {
+        if (control.disabled) sawBusy = true
+        else if (sawBusy) {
+          observer.disconnect()
+          window.reloadLanded = true
+        }
+      })
+      observer.observe(control, { attributes: true, attributeFilter: ['disabled'] })
       window.holdAnimationFrames()
       window.clickButton('Reload caption drawing')
     })
-    await page.waitForFunction(() => document.querySelector('[data-structure-canvas]').dataset.captionBoundsReady === 'false' && document.querySelector('[data-caption-text]').parentElement.querySelector(':scope > rect') === null, undefined, { polling: 50 })
+    await page.waitForFunction(() => window.reloadLanded === true, undefined, { polling: 50 })
+    assert.equal(await page.getByLabel('Caption error', { exact: true }).textContent(), '', 'the reload completed without an error')
+    const kept = await page.locator('[data-caption-text]').evaluate((text) => ({ ready: text.ownerSVGElement.dataset.captionBoundsReady, measured: window.captionMeasuredNow(text), hasHitBox: window.captionHitBox(text) !== null }))
+    assert.deepEqual(kept, { ready: 'true', measured: true, hasHitBox: true }, 'a same-content reload keeps the caption measured while frames are held')
+    const retained = await page.locator('[data-caption-text]').evaluate(hitAndInk)
+    assert.notEqual(retained, null, 'the kept measurement is readable without a frame')
+    assertBounds(retained.hit, retained.expected, 'a same-content reload keeps the caption hit box on its ink')
+  } finally {
+    // A failed assertion must not leave later frame work held.
+    await page.evaluate(() => window.releaseAnimationFrames())
+  }
+  // Part 2: a real change to the drawing clears the measurement. The 30pt drawing size changes the
+  // drawn content, so the hit box goes at once, and reads and fits wait until a frame measures the
+  // new drawing. The undo below restores the drawing that later stages measure.
+  const beforeChange = await caption()
+  try {
+    await page.evaluate(() => {
+      window.holdAnimationFrames()
+      window.clickButton('Use 30pt drawing size')
+    })
+    // A superscript at 20pt means the 30pt drawing is on screen, and the canvas is then unmeasured.
+    await page.waitForFunction(() => Number(document.querySelector('[data-caption-text] tspan:last-child')?.getAttribute('font-size')) === 20 &&
+      document.querySelector('[data-structure-canvas]').dataset.captionBoundsReady === 'false' && document.querySelector('[data-caption-text]').parentElement.querySelector(':scope > rect') === null, undefined, { polling: 50 })
     const unmeasured = await page.locator('[data-caption-text]').evaluate((text) => ({ measured: window.captionMeasuredNow(text), hasHitBox: window.captionHitBox(text) !== null }))
-    assert.deepEqual(unmeasured, { measured: false, hasHitBox: false }, 'a replaced document has no hit box and is not measured until a frame runs')
-    const hitAndInk = (text) => {
-      if (!window.captionMeasuredNow(text)) return null
-      const hit = window.captionHitBox(text).getBBox(), ink = text.getBBox()
-      return { hit: [hit.x, hit.y, hit.width, hit.height], expected: [ink.x - 2, ink.y - 2, ink.width + 4, ink.height + 4] }
-    }
+    assert.deepEqual(unmeasured, { measured: false, hasHitBox: false }, 'a changed drawing has no hit box and is not measured until a frame runs')
     assert.equal(await page.locator('[data-caption-text]').evaluate(hitAndInk), null, 'no geometry is read from a canvas between measurements')
     const heldViewBox = await page.locator('[data-structure-canvas]').getAttribute('viewBox')
     assert.equal(await page.locator('[data-caption-text]').evaluate(fitWhenMeasured), null, 'fit is not requested from a canvas between measurements')
@@ -643,11 +681,17 @@ createRoot(document.getElementById('root')).render(<Harness />)
     const pendingRead = measuredRead(hitAndInk)
     await page.evaluate(() => window.releaseAnimationFrames())
     const settled = await pendingRead
-    assertBounds(settled.hit, settled.expected, 'plain caption hit box after the replaced document is measured')
+    assertBounds(settled.hit, settled.expected, 'plain caption hit box after the changed drawing is measured')
   } finally {
     // A failed assertion must not leave later frame work held.
     await page.evaluate(() => window.releaseAnimationFrames())
   }
+  // Playwright's click waits for frames, so undo is clicked after release. The 8pt superscript shows
+  // the undone 12pt drawing on screen; only after that does waiting for measurement mean the restored drawing.
+  await button('Undo caption').click()
+  await page.waitForFunction(() => Number(document.querySelector('[data-caption-text] tspan:last-child')?.getAttribute('font-size')) === 8)
+  assert.deepEqual((await caption()).runs, beforeChange.runs, 'undo restores the drawing that later stages measure')
+  await waitForCaptionMeasurement()
 
   await button('Select caption').click()
   await button('Edit selected caption…').click()
