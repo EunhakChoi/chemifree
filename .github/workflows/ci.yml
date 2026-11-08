@@ -15,7 +15,8 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    # The full history/migration suite can reach the conformance step after 15 minutes.
+    # The budget leaves room for a cold Rust build on the runner. Rust tests run in parallel under
+    # cargo-nextest; the timing-sensitive ones run alone (see .config/nextest.toml).
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -39,6 +40,20 @@ jobs:
         with:
           toolchain: 1.95.0
           components: rustfmt, clippy
+      - name: Install pinned cargo-nextest
+        run: |
+          # Must match nextest-version in .config/nextest.toml.
+          chemifree_nextest_version=0.9.149
+          chemifree_nextest_sha256=32d1d8c0567b7a80bee2bad8bb09125c846da96bc009b2de11ec08557290c770
+          chemifree_nextest_asset="cargo-nextest-${chemifree_nextest_version}-x86_64-unknown-linux-gnu.tar.gz"
+          chemifree_nextest_archive="$RUNNER_TEMP/$chemifree_nextest_asset"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            --output "$chemifree_nextest_archive" \
+            "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${chemifree_nextest_version}/$chemifree_nextest_asset"
+          echo "$chemifree_nextest_sha256  $chemifree_nextest_archive" | sha256sum -c -
+          mkdir -p "$HOME/.cargo/bin"
+          tar -xzf "$chemifree_nextest_archive" -C "$HOME/.cargo/bin" cargo-nextest
+          cargo nextest --version
       - run: npm ci
       - name: Check web, Rust, and HTTP/CLI contracts
         run: npm run check

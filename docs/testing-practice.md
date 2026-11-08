@@ -59,7 +59,7 @@ Each is a documented command; see the README and CI (`.github/workflows/ci.yml`)
 | --- | --- |
 | Format | `cargo fmt --all --check` (inside `npm run check:rust`) |
 | Lint, Rust | `cargo clippy --workspace --all-targets --locked -- -D warnings` (inside `npm run check:rust`) |
-| Rust tests | `cargo test --workspace --locked` (inside `npm run check:rust`) |
+| Rust tests | `cargo nextest run --workspace --locked --no-fail-fast`, then `cargo test --workspace --doc --locked` for doctests (inside `npm run check:rust`) |
 | Lint, web | `npm run lint` |
 | Types, web | `npm run typecheck` |
 | Web client | `npm run test:client` |

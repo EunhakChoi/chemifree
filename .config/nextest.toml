@@ -1,0 +1,80 @@
+# cargo-nextest configuration for `npm run check:rust` and CI.
+# The pinned download in .github/workflows/ci.yml must use the version below.
+nextest-version = { required = "0.9.149" }
+
+[profile.default]
+# A test running past 120 s is reported as slow, and is terminated after five such periods (10 min).
+slow-timeout = { period = "120s", terminate-after = 5 }
+
+# Each test below has a wall-clock budget or a promptness deadline, which fails when the runner is
+# busy. Each takes four test threads, so at most a few of the heavy tests run beside it. Taking every
+# thread (`num-test-threads`) measured twice as slow overall: each such test drains the whole runner.
+[[profile.default.overrides]]
+filter = "package(chemifree-api) & binary(http_disconnect) & test(=closing_the_connection_stops_a_running_conversion)"
+threads-required = 4
+
+[[profile.default.overrides]]
+filter = '''
+package(chemifree-domain) & binary(substructure) & (
+  test(=the_largest_documents_are_searched_within_the_budget)
+  | test(=a_disconnected_query_in_a_large_target_ends_at_a_documented_limit_in_bounded_time)
+  | test(=a_disconnected_64_atom_query_in_a_large_target_is_bounded_by_the_mapping_limit)
+)
+'''
+threads-required = 4
+
+[[profile.default.overrides]]
+filter = "package(chemifree-domain) & binary(stereo) & test(=validation_cost_stays_linear_at_two_thousand_atoms_and_a_full_history)"
+threads-required = 4
+
+[[profile.default.overrides]]
+filter = '''
+package(chemifree-application) & binary(documents) & (
+  test(=requests_queued_behind_a_stalled_save_are_answered_busy_without_changes)
+  | test(=a_save_whose_reply_was_lost_is_reported_by_asking_again)
+  | test(=a_finished_request_asked_about_again_is_answered_while_another_holds_the_turn)
+  | test(=a_copy_asked_about_while_it_writes_is_answered_at_once)
+  | test(=a_request_id_kept_per_process_is_in_progress_for_every_document_while_it_runs)
+  | test(=renames_and_deletes_queued_behind_a_stalled_save_are_answered_busy_without_changes)
+  | test(=a_delete_or_restore_asked_about_while_it_writes_is_answered_at_once_and_not_repeated)
+  | test(=a_rename_asked_about_while_it_commits_is_answered_at_once)
+  | test(=a_busy_document_does_not_hold_up_the_services_drafts_of_others)
+  | test(=a_session_closed_while_the_stop_drafts_others_is_not_reopened)
+  | test(=a_busy_autosave_reports_a_draft_failure_only_for_undrafted_work)
+  | test(=a_stalled_draft_write_does_not_hold_up_other_requests)
+  | test(=a_stalled_recovery_claim_does_not_hold_up_another_document)
+  | test(=editing_the_document_being_claimed_does_not_block_other_documents)
+  | test(=a_stalled_recovery_copy_removal_does_not_hold_up_another_document)
+  | test(=recovery_copy_reports_a_source_evicted_while_its_draft_is_removed)
+  | test(=a_stalled_draft_discard_does_not_hold_up_another_document)
+  | test(=edits_made_while_a_draft_is_written_are_left_for_the_next_draft)
+  | test(=a_draft_failure_reported_after_later_edits_keeps_them_due_for_its_retry)
+  | test(=a_clean_session_is_not_evicted_while_its_draft_is_removed)
+  | test(=a_stalled_draft_does_not_hold_up_the_services_drafts_of_other_documents)
+  | test(=a_stalled_draft_does_not_keep_the_stop_from_drafting_other_documents)
+)
+'''
+threads-required = 4
+
+[[profile.default.overrides]]
+filter = '''
+package(chemifree-application) & binary(chemifree_application) & (
+  test(=operations::smiles::tests::a_table_converts_many_spans_of_a_large_source_in_linear_time)
+  | test(=turns::tests::a_waiting_request_gets_the_turn_as_soon_as_it_is_given_back)
+  | test(=turns::tests::checking_a_request_id_does_not_wait_for_a_taken_turn)
+)
+'''
+threads-required = 4
+
+[[profile.default.overrides]]
+filter = '''
+package(chemifree-providers) & binary(chemifree_providers) & (
+  test(=file_store::tests::taking_one_documents_draft_ownership_does_not_hold_up_anothers_draft_status)
+  | test(=file_store::tests::a_trash_waiting_for_another_stores_save_does_not_hold_up_draft_checks)
+)
+'''
+threads-required = 4
+
+[[profile.default.overrides]]
+filter = "package(chemifree-application) & binary(compute_budget) & test(=a_stop_after_the_last_checkpoint_of_the_computation_still_prevents_the_edit)"
+threads-required = 4

@@ -264,6 +264,10 @@ fn closing_the_connection_stops_a_running_conversion() {
     );
     let mut started = Instant::now();
     let mut request = send(port, &slow);
+    // One deadline for every start, resends included: a request that has already finished is
+    // answered again, by replay or by a fresh run, and resending it would otherwise go on forever.
+    // A build fast enough to finish before the probe fails at this deadline rather than hanging.
+    let deadline = Instant::now() + Duration::from_secs(30);
     // The computation is running once the same request ID is answered as in progress. A probe
     // that reaches the server before the request makes the request the refused one; its
     // reply is then already there, and it is sent again.
@@ -273,16 +277,16 @@ fn closing_the_connection_stops_a_running_conversion() {
         if code == "request_in_progress" {
             break;
         }
+        assert!(
+            Instant::now() < deadline,
+            "the conversion was not seen running within 30 s; the same request ID was last answered {code}"
+        );
         if replied(&request) {
             request = send(port, &slow);
             started = Instant::now();
             std::thread::sleep(Duration::from_millis(300));
             continue;
         }
-        assert!(
-            started.elapsed() < Duration::from_secs(30),
-            "the conversion did not start computing; the same request ID was answered {code}"
-        );
         std::thread::sleep(Duration::from_millis(20));
     }
     // It really is a long computation: it is still running half a second after it began (in a
