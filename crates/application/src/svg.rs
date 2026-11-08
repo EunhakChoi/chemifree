@@ -1,24 +1,26 @@
-//! Bounded SVG drawing of a document's atoms and bonds (P38a1). This is a pure text renderer over a
-//! `DocumentView`, with no font engine and no I/O. `document.export` with format
-//! `svg` (operations/svg.rs) serves it over HTTP and the CLI, so its markup is public output:
-//! a change to it needs `SVG_MODEL`, the goldens, the conformance cases and the loss table checked.
+//! Bounded SVG drawing of a document's atoms, bonds, graphics and images (P38a1, P38b1). This is a
+//! pure text renderer over a `DocumentView`, with no font engine and no I/O.
+//! `document.export` with format `svg` (operations/svg.rs) serves it over HTTP and the CLI, so
+//! its markup is public output: a change to it needs `SVG_MODEL`, the goldens, the conformance
+//! cases and the loss table checked.
 //!
 //! The geometry and the label layout follow `apps/web/src/editor/geometry.ts` and `label.ts`, and
 //! the drawing order follows `structure-canvas.tsx`. `layout_drawing` exposes that layout as data,
 //! which the parity fixture compares with the web code.
 //!
 //! Not drawn: radical dots, attachment points, abbreviation and fragment displays, captions,
-//! graphics, images, groups, stereo perception (no descriptor is computed; the stored wedge, hash
-//! and wavy marks are drawn), and bold, italic, underline, outline and shadow typography. The
-//! status of each is in `docs/verification/p38a1-svg-renderer.md`.
+//! groups, stereo perception (no descriptor is computed; the stored wedge, hash and wavy marks are
+//! drawn), and bold, italic, underline, outline and shadow typography. The status of each is in
+//! `docs/verification/p38a1-svg-renderer.md`.
 
 mod font;
 mod geometry;
 mod label;
 mod losses;
+mod scene;
 mod writer;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
@@ -28,9 +30,10 @@ pub use font::ADVANCE_TABLE_ID;
 pub use geometry::{LabelBox, Pattern, Point, Stroke};
 pub use label::{AtomLabel, LabelRun};
 pub(crate) use losses::svg_losses;
+pub use scene::{GraphicMark, ObjectLayout};
 
 /// The version of the drawing's markup and geometry. A change to either changes it.
-pub const SVG_MODEL: &str = "chemifree-svg-1";
+pub const SVG_MODEL: &str = "chemifree-svg-2";
 
 /// How far a label box reaches past its label on each side, in pt, in the view box (`LABEL_MARGIN`).
 const LABEL_MARGIN: f64 = 4.0;
@@ -64,12 +67,15 @@ pub struct InstanceLayout {
     pub labels: BTreeMap<String, AtomLabel>,
 }
 
-/// The layout of a whole drawing: the label measurements it uses, and each instance in the order the
-/// view lists them.
+/// The layout of a whole drawing: the label measurements it uses, each instance in the order the
+/// view lists them, and the paint list of its drawn objects.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct DrawingLayout {
     pub table: &'static str,
     pub instances: Vec<InstanceLayout>,
+    /// Every drawn object in paint order, as `layout_drawing` orders them. An `instance` entry
+    /// names an entry of `instances` by its id.
+    pub objects: Vec<ObjectLayout>,
 }
 
 /// Where one instance's atoms are before the layout.
@@ -78,20 +84,24 @@ struct Placement {
     given: BTreeMap<String, Point>,
 }
 
-/// The placements of `view` in the order the web draws them (`structure-canvas.tsx`): the scene's
-/// instances sorted by the position of their objects in `scene.objects`, which is the drawing order.
-/// An instance without an object comes first, as `indexOf` gives it -1 in the web. Each placement
-/// keeps its own positions. A document without an instance has no placement, so nothing is drawn.
-fn placements(view: &DocumentView) -> Vec<Placement> {
-    let order: Vec<&str> = view
-        .scene
+/// The ids of the instance objects of `view`, in the order of `scene.objects`.
+fn instance_object_ids(view: &DocumentView) -> Vec<&str> {
+    view.scene
         .objects
         .iter()
         .filter_map(|object| match object {
             SceneObjectView::Instance { id, .. } => Some(id.as_str()),
             _ => None,
         })
-        .collect();
+        .collect()
+}
+
+/// The placements of `view` in the order the web draws them (`structure-canvas.tsx`): the scene's
+/// instances sorted by the position of their objects in `scene.objects`, which is the drawing order.
+/// An instance without an object comes first, as `indexOf` gives it -1 in the web. Each placement
+/// keeps its own positions. A document without an instance has no placement, so nothing is drawn.
+fn placements(view: &DocumentView) -> Vec<Placement> {
+    let order = instance_object_ids(view);
     let mut placements: Vec<Placement> = view
         .scene
         .instances
@@ -135,6 +145,11 @@ fn placement_positions(
 }
 
 /// The layout of `view`: what `render_drawing` draws, and what the parity fixture stores.
+///
+/// # Panics
+///
+/// Panics on a graphic whose point count its shape does not admit. The domain rejects such a
+/// graphic (`Graphic::validate`), so the panic marks a bug in the view, not an input error.
 pub fn layout_drawing(view: &DocumentView) -> DrawingLayout {
     let line_width = view.settings.line_width_pt;
     let lines = geometry::Lines {
@@ -148,7 +163,7 @@ pub fn layout_drawing(view: &DocumentView) -> DrawingLayout {
     };
     let degrees = geometry::degrees(&view.bonds);
     let rings = geometry::bond_rings(&view.bonds);
-    let instances = placements(view)
+    let instances: Vec<InstanceLayout> = placements(view)
         .into_iter()
         .map(|placement| {
             let atoms = placement_positions(view, &placement.given);
@@ -191,10 +206,69 @@ pub fn layout_drawing(view: &DocumentView) -> DrawingLayout {
             }
         })
         .collect();
+    let objects = paint_list(view, &instances);
     DrawingLayout {
         table: ADVANCE_TABLE_ID,
         instances,
+        objects,
     }
+}
+
+/// The paint list of `view`, in the order the web paints it (`structure-canvas.tsx:1056-1088`).
+/// An instance without a scene object comes first, as `placements` orders it. Then come the
+/// objects of `scene.objects` in order: each instance with a placement, each graphic and each
+/// image. A group and a caption have no entry: a group draws nothing, and no caption is drawn.
+fn paint_list(view: &DocumentView, instances: &[InstanceLayout]) -> Vec<ObjectLayout> {
+    let listed: BTreeSet<&str> = instance_object_ids(view).into_iter().collect();
+    let placed: BTreeSet<&str> = instances
+        .iter()
+        .map(|instance| instance.instance.as_str())
+        .collect();
+    let mut objects: Vec<ObjectLayout> = instances
+        .iter()
+        .filter(|instance| !listed.contains(instance.instance.as_str()))
+        .map(|instance| ObjectLayout::Instance {
+            id: instance.instance.clone(),
+        })
+        .collect();
+    for object in &view.scene.objects {
+        match object {
+            SceneObjectView::Instance { id, .. } => {
+                if placed.contains(id.as_str()) {
+                    objects.push(ObjectLayout::Instance { id: id.clone() });
+                }
+            }
+            SceneObjectView::Graphic {
+                id,
+                line_width_pt,
+                shape,
+                points,
+                ..
+            } => {
+                objects.push(ObjectLayout::Graphic {
+                    id: id.clone(),
+                    width: scene::effective_width(*line_width_pt, view.settings.line_width_pt),
+                    marks: scene::graphic_marks(*shape, points),
+                });
+            }
+            SceneObjectView::Image {
+                id,
+                origin,
+                size_pt,
+                ..
+            } => {
+                objects.push(ObjectLayout::Image {
+                    id: id.clone(),
+                    x: origin.x,
+                    y: origin.y,
+                    width: size_pt.x,
+                    height: size_pt.y,
+                });
+            }
+            SceneObjectView::Caption { .. } | SceneObjectView::Group { .. } => {}
+        }
+    }
+    objects
 }
 
 /// The box a bond keeps clear of at one end: the label box of its atom, placed at the atom, when the
@@ -206,8 +280,8 @@ fn label_box(labels: &BTreeMap<String, AtomLabel>, id: &str, at: Point) -> Optio
 }
 
 /// Draws `view` as SVG text, with no error path: every instance of the scene is drawn. It panics
-/// only if `view` holds a non-finite number, which a view built from a document never does; see
-/// `number` in `svg/writer.rs`.
+/// only if `view` holds a non-finite number or a graphic with a point count its shape does not
+/// admit, which a view built from a document never does; see `number` in `svg/writer.rs`.
 pub fn render_drawing(view: &DocumentView) -> SvgDrawing {
     let layout = layout_drawing(view);
     let view_box = view_box_of(view, &layout);
@@ -218,8 +292,9 @@ pub fn render_drawing(view: &DocumentView) -> SvgDrawing {
 }
 
 /// The view box of a drawing (`viewBox`): the union of every drawn atom's point grown by the reach
-/// of a bond's ink, and of every label box grown by `LABEL_MARGIN`, each edge moved outward to the
-/// hundredth. A drawing without atoms has the empty box at the origin.
+/// of a bond's ink, of every label box grown by `LABEL_MARGIN`, of every graphic's ink, and of
+/// every image's rectangle, each edge moved outward to the hundredth. A drawing with no atom,
+/// graphic or image has the empty box at the origin.
 fn view_box_of(view: &DocumentView, layout: &DrawingLayout) -> ViewBox {
     let line_width = view.settings.line_width_pt;
     let reach = geometry::stroke_reach(line_width, geometry::bond_spacing(line_width));
@@ -245,6 +320,24 @@ fn view_box_of(view: &DocumentView, layout: &DrawingLayout) -> ViewBox {
                 bounds.x + bounds.width + LABEL_MARGIN,
                 bounds.y + bounds.height + LABEL_MARGIN,
             );
+        }
+    }
+    for object in &layout.objects {
+        match object {
+            // An instance's atoms and labels are counted above, from `layout.instances`.
+            ObjectLayout::Instance { .. } => {}
+            ObjectLayout::Graphic { width, marks, .. } => {
+                if let Some((left, top, right, bottom)) = scene::ink(marks, *width) {
+                    include(left, top, right, bottom);
+                }
+            }
+            ObjectLayout::Image {
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => include(*x, *y, *x + *width, *y + *height),
         }
     }
     let Some((left, top, right, bottom)) = edges else {

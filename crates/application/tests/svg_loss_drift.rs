@@ -162,6 +162,53 @@ fn table() -> Vec<Row> {
             "atom-move",
             json!([{"op": "move_atoms", "atoms": ["a3"], "delta": {"x": 0, "y": 5}}]),
         ),
+        // Scene graphics and images are drawn, so each changes the content and adds no loss.
+        drawn_row(
+            "graphic",
+            json!([{"op": "add_graphic", "shape": "line",
+                "points": [{"x": 0, "y": 70}, {"x": 20, "y": 70}]}]),
+        ),
+        drawn_row(
+            "image",
+            json!([{"op": "add_image", "mime_type": "image/png", "data_base64": PNG,
+                "origin": {"x": 0, "y": 80}, "size_pt": {"x": 10, "y": 10}}]),
+        ),
+        drawn_row(
+            "graphic-rectangle",
+            json!([{"op": "add_graphic", "shape": "rectangle",
+                "points": [{"x": 0, "y": 70}, {"x": 20, "y": 90}]}]),
+        ),
+        drawn_row(
+            "graphic-ellipse",
+            json!([{"op": "add_graphic", "shape": "ellipse",
+                "points": [{"x": 0, "y": 70}, {"x": 20, "y": 90}]}]),
+        ),
+        drawn_row(
+            "graphic-arrow",
+            json!([{"op": "add_graphic", "shape": "arrow",
+                "points": [{"x": 0, "y": 70}, {"x": 20, "y": 70}]}]),
+        ),
+        drawn_row(
+            "graphic-polygon",
+            json!([{"op": "add_polygon",
+                "vertices": [{"x": 0, "y": 70}, {"x": 20, "y": 70}, {"x": 10, "y": 90}]}]),
+        ),
+        drawn_row(
+            "graphic-spline",
+            json!([{"op": "add_spline",
+                "points": [{"x": 0, "y": 70}, {"x": 10, "y": 60}, {"x": 20, "y": 80},
+                    {"x": 30, "y": 70}]}]),
+        ),
+        // The row shows that the width command is accepted and drawn. It does not compare the width
+        // with the default, since a drawn row is compared with the base drawing, which has no graphic.
+        drawn_row(
+            "graphic-line-width",
+            json!([
+                {"op": "add_graphic", "shape": "line",
+                    "points": [{"x": 0, "y": 70}, {"x": 20, "y": 70}]},
+                {"op": "set_graphic_line_width", "object": "s2", "line_width_pt": 4.0}
+            ]),
+        ),
         // Not drawn: the content is byte-identical and the named losses appear.
         dropped_row(
             "radical",
@@ -182,33 +229,23 @@ fn table() -> Vec<Row> {
             &["chemical_graph", "caption"],
             &["caption"],
         ),
-        dropped_row(
-            "graphic",
-            json!([{"op": "add_graphic", "shape": "line",
-                "points": [{"x": 0, "y": 70}, {"x": 20, "y": 70}]}]),
-            &["chemical_graph", "graphic"],
-            &["graphic"],
-        ),
-        dropped_row(
-            "image",
-            json!([{"op": "add_image", "mime_type": "image/png", "data_base64": PNG,
-                "origin": {"x": 0, "y": 80}, "size_pt": {"x": 10, "y": 10}}]),
-            &["chemical_graph", "image"],
-            &["image"],
-        ),
-        // A group needs at least two objects, and the base has only the instance, so two graphics
-        // are added first. The graphic feature therefore appears alongside the group.
+        // A group needs at least two distinct objects sharing a parent, and the base has only the
+        // instance, so two captions are added first. A group draws nothing and a caption draws
+        // nothing, so the content is byte-identical. The captions are the loss that needs consent;
+        // the group adds only scene_group, which needs none. Graphics are not used here: a drawn
+        // graphic changes the content by itself, so a group of graphics could not show that the
+        // group adds no ink.
         dropped_row(
             "group",
             json!([
-                {"op": "add_graphic", "shape": "line",
-                    "points": [{"x": 0, "y": 70}, {"x": 20, "y": 70}]},
-                {"op": "add_graphic", "shape": "line",
-                    "points": [{"x": 0, "y": 80}, {"x": 20, "y": 80}]},
+                {"op": "add_caption", "anchor": {"x": 0, "y": 70},
+                    "runs": [{"text": "A", "script": "baseline"}]},
+                {"op": "add_caption", "anchor": {"x": 0, "y": 80},
+                    "runs": [{"text": "B", "script": "baseline"}]},
                 {"op": "group", "objects": ["s2", "s3"]}
             ]),
-            &["chemical_graph", "graphic", "scene_group"],
-            &["graphic"],
+            &["chemical_graph", "caption", "scene_group"],
+            &["caption"],
         ),
         dropped_row(
             "stereo-configuration",

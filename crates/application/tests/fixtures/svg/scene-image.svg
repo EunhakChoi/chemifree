@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1" width="40.28pt" height="86.81pt" viewBox="-4 -13.4 40.28 86.81">
+<g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<line x1="0" y1="-2.2" x2="17.72" y2="-2.2"/>
+<line x1="0" y1="2.2" x2="17.72" y2="2.2"/>
+</g>
+<g fill="#000000" font-family="sans-serif">
+<text x="26" y="0" text-anchor="middle" dominant-baseline="central" xml:space="preserve"><tspan font-size="12" font-weight="500">O</tspan></text>
+</g>
+</g>
+<image x="0" y="30" width="20" height="10" preserveAspectRatio="none" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg=="/>
+<g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<line x1="0" y1="57.8" x2="17.72" y2="57.8"/>
+<line x1="0" y1="62.2" x2="17.72" y2="62.2"/>
+</g>
+<g fill="#000000" font-family="sans-serif">
+<text x="26" y="60" text-anchor="middle" dominant-baseline="central" xml:space="preserve"><tspan font-size="12" font-weight="500">O</tspan></text>
+</g>
+</g>
+</svg>

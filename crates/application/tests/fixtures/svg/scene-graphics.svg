@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="95.38pt" height="136.8pt" viewBox="-4 -13.4 95.38 136.8">
+<g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<line x1="0" y1="-2.2" x2="17.72" y2="-2.2"/>
+<line x1="0" y1="2.2" x2="17.72" y2="2.2"/>
+</g>
+<g fill="#000000" font-family="sans-serif">
+<text x="26" y="0" text-anchor="middle" dominant-baseline="central" xml:space="preserve"><tspan font-size="12" font-weight="500">O</tspan></text>
+</g>
+</g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<line x1="0" y1="30" x2="30" y2="30"/>
+</g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<rect x="40" y="30" width="20" height="15"/>
+</g>
+<g fill="none" stroke="#000000" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round">
+<ellipse cx="80" cy="37.5" rx="10" ry="7.5"/>
+</g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<line x1="0" y1="60" x2="30" y2="60"/>
+<polygon points="30,60 24,63 24,57" fill="#000000"/>
+</g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<polygon points="40,55 60,55 50,70"/>
+</g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<path d="M 70 60 C 75 50 85 70 90 60"/>
+</g>
+<g>
+<g fill="none" stroke="#000000" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+<line x1="0" y1="107.8" x2="17.72" y2="107.8"/>
+<line x1="0" y1="112.2" x2="17.72" y2="112.2"/>
+</g>
+<g fill="#000000" font-family="sans-serif">
+<text x="26" y="110" text-anchor="middle" dominant-baseline="central" xml:space="preserve"><tspan font-size="12" font-weight="500">O</tspan></text>
+</g>
+</g>
+</svg>

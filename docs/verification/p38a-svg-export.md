@@ -1,6 +1,6 @@
 # P38a2 bounded SVG drawing export: verification record
 
-Scope: `document.export` with `format: "svg"` over HTTP, CLI and operation contract 1, the 18-row loss table with digest consent, and the refused SVG import. The renderer core is P38a1 (`docs/verification/p38a1-svg-renderer.md`). P38 and RENDER-01 are not complete.
+Scope: `document.export` with `format: "svg"` over HTTP, CLI and operation contract 1, the 18-row loss table (16 rows since P38b1, see `p38b1-svg-scene-objects.md`) with digest consent, and the refused SVG import. The renderer core is P38a1 (`docs/verification/p38a1-svg-renderer.md`). P38 and RENDER-01 are not complete.
 
 ## Run after the last edit
 

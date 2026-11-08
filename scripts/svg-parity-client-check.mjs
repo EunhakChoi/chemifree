@@ -5,6 +5,8 @@
 // stroke coordinates to the hundredth and a tie can round one step apart, so strokes agree within
 // 0.011; label and atom numbers within 1e-6; texts, weights, shapes, patterns, counts and ids exactly.
 // It only reads the fixture. The web is run without browser label metrics, as the Rust renderer is.
+// Each case's paint list (`objects`, P38b1) is compared too: kinds and ids exactly; graphic marks and image
+// rectangles within 1e-6 (a graphic's numbers are copied or computed without the rounding bonds' strokes need).
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {register} from 'node:module'
@@ -15,13 +17,15 @@ const {placedView}=await import('../apps/web/src/editor/placement.ts')
 const {compactDisplaysIn}=await import('../apps/web/src/editor/abbreviation.ts')
 const {atomLabel,labelStyleOf}=await import('../apps/web/src/editor/label.ts')
 const {atomIndex,bondRings,bondSides,bondSpacing,degrees,drawingStrokes,leaningRight}=await import('../apps/web/src/editor/geometry.ts')
+const {graphicMarks}=await import('../apps/web/src/editor/graphic-marks.ts')
+const {imageCorners}=await import('../apps/web/src/editor/image.ts')
 const fixture=JSON.parse(readFileSync(new URL('../crates/application/tests/fixtures/svg/parity.json',import.meta.url),'utf8'))
 const STROKE_TOLERANCE=0.011
 const NUMBER_TOLERANCE=1e-6
 // Compared exactly whatever their type: texts, font weights, shape and pattern names, counts.
 const EXACT_KEYS=new Set(['shape','pattern','text','weight','halfWaves'])
 // The golden documents in the order the Rust fixture lists them.
-const CASE_NAMES=['chain-bare-vertices','bond-orders','stereo-marks','labels','settings-wide-serif','monospace-small','two-instances','scene-object-order','empty']
+const CASE_NAMES=['chain-bare-vertices','bond-orders','stereo-marks','labels','settings-wide-serif','monospace-small','two-instances','scene-object-order','empty','scene-graphics','scene-image','graphics-only']
 
 // The order structure-canvas.tsx draws the placements in: sorted by where their objects stand in
 // scene.objects. An instance without an object comes first, as indexOf gives it -1.
@@ -67,6 +71,29 @@ function webLayout(document){
  })
 }
 
+// The web's paint list, in the shape of the Rust `objects` (ObjectLayout, svg/scene.rs). It mirrors the loop
+// over scene.objects at structure-canvas.tsx:1056-1088: a group draws nothing; an image and a graphic draw an
+// entry; a caption has none, as the export draws no caption (svg.rs:220); an instance draws an entry when it
+// has a placement. An instance that scene.objects does not list comes first, in placement order, as the Rust
+// paint_list has it (svg.rs:221-233). The web's loop never visits such an instance (structure-canvas.tsx:378-379
+// only sorts it first), so that rule is the export's. No golden case has one, so the fixture does not exercise it.
+function webPaintList(document){
+ assert.ok(document.scene,'a parity case has a scene: the paint loop draws its scene.objects')
+ const listed=new Set(document.scene.objects.map((object)=>object.id))
+ const placed=new Set(placements(document).map((placement)=>placement.id))
+ const unlisted=drawingOrder(document).filter((placement)=>!listed.has(placement.id)).map((placement)=>({kind:'instance',id:placement.id}))
+ const drawn=document.scene.objects.flatMap((object)=>{
+  if(object.kind==='instance')return placed.has(object.id)?[{kind:'instance',id:object.id}]:[]
+  if(object.kind==='graphic')return [{kind:'graphic',id:object.id,...graphicMarks(object,settingsOf(document).line_width_pt)}]
+  if(object.kind==='image'){
+   const [origin,end]=imageCorners(object)
+   return [{kind:'image',id:object.id,x:origin.x,y:origin.y,width:end.x-origin.x,height:end.y-origin.y}]
+  }
+  return []
+ })
+ return [...unlisted,...drawn]
+}
+
 // Asserts that actual agrees with expected: the same keys and array lengths, numbers within the
 // tolerance (EXACT_KEYS aside), and every other value equal.
 function assertAgrees(actual,expected,tolerance,path){
@@ -97,6 +124,14 @@ function assertLayoutAgrees(actual,expected){
  }
 }
 
+// Asserts that the web's paint list agrees with the Rust `objects`: kinds and ids exactly and in order, then
+// each entry, a graphic's width and marks and an image's rectangle within the number tolerance.
+function assertObjectsAgree(document,expected){
+ const actual=webPaintList(document)
+ assert.deepEqual(actual.map(({kind,id})=>({kind,id})),expected.map(({kind,id})=>({kind,id})),'objects: kinds and ids')
+ for(const [index,entry] of expected.entries())assertAgrees(actual[index],entry,NUMBER_TOLERANCE,`objects[${index}]`)
+}
+
 // P38a1 draws neither radical dots nor attachment points, so a parity case has neither.
 function assertPlainAtoms(document){
  for(const atom of document.atoms){
@@ -105,7 +140,7 @@ function assertPlainAtoms(document){
  }
 }
 
-test('the parity fixture holds the nine golden documents in order',()=>{
+test('the parity fixture holds the twelve golden documents in order',()=>{
  assert.deepEqual(fixture.cases.map((testCase)=>testCase.name),CASE_NAMES)
 })
 
@@ -113,5 +148,8 @@ for(const testCase of fixture.cases){
  test(`${testCase.name}: the web layout is the Rust layout`,()=>{
   assertPlainAtoms(testCase.document)
   assertLayoutAgrees(webLayout(testCase.document),testCase.layout.instances)
+ })
+ test(`${testCase.name}: the web paint list is the Rust paint list`,()=>{
+  assertObjectsAgree(testCase.document,testCase.layout.objects)
  })
 }

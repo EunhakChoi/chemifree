@@ -100,7 +100,7 @@ impl FormatText {
         // name always precedes it, so the label is plural.
         names.push("SVG".to_owned());
         export.push("a bounded SVG drawing (format svg, export only) with accepted_losses consent needed only for the losses that require it".to_owned());
-        sentences.push("Write a bounded SVG drawing of atoms and bonds (export only) with accepted_losses consent needed only for the losses that require it.".to_owned());
+        sentences.push("Write a bounded SVG drawing of atoms, bonds, scene graphics and PNG images (export only) with accepted_losses consent needed only for the losses that require it.".to_owned());
         sentences.push(format!(
             "{}; other formats are unsupported.",
             refused.join("; ")

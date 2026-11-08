@@ -4,7 +4,7 @@ import { SplineDraftControls } from '@/components/spline-draft-controls'
 import { appendSplinePoint, splineDraftCurrent, splinePoints, SPLINE_POINT_NAMES, type SplineCreation } from '@/editor/spline'
 import { PolygonDraftControls } from '@/components/polygon-draft-controls'
 import { appendPolygonVertex, polygonDraftCurrent, polygonVerticesValid, type PolygonCreation } from '@/editor/polygon'
-import { graphicLineWidth } from '@/editor/graphic-line-width'
+import { graphicMarks } from '@/editor/graphic-marks'
 import { graphicCreationCurrent, type GraphicCreation } from '@/editor/graphic-creation'
 import { translatedGraphicObject, translatedGraphicPoints, graphicPointValid, graphicEndpointCurrent, graphicEndpointPoints, selectedGraphic, type GraphicEndpointGesture, type GraphicPointsEdit } from '@/editor/graphic-points'
 import { compactDisplaysIn, abbreviationTargets, compactView, ethylLabel } from '@/editor/abbreviation'
@@ -1157,53 +1157,79 @@ function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPer
   unitsPerPixel: number
   onPointerDown?: (event: PointerEvent<SVGGElement>) => void
 }) {
-  const lineWidth = graphicLineWidth(object, documentLineWidth)
-  if (object.shape === 'spline') {
-    const [p0, c1, c2, p3] = object.points
-    const d = `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${p3.x} ${p3.y}`
-    const underlay = graphicUnderlay(lineWidth, unitsPerPixel)
-    return <g data-scene-object={object.id} onPointerDown={onPointerDown} strokeLinecap="round" strokeLinejoin="round">
-      <path d={d} fill="none" stroke="transparent" strokeWidth={Math.max(10 * unitsPerPixel, lineWidth)} />
-      {selected && <path d={d} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
-      <path d={d} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
-    </g>
-  }
-  if (object.shape === 'polygon') {
-    const points = object.points.map((point) => `${point.x},${point.y}`).join(' ')
-    const underlay = graphicUnderlay(lineWidth, unitsPerPixel)
-    return <g data-scene-object={object.id} onPointerDown={onPointerDown} strokeLinecap="round" strokeLinejoin="round">
-      <polygon points={points} fill="none" stroke="transparent" strokeWidth={Math.max(10 * unitsPerPixel, lineWidth)} />
-      {selected && <polygon points={points} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
-      <polygon points={points} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
-    </g>
-  }
-  const [a, b] = object.points
-  const length = Math.hypot(b.x - a.x, b.y - a.y)
-  const ux = length > 0 ? (b.x - a.x) / length : 0
-  const uy = length > 0 ? (b.y - a.y) / length : 0
-  const head = `${b.x},${b.y} ${b.x - ux * 6 - uy * 3},${b.y - uy * 6 + ux * 3} ${b.x - ux * 6 + uy * 3},${b.y - uy * 6 - ux * 3}`
-  const rect = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) }
-  const BoxTag = object.shape === 'ellipse' ? 'ellipse' : 'rect'
-  const box = object.shape === 'ellipse'
-    ? { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, rx: rect.width / 2, ry: rect.height / 2 } : rect
+  const { width: lineWidth, marks } = graphicMarks(object, documentLineWidth)
+  const hitWidth = Math.max(10 * unitsPerPixel, lineWidth)
   const underlay = graphicUnderlay(lineWidth, unitsPerPixel)
   return (
     <g data-scene-object={object.id} onPointerDown={onPointerDown} strokeLinecap="round" strokeLinejoin="round">
-      {object.shape === 'rectangle' || object.shape === 'ellipse' ? (
-        <>
-          <BoxTag {...box} fill="none" stroke="transparent" strokeWidth={Math.max(10 * unitsPerPixel, lineWidth)} />
-          {selected && <BoxTag {...box} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
-          <BoxTag {...box} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
-        </>
-      ) : (
-        <>
-          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={Math.max(10 * unitsPerPixel, lineWidth)} />
-          {selected && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="stroke-primary/40" strokeWidth={underlay} />}
-          <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="stroke-foreground" strokeWidth={lineWidth} />
-          {object.shape === 'arrow' && length > 0 && selected && <polygon points={head} className="fill-primary/40 stroke-primary/40" strokeWidth={underlay} />}
-          {object.shape === 'arrow' && length > 0 && <polygon points={head} className="fill-foreground stroke-foreground" strokeWidth={lineWidth} />}
-        </>
-      )}
+      {marks.map((mark) => {
+        switch (mark.shape) {
+          case 'cubic': {
+            const [p0, c1, c2, p3] = mark.points
+            const d = `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${p3.x} ${p3.y}`
+            return (
+              <Fragment key={mark.shape}>
+                <path d={d} fill="none" stroke="transparent" strokeWidth={hitWidth} />
+                {selected && <path d={d} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
+                <path d={d} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
+              </Fragment>
+            )
+          }
+          case 'polygon': {
+            const points = mark.points.map((point) => `${point.x},${point.y}`).join(' ')
+            return (
+              <Fragment key={mark.shape}>
+                <polygon points={points} fill="none" stroke="transparent" strokeWidth={hitWidth} />
+                {selected && <polygon points={points} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
+                <polygon points={points} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
+              </Fragment>
+            )
+          }
+          case 'rect': {
+            const box = { x: mark.x, y: mark.y, width: mark.width, height: mark.height }
+            return (
+              <Fragment key={mark.shape}>
+                <rect {...box} fill="none" stroke="transparent" strokeWidth={hitWidth} />
+                {selected && <rect {...box} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
+                <rect {...box} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
+              </Fragment>
+            )
+          }
+          case 'ellipse': {
+            const box = { cx: mark.cx, cy: mark.cy, rx: mark.rx, ry: mark.ry }
+            return (
+              <Fragment key={mark.shape}>
+                <ellipse {...box} fill="none" stroke="transparent" strokeWidth={hitWidth} />
+                {selected && <ellipse {...box} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
+                <ellipse {...box} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
+              </Fragment>
+            )
+          }
+          case 'line': {
+            const ends = { x1: mark.x1, y1: mark.y1, x2: mark.x2, y2: mark.y2 }
+            return (
+              <Fragment key={mark.shape}>
+                <line {...ends} stroke="transparent" strokeWidth={hitWidth} />
+                {selected && <line {...ends} className="stroke-primary/40" strokeWidth={underlay} />}
+                <line {...ends} className="stroke-foreground" strokeWidth={lineWidth} />
+              </Fragment>
+            )
+          }
+          case 'head': {
+            const points = mark.points.map((point) => `${point.x},${point.y}`).join(' ')
+            return (
+              <Fragment key={mark.shape}>
+                {selected && <polygon points={points} className="fill-primary/40 stroke-primary/40" strokeWidth={underlay} />}
+                <polygon points={points} className="fill-foreground stroke-foreground" strokeWidth={lineWidth} />
+              </Fragment>
+            )
+          }
+          default: {
+            const unhandled: never = mark
+            throw new Error(`Unhandled graphic mark ${JSON.stringify(unhandled)}`)
+          }
+        }
+      })}
     </g>
   )
 }

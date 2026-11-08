@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "suite_version": 34,
+  "suite_version": 35,
   "results": [
     {
       "id": "caption-shadow-history",
@@ -1587,6 +1587,19 @@
       "case_sha256": "1d5b811e31a0601aa186b92f9e86d2bc42cef398f4148118e10d11a73013c01b"
     },
     {
+      "id": "svg-export-scene-objects",
+      "title": "A line graphic, an arrow graphic and a PNG image export as drawn SVG elements under chemifree-svg-2 with an empty loss report",
+      "requirements": [
+        "RENDER-01"
+      ],
+      "axis": "scene",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "f0cde4c25789d5000eee6d1efa0f1cadb86feba53295724eb8f55fdb0d987657"
+    },
+    {
       "id": "svg-import-refused",
       "title": "SVG is written by export only: an SVG import is refused with unsupported_format and the document revision stays unchanged",
       "requirements": [
@@ -1602,7 +1615,7 @@
   ],
   "counts": {
     "accept": {
-      "passed": 85,
+      "passed": 86,
       "failed": 0,
       "not_run": 0
     },
@@ -1612,7 +1625,7 @@
       "not_run": 0
     },
     "total": {
-      "passed": 117,
+      "passed": 118,
       "failed": 0,
       "not_run": 0
     }
