@@ -1,6 +1,7 @@
 //! Bounded SVG drawing of a document's atoms and bonds (P38a1). This is a pure text renderer over a
-//! `DocumentView`, with no font engine and no I/O. Nothing outside this module calls it yet: no
-//! operation, catalog, CLI or HTTP route exports a drawing until P38a2.
+//! `DocumentView`, with no font engine and no I/O. `document.export` with format
+//! `svg` (operations/svg.rs) serves it over HTTP and the CLI, so its markup is public output:
+//! a change to it needs `SVG_MODEL`, the goldens, the conformance cases and the loss table checked.
 //!
 //! The geometry and the label layout follow `apps/web/src/editor/geometry.ts` and `label.ts`, and
 //! the drawing order follows `structure-canvas.tsx`. `layout_drawing` exposes that layout as data,
@@ -14,6 +15,7 @@
 mod font;
 mod geometry;
 mod label;
+mod losses;
 mod writer;
 
 use std::collections::BTreeMap;
@@ -25,6 +27,7 @@ use crate::{DocumentView, SceneObjectView};
 pub use font::ADVANCE_TABLE_ID;
 pub use geometry::{LabelBox, Pattern, Point, Stroke};
 pub use label::{AtomLabel, LabelRun};
+pub(crate) use losses::svg_losses;
 
 /// The version of the drawing's markup and geometry. A change to either changes it.
 pub const SVG_MODEL: &str = "chemifree-svg-1";

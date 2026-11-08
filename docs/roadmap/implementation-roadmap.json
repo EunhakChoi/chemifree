@@ -1530,7 +1530,7 @@
    "kind": "core",
    "id": "P38",
    "status": "in_progress",
-   "note": "P38a1 renderer core only; no export path yet",
+   "note": "P38 scope so far: P38a1 renderer core (PR #225, merged) and P38a2 bounded SVG drawing export through document.export (format svg, export only, consent-gated losses, svg import refused; PR and CI pending when written). Open items: shaping/bounds engine, clip, layers, scene graphics/captions/images, and the web shared renderer. General vector output beyond the bounded export is not implemented.",
    "layers": [
     "presentation",
     "logic",

@@ -19,7 +19,7 @@ const SMALL_SIZE: f64 = 8.0;
 /// How far a label's box reaches past its content, at the built-in size (`PADDING`).
 const PADDING: f64 = 1.0;
 /// How many elements of a list query the canvas names (`SHOWN_QUERY_ELEMENTS`).
-const SHOWN_QUERY_ELEMENTS: usize = 3;
+pub(super) const SHOWN_QUERY_ELEMENTS: usize = 3;
 /// The weight of the symbol and of `H` (the 500 of `layout`).
 const SYMBOL_WEIGHT: u16 = 500;
 /// The weight of the hydrogen count, the isotope and the charge (the default 400 of `chemicalRun`).

@@ -64,64 +64,64 @@ const GOLDEN: [Combination; 7] = [
     (
         (true, false, false),
         [
-            "MOL/SDF subset",
-            "Read and write bounded V2000 and V3000 MOL/SDF with explicit losses. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 collections other than the stereo groups, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry (including enhanced stereo groups in V2000, and stored centers in no group in V3000) is written only after the caller accepts that it is dropped; other formats are unsupported.",
+            "MOL/SDF and SVG subsets",
+            "Read and write bounded V2000 and V3000 MOL/SDF with explicit losses. Write a bounded SVG drawing of atoms and bonds (export only) with accepted_losses consent needed only for the losses that require it. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 collections other than the stereo groups, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry (including enhanced stereo groups in V2000, and stored centers in no group in V3000) is written only after the caller accepts that it is dropped; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 or V3000 MOL/SDF subset (V3000 stereo collections become stereo groups).",
-            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto, or the mol-v2000 and mol-v3000 format ids) with enhanced stereo groups as V3000 COLLECTION blocks with per-record losses and accepted_losses consent for stereo it cannot carry.",
+            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto, or the mol-v2000 and mol-v3000 format ids) with enhanced stereo groups as V3000 COLLECTION blocks with per-record losses and accepted_losses consent for stereo it cannot carry; a bounded SVG drawing (format svg, export only) with accepted_losses consent needed only for the losses that require it.",
         ],
     ),
     (
         (false, true, false),
         [
-            "CDXML and CDX subsets",
-            "Read and write rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) with explicit losses. CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; other formats are unsupported.",
+            "CDXML, CDX and SVG subsets",
+            "Read and write rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) with explicit losses. Write a bounded SVG drawing of atoms and bonds (export only) with accepted_losses consent needed only for the losses that require it. CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or create a drawing from its loss-accounted editor projection.",
-            "Write with explicit losses: rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content.",
+            "Write with explicit losses: rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content; a bounded SVG drawing (format svg, export only) with accepted_losses consent needed only for the losses that require it.",
         ],
     ),
     (
         (true, true, false),
         [
-            "MOL/SDF, CDXML and CDX subsets",
-            "Read and write bounded V2000 and V3000 MOL/SDF, rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) with explicit losses. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 collections other than the stereo groups, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry (including enhanced stereo groups in V2000, and stored centers in no group in V3000) is written only after the caller accepts that it is dropped; CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; other formats are unsupported.",
+            "MOL/SDF, CDXML, CDX and SVG subsets",
+            "Read and write bounded V2000 and V3000 MOL/SDF, rich CDXML and a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) with explicit losses. Write a bounded SVG drawing of atoms and bonds (export only) with accepted_losses consent needed only for the losses that require it. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 collections other than the stereo groups, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry (including enhanced stereo groups in V2000, and stored centers in no group in V3000) is written only after the caller accepts that it is dropped; CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 or V3000 MOL/SDF subset (V3000 stereo collections become stereo groups); read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or create a drawing from its loss-accounted editor projection.",
-            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto, or the mol-v2000 and mol-v3000 format ids) with enhanced stereo groups as V3000 COLLECTION blocks with per-record losses and accepted_losses consent for stereo it cannot carry; rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content.",
+            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto, or the mol-v2000 and mol-v3000 format ids) with enhanced stereo groups as V3000 COLLECTION blocks with per-record losses and accepted_losses consent for stereo it cannot carry; rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content; a bounded SVG drawing (format svg, export only) with accepted_losses consent needed only for the losses that require it.",
         ],
     ),
     (
         (false, false, true),
         [
-            "SMILES subset",
-            "Read and write SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. SMILES tetrahedral marks (@, @@), directional bonds (/, \\) beside supported double bonds and CXSMILES stereo groups are read, but other stereo classes, other CXSMILES fields, query atoms and reaction SMILES are refused on read, and recorded SMILES writes supported tetrahedral configurations, stored double-bond configurations as directional bonds (/, \\) where the reader reads them back, and stereo groups; stereo it cannot represent requires loss consent; other formats are unsupported.",
+            "SMILES and SVG subsets",
+            "Read and write SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. Write a bounded SVG drawing of atoms and bonds (export only) with accepted_losses consent needed only for the losses that require it. SMILES tetrahedral marks (@, @@), directional bonds (/, \\) beside supported double bonds and CXSMILES stereo groups are read, but other stereo classes, other CXSMILES fields, query atoms and reaction SMILES are refused on read, and recorded SMILES writes supported tetrahedral configurations, stored double-bond configurations as directional bonds (/, \\) where the reader reads them back, and stereo groups; stereo it cannot represent requires loss consent; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: append one SMILES string (at most 16 KiB).",
-            "Write with explicit losses: one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
+            "Write with explicit losses: one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make; a bounded SVG drawing (format svg, export only) with accepted_losses consent needed only for the losses that require it.",
         ],
     ),
     (
         (true, false, true),
         [
-            "MOL/SDF and SMILES subsets",
-            "Read and write bounded V2000 and V3000 MOL/SDF and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 collections other than the stereo groups, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry (including enhanced stereo groups in V2000, and stored centers in no group in V3000) is written only after the caller accepts that it is dropped; SMILES tetrahedral marks (@, @@), directional bonds (/, \\) beside supported double bonds and CXSMILES stereo groups are read, but other stereo classes, other CXSMILES fields, query atoms and reaction SMILES are refused on read, and recorded SMILES writes supported tetrahedral configurations, stored double-bond configurations as directional bonds (/, \\) where the reader reads them back, and stereo groups; stereo it cannot represent requires loss consent; other formats are unsupported.",
+            "MOL/SDF, SMILES and SVG subsets",
+            "Read and write bounded V2000 and V3000 MOL/SDF and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. Write a bounded SVG drawing of atoms and bonds (export only) with accepted_losses consent needed only for the losses that require it. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 collections other than the stereo groups, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry (including enhanced stereo groups in V2000, and stored centers in no group in V3000) is written only after the caller accepts that it is dropped; SMILES tetrahedral marks (@, @@), directional bonds (/, \\) beside supported double bonds and CXSMILES stereo groups are read, but other stereo classes, other CXSMILES fields, query atoms and reaction SMILES are refused on read, and recorded SMILES writes supported tetrahedral configurations, stored double-bond configurations as directional bonds (/, \\) where the reader reads them back, and stereo groups; stereo it cannot represent requires loss consent; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 or V3000 MOL/SDF subset (V3000 stereo collections become stereo groups); append one SMILES string (at most 16 KiB).",
-            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto, or the mol-v2000 and mol-v3000 format ids) with enhanced stereo groups as V3000 COLLECTION blocks with per-record losses and accepted_losses consent for stereo it cannot carry; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
+            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto, or the mol-v2000 and mol-v3000 format ids) with enhanced stereo groups as V3000 COLLECTION blocks with per-record losses and accepted_losses consent for stereo it cannot carry; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make; a bounded SVG drawing (format svg, export only) with accepted_losses consent needed only for the losses that require it.",
         ],
     ),
     (
         (false, true, true),
         [
-            "CDXML, CDX and SMILES subsets",
-            "Read and write rich CDXML, a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; SMILES tetrahedral marks (@, @@), directional bonds (/, \\) beside supported double bonds and CXSMILES stereo groups are read, but other stereo classes, other CXSMILES fields, query atoms and reaction SMILES are refused on read, and recorded SMILES writes supported tetrahedral configurations, stored double-bond configurations as directional bonds (/, \\) where the reader reads them back, and stereo groups; stereo it cannot represent requires loss consent; other formats are unsupported.",
+            "CDXML, CDX, SMILES and SVG subsets",
+            "Read and write rich CDXML, a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. Write a bounded SVG drawing of atoms and bonds (export only) with accepted_losses consent needed only for the losses that require it. CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; SMILES tetrahedral marks (@, @@), directional bonds (/, \\) beside supported double bonds and CXSMILES stereo groups are read, but other stereo classes, other CXSMILES fields, query atoms and reaction SMILES are refused on read, and recorded SMILES writes supported tetrahedral configurations, stored double-bond configurations as directional bonds (/, \\) where the reader reads them back, and stereo groups; stereo it cannot represent requires loss consent; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or create a drawing from its loss-accounted editor projection; append one SMILES string (at most 16 KiB).",
-            "Write with explicit losses: rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
+            "Write with explicit losses: rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make; a bounded SVG drawing (format svg, export only) with accepted_losses consent needed only for the losses that require it.",
         ],
     ),
     (
         (true, true, true),
         [
-            "MOL/SDF, CDXML, CDX and SMILES subsets",
-            "Read and write bounded V2000 and V3000 MOL/SDF, rich CDXML, a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 collections other than the stereo groups, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry (including enhanced stereo groups in V2000, and stored centers in no group in V3000) is written only after the caller accepts that it is dropped; CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; SMILES tetrahedral marks (@, @@), directional bonds (/, \\) beside supported double bonds and CXSMILES stereo groups are read, but other stereo classes, other CXSMILES fields, query atoms and reaction SMILES are refused on read, and recorded SMILES writes supported tetrahedral configurations, stored double-bond configurations as directional bonds (/, \\) where the reader reads them back, and stereo groups; stereo it cannot represent requires loss consent; other formats are unsupported.",
+            "MOL/SDF, CDXML, CDX, SMILES and SVG subsets",
+            "Read and write bounded V2000 and V3000 MOL/SDF, rich CDXML, a bounded CDX subset (base64 over JSON, at most 1 MiB of CDX; HTTP and CLI limits are lower) and SMILES text (a bounded OpenSMILES subset of at most 16 KiB and 64 nested branches, written in recorded or canonical form) with explicit losses. Write a bounded SVG drawing of atoms and bonds (export only) with accepted_losses consent needed only for the losses that require it. MOL/SDF atom parity and the bond topology and reaction columns are refused on read, V3000 collections other than the stereo groups, query atoms and bonds and advanced fields are refused, and stereo a file cannot carry (including enhanced stereo groups in V2000, and stored centers in no group in V3000) is written only after the caller accepts that it is dropped; CDXML and CDX content the editor cannot hold is kept opaque or reported as a loss; SMILES tetrahedral marks (@, @@), directional bonds (/, \\) beside supported double bonds and CXSMILES stereo groups are read, but other stereo classes, other CXSMILES fields, query atoms and reaction SMILES are refused on read, and recorded SMILES writes supported tetrahedral configurations, stored double-bond configurations as directional bonds (/, \\) where the reader reads them back, and stereo groups; stereo it cannot represent requires loss consent; other formats are unsupported.",
             "Preview, then import with explicit losses and revision-checked consent: append one selected record of a bounded V2000 or V3000 MOL/SDF subset (V3000 stereo collections become stereo groups); read CDXML or a bounded CDX subset (canonical base64, at most 1 MiB) as a rich tree, or create a drawing from its loss-accounted editor projection; append one SMILES string (at most 16 KiB).",
-            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto, or the mol-v2000 and mol-v3000 format ids) with enhanced stereo groups as V3000 COLLECTION blocks with per-record losses and accepted_losses consent for stereo it cannot carry; rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make.",
+            "Write with explicit losses: bounded V2000 or V3000 MOL/SDF (ctab v2000, v3000 or auto, or the mol-v2000 and mol-v3000 format ids) with enhanced stereo groups as V3000 COLLECTION blocks with per-record losses and accepted_losses consent for stereo it cannot carry; rich CDXML or a bounded CDX subset with opaque-content safety and accepted_losses consent for rounded or dropped CDX content; one SMILES string, recorded or canonical, with accepted_losses consent for the assumptions it must make; a bounded SVG drawing (format svg, export only) with accepted_losses consent needed only for the losses that require it.",
         ],
     ),
 ];
@@ -151,10 +151,8 @@ fn the_wording_never_calls_a_listed_format_unsupported_and_agrees_in_number() {
             (interchange, "CDXML"),
             (smiles, "SMILES"),
         ];
-        let count = named.iter().filter(|(connected, _)| *connected).count();
-        // The label is singular exactly when one family of formats is connected.
-        let plural = label.ends_with("subsets");
-        assert_eq!(plural, count > 1 || interchange, "{label}");
+        // SVG is listed beside the codecs, so the label is plural in every combination.
+        assert!(label.ends_with("and SVG subsets"), "{label}");
         for (connected, name) in named {
             assert_eq!(
                 description.contains(name),
@@ -174,6 +172,10 @@ fn the_wording_never_calls_a_listed_format_unsupported_and_agrees_in_number() {
         );
         assert!(description.ends_with("other formats are unsupported."));
         assert!(!export.contains("unsupported"), "{export}");
+        // SVG is export only: the description and export note list it, the import note never does.
+        assert!(description.contains("SVG"), "{description}");
+        assert!(export.contains("SVG"), "{export}");
+        assert!(!import.contains("SVG"), "{import}");
     }
 }
 

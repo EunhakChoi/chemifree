@@ -18,9 +18,9 @@ fn call(app: &App, id: &str, operation: &str, parameters: Value) -> Value {
 fn catalog_and_dispatch_follow_the_providers_actually_connected() {
     for (ct, rich, label) in [
         (false, false, "Import and export"),
-        (true, false, "MOL/SDF subset"),
-        (false, true, "CDXML and CDX subsets"),
-        (true, true, "MOL/SDF, CDXML and CDX subsets"),
+        (true, false, "MOL/SDF and SVG subsets"),
+        (false, true, "CDXML, CDX and SVG subsets"),
+        (true, true, "MOL/SDF, CDXML, CDX and SVG subsets"),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let mut app = Application::new(LocalCapabilities, FileDocumentRepository::new(dir.path()));

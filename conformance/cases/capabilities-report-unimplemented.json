@@ -21,7 +21,7 @@
             {
               "id": "format_conversion",
               "status": "available",
-              "label": "MOL/SDF, CDXML, CDX and SMILES subsets"
+              "label": "MOL/SDF, CDXML, CDX, SMILES and SVG subsets"
             },
             {
               "id": "local_model_loading",
