@@ -63,6 +63,8 @@ but have not run in this implementation session. See the
 
 Use Node **22.22.2**, npm **11.13.0**, and Rust **1.95.0**. The repository includes `.nvmrc`, `packageManager`, and `rust-toolchain.toml`.
 
+`npm run check:rust` also needs **cargo-nextest 0.9.149** on `PATH`, either from `cargo install cargo-nextest --version 0.9.149 --locked` or from its prebuilt release binary.
+
 ```bash
 npm ci
 npm run dev
@@ -174,7 +176,7 @@ npm run lint             # ESLint: JS/TS + React Hooks checks
 npm run typecheck        # TypeScript project references
 npm run test:client      # Web client against a scripted service: unknown outcomes, restarts
 npm run build:web        # Production web assets in apps/web/dist
-npm run check:rust       # rustfmt + clippy (-D warnings) + Rust tests
+npm run check:rust       # rustfmt + clippy (-D warnings) + Rust tests (cargo-nextest, plus doctests)
 npm run test:contracts   # Real HTTP/CLI processes: parity, document flow, guards, conflicts, failures
 npm run test:conformance # Conformance cases → target/conformance/report.json; exit 1 if any case fails
 npm run test:traceability # Traceability files against the roadmap, the recorded run, and npm scripts

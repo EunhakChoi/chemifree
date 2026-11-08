@@ -1,9 +1,10 @@
 //! Closing the connection of a running `chem.aromaticity_convert` request stops its computation.
 //!
 //! The request is a document of 21 disjoint ring systems that each exhaust the 100,000-step
-//! Kekulé search budget, so it computes for seconds. A second request with the same
-//! `request_id` and a time limit of 0 tells whether the first still runs: it is answered
-//! `request_in_progress` until the first has ended, and `time_limit` after.
+//! Kekulé search budget. An optimised build computes it in about 0.2 s and a debug build in
+//! about four seconds. A second request with the same `request_id` and a time limit of 0 tells
+//! whether the first still runs: it is answered `request_in_progress` until the first has
+//! ended, and `time_limit` after.
 
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -18,6 +19,10 @@ use serde_json::{Value, json};
 const TOKEN: &str = "disconnect-token";
 const COPIES: usize = 21;
 const REQUEST: &str = "slow";
+/// How long the conversion has been running when the client closes its connection. An optimised
+/// build (`CARGO_PROFILE_TEST_OPT_LEVEL=1`) takes about 0.2 s in all and a debug build about four
+/// seconds, so the close finds the computation running in either.
+const RUNNING_BEFORE_CLOSE: Duration = Duration::from_millis(100);
 
 /// An aromatic system of 93 atoms and 121 bonds with no Kekulé assignment, found only after
 /// more than the 100,000-step budget: the search is exhausted, which takes the same time every
@@ -262,32 +267,33 @@ fn closing_the_connection_stops_a_running_conversion() {
         &document,
         json!({"expected_revision": COPIES, "to": "kekule"}),
     );
+    // One deadline for every start, resends included: a request that has already finished is
+    // answered by replay, and resending it would otherwise go on forever.
+    let deadline = Instant::now() + Duration::from_secs(30);
     let mut started = Instant::now();
     let mut request = send(port, &slow);
-    // The computation is running once the same request ID is answered as in progress. A probe
-    // that reaches the server before the request makes the request the refused one; its
-    // reply is then already there, and it is sent again.
-    std::thread::sleep(Duration::from_millis(300));
+    // The computation is running once the same request ID is answered as in progress. The probe
+    // goes out at once, while the computation still has most of its work to do. A probe that is
+    // still running when the request arrives makes the request the refused one; its reply is then
+    // already there, and the request is sent again.
     loop {
         let code = probe(port, &document);
         if code == "request_in_progress" {
             break;
         }
+        assert!(
+            Instant::now() < deadline,
+            "the conversion was not seen running within 30 s; the same request ID was last answered {code}"
+        );
         if replied(&request) {
             request = send(port, &slow);
             started = Instant::now();
-            std::thread::sleep(Duration::from_millis(300));
-            continue;
         }
-        assert!(
-            started.elapsed() < Duration::from_secs(30),
-            "the conversion did not start computing; the same request ID was answered {code}"
-        );
         std::thread::sleep(Duration::from_millis(20));
     }
-    // It really is a long computation: it is still running half a second after it began (in a
-    // debug build it takes about four seconds in all).
-    std::thread::sleep(Duration::from_millis(500).saturating_sub(started.elapsed()));
+    // It really is a long computation: it is still running when the close comes (see
+    // `RUNNING_BEFORE_CLOSE`).
+    std::thread::sleep(RUNNING_BEFORE_CLOSE.saturating_sub(started.elapsed()));
     assert_eq!(
         probe(port, &document),
         "request_in_progress",
@@ -312,7 +318,7 @@ fn closing_the_connection_stops_a_running_conversion() {
     };
     assert_eq!(
         code, "time_limit",
-        "the probe computes anew with its limit of 0"
+        "after the close the probe must compute anew with its limit of 0, got {code}"
     );
     runtime.shutdown_timeout(Duration::from_secs(5));
 }
