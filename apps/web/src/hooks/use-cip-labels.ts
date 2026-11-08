@@ -21,8 +21,10 @@ interface Source {
 /**
  * Asks the service for the CIP labels of the stored configurations, only while labels are
  * wanted (a switch is on and the drawing stores something it covers, `wantsCip`): with both
- * switches off no request is ever sent, because `chem.cip` has no time limit and a dense graph
- * can be slow. The scheduling is the agreement indicator's (`InspectionRunner`). Switching
+ * switches off no request is ever sent. The service bounds each request with its time limit
+ * (5 seconds by default), the web client gives up after its own 10 seconds, and only stored
+ * configurations are asked for, because a dense graph's scan has no lower node cap yet (issue
+ * #127). The scheduling is the agreement indicator's (`InspectionRunner`). Switching
  * off clears the last outcome and discards a request still in flight, so turning labels on again
  * never shows an earlier failure or answer. What it returns is shown only for exactly the drawing
  * on screen (see `cipView`), so an out-of-date answer is never drawn.

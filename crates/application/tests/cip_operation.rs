@@ -11,7 +11,7 @@
 )]
 mod support;
 
-use chemifree_application::{Application, CommandDto};
+use chemifree_application::{Application, CommandDto, ComputeLimits};
 use chemifree_domain::document::BondOrder;
 use chemifree_domain::states::{AtomKind, AttachmentPoints, Hydrogens, QueryAtom};
 use chemifree_domain::stereo::{Relation, Turn};
@@ -1261,7 +1261,13 @@ fn grid(side: usize) -> Molecule {
 
 #[test]
 fn a_request_over_the_node_limit_is_refused_whole_with_the_numbers() {
+    // This test is about the node limit, not the clock. Labeling this grid takes longer than the
+    // default time limit in a debug build, so the application keeps the largest limit it allows.
     let (app, _directory) = application();
+    let app = app.with_compute_limits(ComputeLimits {
+        default_time_ms: ComputeLimits::CAP_MS,
+        max_time_ms: ComputeLimits::CAP_MS,
+    });
     let side = 13;
     let molecule = grid(side);
     let built = build(&app, &molecule);
@@ -1432,6 +1438,203 @@ fn a_cancelled_request_changes_nothing_and_says_so() {
 fn body_with_scope(built: &Built) -> Value {
     json!({"contract": 1, "request_id": "scan", "profile": "preserve-semantics",
            "operation": "chem.cip", "parameters": request(built, &json!({"scope": "stereogenic"}))})
+}
+
+/// Labels nothing: each labeling call asks the interrupt until it stops the work, so the only
+/// thing that can end it is the time limit the request runs under.
+struct Spinning;
+
+/// The questions `Spinning` asks at most. A deadline stops the work long before this many, so
+/// reaching it means that no limit applied, and the test fails rather than hangs.
+const SPIN_GUARD: u64 = 100_000_000;
+
+fn spin(interrupt: &dyn Interrupt) -> Stop {
+    for _ in 0..SPIN_GUARD {
+        if let Err(stop) = interrupt.check() {
+            return Stop::Interrupted(stop);
+        }
+    }
+    panic!("nothing stopped the labeling after {SPIN_GUARD} questions: no time limit applied")
+}
+
+impl CipLabeler for Spinning {
+    fn model_id(&self) -> &'static str {
+        "spinning-test-1"
+    }
+
+    fn rules(&self) -> &'static [&'static str] {
+        BuiltinCip.rules()
+    }
+
+    fn limits(&self) -> Limits {
+        BuiltinCip.limits()
+    }
+
+    fn label_centers(
+        &self,
+        _graph: &MoleculeGraph,
+        _atoms: &[AtomId],
+        _limits: Limits,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Vec<CenterReport>, Stop> {
+        Err(spin(interrupt))
+    }
+
+    fn label_double_bonds(
+        &self,
+        _graph: &MoleculeGraph,
+        _bonds: &[BondId],
+        _limits: Limits,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Vec<BondReport>, Stop> {
+        Err(spin(interrupt))
+    }
+}
+
+/// A request for `scope` under a time limit of zero is stopped, names the limit, and changes
+/// nothing.
+fn zero_limit_stops(scope: &str) {
+    let (app, _directory) = application();
+    let (built, _) = smiles(&app, SELECTION);
+    let before = whole(&app, &built);
+    let reply = call(
+        &app,
+        scope,
+        &request(&built, &json!({"scope": scope, "time_limit_ms": 0})),
+    );
+    assert_eq!(reply["outcome"], "error", "{reply}");
+    assert_eq!(reply["result"], Value::Null, "no partial result: {reply}");
+    assert_eq!(reply["model_id"], "chemifree-cip-1", "{reply}");
+    assert_eq!(
+        diagnostic(&reply, "time_limit")["details"],
+        json!({"limit_ms": 0}),
+        "only the limit is reported, never an elapsed time: {reply}"
+    );
+    assert_eq!(
+        reply["document_revision"], before["document"]["revision"],
+        "the revision is the document's: {reply}"
+    );
+    assert_eq!(whole(&app, &built), before, "nothing changed: {reply}");
+}
+
+#[test]
+fn a_zero_time_limit_stops_the_labeling_and_changes_nothing() {
+    zero_limit_stops("stored");
+}
+
+#[test]
+fn a_zero_time_limit_stops_the_scan_and_changes_nothing() {
+    zero_limit_stops("stereogenic");
+}
+
+#[test]
+fn a_time_limit_one_above_the_maximum_is_refused_with_the_maximum() {
+    let (app, _directory) = application();
+    let app = app.with_compute_limits(ComputeLimits {
+        default_time_ms: 1_000,
+        max_time_ms: 1_000,
+    });
+    let (built, _) = smiles(&app, SELECTION);
+    let reply = call(
+        &app,
+        "above",
+        &request(&built, &json!({"time_limit_ms": 1_001})),
+    );
+    assert_eq!(reply["outcome"], "error", "{reply}");
+    let refusal = diagnostic(&reply, "invalid_request");
+    assert_eq!(refusal["path"], "parameters.time_limit_ms", "{reply}");
+    assert_eq!(refusal["details"]["maximum_ms"], 1_000, "{reply}");
+    assert_eq!(reply["model_id"], "chemifree-cip-1", "{reply}");
+}
+
+#[test]
+fn the_default_maximum_time_limit_is_eight_seconds() {
+    // The conformance runner lifts the limits so that a work-limit case does not depend on the
+    // speed of its build, so the 8-second maximum of an application with default limits is pinned
+    // here: 8,000 ms is accepted and 8,001 ms is refused with that maximum.
+    let (app, _directory) = application();
+    let (built, _) = smiles(&app, SELECTION);
+    let refused = call(
+        &app,
+        "over-default",
+        &request(&built, &json!({"time_limit_ms": 8_001})),
+    );
+    assert_eq!(refused["outcome"], "error", "{refused}");
+    let refusal = diagnostic(&refused, "invalid_request");
+    assert_eq!(refusal["path"], "parameters.time_limit_ms", "{refused}");
+    assert_eq!(refusal["details"]["maximum_ms"], 8_000, "{refused}");
+    let accepted = call(
+        &app,
+        "at-default",
+        &request(&built, &json!({"time_limit_ms": 8_000})),
+    );
+    assert_eq!(accepted["outcome"], "ok", "{accepted}");
+}
+
+#[test]
+fn a_time_limit_equal_to_the_maximum_is_accepted() {
+    // The largest maximum an application keeps, so the deadline is an hour away and the outcome
+    // does not depend on the clock.
+    let (app, _directory) = application();
+    let app = app.with_compute_limits(ComputeLimits {
+        default_time_ms: ComputeLimits::CAP_MS,
+        max_time_ms: ComputeLimits::CAP_MS,
+    });
+    let (built, _) = smiles(&app, SELECTION);
+    let reply = call(
+        &app,
+        "equal",
+        &request(&built, &json!({"time_limit_ms": ComputeLimits::CAP_MS})),
+    );
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    assert_eq!(ids(&reply, "atoms"), ["a2"], "{reply}");
+    assert_eq!(text(item(&reply, "atoms", "a2")), "R", "{reply}");
+}
+
+#[test]
+fn the_default_time_limit_applies_until_a_request_states_its_own() {
+    let (app, _directory) = application_with(Spinning);
+    let app = app.with_compute_limits(ComputeLimits {
+        default_time_ms: 20,
+        max_time_ms: 100,
+    });
+    let (built, _) = smiles(&app, SELECTION);
+    let by_default = call(&app, "default", &request(&built, &json!({})));
+    assert_eq!(by_default["outcome"], "error", "{by_default}");
+    assert_eq!(by_default["model_id"], "spinning-test-1", "{by_default}");
+    assert_eq!(
+        diagnostic(&by_default, "time_limit")["details"],
+        json!({"limit_ms": 20}),
+        "the application's default stops a request that states none: {by_default}"
+    );
+    let stated = call(
+        &app,
+        "stated",
+        &request(&built, &json!({"time_limit_ms": 30})),
+    );
+    assert_eq!(
+        diagnostic(&stated, "time_limit")["details"],
+        json!({"limit_ms": 30}),
+        "the limit a request states stops it: {stated}"
+    );
+}
+
+#[test]
+fn a_cancel_wins_over_a_time_limit_that_has_passed() {
+    let (app, _directory) = application();
+    let (built, _) = smiles(&app, SELECTION);
+    let before = whole(&app, &built);
+    let flag = CancelFlag::new();
+    flag.cancel();
+    // A limit of zero has passed before the first question is asked, and the cancel is asked first.
+    let body = json!({"contract": 1, "request_id": "both", "profile": "preserve-semantics",
+                      "operation": "chem.cip",
+                      "parameters": request(&built, &json!({"time_limit_ms": 0}))});
+    let reply = serde_json::to_value(app.execute_with(body.to_string().as_bytes(), &flag)).unwrap();
+    assert_eq!(reply["outcome"], "error", "{reply}");
+    assert_eq!(codes(&reply), ["cancelled"], "{reply}");
+    assert_eq!(reply["diagnostics"][0]["details"], json!({}), "{reply}");
+    assert_eq!(whole(&app, &built), before, "{reply}");
 }
 
 type CenterFix = Box<dyn Fn(&mut Vec<CenterReport>) + Send + Sync>;
@@ -2007,8 +2210,16 @@ fn each_reason_the_operation_can_give_is_pinned_by_a_molecule_that_reaches_it() 
 // The catalog
 // ---------------------------------------------------------------------------------------------
 
+/// What the note of `chem.cip` says of its time limit; both catalog tests check it.
+const TIME_LIMIT_NOTE: [&str; 4] = [
+    "takes `time_limit_ms` like `chem.aromaticity_convert`",
+    "the default and the maximum come from the compute limits",
+    "a computation that is stopped is an `error` with a `time_limit` diagnostic",
+    "never a partial result",
+];
+
 #[test]
-fn the_catalog_advertises_chem_cip_with_its_limits_and_its_missing_time_limit() {
+fn the_catalog_advertises_chem_cip_with_its_limits_and_its_time_limit() {
     let (app, _directory) = application();
     let catalog = serde_json::to_value(app.operation_catalog()).unwrap();
     let operations = catalog["operations"].as_array().unwrap();
@@ -2033,11 +2244,10 @@ fn the_catalog_advertises_chem_cip_with_its_limits_and_its_missing_time_limit() 
             "{number} is not in: {note}"
         );
     }
-    for words in [
-        "Rules 1a, 1b, 2 and 3 only",
-        "no time limit",
-        "unsupported or ambiguous",
-    ] {
+    for words in ["Rules 1a, 1b, 2 and 3 only", "unsupported or ambiguous"] {
+        assert!(note.contains(words), "{words:?} is not in: {note}");
+    }
+    for words in TIME_LIMIT_NOTE {
         assert!(note.contains(words), "{words:?} is not in: {note}");
     }
     // The stereo rows keep saying what chem.stereo does not do and where labels come from.
@@ -2660,13 +2870,10 @@ fn the_catalog_describes_the_active_labeler() {
         .find(|entry| entry["id"] == "chem.cip")
         .unwrap();
     let note = entry["note"].as_str().unwrap();
-    for words in [
-        "limited-test-1",
-        "Rule 1a only",
-        "777",
-        "8888",
-        "no time limit",
-    ] {
+    for words in ["limited-test-1", "Rule 1a only", "777", "8888"] {
+        assert!(note.contains(words), "{words:?} is not in: {note}");
+    }
+    for words in TIME_LIMIT_NOTE {
         assert!(note.contains(words), "{words:?} is not in: {note}");
     }
     for words in [

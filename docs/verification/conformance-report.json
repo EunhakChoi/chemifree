@@ -478,7 +478,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "80c6451a6802372bcc1da1698ee1d13f3a78b8653fe0bd9076abd72e064741ee"
+      "case_sha256": "15ad47403b0157023128757039c96edba1c0aa81abc914d7581854924f8d29c3"
     },
     {
       "id": "graph-identity",

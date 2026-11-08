@@ -6,8 +6,9 @@
 //! never written back and never read from a mark or a position.
 
 use std::collections::BTreeSet;
+use std::time::{Duration, Instant};
 
-use chemifree_domain::budget::Interrupted;
+use chemifree_domain::budget::{Budget, Interrupted};
 use chemifree_domain::cip::{
     BondReport, Candidates, CenterReport, Limits, Reason, State, Stop, Warning,
 };
@@ -105,6 +106,10 @@ pub(super) struct CipParameters {
     atoms: Option<Value>,
     #[serde(default)]
     bonds: Option<Value>,
+    /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
+    /// (so it may be above the server's default); above the maximum it is refused.
+    #[serde(default)]
+    time_limit_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -312,7 +317,7 @@ pub(super) fn catalog_note(labeler: &dyn CipLabeler) -> String {
         )
     };
     format!(
-        "Read-only CIP descriptors (R, S, E, Z) of the stored stereo configurations, model {}, per center and double bond; computed on demand, never stored. {rules} Work limits: {work} Documented gap: no time limit and no cancel parameter; only a cancel from the host stops it.",
+        "Read-only CIP descriptors (R, S, E, Z) of the stored stereo configurations, model {}, per center and double bond; computed on demand, never stored. {rules} Work limits: {work} The operation takes `time_limit_ms` like `chem.aromaticity_convert`: the default and the maximum come from the compute limits, and a computation that is stopped is an `error` with a `time_limit` diagnostic, never a partial result.",
         labeler.model_id()
     )
 }
@@ -499,6 +504,31 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             reply.model_id = Some(model.into());
             reply
         };
+        // The limit is resolved before anything else, so a limit above the maximum is refused
+        // whatever the document is.
+        let limit_ms = match self.compute_limits.resolve(p.time_limit_ms) {
+            Ok(limit_ms) => limit_ms,
+            Err(maximum) => {
+                let mut details = Map::new();
+                details.insert("maximum_ms".into(), maximum.into());
+                return with_model(known.invalid(Diagnostic {
+                    code: ErrorCode::InvalidRequest.as_str(),
+                    severity: Severity::Error,
+                    message: format!("time_limit_ms is above the maximum of {maximum} ms."),
+                    path: Some("parameters.time_limit_ms".into()),
+                    details,
+                }));
+            }
+        };
+        // Limits are capped far below what an `Instant` can add; a deadline that could not be
+        // formed would still stop the computation at once rather than never.
+        let now = Instant::now();
+        let deadline = Some(
+            now.checked_add(Duration::from_millis(limit_ms))
+                .unwrap_or(now),
+        );
+        // One budget for the whole request: the scan, the centers and the bonds share its deadline.
+        let budget = Budget::new(cancel, deadline);
         let scope = match parse_scope(p.scope) {
             Ok(scope) => scope,
             Err(invalid) => return with_model(known.invalid(invalid)),
@@ -595,16 +625,17 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         // what the scan left of the request budget.
         let mut found = Candidates::default();
         if scope == Scope::Stereogenic {
-            found = match labeler.candidates(&graph, limits, cancel) {
+            found = match labeler.candidates(&graph, limits, &budget) {
                 Ok(found) => found,
                 Err(stop) => {
-                    return with_model(self.stopped(
+                    return with_model(Self::stopped(
                         known,
                         Stage::Scan,
                         stop,
                         revision,
                         checker.size(),
                         limits,
+                        limit_ms,
                     ));
                 }
             };
@@ -617,7 +648,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 ));
             }
             if found.nodes > limits.request_nodes {
-                return with_model(self.stopped(
+                return with_model(Self::stopped(
                     known,
                     Stage::Scan,
                     Stop::RequestLimit {
@@ -626,6 +657,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     revision,
                     checker.size(),
                     limits,
+                    limit_ms,
                 ));
             }
             for report in &found.centers {
@@ -642,10 +674,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             ..limits
         };
         let (mut centers, mut double_bonds) =
-            match self.label_units(&checker, &units, left, labeler, cancel) {
+            match self.label_units(&checker, &units, left, labeler, &budget) {
                 Ok(reports) => reports,
                 Err(Failure::Stop(stage, stop)) => {
-                    return with_model(self.stopped(known, stage, stop, revision, in_play, limits));
+                    return with_model(Self::stopped(
+                        known, stage, stop, revision, in_play, limits, limit_ms,
+                    ));
                 }
                 Err(Failure::Refused(refusal)) => {
                     return with_model(known.reply(
@@ -808,14 +842,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
 
     /// The reply to a request that produced no labels: over the request limit, or interrupted.
     /// `items` is the number of units in play (the document's atoms and bonds for the scan).
+    /// `limit_ms` is the time limit the request ran under; a stop by it reports that limit. It
+    /// takes no `self`, which it does not use.
     fn stopped(
-        &self,
         known: &Known,
         stage: Stage,
         stop: Stop,
         revision: u64,
         items: usize,
         limits: Limits,
+        limit_ms: u64,
     ) -> OperationResponse {
         match stop {
             Stop::RequestLimit { limit } => {
@@ -861,21 +897,30 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 )
             }
             Stop::Interrupted(interrupted) => {
-                let (code, message) = match interrupted {
+                let (code, message, details) = match interrupted {
                     Interrupted::Cancelled => (
                         ErrorCode::Cancelled,
-                        "The computation was cancelled before it finished; nothing was changed.",
+                        "The computation was cancelled before it finished; nothing was changed."
+                            .to_owned(),
+                        Map::new(),
                     ),
-                    Interrupted::TimeLimit => (
-                        ErrorCode::TimeLimit,
-                        "The computation did not finish in time; nothing was changed.",
-                    ),
+                    Interrupted::TimeLimit => {
+                        let mut details = Map::new();
+                        details.insert("limit_ms".into(), limit_ms.into());
+                        (
+                            ErrorCode::TimeLimit,
+                            format!(
+                                "The computation did not finish within the time limit of {limit_ms} ms; nothing was changed."
+                            ),
+                            details,
+                        )
+                    }
                 };
                 known.reply(
                     Outcome::Error,
                     Some(revision),
                     None,
-                    vec![diagnostic(code.as_str(), message, Map::new())],
+                    vec![diagnostic(code.as_str(), message, details)],
                 )
             }
         }
