@@ -94,8 +94,10 @@ fn base_transaction() -> Value {
 /// The rows, in the order the report lists them.
 ///
 /// The radical and attachment-point rows on the oxygen check that a state the label does not show
-/// leaves the content alone. The last two rows use a bonded bare carbon: a recorded radical or
-/// attachment point makes the renderer label that carbon, so their content changes.
+/// leaves the content alone. The `radical-on-carbon` and `attachment-point-on-carbon` rows use a
+/// bonded bare carbon: a recorded radical or attachment point makes the renderer label that carbon,
+/// so their content changes. The `bold-on-bare-carbons` row changes the oxygen to a carbon, so no
+/// atom is labelled and bold reaches no drawn text.
 ///
 /// No row sets a crossed mark on a single bond. `set_bond_mark` and `update_bond` both validate the
 /// bond and refuse a mark that does not fit its order (`stereo_mark_bond_order`), so no transaction
@@ -299,6 +301,29 @@ fn table() -> Vec<Row> {
             &["chemical_graph", "scene_references"],
             NONE,
         ),
+        // A query bond is drawn as a dotted line, so the content changes. Its expression is
+        // reported without consent, since the canvas shows the same dotted line.
+        Row {
+            name: "query-bond",
+            transaction: json!({"commands": [
+                {"op": "update_bond", "bond": "b1", "order": "query",
+                    "query": {"kind": "list", "orders": ["single", "double"]}}
+            ]}),
+            drawn: true,
+            features: &["chemical_graph", "query_bond_expression"],
+            consent: NONE,
+        },
+        // Moving a1 by (26, -15) puts it on its neighbor a2 at (26, -15), so the bond b1 has no
+        // length and is not drawn. The content changes, and the loss needs no consent.
+        Row {
+            name: "atom-onto-neighbor",
+            transaction: json!({"commands": [
+                {"op": "move_atoms", "atoms": ["a1"], "delta": {"x": 26, "y": -15}}
+            ]}),
+            drawn: true,
+            features: &["chemical_graph", "zero_length_bond"],
+            consent: NONE,
+        },
         // Label-rule rows: a bonded bare carbon with a recorded radical or attachment point shows
         // its label, so the content changes.
         Row {
@@ -319,6 +344,16 @@ fn table() -> Vec<Row> {
             features: &["chemical_graph", "attachment_point_mark"],
             consent: &["attachment_point_mark"],
         },
+        // The oxygen of the base becomes a carbon, so every atom is a bare carbon and no label is
+        // drawn. Bold reaches no drawn text, so no label_typography loss appears. The content
+        // changes, because the oxygen label is gone.
+        drawn_row(
+            "bold-on-bare-carbons",
+            json!([
+                {"op": "update_atom", "atom": "a4", "element": "C"},
+                {"op": "update_settings", "label_weight": "bold"}
+            ]),
+        ),
     ]
 }
 

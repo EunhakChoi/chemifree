@@ -282,8 +282,6 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 .as_ref()
                 .map(|codec| codec.binary_input_limit()),
             smiles: self.smiles_codec.as_ref().map(|codec| codec.limits()),
-            // SVG needs no codec of its own; FormatText exists only once a format codec is attached.
-            svg: true,
         });
         Self {
             format_text,

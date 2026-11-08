@@ -38,16 +38,13 @@ pub struct SvgExportResult {
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
-    /// Writes the drawing from a copy of the document taken under the session lock, so the lock
-    /// is not held while the drawing is written. The losses the drawing leaves out are checked
+    /// Writes the drawing from the document view taken under the session lock, so the lock is
+    /// not held while the drawing is written. The losses the drawing leaves out are checked
     /// for consent before the content is returned.
     pub(super) fn svg_export(&self, known: &Known, p: SvgExportParameters) -> OperationResponse {
         debug_assert_eq!(p.format, "svg", "the dispatcher routes only SVG here");
-        // Only the view in the response is drawn. `analysis_snapshot` also copies the document,
-        // including its history, which this export does not read; the view is taken under the
-        // same lock.
-        let (snapshot, _) = match self.documents.analysis_snapshot(&p.document_id) {
-            Ok(captured) => captured,
+        let snapshot = match self.documents.get(&p.document_id) {
+            Ok(response) => response,
             Err(error) => {
                 return known.reply(
                     Outcome::Error,

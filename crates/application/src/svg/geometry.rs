@@ -156,6 +156,13 @@ pub(super) fn distance(a: Point, b: Point) -> f64 {
     (dx * dx + dy * dy).sqrt()
 }
 
+/// Whether `begin` and `end` are one point, so that a bond between them has no direction. The
+/// renderer draws no stroke for such a bond: `bond_strokes` returns early, as `bondStrokes` does in
+/// geometry.ts. The losses ask the same question of each placement's points.
+pub(super) fn is_zero_length(begin: Point, end: Point) -> bool {
+    distance(begin, end) == 0.0
+}
+
 /// The point `by` along the axis from `origin`, where `(ux, uy)` is the axis's unit direction. A
 /// negative `by` moves against that direction. Not rounded.
 fn point_along(origin: Point, ux: f64, uy: f64, by: f64) -> Point {
@@ -446,6 +453,19 @@ fn drawn_mark(mark: &MarkDto, order: BondOrderDto) -> Option<DrawnMark> {
     }
 }
 
+/// Whether the renderer draws `mark` on a bond of `order` as a mark rather than as the plain bond
+/// (`markFits`): a crossed mark on a double bond, which `crossed_strokes` draws as two crossing
+/// lines, and a wedge, hash or wavy mark on a single bond, which `drawn_mark` gives a stroke set.
+/// Losses report the marks that this does not draw.
+pub(super) fn mark_is_drawn(mark: &MarkDto, order: BondOrderDto) -> bool {
+    match mark {
+        MarkDto::Crossed {} => order == BondOrderDto::Double,
+        MarkDto::Wedge { .. } | MarkDto::Hash { .. } | MarkDto::Wavy {} => {
+            drawn_mark(mark, order).is_some()
+        }
+    }
+}
+
 /// The strokes of a marked bond, trimmed where it meets a label box (`markStrokes`, without the
 /// crossed branch). The taper is measured from the narrow end of the whole bond, so a cut bond
 /// keeps its slope, and the stripes keep their places.
@@ -664,18 +684,18 @@ pub(super) fn bond_strokes(bond: &BondView, ends: Ends, side: f64, lines: Lines)
         begin_box,
         end_box,
     } = ends;
-    let length = distance(begin, end);
-    if length == 0.0 {
+    if is_zero_length(begin, end) {
         return Vec::new();
     }
-    if let (Some(MarkDto::Crossed {}), BondOrderDto::Double) = (bond.mark.as_ref(), bond.order) {
-        return crossed_strokes(ends, lines);
-    }
-    if let Some(mark) = bond
+    let length = distance(begin, end);
+    let mark = bond
         .mark
         .as_ref()
-        .and_then(|mark| drawn_mark(mark, bond.order))
-    {
+        .filter(|mark| mark_is_drawn(mark, bond.order));
+    if let Some(MarkDto::Crossed {}) = mark {
+        return crossed_strokes(ends, lines);
+    }
+    if let Some(mark) = mark.and_then(|mark| drawn_mark(mark, bond.order)) {
         return mark_strokes(mark, ends, lines.width);
     }
     let gap = LABEL_GAP + lines.width / 2.0;

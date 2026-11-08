@@ -1824,7 +1824,7 @@ Not implemented, and refused rather than approximated: see the first paragraph o
 
 **What is drawn.** Every molecule instance on the page is drawn, with no frame around each one.
 
-- Bonds: all seven bond orders, with wedge, hash and wavy marks. Line width comes from the document settings.
+- Bonds: all seven bond orders, with wedge, hash and wavy marks. Line width comes from the document settings. A query bond is a dotted line, as on the canvas; its expression is not drawn. A bond whose two atoms share one point in a placement is not drawn there, as on the canvas.
 - Atom labels follow the label rules: a bonded carbon that records nothing is a bare vertex, every other atom is labelled, and with the carbon-label setting at `all`, every carbon is labelled too. A label shows the element or query symbol, the hydrogen count (an unknown count is `?`), the charge and the isotope, in the document's label font and size.
 - Drawn in a simpler form: bold, italic, underline, outline and shadow label styling is drawn as plain text, and an abbreviation or fragment display is drawn as its full graph.
 - A crossed mark on a double bond is drawn as two crossing lines. A crossed mark on any other bond order, or a stereo mark that does not fit its bond order, is drawn as the plain bond order (a consent loss).
@@ -1839,19 +1839,21 @@ Not implemented, and refused rather than approximated: see the first paragraph o
 
 **Baseline.** Labels are centred with `text-anchor="middle"` and `dominant-baseline="central"`. Some non-browser viewers ignore `dominant-baseline`; in those, labels may not be centred on their atoms.
 
-**Losses.** The loss features are the 16 below, in this fixed order; a drawing reports the ones it contains. Each has disposition `dropped`, a `source_path` that starts with `document`, and ID lists in ascending ID order. The consent column says whether the feature needs `accepted_losses`; a `no` loss still appears in `loss_report` and makes the outcome `partial`. Every drawing with an atom reports `chemical_graph`, so a plain drawing exports without consent but with outcome `partial`: the SVG is a picture, and its graph is not machine-readable.
+**Losses.** The loss features are the 18 below, in this fixed order; a drawing reports the ones it contains. Each has disposition `dropped`, a `source_path` that starts with `document`, and ID lists in ascending ID order. The consent column says whether the feature needs `accepted_losses`; a `no` loss still appears in `loss_report` and makes the outcome `partial`. Every drawing with an atom reports `chemical_graph`, so a plain drawing exports without consent but with outcome `partial`: the SVG is a picture, and its graph is not machine-readable.
 
 | feature | `source_path` | `semantic_impact` | consent | when |
 | --- | --- | --- | --- | --- |
 | `chemical_graph` | `document` | `chemistry` | no | any atom: the graph, IDs and states are a picture, not machine-readable |
-| `title` | `document.title` | `document` | no | a title other than the default |
+| `title` | `document.title` | `document` | no | a non-empty title other than the default |
 | `selection` | `document.selection` | `document` | no | a non-empty selection |
 | `scene_references` | `document.scene.references` | `document` | no | any reference |
 | `scene_group` | `document.scene.objects[sN]` | `document` | no | each group, which has no ink of its own |
-| `label_typography` | `document.settings` | `rendering` | yes | a label style is set: bold, italic, underline, outline or shadow |
+| `label_typography` | `document.settings` | `rendering` | yes | a label style is set (bold, italic, underline, outline or shadow) and at least one atom is labelled |
 | `radical_mark` | `document.atoms[a1, a4]` | `chemistry` | yes | an atom with a radical |
 | `attachment_point_mark` | `document.atoms[..]` | `chemistry` | yes | an attachment point |
 | `query_label_truncated` | `document.atoms[..]` | `chemistry` | yes | a list query with more than 3 elements; the label is drawn with `…` |
+| `query_bond_expression` | `document.bonds[..]` | `chemistry` | no | a query bond that states an expression: drawn as a dotted bond, which does not show the expression |
+| `zero_length_bond` | `document.bonds[..]` | `chemistry` | no | a bond whose two atoms share one point in a placement; that placement does not draw it |
 | `stereo_mark` | `document.bonds[..]` | `stereo` | yes | a crossed mark on a bond that is not double, or a mark that does not fit its bond order |
 | `stereo_configuration` | `document.stereo` | `stereo` | yes | any stated center or double-bond configuration |
 | `stereo_group` | `document.stereo.groups[..]` | `stereo` | yes | any enhanced stereo group |

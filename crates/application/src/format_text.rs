@@ -38,8 +38,6 @@ pub(crate) struct Connected {
     /// The most bytes of CDX the interchange codec accepts.
     pub interchange_binary_limit: Option<usize>,
     pub smiles: Option<SmilesLimits>,
-    /// The bounded SVG drawing, which is written and never read. It is listed only beside a codec.
-    pub svg: bool,
 }
 
 /// The wording for the `format_conversion` capability and the `document.import` and
@@ -53,7 +51,8 @@ pub(crate) struct FormatText {
 }
 
 impl FormatText {
-    /// `None` when no format codec is connected: the static wording then applies.
+    /// `None` when no format codec is connected: the static wording then applies. The bounded
+    /// SVG drawing needs no codec of its own, but it is listed only beside one.
     pub(crate) fn new(connected: Connected) -> Option<Self> {
         let mut names = Vec::new();
         let mut read_write = Vec::new();
@@ -97,23 +96,17 @@ impl FormatText {
             "Read and write {} with explicit losses.",
             list(&read_write)
         )];
-        // Added after the codec check: SVG alone never replaces the static wording.
-        if connected.svg {
-            names.push("SVG".to_owned());
-            export.push("a bounded SVG drawing (format svg, export only) with accepted_losses consent for what it does not draw".to_owned());
-            sentences.push("Write a bounded SVG drawing of atoms and bonds (export only) with accepted_losses consent for what it does not draw.".to_owned());
-        }
+        // Added after the codec check, so SVG alone never replaces the static wording. A codec
+        // name always precedes it, so the label is plural.
+        names.push("SVG".to_owned());
+        export.push("a bounded SVG drawing (format svg, export only) with accepted_losses consent needed only for the losses that require it".to_owned());
+        sentences.push("Write a bounded SVG drawing of atoms and bonds (export only) with accepted_losses consent needed only for the losses that require it.".to_owned());
         sentences.push(format!(
             "{}; other formats are unsupported.",
             refused.join("; ")
         ));
-        let subsets = if names.len() == 1 {
-            "subset"
-        } else {
-            "subsets"
-        };
         Some(Self {
-            label: format!("{} {subsets}", list(&names)),
+            label: format!("{} subsets", list(&names)),
             description: sentences.join(" "),
             import_note: format!(
                 "Preview, then import with explicit losses and revision-checked consent: {}.",
