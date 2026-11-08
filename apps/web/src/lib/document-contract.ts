@@ -1838,6 +1838,25 @@ export function sameConversionSnapshot(a: DocumentView, b: DocumentView): boolea
 }
 
 /**
+ * Whether two drawings paint and measure alike: the fields the canvas draws from (id, atoms,
+ * bonds, scene, settings, abbreviations and fragment displays) are equal under `sameJson`. The
+ * revision, title, selection, stereo, molecule and session state are deliberately not compared.
+ * Values are walked and never serialized, so a scene holding large embedded images is not copied.
+ */
+export function sameDrawnContent(a: DocumentView, b: DocumentView): boolean {
+  if (a === b) return true
+  return (
+    sameJson(a.id, b.id) &&
+    sameJson(a.atoms, b.atoms) &&
+    sameJson(a.bonds, b.bonds) &&
+    sameJson(a.scene, b.scene) &&
+    sameJson(settingsOf(a), settingsOf(b)) &&
+    sameJson(a.abbreviations ?? [], b.abbreviations ?? []) &&
+    sameJson(a.fragment_displays ?? [], b.fragment_displays ?? [])
+  )
+}
+
+/**
  * A comparison against one shown drawing that remembers its answer per snapshot object, so a
  * result and the offers made for it (which hold the same snapshot) cost one comparison between
  * them for as long as the shown drawing is the same object. Make a new one when the drawing

@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Field, FieldLabel } from '@/components/ui/field'
 import { marqueeSelection, sceneOnlySelection, selectionGeometry, selectionMove, type SelectionGeometry } from '@/editor/selection-geometry'
 import { useCanvasViewport } from '@/hooks/use-canvas-viewport'
-import { placements, settingsOf, type AtomView, type Command, type DocumentView, type LabelFont, type Position, type SceneObject } from '@/lib/document-contract'
+import { placements, sameDrawnContent, settingsOf, type AtomView, type Command, type DocumentView, type LabelFont, type Position, type SceneObject } from '@/lib/document-contract'
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
 import { clickBond, drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
 import { AgreementRings } from '@/editor/agreement-rings'
@@ -133,12 +133,7 @@ interface CaptionMeasurement {
  */
 export function captionMeasurementFor(measurement: CaptionMeasurement | null, document: DocumentView): CaptionMeasurement | null {
   if (measurement === null) return null
-  return measurement.document === document || drawnKey(measurement.document) === drawnKey(document) ? measurement : null
-}
-
-/** What the canvas draws or measures in a document. The revision number is left out: a drawing is identified by what it draws. */
-function drawnKey(document: DocumentView): string {
-  return JSON.stringify([document.id, document.atoms, document.bonds, document.scene, settingsOf(document), document.abbreviations ?? [], document.fragment_displays ?? []])
+  return sameDrawnContent(measurement.document, document) ? measurement : null
 }
 
 /** A missing, non-finite or singular screen transform cannot locate an edit. */
@@ -937,37 +932,8 @@ export function StructureCanvas({
     }
     return false
   }
-  // An instance painted above an image, graphic or caption draws its shadows with its own
-  // foreground, so that object cannot cover them. Shadows of instances below all such objects
-  // share one layer, painted before every foreground.
-  const instancesAboveObjects = useMemo(() => {
-    const objects = document.scene?.objects ?? []
-    const first = objects.findIndex((object) => object.kind === 'image' || object.kind === 'caption' || object.kind === 'graphic')
-    const fromFirst: SceneObject[] = first < 0 ? [] : objects.slice(first)
-    return new Set(fromFirst.filter((object) => object.kind === 'instance').map((object) => object.id))
-  }, [document])
-  const drawsOwnShadows = (drawing: Drawing) => drawing.id !== null && instancesAboveObjects.has(drawing.id)
-  // Group opacity composites one layer's shadows once, so overlapping shadows do not accumulate.
-  const shadowLayer = (layer: Drawing[]) => (
-    <g data-chemical-label-shadows="" opacity={0.35} transform="translate(1 1)" aria-hidden="true" pointerEvents="none">
-      {layer.map((drawing) => (
-        <g key={drawing.id ?? 'atoms'} className={cn('fill-foreground', drawing.font === 'sans-serif' && 'font-sans')}
-          fontFamily={drawing.font === 'sans-serif' ? undefined : drawing.font}>
-          {drawing.view.atoms.map((atom) => {
-            const label = drawing.labels.get(atom.id)
-            return label?.shadow ? label.chunks.map((chunk, index) => (
-              <g key={`${atom.id}-${index}`} data-chemical-shadow-atom={atom.id}>
-                <ChunkText chunk={chunk} at={position(drawing, atom.id)} shadow />
-              </g>
-            )) : null
-          })}
-        </g>
-      ))}
-    </g>
-  )
   const drawInstance = (drawing: Drawing) => (
     <g key={drawing.id ?? 'atoms'} data-instance={drawing.id ?? undefined}>
-      {drawsOwnShadows(drawing) && shadowLayer([drawing])}
       {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
       {/* Decorative chemical highlights must not become transient pointer targets. */}
       <g className="fill-primary/15 stroke-primary/40" pointerEvents="none">
@@ -1070,8 +1036,22 @@ export function StructureCanvas({
       onLostPointerCapture={(event) => { if (pointer.current?.id === event.pointerId) cancelPointer() }}
       onPointerLeave={() => setHover(null)}
     >
-      {/* Instances below every image, graphic and caption: their shadows paint before any foreground. */}
-      {shadowLayer(drawings.filter((drawing) => !drawsOwnShadows(drawing)))}
+      {/* Group opacity composites every chemical shadow once before any foreground. */}
+      <g data-chemical-label-shadows="" opacity={0.35} transform="translate(1 1)" aria-hidden="true" pointerEvents="none">
+        {drawings.map((drawing) => (
+          <g key={drawing.id ?? 'atoms'} className={cn('fill-foreground', drawing.font === 'sans-serif' && 'font-sans')}
+            fontFamily={drawing.font === 'sans-serif' ? undefined : drawing.font}>
+            {drawing.view.atoms.map((atom) => {
+              const label = drawing.labels.get(atom.id)
+              return label?.shadow ? label.chunks.map((chunk, index) => (
+                <g key={`${atom.id}-${index}`} data-chemical-shadow-atom={atom.id}>
+                  <ChunkText chunk={chunk} at={position(drawing, atom.id)} shadow />
+                </g>
+              )) : null
+            })}
+          </g>
+        ))}
+      </g>
       {sceneObjects ? sceneObjects.map((object) => {
         if (object.kind === 'group') return null
         if (object.kind === 'image') return (
