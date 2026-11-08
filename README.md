@@ -560,8 +560,10 @@ history replay. The shared replay-state guard and a regression now address that
 finding; follow-up clippy and 52 focused tests passed. Codex review of
 `5ea2107` in [PR #216](https://github.com/EunhakChoi/chemifree/pull/216) completed
 without findings. #216 merged as `7bec5ea`; a later Codex review of `f69f8de` left
-an unresolved P2 (an image ordered before a molecule instance can cover that
-instance's label shadow), a known limitation tracked in [#219](https://github.com/EunhakChoi/chemifree/issues/219). The merge commit's main
+an unresolved P2 (an image ordered before a molecule instance could cover that
+instance's label shadow). That known limitation was tracked in
+[#219](https://github.com/EunhakChoi/chemifree/issues/219) and fixed under #219 by
+painting chemical label shadows per run of consecutive instances. The merge commit's main
 CI run 42350215647 failed in a spline cancellation browser test; follow-up #217
 (`4198438`) fixed the test and main run 42353217355 succeeded. A caption-shadow
 ink-fit check (`scripts/web-caption-check.mjs:513`) also failed once in #217's CI and passed on rerun; its cause is not

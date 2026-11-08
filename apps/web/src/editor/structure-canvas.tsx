@@ -9,7 +9,7 @@ import { graphicCreationCurrent, type GraphicCreation } from '@/editor/graphic-c
 import { translatedGraphicObject, translatedGraphicPoints, graphicPointValid, graphicEndpointCurrent, graphicEndpointPoints, selectedGraphic, type GraphicEndpointGesture, type GraphicPointsEdit } from '@/editor/graphic-points'
 import { compactDisplaysIn, abbreviationTargets, compactView, ethylLabel } from '@/editor/abbreviation'
 import type { SceneGraphicShape, RingPattern, RingSize } from '@/lib/document-contract'
-import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { Fragment, memo, useEffect, useEffectEvent, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
 
 import { SceneCaption } from '@/editor/scene-caption'
 import { cn } from '@/lib/utils'
@@ -932,6 +932,8 @@ export function StructureCanvas({
     }
     return false
   }
+  // Derived per document, not per render: pointer moves re-render the canvas.
+  const shadowRuns = useMemo(() => shadowRunsFrom(sceneObjects, drawings), [sceneObjects, drawings])
   const drawInstance = (drawing: Drawing) => (
     <g key={drawing.id ?? 'atoms'} data-instance={drawing.id ?? undefined}>
       {drawing.frame && <PlacementFrame id={drawing.id ?? ''} frame={drawing.frame} />}
@@ -966,6 +968,21 @@ export function StructureCanvas({
       <GroupLabelLayer labels={groupAt(drawing)} />
     </g>
   )
+
+  /**
+   * An instance's foreground, preceded by the chemical shadows of its run when it is the run's
+   * first drawing. The run's shadows then sit above whatever an image, graphic or caption painted
+   * before the run, and below every foreground of the run.
+   */
+  const paintInstance = (drawing: Drawing) => {
+    const run = shadowRuns.get(drawing.id)
+    return (
+      <Fragment key={drawing.id ?? 'atoms'}>
+        {run && <ChemicalShadowRun run={run} position={position} />}
+        {drawInstance(drawing)}
+      </Fragment>
+    )
+  }
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-2" onKeyDownCapture={(event) => { if (event.key === 'Escape' && (activePolygon || activeSpline)) { event.preventDefault(); event.stopPropagation(); cancelPointer(); setPolygonDraft(null); setSplineDraft(null) } }}>
@@ -1036,22 +1053,6 @@ export function StructureCanvas({
       onLostPointerCapture={(event) => { if (pointer.current?.id === event.pointerId) cancelPointer() }}
       onPointerLeave={() => setHover(null)}
     >
-      {/* Group opacity composites every chemical shadow once before any foreground. */}
-      <g data-chemical-label-shadows="" opacity={0.35} transform="translate(1 1)" aria-hidden="true" pointerEvents="none">
-        {drawings.map((drawing) => (
-          <g key={drawing.id ?? 'atoms'} className={cn('fill-foreground', drawing.font === 'sans-serif' && 'font-sans')}
-            fontFamily={drawing.font === 'sans-serif' ? undefined : drawing.font}>
-            {drawing.view.atoms.map((atom) => {
-              const label = drawing.labels.get(atom.id)
-              return label?.shadow ? label.chunks.map((chunk, index) => (
-                <g key={`${atom.id}-${index}`} data-chemical-shadow-atom={atom.id}>
-                  <ChunkText chunk={chunk} at={position(drawing, atom.id)} shadow />
-                </g>
-              )) : null
-            })}
-          </g>
-        ))}
-      </g>
       {sceneObjects ? sceneObjects.map((object) => {
         if (object.kind === 'group') return null
         if (object.kind === 'image') return (
@@ -1083,8 +1084,8 @@ export function StructureCanvas({
           }} />
         )
         const drawing = drawings.find((item) => item.id === object.id)
-        return drawing ? drawInstance(drawing) : null
-      }) : drawings.map(drawInstance)}
+        return drawing ? paintInstance(drawing) : null
+      }) : drawings.map(paintInstance)}
       {activeSpline && <g data-editor-overlay="" data-spline-draft="" pointerEvents="none">
         {activeSplinePoints && <SceneGraphic object={{ kind: 'graphic', id: 'spline-preview', parent: null, shape: 'spline', points: activeSplinePoints }} selected={false} lineWidth={settingsOf(document).line_width_pt} unitsPerPixel={unitsPerPixel} />}
         <polyline points={activeSpline.points.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" className="stroke-muted-foreground" strokeWidth={unitsPerPixel} strokeDasharray={`${3 * unitsPerPixel} ${3 * unitsPerPixel}`} />
@@ -1335,6 +1336,67 @@ function ChunkText({ chunk, at, shadow = false, ...rest }: { chunk: LabelChunk; 
         x={at.x + line.x} y={at.y + line.y} width={line.width} height={line.height}
         aria-hidden="true" pointerEvents="none" />)}
     </>
+  )
+}
+
+/**
+ * The runs of instances that share one chemical shadow group, keyed by the id of each run's first
+ * drawing (null without a scene). Instances paint in scene order, each over what precedes it, so an
+ * image, graphic or caption ends a run: the instances after it paint above it. A `group` paints
+ * nothing and an instance without a drawing paints nothing, so neither ends a run. A run with no
+ * shadowed label gets no group.
+ */
+function shadowRunsFrom(objects: readonly SceneObject[] | undefined, drawings: readonly Drawing[]): ReadonlyMap<string | null, readonly Drawing[]> {
+  const runs: Drawing[][] = []
+  if (objects) {
+    let current: Drawing[] | null = null
+    for (const object of objects) {
+      if (object.kind === 'group') continue
+      if (object.kind === 'image' || object.kind === 'caption' || object.kind === 'graphic') {
+        current = null
+        continue
+      }
+      const drawing = drawings.find((item) => item.id === object.id)
+      if (!drawing) continue
+      if (current === null) {
+        current = []
+        runs.push(current)
+      }
+      current.push(drawing)
+    }
+  } else if (drawings.length > 0) {
+    runs.push([...drawings])
+  }
+  const runsByFirst = new Map<string | null, readonly Drawing[]>()
+  for (const run of runs) {
+    if (run.some((drawing) => drawing.view.atoms.some((atom) => drawing.labels.get(atom.id)?.shadow))) runsByFirst.set(run[0].id, run)
+  }
+  return runsByFirst
+}
+
+/**
+ * The chemical shadows of one run of instances, in one group. Group opacity composites overlapping
+ * shadows once, and every shadow of the run paints below the run's foregrounds.
+ */
+function ChemicalShadowRun({ run, position }: { run: readonly Drawing[]; position: (drawing: Drawing, id: string) => Position }) {
+  // The instance ids in paint order; a drawing without one (no scene) leaves the attribute empty.
+  const ids = run.flatMap((drawing) => (drawing.id === null ? [] : [drawing.id])).join(' ')
+  return (
+    <g data-chemical-label-shadows={ids} opacity={0.35} transform="translate(1 1)" aria-hidden="true" pointerEvents="none">
+      {run.map((drawing) => (
+        <g key={drawing.id ?? 'atoms'} className={cn('fill-foreground', drawing.font === 'sans-serif' && 'font-sans')}
+          fontFamily={drawing.font === 'sans-serif' ? undefined : drawing.font}>
+          {drawing.view.atoms.map((atom) => {
+            const label = drawing.labels.get(atom.id)
+            return label?.shadow ? label.chunks.map((chunk, index) => (
+              <g key={`${atom.id}-${index}`} data-chemical-shadow-atom={atom.id}>
+                <ChunkText chunk={chunk} at={position(drawing, atom.id)} shadow />
+              </g>
+            )) : null
+          })}
+        </g>
+      ))}
+    </g>
   )
 }
 

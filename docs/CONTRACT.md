@@ -709,9 +709,11 @@ states without rewriting the native bytes. Follow-up clippy and 52 focused tests
 passed. Codex review of `5ea2107` in
 [PR #216](https://github.com/EunhakChoi/chemifree/pull/216) completed without
 findings. #216 merged as `7bec5ea`. A later Codex review of `f69f8de` left one
-unresolved P2: an image ordered before a molecule instance is drawn after the
-global chemical label-shadow group and can cover that instance's shadow; this is
-a known limitation tracked in [#219](https://github.com/EunhakChoi/chemifree/issues/219). The merge commit's main CI run 42350215647 failed
+unresolved P2: an image ordered before a molecule instance was drawn after the
+global chemical label-shadow group and could cover that instance's shadow. That
+known limitation was tracked in [#219](https://github.com/EunhakChoi/chemifree/issues/219)
+and fixed under #219 by painting chemical label shadows per run of consecutive
+instances. The merge commit's main CI run 42350215647 failed
 in a spline cancellation browser test; #217 (`4198438`) fixed the test and main
 run 42353217355 succeeded. A caption-shadow ink-fit check (`scripts/web-caption-check.mjs:513`) failed once in #217's CI
 and passed on rerun; its cause is not determined ([#220](https://github.com/EunhakChoi/chemifree/issues/220)). The closing record is in the
@@ -3052,7 +3054,7 @@ P35i independent caption run shadow: `shadow` is a boolean; omission means false
 Native document/draft v17 requires boolean shadow in every current/history run. v8–16 forbid that field and migrate to false, preserving all original bytes in versioned archives before replacement. Future v31 is refused untouched (v19 adds label style and v20 adds underline, below). Shadow=false keeps the exact v16 admission weights (160 without outline, 192 with it); shadow=true admits at224 bytes/run. Physical metadata reserves192 bytes for at most185 encoded metadata bytes. History physical weight is at most6/5 of its8MiB admission; current admission is48MiB and at most32,000 runs add at most1,024,000 physical bytes. The conservative complete-file bound is61,421,978 bytes, below64MiB with more than5MiB spare, including the existing4096-byte envelope. Existing maximal109-caption current/undo/redo states must not be trimmed or refused during migration. External caption roundtrip and scientific labels remain unsupported.
 
 
-Shadow compositing policy: all shadow glyphs and underline rectangles paint together in one translated SVG group behind every foreground glyph and underline. The group receives opacity0.35 once, so overlapping descenders/underline shadows do not accumulate opacity and later-run shadows cannot cover foreground ink. A real-browser regression rasterizes the actual detached shadow tree with frozen computed styles onto a transparent canvas and asserts nonempty alpha≤90/255, including g/j descenders, alongside DOM paint order and the existing geometry/theme checks. Historical session note: this regression was initially written without execution.
+Shadow compositing policy: shadow glyphs and underline rectangles of one run of consecutive instances paint together in one translated SVG group behind every foreground glyph and underline of that run. The group receives opacity 0.35 once, so overlapping descender/underline shadows within the run do not accumulate opacity. An image, graphic or caption between instances starts a new run, whose group is painted just before that run's first foreground, so the object cannot cover its shadow; a later run's shadow paints above earlier runs' foreground where they overlap, as the instance itself does. A `group` object paints nothing and does not end a run. A real-browser regression rasterizes the actual detached shadow tree with frozen computed styles onto a transparent canvas and asserts nonempty alpha≤90/255, including g/j descenders, alongside DOM paint order and the existing geometry/theme checks. Historical session note: this regression was initially written without execution.
 Merged #194 and subsequent caption browser CI evidence in the
 [completion audit](verification/p35-completion-audit.md) supersede that session status.
 
@@ -3219,8 +3221,8 @@ captions keep their own style. Graph, recorded states and stereo are unchanged.
 
 Chemifree adopts its P35i caption shadow policy for chemical glyphs: a +1,+1 pt
 copy in the current foreground color, opacity 0.35, no blur. All chemical shadow
-copies across placements are rendered together in one SVG opacity group before
-foreground drawing; overlap within the shadow stays at 0.35. Filled glyphs,
+copies within a run are rendered together in one SVG opacity group before that
+run's foreground drawing; overlap within the shadow stays at 0.35. Filled glyphs,
 hollow outline strokes and positive-width explicit underline rectangles keep
 their appearance in the copy. Shadow duplicates carry no foreground measurement
 selectors, atom labels, hit targets or accessible names.

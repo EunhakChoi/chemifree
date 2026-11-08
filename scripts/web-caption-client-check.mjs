@@ -3,12 +3,15 @@ import { after, before, describe, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { ringSource } from './lib/ring-fixture.mjs'
+import { sceneCutSource } from './lib/scene-cut-fixture.mjs'
 
 const { parseCaptionSize } = await import('../apps/web/src/lib/caption-input.ts')
 const { validCaptionRuns, isDocumentResponse } = await import('../apps/web/src/lib/document-contract.ts')
 const { selectionMove, selectionTransform } = await import('../apps/web/src/editor/selection-geometry.ts')
 const { sceneGeometryCommands } = await import('../apps/web/src/editor/scene-geometry.ts')
 const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
+const { createElement } = await import('react')
+const { renderToStaticMarkup } = await import('react-dom/server')
 
 const runs = () => [{ text: '한글 e\u0301 👩‍🔬 H', script: 'baseline', weight: 'normal', style: 'normal' }, { text: '2', script: 'subscript', weight: 'normal', style: 'italic' }, { text: '+', script: 'superscript', weight: 'bold', style: 'italic' }]
 function source() {
@@ -194,10 +197,10 @@ for (const shadow of [null, 0, 1, 'true', 'false', [], {}]) test(`caption shadow
 
 // Node cannot load TSX and the alias hook maps `@/` only to `.ts`, so Vite loads the component
 // with the web app's own config. The component takes its caption boxes, label metrics and
-// readiness from the helper under test.
-describe('a caption measurement follows the drawn content, not the document object', () => {
+// readiness from the helper under test. Both describes below share this one server.
+describe('structure canvas loaded through the web app Vite config', () => {
   let vite
-  let captionMeasurementFor
+  let canvas
   before(async () => {
     const { createServer } = await import('vite')
     vite = await createServer({
@@ -206,37 +209,159 @@ describe('a caption measurement follows the drawn content, not the document obje
       logLevel: 'silent',
       server: { middlewareMode: true, hmr: false, watch: null },
     })
-    const canvas = await vite.ssrLoadModule('/src/editor/structure-canvas.tsx')
-    captionMeasurementFor = canvas.captionMeasurementFor
+    canvas = await vite.ssrLoadModule('/src/editor/structure-canvas.tsx')
   })
   after(() => vite?.close())
 
-  const measurementOf = (document) => ({
-    document,
-    boxes: new Map([['s8', { x: 90, y: 20, width: 60, height: 30 }]]),
-    labelMetrics: { runs: new Map(), chunks: new Map() },
-    fontsReady: true,
-    viewBox: '0 0 300 200',
+  describe('a caption measurement follows the drawn content, not the document object', () => {
+    const measurementOf = (document) => ({
+      document,
+      boxes: new Map([['s8', { x: 90, y: 20, width: 60, height: 30 }]]),
+      labelMetrics: { runs: new Map(), chunks: new Map() },
+      fontsReady: true,
+      viewBox: '0 0 300 200',
+    })
+
+    test('an adopted document with the same drawn content keeps the caption measurement', () => {
+      const { document } = source()
+      const measurement = measurementOf(document)
+      assert.equal(canvas.captionMeasurementFor(measurement, structuredClone(document)), measurement)
+    })
+
+    test('a caption that moved drops the caption measurement', () => {
+      const { document } = source()
+      const moved = structuredClone(document)
+      moved.scene.objects.at(-1).anchor = { x: 101, y: 40 }
+      assert.equal(canvas.captionMeasurementFor(measurementOf(document), moved), null)
+    })
+
+    test('the same revision number with other caption text drops the caption measurement', () => {
+      const { document } = source()
+      const other = structuredClone(document)
+      other.scene.objects.at(-1).runs[0].text = 'Other'
+      assert.equal(other.revision, document.revision)
+      assert.equal(canvas.captionMeasurementFor(measurementOf(document), other), null)
+    })
   })
 
-  test('an adopted document with the same drawn content keeps the caption measurement', () => {
-    const { document } = source()
-    const measurement = measurementOf(document)
-    assert.equal(captionMeasurementFor(measurement, structuredClone(document)), measurement)
-  })
+  describe('label shadows paint with their run of instances', () => {
+    const A = instance('s1')
+    const B = instance('s2')
+    const IMAGE = { kind: 'image', id: 'img', parent: null, mime_type: 'image/png', data_base64: 'iVBORw0KGgo=', origin: { x: -10, y: -10 }, size_pt: { x: 200, y: 200 }, pixel_width: 1, pixel_height: 1 }
+    const CAPTION = { kind: 'caption', id: 'cap', parent: null, anchor: { x: 100, y: 40 }, alignment: 'left', runs: runs() }
+    const GRAPHIC = { kind: 'graphic', id: 'line', parent: null, shape: 'line', points: [{ x: 1, y: 2 }, { x: 31, y: 2 }] }
+    const GROUP = { kind: 'group', id: 'grp', parent: null, children: [] }
 
-  test('a caption that moved drops the caption measurement', () => {
-    const { document } = source()
-    const moved = structuredClone(document)
-    moved.scene.objects.at(-1).anchor = { x: 101, y: 40 }
-    assert.equal(captionMeasurementFor(measurementOf(document), moved), null)
-  })
+    function instance(id) {
+      return { kind: 'instance', id, parent: null, molecule: 'm1' }
+    }
 
-  test('the same revision number with other caption text drops the caption measurement', () => {
-    const { document } = source()
-    const other = structuredClone(document)
-    other.scene.objects.at(-1).runs[0].text = 'Other'
-    assert.equal(other.revision, document.revision)
-    assert.equal(captionMeasurementFor(measurementOf(document), other), null)
+    // Instances s1 and s2 of the scene-cut molecule draw the same atoms, so each shows the shadowed
+    // label of the oxygen a2. Carbons alone have no shadowed label; a fragment display is the only
+    // label that one instance can draw by itself.
+    function shadowDocument(objects, { scene = true, shadow = true, carbonsOnly = false, displays = [] } = {}) {
+      const { document } = sceneCutSource()
+      document.settings.label_shadow = shadow
+      if (carbonsOnly) document.atoms.find((atom) => atom.id === 'a2').element = 'C'
+      document.fragment_displays = displays
+      if (!scene) {
+        document.scene = null
+        return document
+      }
+      document.scene.objects = structuredClone(objects)
+      document.scene.roots = objects.map((object) => object.id)
+      document.scene.instances = document.scene.instances.filter((placement) => objects.some((object) => object.id === placement.id))
+      document.scene.references = []
+      return document
+    }
+
+    // React's server markup is well formed and escapes quotes and angle brackets in attribute values,
+    // so one pattern finds every tag and a depth count finds the canvas's direct children.
+    const TAG = /<(\/?)([A-Za-z][\w:-]*)((?:\s+[\w:-]+="[^"]*")*)\s*(\/?)>/g
+
+    // The canvas's direct children in paint order, each as its attributes and markup.
+    function topLevelElements(html) {
+      const tags = [...html.matchAll(TAG)]
+      const svg = tags.findIndex(([, closing, name, attributes]) => closing === '' && name === 'svg' && attributes.includes(' data-structure-canvas=""'))
+      assert.notEqual(svg, -1, 'the markup has no structure canvas')
+      const elements = []
+      let depth = 0
+      let open = null
+      for (const tag of tags.slice(svg + 1)) {
+        const [text, closing, , attributes, selfClosing] = tag
+        if (closing === '/') {
+          depth -= 1
+          if (depth < 0) break
+          if (depth === 0) elements.push({ attributes: open.attributes, markup: html.slice(open.start, tag.index + text.length) })
+        } else if (selfClosing === '/') {
+          if (depth === 0) elements.push({ attributes, markup: text })
+        } else {
+          if (depth === 0) open = { attributes, start: tag.index }
+          depth += 1
+        }
+      }
+      return elements
+    }
+
+    // One token per direct child: a shadow group names the ids it covers, an instance names its id,
+    // and an image, caption or graphic is named by its kind.
+    function tokenOf({ attributes, markup }) {
+      const named = new Map([...attributes.matchAll(/([\w:-]+)="([^"]*)"/g)].map(([, name, value]) => [name, value]))
+      if (named.has('data-chemical-label-shadows')) return `shadow(${named.get('data-chemical-label-shadows')})`
+      if (named.has('data-instance')) return `instance(${named.get('data-instance')})`
+      // An image and a caption also carry data-scene-object, so their own markers come first.
+      if (named.has('data-scene-image')) return 'image'
+      if (named.has('data-caption')) return 'caption'
+      if (named.has('data-scene-object')) return 'graphic'
+      // A drawing without an id has no data-instance; its foreground is the unmarked element holding the labels.
+      if (markup.includes('data-labels=')) return 'foreground'
+      throw new Error(`unexpected top-level paint element: ${markup.slice(0, 160)}`)
+    }
+
+    function paintTokens(document) {
+      const html = renderToStaticMarkup(createElement(canvas.StructureCanvas, {
+        document, tool: 'select', element: 'C', bondKind: 'single', selection: new Set(), activePlacement: null,
+        onSelectionChange() {}, onActivePlacementChange() {}, onCommands() {}, onMark() {},
+      }))
+      return topLevelElements(html).map(tokenOf)
+    }
+
+    test('a shadow group paints above an image that precedes its run', () => {
+      assert.deepEqual(paintTokens(shadowDocument([IMAGE, A, B])), ['image', 'shadow(s1 s2)', 'instance(s1)', 'instance(s2)'])
+    })
+
+    test('an image after a run covers the whole run', () => {
+      assert.deepEqual(paintTokens(shadowDocument([A, B, IMAGE])), ['shadow(s1 s2)', 'instance(s1)', 'instance(s2)', 'image'])
+    })
+
+    test('an image between two instances starts a second run', () => {
+      assert.deepEqual(paintTokens(shadowDocument([A, IMAGE, B])), ['shadow(s1)', 'instance(s1)', 'image', 'shadow(s2)', 'instance(s2)'])
+    })
+
+    test('a group object neither paints nor ends a run', () => {
+      assert.deepEqual(paintTokens(shadowDocument([A, GROUP, B])), ['shadow(s1 s2)', 'instance(s1)', 'instance(s2)'])
+    })
+
+    test('a caption and a graphic end a run the same way an image does', () => {
+      assert.deepEqual(paintTokens(shadowDocument([IMAGE, A, CAPTION, B, GRAPHIC])), [
+        'image', 'shadow(s1)', 'instance(s1)', 'caption', 'shadow(s2)', 'instance(s2)', 'graphic',
+      ])
+    })
+
+    test('a drawing without a scene paints one shadow group before its foreground', () => {
+      // Without a scene the drawing has no instance id, so the group names no ids.
+      assert.deepEqual(paintTokens(shadowDocument([], { scene: false })), ['shadow()', 'foreground'])
+    })
+
+    test('no shadow group paints when label_shadow is off', () => {
+      assert.deepEqual(paintTokens(shadowDocument([IMAGE, A], { shadow: false })), ['image', 'instance(s1)'])
+    })
+
+    test('a group lists every drawing of its run, not only those with shadowed labels', () => {
+      // A has only carbons, so none of its labels is shadowed; only B's fragment label is. The group
+      // still covers the whole run [A, B], not just the drawings with shadows, and paints before A.
+      const displays = [{ instance: 's2', anchor: 'a1', members: ['a1', 'a2'], text: 'CH2CH3' }]
+      assert.deepEqual(paintTokens(shadowDocument([A, B], { carbonsOnly: true, displays })), ['shadow(s1 s2)', 'instance(s1)', 'instance(s2)'])
+    })
   })
 })
