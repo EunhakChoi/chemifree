@@ -215,6 +215,12 @@
             }
           }
         ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
+          }
+        ],
         "table": "chemifree-label-advance-1"
       },
       "name": "chain-bare-vertices"
@@ -1068,6 +1074,12 @@
             }
           }
         ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
+          }
+        ],
         "table": "chemifree-label-advance-1"
       },
       "name": "bond-orders"
@@ -1582,6 +1594,12 @@
                 "x": 0.0
               }
             }
+          }
+        ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
           }
         ],
         "table": "chemifree-label-advance-1"
@@ -2148,6 +2166,12 @@
             }
           }
         ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
+          }
+        ],
         "table": "chemifree-label-advance-1"
       },
       "name": "labels"
@@ -2329,6 +2353,12 @@
                 "x": 0.0
               }
             }
+          }
+        ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
           }
         ],
         "table": "chemifree-label-advance-1"
@@ -2607,6 +2637,12 @@
             }
           }
         ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
+          }
+        ],
         "table": "chemifree-label-advance-1"
       },
       "name": "monospace-small"
@@ -2870,6 +2906,16 @@
                 "x": 0.0
               }
             }
+          }
+        ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
+          },
+          {
+            "id": "s2",
+            "kind": "instance"
           }
         ],
         "table": "chemifree-label-advance-1"
@@ -3137,6 +3183,16 @@
             }
           }
         ],
+        "objects": [
+          {
+            "id": "s2",
+            "kind": "instance"
+          },
+          {
+            "id": "s1",
+            "kind": "instance"
+          }
+        ],
         "table": "chemifree-label-advance-1"
       },
       "name": "scene-object-order"
@@ -3213,9 +3269,1031 @@
             "labels": {}
           }
         ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
+          }
+        ],
         "table": "chemifree-label-advance-1"
       },
       "name": "empty"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a1",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "O",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a2",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          }
+        ],
+        "bonds": [
+          {
+            "begin": "a1",
+            "end": "a2",
+            "id": "b1",
+            "mark": null,
+            "order": "double",
+            "query": null
+          }
+        ],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": 0.0
+                }
+              ]
+            },
+            {
+              "id": "s8",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 110.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": 110.0
+                }
+              ]
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            },
+            {
+              "id": "s2",
+              "kind": "graphic",
+              "line_width_pt": null,
+              "parent": null,
+              "points": [
+                {
+                  "x": 0.0,
+                  "y": 30.0
+                },
+                {
+                  "x": 30.0,
+                  "y": 30.0
+                }
+              ],
+              "shape": "line"
+            },
+            {
+              "id": "s3",
+              "kind": "graphic",
+              "line_width_pt": null,
+              "parent": null,
+              "points": [
+                {
+                  "x": 40.0,
+                  "y": 30.0
+                },
+                {
+                  "x": 60.0,
+                  "y": 45.0
+                }
+              ],
+              "shape": "rectangle"
+            },
+            {
+              "id": "s4",
+              "kind": "graphic",
+              "line_width_pt": 2.75,
+              "parent": null,
+              "points": [
+                {
+                  "x": 70.0,
+                  "y": 30.0
+                },
+                {
+                  "x": 90.0,
+                  "y": 45.0
+                }
+              ],
+              "shape": "ellipse"
+            },
+            {
+              "id": "s5",
+              "kind": "graphic",
+              "line_width_pt": null,
+              "parent": null,
+              "points": [
+                {
+                  "x": 0.0,
+                  "y": 60.0
+                },
+                {
+                  "x": 30.0,
+                  "y": 60.0
+                }
+              ],
+              "shape": "arrow"
+            },
+            {
+              "id": "s6",
+              "kind": "graphic",
+              "line_width_pt": null,
+              "parent": null,
+              "points": [
+                {
+                  "x": 40.0,
+                  "y": 55.0
+                },
+                {
+                  "x": 60.0,
+                  "y": 55.0
+                },
+                {
+                  "x": 50.0,
+                  "y": 70.0
+                }
+              ],
+              "shape": "polygon"
+            },
+            {
+              "id": "s7",
+              "kind": "graphic",
+              "line_width_pt": null,
+              "parent": null,
+              "points": [
+                {
+                  "x": 70.0,
+                  "y": 60.0
+                },
+                {
+                  "x": 75.0,
+                  "y": 50.0
+                },
+                {
+                  "x": 85.0,
+                  "y": 70.0
+                },
+                {
+                  "x": 90.0,
+                  "y": 60.0
+                }
+              ],
+              "shape": "spline"
+            },
+            {
+              "id": "s8",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+            "s5",
+            "s6",
+            "s7",
+            "s8"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": 0.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": -2.2,
+                  "y2": -2.2
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": 2.2,
+                  "y2": 2.2
+                }
+              ]
+            },
+            "instance": "s1",
+            "labels": {
+              "a2": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.560000000000002,
+                  "x": -6.280000000000001,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.560000000000002,
+                  "x": -5.280000000000001,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          },
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 110.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": 110.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": 107.8,
+                  "y2": 107.8
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": 112.2,
+                  "y2": 112.2
+                }
+              ]
+            },
+            "instance": "s8",
+            "labels": {
+              "a2": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.560000000000002,
+                  "x": -6.280000000000001,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.560000000000002,
+                  "x": -5.280000000000001,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          }
+        ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
+          },
+          {
+            "id": "s2",
+            "kind": "graphic",
+            "marks": [
+              {
+                "shape": "line",
+                "x1": 0.0,
+                "x2": 30.0,
+                "y1": 30.0,
+                "y2": 30.0
+              }
+            ],
+            "width": 1.2
+          },
+          {
+            "id": "s3",
+            "kind": "graphic",
+            "marks": [
+              {
+                "height": 15.0,
+                "shape": "rect",
+                "width": 20.0,
+                "x": 40.0,
+                "y": 30.0
+              }
+            ],
+            "width": 1.2
+          },
+          {
+            "id": "s4",
+            "kind": "graphic",
+            "marks": [
+              {
+                "cx": 80.0,
+                "cy": 37.5,
+                "rx": 10.0,
+                "ry": 7.5,
+                "shape": "ellipse"
+              }
+            ],
+            "width": 2.75
+          },
+          {
+            "id": "s5",
+            "kind": "graphic",
+            "marks": [
+              {
+                "shape": "line",
+                "x1": 0.0,
+                "x2": 30.0,
+                "y1": 60.0,
+                "y2": 60.0
+              },
+              {
+                "points": [
+                  {
+                    "x": 30.0,
+                    "y": 60.0
+                  },
+                  {
+                    "x": 24.0,
+                    "y": 63.0
+                  },
+                  {
+                    "x": 24.0,
+                    "y": 57.0
+                  }
+                ],
+                "shape": "head"
+              }
+            ],
+            "width": 1.2
+          },
+          {
+            "id": "s6",
+            "kind": "graphic",
+            "marks": [
+              {
+                "points": [
+                  {
+                    "x": 40.0,
+                    "y": 55.0
+                  },
+                  {
+                    "x": 60.0,
+                    "y": 55.0
+                  },
+                  {
+                    "x": 50.0,
+                    "y": 70.0
+                  }
+                ],
+                "shape": "polygon"
+              }
+            ],
+            "width": 1.2
+          },
+          {
+            "id": "s7",
+            "kind": "graphic",
+            "marks": [
+              {
+                "points": [
+                  {
+                    "x": 70.0,
+                    "y": 60.0
+                  },
+                  {
+                    "x": 75.0,
+                    "y": 50.0
+                  },
+                  {
+                    "x": 85.0,
+                    "y": 70.0
+                  },
+                  {
+                    "x": 90.0,
+                    "y": 60.0
+                  }
+                ],
+                "shape": "cubic"
+              }
+            ],
+            "width": 1.2
+          },
+          {
+            "id": "s8",
+            "kind": "instance"
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "scene-graphics"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "C",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a1",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 0.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          },
+          {
+            "attachment_points": [],
+            "charge": 0,
+            "element": "O",
+            "hydrogens": {
+              "mode": "inferred"
+            },
+            "id": "a2",
+            "isotope": null,
+            "kind": "element",
+            "position": {
+              "x": 26.0,
+              "y": 0.0
+            },
+            "query": null,
+            "radical": "none"
+          }
+        ],
+        "bonds": [
+          {
+            "begin": "a1",
+            "end": "a2",
+            "id": "b1",
+            "mark": null,
+            "order": "double",
+            "query": null
+          }
+        ],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": 0.0
+                }
+              ]
+            },
+            {
+              "id": "s3",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": [
+                {
+                  "atom": "a1",
+                  "x": 0.0,
+                  "y": 60.0
+                },
+                {
+                  "atom": "a2",
+                  "x": 26.0,
+                  "y": 60.0
+                }
+              ]
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            },
+            {
+              "data_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg==",
+              "id": "s2",
+              "kind": "image",
+              "mime_type": "image/png",
+              "origin": {
+                "x": 0.0,
+                "y": 30.0
+              },
+              "parent": null,
+              "pixel_height": 1,
+              "pixel_width": 1,
+              "size_pt": {
+                "x": 20.0,
+                "y": 10.0
+              }
+            },
+            {
+              "id": "s3",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1",
+            "s2",
+            "s3"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": 0.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": -2.2,
+                  "y2": -2.2
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": 2.2,
+                  "y2": 2.2
+                }
+              ]
+            },
+            "instance": "s1",
+            "labels": {
+              "a2": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.560000000000002,
+                  "x": -6.280000000000001,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.560000000000002,
+                  "x": -5.280000000000001,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          },
+          {
+            "atoms": {
+              "a1": {
+                "x": 0.0,
+                "y": 60.0
+              },
+              "a2": {
+                "x": 26.0,
+                "y": 60.0
+              }
+            },
+            "bonds": {
+              "b1": [
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": 57.8,
+                  "y2": 57.8
+                },
+                {
+                  "pattern": "solid",
+                  "shape": "line",
+                  "x1": 0.0,
+                  "x2": 17.72,
+                  "y1": 62.2,
+                  "y2": 62.2
+                }
+              ]
+            },
+            "instance": "s3",
+            "labels": {
+              "a2": {
+                "box": {
+                  "height": 18.799999999999997,
+                  "width": 12.560000000000002,
+                  "x": -6.280000000000001,
+                  "y": -9.399999999999999
+                },
+                "chunkBox": {
+                  "height": 16.799999999999997,
+                  "width": 10.560000000000002,
+                  "x": -5.280000000000001,
+                  "y": -8.399999999999999
+                },
+                "runs": [
+                  {
+                    "shift": 0.0,
+                    "size": 12.0,
+                    "text": "O",
+                    "weight": 500
+                  }
+                ],
+                "x": 0.0
+              }
+            }
+          }
+        ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
+          },
+          {
+            "height": 10.0,
+            "id": "s2",
+            "kind": "image",
+            "width": 20.0,
+            "x": 0.0,
+            "y": 30.0
+          },
+          {
+            "id": "s3",
+            "kind": "instance"
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "scene-image"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [],
+        "bonds": [],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": []
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            },
+            {
+              "id": "s2",
+              "kind": "graphic",
+              "line_width_pt": null,
+              "parent": null,
+              "points": [
+                {
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                {
+                  "x": 40.0,
+                  "y": 20.0
+                }
+              ],
+              "shape": "rectangle"
+            },
+            {
+              "id": "s3",
+              "kind": "graphic",
+              "line_width_pt": null,
+              "parent": null,
+              "points": [
+                {
+                  "x": 10.0,
+                  "y": 40.0
+                },
+                {
+                  "x": 50.0,
+                  "y": 40.0
+                }
+              ],
+              "shape": "arrow"
+            },
+            {
+              "id": "s4",
+              "kind": "graphic",
+              "line_width_pt": null,
+              "parent": null,
+              "points": [
+                {
+                  "x": 60.0,
+                  "y": 10.0
+                },
+                {
+                  "x": 80.0,
+                  "y": 30.0
+                }
+              ],
+              "shape": "ellipse"
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1",
+            "s2",
+            "s3",
+            "s4"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {},
+            "bonds": {},
+            "instance": "s1",
+            "labels": {}
+          }
+        ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
+          },
+          {
+            "id": "s2",
+            "kind": "graphic",
+            "marks": [
+              {
+                "height": 20.0,
+                "shape": "rect",
+                "width": 40.0,
+                "x": 0.0,
+                "y": 0.0
+              }
+            ],
+            "width": 1.2
+          },
+          {
+            "id": "s3",
+            "kind": "graphic",
+            "marks": [
+              {
+                "shape": "line",
+                "x1": 10.0,
+                "x2": 50.0,
+                "y1": 40.0,
+                "y2": 40.0
+              },
+              {
+                "points": [
+                  {
+                    "x": 50.0,
+                    "y": 40.0
+                  },
+                  {
+                    "x": 44.0,
+                    "y": 43.0
+                  },
+                  {
+                    "x": 44.0,
+                    "y": 37.0
+                  }
+                ],
+                "shape": "head"
+              }
+            ],
+            "width": 1.2
+          },
+          {
+            "id": "s4",
+            "kind": "graphic",
+            "marks": [
+              {
+                "cx": 70.0,
+                "cy": 20.0,
+                "rx": 10.0,
+                "ry": 10.0,
+                "shape": "ellipse"
+              }
+            ],
+            "width": 1.2
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "graphics-only"
     }
   ],
   "table": "chemifree-label-advance-1"

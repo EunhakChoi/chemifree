@@ -206,6 +206,7 @@ fn start(directory: &Path, fixture: Option<&DataFixture>) -> Result<LocalApplica
     let preferences = FilePreferenceStore::new(directory);
     preferences.prune_stale_temporaries();
     let application = Application::new(LocalCapabilities, repository)
+        .with_image_decoder(chemifree_providers::png_image::EmbeddedPngDecoder)
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
         .with_smiles_codec(OpenSmilesCodec)

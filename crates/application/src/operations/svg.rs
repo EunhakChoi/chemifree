@@ -1,6 +1,9 @@
 //! The bounded SVG drawing export (P38a) as `document.export` with `format: "svg"`. It reads one
 //! document and changes neither the document nor its history. SVG is export only: it cannot be
 //! imported.
+//!
+//! The export draws atoms, bonds, scene graphics and PNG images. Captions and other scene content
+//! are reported as losses.
 
 use serde::Serialize;
 
@@ -22,8 +25,8 @@ pub(super) struct SvgExportParameters {
     accepted_losses: Option<String>,
 }
 
-/// A bounded SVG drawing of the document's atoms and bonds, with the working copy it was written
-/// from.
+/// A bounded SVG drawing of the document's atoms, bonds, scene graphics and PNG images, with the
+/// working copy it was written from. Captions and other scene content are reported as losses.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SvgExportResult {
     pub content: String,

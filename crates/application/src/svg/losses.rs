@@ -3,6 +3,10 @@
 //! feature, in the fixed order below, and each one is `dropped`. A feature found at several IDs
 //! lists them in ascending ID order.
 //!
+//! The table has 16 features. Scene graphics and images are drawn, so they are not reported. A
+//! caption is not drawn and needs consent. A scene group has no ink of its own, and scene
+//! references are not drawn or kept; neither needs consent.
+//!
 //! The rules must agree with `render_drawing`, so this module calls the renderer's own rules and
 //! does not copy them: the mark rule (`mark_is_drawn` in `geometry.rs`), the bond counts
 //! (`degrees` in `geometry.rs`), the zero-length test (`is_zero_length` in `geometry.rs`) on each
@@ -41,8 +45,6 @@ pub(crate) fn svg_losses(view: &DocumentView) -> Vec<Loss> {
         stereo_groups(view),
         abbreviation_displays(view),
         captions(view),
-        graphics(view),
-        images(view),
     ]
     .into_iter()
     .flatten()
@@ -372,33 +374,6 @@ fn captions(view: &DocumentView) -> Option<Loss> {
             SemanticImpact::Rendering,
             LossConsent::Required,
             "Captions are not drawn.",
-        )
-    })
-}
-
-fn graphics(view: &DocumentView) -> Option<Loss> {
-    object_list(view, |object| matches!(object, SceneObjectView::Graphic { .. })).map(|list| {
-        loss(
-            "graphic",
-            format!("document.scene.objects{list}"),
-            SemanticImpact::Rendering,
-            LossConsent::Required,
-            "Graphic objects (lines, rectangles, ellipses, arrows, polygons and splines) are not drawn.",
-        )
-    })
-}
-
-fn images(view: &DocumentView) -> Option<Loss> {
-    object_list(view, |object| {
-        matches!(object, SceneObjectView::Image { .. })
-    })
-    .map(|list| {
-        loss(
-            "image",
-            format!("document.scene.objects{list}"),
-            SemanticImpact::Rendering,
-            LossConsent::Required,
-            "Images are not drawn.",
         )
     })
 }

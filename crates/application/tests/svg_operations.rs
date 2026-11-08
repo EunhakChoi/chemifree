@@ -1,13 +1,15 @@
 //! SVG drawing export through `document.export` (P38a2): the consent round trip, a digest that an
-//! edit has made stale, the request and document errors, the import refusal, the read-only rule, and
-//! the drawing of an atom-less document. The expected text is the committed P38a1 golden under
-//! `tests/fixtures/svg`, never the output of the renderer under test.
+//! edit has made stale, the request and document errors, the import refusal, the read-only rule,
+//! the drawing of an atom-less document, and the export of a graphic and an image, which needs no
+//! consent. The expected text is the committed P38a1 golden under `tests/fixtures/svg`, never the
+//! output of the renderer under test.
 
 use std::fs;
 use std::path::Path;
 
 use chemifree_application::Application;
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
+use chemifree_providers::png_image::EmbeddedPngDecoder;
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, OpenSmilesCodec, V2000Codec};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -15,20 +17,23 @@ use tempfile::TempDir;
 type App = Application<LocalCapabilities, FileDocumentRepository>;
 
 /// The model an SVG export names.
-const SVG_MODEL: &str = "chemifree-svg-1";
+const SVG_MODEL: &str = "chemifree-svg-2";
 /// A document id that no document in these tests has.
 const MISSING_DOCUMENT: &str = "doc-ffffffffffffffff";
 /// A small SVG text. Its format alone makes `document.import` refuse it.
 const SVG_SOURCE: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="10pt" height="10pt" viewBox="0 0 10 10"><g/></svg>"#;
+/// The 1 x 1 pixel PNG that `svg_loss_drift.rs` embeds.
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg==";
 
-/// An application with the format codecs that `svg_loss_drift.rs` attaches. Without one of them,
-/// `document.export` and `document.import` are not executable and every call answers
-/// `operation_not_implemented`. The image decoder is left out: no test here draws an image.
+/// An application with the format codecs and the PNG decoder that `svg_loss_drift.rs` attaches.
+/// Without one of the codecs, `document.export` and `document.import` are not executable and every
+/// call answers `operation_not_implemented`. Without the decoder, `add_image` is refused.
 fn app(path: &Path) -> App {
     Application::new(LocalCapabilities, FileDocumentRepository::new(path))
         .with_ctfile_codec(V2000Codec)
         .with_interchange_codec(LocalInterchangeCodec)
         .with_smiles_codec(OpenSmilesCodec)
+        .with_image_decoder(EmbeddedPngDecoder)
 }
 
 fn call(app: &App, request_id: &str, operation: &str, parameters: Value) -> Value {
@@ -98,6 +103,39 @@ fn draw_labels(application: &App, id: &str) {
         json!({"document_id":id,"expected_revision":0,"commands":labels_commands()}),
     );
     assert_eq!(edit["outcome"], "ok", "{edit}");
+}
+
+/// A line graphic from (0, 70) to (20, 70) and an image of the PNG at (0, 80), 10 pt square. Both
+/// are drawn, so neither is a loss of the export.
+fn graphic_and_image() -> Vec<Value> {
+    vec![
+        json!({"op":"add_graphic","shape":"line","points":[{"x":0,"y":70},{"x":20,"y":70}]}),
+        json!({"op":"add_image","mime_type":"image/png","data_base64":PNG,
+            "origin":{"x":0,"y":80},"size_pt":{"x":10,"y":10}}),
+    ]
+}
+
+/// Applies `commands` to document `id` as one transaction at `expected_revision`; it must succeed.
+fn draw(application: &App, request_id: &str, id: &str, expected_revision: u64, commands: &[Value]) {
+    let reply = call(
+        application,
+        request_id,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":expected_revision,"commands":commands}),
+    );
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+}
+
+/// Asserts that `markup` draws the objects of `graphic_and_image` as their own elements.
+fn assert_graphic_and_image_drawn(markup: &str) {
+    assert!(
+        markup.contains(r#"<line x1="0" y1="70" x2="20" y2="70"/>"#),
+        "the graphic is drawn as its line element"
+    );
+    assert!(
+        markup.contains(r#"<image x="0" y="80" width="10" height="10" preserveAspectRatio="none""#),
+        "the image is drawn as its image element"
+    );
 }
 
 /// An SVG export of `id`. It accepts the losses named by `accepted` when that is given.
@@ -363,4 +401,69 @@ fn an_atomless_document_exports_ok_with_a_zero_view_box() {
         golden_text.as_str(),
         "the atom-less drawing is the empty golden"
     );
+}
+
+#[test]
+fn a_graphic_and_image_drawing_exports_without_consent() {
+    // An atom-less drawing with a graphic and an image, and nothing else stated: the title is the
+    // default `Untitled`, and there is no selection, scene reference or group. So the export lists
+    // no loss at all, and `converted` makes it `ok`, not `partial`.
+    let (application, _directory, id) = setup();
+    draw(&application, "draw", &id, 0, &graphic_and_image());
+    let reply = export(&application, "atomless", &id, None);
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    assert_eq!(
+        reply["diagnostics"],
+        json!([]),
+        "no consent is asked: {reply}"
+    );
+    assert_eq!(reply["loss_report"], json!([]), "{reply}");
+    assert_eq!(reply["model_id"], SVG_MODEL, "{reply}");
+    assert_graphic_and_image_drawn(content(&reply));
+
+    // The same objects beside two bonded atoms. The atoms add one loss, the chemical graph, which
+    // is drawn as a picture only and needs no consent. So the export is `partial` with no refusal.
+    let (application, _directory, id) = setup();
+    let mut commands = vec![
+        json!({"op":"add_atom","element":"C","position":{"x":0,"y":0}}),
+        json!({"op":"add_atom","element":"O","position":{"x":30,"y":0},
+            "bond_to":{"atom":"a1","order":"single"}}),
+    ];
+    commands.extend(graphic_and_image());
+    draw(&application, "draw", &id, 0, &commands);
+    let reply = export(&application, "with-atoms", &id, None);
+    assert_eq!(
+        reply["diagnostics"],
+        json!([]),
+        "no consent is asked: {reply}"
+    );
+    assert_eq!(reply["outcome"], "partial", "{reply}");
+    assert_eq!(loss_features(&reply), ["chemical_graph"], "{reply}");
+    assert_eq!(reply["model_id"], SVG_MODEL, "{reply}");
+    assert_graphic_and_image_drawn(content(&reply));
+
+    // A caption is the one loss here that needs consent. Without its consent the export is refused,
+    // and the refusal names the caption alone: the graphic and the image need no consent.
+    let (application, _directory, id) = setup();
+    draw(&application, "draw", &id, 0, &graphic_and_image());
+    let caption = json!({"op":"add_caption","anchor":{"x":0,"y":60},
+        "runs":[{"text":"H","script":"baseline"}]});
+    draw(&application, "caption", &id, 1, &[caption]);
+    let refused = export(&application, "refused", &id, None);
+    assert_eq!(refused["outcome"], "error", "{refused}");
+    assert_eq!(
+        refused["diagnostics"][0]["code"], "loss_consent_required",
+        "{refused}"
+    );
+    assert_eq!(
+        refused["diagnostics"][0]["details"]["features"],
+        json!(["caption"]),
+        "{refused}"
+    );
+    assert!(refused["result"].is_null(), "{refused}");
+    let digest = loss_digest(&refused);
+    let accepted = export(&application, "accepted", &id, Some(&digest));
+    assert_eq!(accepted["outcome"], "partial", "{accepted}");
+    assert_eq!(loss_features(&accepted), ["caption"], "{accepted}");
+    assert_graphic_and_image_drawn(content(&accepted));
 }

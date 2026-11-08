@@ -2,7 +2,7 @@
 
 이 문서는 P08이 더한 추적 파일, conformance runner와 추적 검사가 무엇을 기록하고 무엇을 확인하는지 정확히 적는다. 여기 적힌 확인 범위를 넘는 성질(화학적 정확성, 다른 프로그램과의 동등성, 기능 완성도)은 이 장치들로 확인되지 않는다.
 
-P38a는 bounded SVG drawing export를 추적 부분 `RENDER-01.svg-export`(구현)로 연결한다. `document.export`의 `format: "svg"`가 원자·결합·라벨을 그리고, 그리지 않거나 바꾼 특성은 손실로 보고한다. 보이는 특성과 입체 설정은 `accepted_losses` 동의를 요구하며, 제목·선택·참조·장면 그룹은 동의 없이 손실로만 보고한다. 구현 경로는 `crates/application/src/svg.rs`, `svg/*.rs`, `operations/svg.rs`이고, 근거는 적합성 사례 `svg-export-drawing`·`svg-export-needs-consent`·`svg-import-refused`와 `check:check:rust`·`check:test:client`·`check:test:contracts`다. 이 부분은 그 bounded 내보내기 범위만 확립한다. 일반 SVG 출력, `render.scene`, 글자 셰이핑, 클리핑, 레이어와 웹 공유 렌더러는 확립하지 않는다. RENDER-01 요구사항은 partial로 남고 P38은 `in_progress`다. 범위와 그리지 않는 목록은 [HANDOFF의 P38a 섹션](HANDOFF.ko.md)과 [계약의 SVG 절](CONTRACT.md#svg-drawing-export-p38a)을 따른다.
+P38a는 bounded SVG drawing export를 추적 부분 `RENDER-01.svg-export`(구현)로 연결한다. `document.export`의 `format: "svg"`가 원자·결합·라벨, 장면 그래픽과 PNG 이미지를 그리고, 그리지 않거나 바꾼 특성은 손실로 보고한다. 보이는 특성과 입체 설정은 `accepted_losses` 동의를 요구하며, 제목·선택·참조·장면 그룹은 동의 없이 손실로만 보고한다. 구현 경로는 `crates/application/src/svg.rs`, `svg/*.rs`, `operations/svg.rs`이고, 근거는 적합성 사례 `svg-export-drawing`·`svg-export-needs-consent`·`svg-import-refused`와 `check:check:rust`·`check:test:client`·`check:test:contracts`다. 이 부분은 그 bounded 내보내기 범위만 확립한다. 일반 SVG 출력, `render.scene`, 글자 셰이핑, 클리핑, 레이어와 웹 공유 렌더러는 확립하지 않는다. RENDER-01 요구사항은 partial로 남고 P38은 `in_progress`다. 범위와 그리지 않는 목록은 [HANDOFF의 P38b1·P38a 섹션](HANDOFF.ko.md)과 [계약의 SVG 절](CONTRACT.md#svg-drawing-export-p38a)을 따른다.
 
 P34f는 단일 외부 single 결합의 말단 target ID에 source anchor를 바인딩하는 교체다.
 기존 boundary/mark/좌표/참조·이웃 stereo/group을 보존하고 N−1 atom/M internal bond만
@@ -91,7 +91,7 @@ P33k의 `test:browser:clipboard-integration`은 production panel/hook/client→�
 
 Instance 복제·enhanced-stereo-group graph 복사·global shortcut·custom MIME·external Cut·Windows/OLE는 bounded P33 밖이다. 이 완료는 형식 전체/모든 내부 객체의 clipboard 지원을 뜻하지 않는다. 기존 conformance 보고서 집계는 재실행 없이 유지한다. CODEC-06.rest·OPS-01.rest·OPS-02.rest의 open follow-up에서는 완료된 P33을 제거한다. 고급 형식/통합 파일·text UX는 기존 codec 후속과 P48, 전문 객체의 포함/선택은 P72, 정리·키보드 UI는 P47/P85, 전문 scene/reaction 변경 집합은 해당 기존 후속에 남긴다. 선언된 native 복제/shortcut 제한에 새 구현 약속을 임의로 부여하지 않는다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 113개(implemented 64, partial 13, unverified 3, not_implemented 33) · conformance 사례 117개(passed 117: accept 85·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 113개(implemented 64, partial 13, unverified 3, not_implemented 33) · conformance 사례 118개(passed 118: accept 86·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 

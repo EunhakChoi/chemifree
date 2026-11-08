@@ -1,6 +1,7 @@
-//! The SVG drawing (P38a1): byte-exact goldens, structure checks, determinism, save and reopen
-//! identity, and the parity fixture that the web check reads. A run with `CHEMIFREE_BLESS_SVG=1`
-//! writes the goldens and the fixture and then fails, so a passing run never changes a file.
+//! The SVG drawing (P38a1, with the graphics and images of P38b1): byte-exact goldens, structure
+//! checks, determinism, save and reopen identity, and the parity fixture that the web check reads.
+//! A run with `CHEMIFREE_BLESS_SVG=1` writes the goldens and the fixture and then fails, so a
+//! passing run never changes a file.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,7 +9,9 @@ use std::path::{Path, PathBuf};
 use chemifree_application::svg::{
     ADVANCE_TABLE_ID, DrawingLayout, LabelBox, SvgDrawing, ViewBox, layout_drawing, render_drawing,
 };
-use chemifree_application::{Application, DocumentView};
+use chemifree_application::transport_base64;
+use chemifree_application::{Application, DocumentView, SceneObjectView};
+use chemifree_providers::png_image::EmbeddedPngDecoder;
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use serde_json::{Value, json};
 
@@ -22,11 +25,17 @@ const PARITY_ID: &str = "parity-fixture";
 /// The slack allowed when a drawn value is compared with a bound computed from the same numbers.
 const EPSILON: f64 = 1e-9;
 const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg";
+const XLINK_NAMESPACE: &str = "http://www.w3.org/1999/xlink";
+/// A 1x1 RGBA PNG as base64 text: the image the other image tests send.
+const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg==";
+/// The first eight bytes of every PNG file.
+const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
 /// The elements a drawing writes.
 const ELEMENTS: &[&str] = &[
-    "svg", "g", "line", "polyline", "polygon", "path", "text", "tspan",
+    "svg", "g", "line", "polyline", "polygon", "path", "rect", "ellipse", "image", "text", "tspan",
 ];
-/// The attributes a drawing writes. `space` is the local name of `xml:space`.
+/// The attributes a drawing writes. `space` is the local name of `xml:space`, and `href` is the
+/// local name of `xlink:href`.
 const ATTRIBUTES: &[&str] = &[
     "version",
     "width",
@@ -47,11 +56,17 @@ const ATTRIBUTES: &[&str] = &[
     "d",
     "x",
     "y",
+    "cx",
+    "cy",
+    "rx",
+    "ry",
     "text-anchor",
     "dominant-baseline",
     "dy",
     "font-size",
     "font-weight",
+    "preserveAspectRatio",
+    "href",
     "space",
 ];
 /// The attributes whose values are numbers (or lists of numbers), which carry at most two decimals.
@@ -61,6 +76,10 @@ const NUMERIC: &[&str] = &[
     "viewBox",
     "x",
     "y",
+    "cx",
+    "cy",
+    "rx",
+    "ry",
     "x1",
     "y1",
     "x2",
@@ -75,8 +94,10 @@ const NUMERIC: &[&str] = &[
 /// The generic families a label font may name.
 const FAMILIES: &[&str] = &["sans-serif", "serif", "monospace"];
 
+/// An application with the PNG decoder that the image commands need.
 fn app(directory: &Path) -> App {
     Application::new(LocalCapabilities, FileDocumentRepository::new(directory))
+        .with_image_decoder(EmbeddedPngDecoder)
 }
 
 fn call(application: &App, request_id: &str, operation: &str, parameters: Value) -> Value {
@@ -247,6 +268,59 @@ fn reversed_objects_view() -> DocumentView {
     view
 }
 
+/// Two instances with one graphic of each shape between them: a line, a rectangle, an ellipse (with
+/// an explicit width of 2.75 pt), an arrow, a polygon and a spline. Object ids follow creation
+/// order, with `s1` the document's instance, so `s4` is the ellipse. The second instance is added
+/// last, so it is drawn last.
+fn scene_graphics_commands() -> Value {
+    json!([
+        {"op":"add_atom","element":"C","position":{"x":0,"y":0}},
+        {"op":"add_atom","element":"O","position":{"x":26,"y":0},"bond_to":{"atom":"a1","order":"double"}},
+        {"op":"add_graphic","shape":"line","points":[{"x":0,"y":30},{"x":30,"y":30}]},
+        {"op":"add_graphic","shape":"rectangle","points":[{"x":40,"y":30},{"x":60,"y":45}]},
+        {"op":"add_graphic","shape":"ellipse","points":[{"x":70,"y":30},{"x":90,"y":45}]},
+        {"op":"set_graphic_line_width","object":"s4","line_width_pt":2.75},
+        {"op":"add_graphic","shape":"arrow","points":[{"x":0,"y":60},{"x":30,"y":60}]},
+        {"op":"add_polygon","vertices":[{"x":40,"y":55},{"x":60,"y":55},{"x":50,"y":70}]},
+        {"op":"add_spline","points":[{"x":70,"y":60},{"x":75,"y":50},{"x":85,"y":70},{"x":90,"y":60}]},
+        {"op":"add_instance","offset":{"x":0,"y":110}}
+    ])
+}
+
+/// A molecule, then a 20 by 10 pt image, then the molecule again below it.
+fn scene_image_commands() -> Value {
+    json!([
+        {"op":"add_atom","element":"C","position":{"x":0,"y":0}},
+        {"op":"add_atom","element":"O","position":{"x":26,"y":0},"bond_to":{"atom":"a1","order":"double"}},
+        {"op":"add_image","mime_type":"image/png","data_base64":PNG,"origin":{"x":0,"y":30},"size_pt":{"x":20,"y":10}},
+        {"op":"add_instance","offset":{"x":0,"y":60}}
+    ])
+}
+
+/// A rectangle, an arrow and an ellipse, and no atom.
+fn graphics_only_commands() -> Value {
+    json!([
+        {"op":"add_graphic","shape":"rectangle","points":[{"x":0,"y":0},{"x":40,"y":20}]},
+        {"op":"add_graphic","shape":"arrow","points":[{"x":10,"y":40},{"x":50,"y":40}]},
+        {"op":"add_graphic","shape":"ellipse","points":[{"x":60,"y":10},{"x":80,"y":30}]}
+    ])
+}
+
+/// A carbon, a line and a rectangle. With `width`, the line also gets that explicit width (`s2`).
+fn two_graphic_commands(width: Option<f64>) -> Value {
+    let mut commands = vec![
+        json!({"op":"add_atom","element":"C","position":{"x":0,"y":0}}),
+        json!({"op":"add_graphic","shape":"line","points":[{"x":0,"y":30},{"x":30,"y":30}]}),
+        json!({"op":"add_graphic","shape":"rectangle","points":[{"x":40,"y":30},{"x":60,"y":45}]}),
+    ];
+    if let Some(line_width_pt) = width {
+        commands.push(
+            json!({"op":"set_graphic_line_width","object":"s2","line_width_pt":line_width_pt}),
+        );
+    }
+    Value::Array(commands)
+}
+
 /// The golden documents, by the name of their golden file.
 fn golden_documents() -> Vec<(&'static str, DocumentView)> {
     vec![
@@ -259,6 +333,9 @@ fn golden_documents() -> Vec<(&'static str, DocumentView)> {
         ("two-instances", build(two_instance_commands())),
         ("scene-object-order", reversed_objects_view()),
         ("empty", empty_document()),
+        ("scene-graphics", build(scene_graphics_commands())),
+        ("scene-image", build(scene_image_commands())),
+        ("graphics-only", build(graphics_only_commands())),
     ]
 }
 
@@ -329,6 +406,16 @@ fn numbers(value: &str) -> Vec<f64> {
         .split(|character: char| character == ',' || character.is_whitespace())
         .filter_map(|token| token.trim_end_matches("pt").parse::<f64>().ok())
         .collect()
+}
+
+/// The first number of attribute `attribute` of `node`. The attribute must hold one.
+fn number_attribute(node: roxmltree::Node, attribute: &str) -> f64 {
+    let value = node
+        .attribute(attribute)
+        .unwrap_or_else(|| panic!("<{}> has no {attribute}", node.tag_name().name()));
+    *numbers(value)
+        .first()
+        .unwrap_or_else(|| panic!("{attribute}={value} holds no number"))
 }
 
 fn close(left: f64, right: f64) -> bool {
@@ -457,6 +544,25 @@ fn check_structure(name: &str, drawing: &SvgDrawing, layout: &DrawingLayout) {
                         "{name}: <{element}> point ({}, {}) lies outside the view box",
                         pair[0],
                         pair[1]
+                    );
+                }
+            }
+            "rect" | "image" => {
+                let (x, y) = (number_attribute(node, "x"), number_attribute(node, "y"));
+                let width = number_attribute(node, "width");
+                let height = number_attribute(node, "height");
+                assert!(
+                    inside(view_box, x, y) && inside(view_box, x + width, y + height),
+                    "{name}: a {element} leaves the view box"
+                );
+            }
+            "ellipse" => {
+                let (cx, cy) = (number_attribute(node, "cx"), number_attribute(node, "cy"));
+                let (rx, ry) = (number_attribute(node, "rx"), number_attribute(node, "ry"));
+                for (x, y) in [(cx - rx, cy), (cx + rx, cy), (cx, cy - ry), (cx, cy + ry)] {
+                    assert!(
+                        inside(view_box, x, y),
+                        "{name}: an ellipse extreme ({x}, {y}) lies outside the view box"
                     );
                 }
             }
@@ -657,4 +763,322 @@ fn a_non_finite_number_stops_the_drawing() {
     ]));
     view.settings.line_width_pt = f64::NAN;
     render_drawing(&view);
+}
+
+/// The points a graphic mark reaches: a line's two ends, a rectangle's opposite corners, an
+/// ellipse's four extremes, and the vertices of a polygon or the four points of a cubic.
+fn mark_points(mark: roxmltree::Node) -> Vec<(f64, f64)> {
+    let at = |attribute: &str| number_attribute(mark, attribute);
+    match mark.tag_name().name() {
+        "line" => vec![(at("x1"), at("y1")), (at("x2"), at("y2"))],
+        "rect" => {
+            let (x, y) = (at("x"), at("y"));
+            vec![(x, y), (x + at("width"), y + at("height"))]
+        }
+        "ellipse" => {
+            let (cx, cy, rx, ry) = (at("cx"), at("cy"), at("rx"), at("ry"));
+            vec![(cx - rx, cy), (cx + rx, cy), (cx, cy - ry), (cx, cy + ry)]
+        }
+        "polygon" | "path" => {
+            let attribute = if mark.tag_name().name() == "path" {
+                "d"
+            } else {
+                "points"
+            };
+            numbers(mark.attribute(attribute).unwrap_or_default())
+                .chunks_exact(2)
+                .map(|pair| (pair[0], pair[1]))
+                .collect()
+        }
+        other => panic!("<{other}> is not a graphic mark"),
+    }
+}
+
+/// What each top-level object of a drawing is, in document order: `instance` for an instance's
+/// group, `graphic` for a graphic's group (the only top-level group with a stroke width), and
+/// `image` for an image.
+fn painted_kinds(document: &roxmltree::Document) -> Vec<&'static str> {
+    document
+        .root_element()
+        .children()
+        .filter(|node| node.is_element())
+        .map(|node| match node.tag_name().name() {
+            "image" => "image",
+            "g" if node.attribute("stroke-width").is_some() => "graphic",
+            "g" => "instance",
+            other => panic!("<{other}> is not a top-level object of a drawing"),
+        })
+        .collect()
+}
+
+/// Checks that the ink of every top-level graphic and image of `document` lies inside `view_box`,
+/// and returns how many points it checked. A graphic's ink reaches half its stroke width past each
+/// of its points (round caps and joins), so each point is checked with that reach on both sides.
+/// An image has no stroke, so its corners are checked as they are.
+fn check_ink(name: &str, document: &roxmltree::Document, view_box: ViewBox) -> usize {
+    let mut checked = 0;
+    for node in document
+        .root_element()
+        .children()
+        .filter(|node| node.is_element())
+    {
+        match node.tag_name().name() {
+            "image" => {
+                let (x, y) = (number_attribute(node, "x"), number_attribute(node, "y"));
+                let width = number_attribute(node, "width");
+                let height = number_attribute(node, "height");
+                for (px, py) in [(x, y), (x + width, y + height)] {
+                    assert!(
+                        inside(view_box, px, py),
+                        "{name}: an image corner ({px}, {py}) lies outside the view box"
+                    );
+                    checked += 1;
+                }
+            }
+            "g" => {
+                // An instance's group has no stroke width, and a graphic's group always has one.
+                let Some(stroke_width) = node.attribute("stroke-width") else {
+                    continue;
+                };
+                let half = numbers(stroke_width)[0] / 2.0;
+                for mark in node.children().filter(|child| child.is_element()) {
+                    for (px, py) in mark_points(mark) {
+                        assert!(
+                            inside(view_box, px - half, py - half)
+                                && inside(view_box, px + half, py + half),
+                            "{name}: the ink of <{}> at ({px}, {py}), width {}, lies outside the view box",
+                            mark.tag_name().name(),
+                            half * 2.0
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    checked
+}
+
+#[test]
+fn graphics_and_images_paint_in_scene_order_between_instances() {
+    let cases = [
+        (
+            "scene-graphics",
+            build(scene_graphics_commands()),
+            vec![
+                "instance", "graphic", "graphic", "graphic", "graphic", "graphic", "graphic",
+                "instance",
+            ],
+        ),
+        (
+            "scene-image",
+            build(scene_image_commands()),
+            vec!["instance", "image", "instance"],
+        ),
+    ];
+    for (name, view, expected) in cases {
+        // The premise: the scene lists its objects in the order this test expects.
+        let scene: Vec<&str> = view
+            .scene
+            .objects
+            .iter()
+            .filter_map(|object| match object {
+                SceneObjectView::Instance { .. } => Some("instance"),
+                SceneObjectView::Graphic { .. } => Some("graphic"),
+                SceneObjectView::Image { .. } => Some("image"),
+                SceneObjectView::Caption { .. } | SceneObjectView::Group { .. } => None,
+            })
+            .collect();
+        assert_eq!(
+            scene, expected,
+            "{name}: the scene lists its objects in the order this test assumes"
+        );
+        let drawing = render_drawing(&view);
+        let document = roxmltree::Document::parse(&drawing.content).unwrap();
+        assert_eq!(
+            painted_kinds(&document),
+            expected,
+            "{name}: the drawing paints the objects in the order of the scene"
+        );
+    }
+
+    // Each graphic writes its marks in the order of its shape: an arrow's shaft, then its head.
+    let drawing = render_drawing(&build(scene_graphics_commands()));
+    let document = roxmltree::Document::parse(&drawing.content).unwrap();
+    let marks: Vec<Vec<&str>> = document
+        .root_element()
+        .children()
+        .filter(|node| node.is_element() && node.attribute("stroke-width").is_some())
+        .map(|group| {
+            group
+                .children()
+                .filter(|node| node.is_element())
+                .map(|node| node.tag_name().name())
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        marks,
+        vec![
+            vec!["line"],
+            vec!["rect"],
+            vec!["ellipse"],
+            vec!["line", "polygon"],
+            vec!["polygon"],
+            vec!["path"],
+        ],
+        "each graphic writes its marks in the order of its shape"
+    );
+}
+
+#[test]
+fn grouping_two_graphics_writes_the_same_bytes() {
+    let flat = build(two_graphic_commands(None));
+    let mut grouped_commands = two_graphic_commands(None);
+    grouped_commands
+        .as_array_mut()
+        .expect("the commands are a list")
+        .push(json!({"op":"group","objects":["s2","s3"]}));
+    let grouped = build(grouped_commands);
+    // The group must hold the two graphics, or equal bytes would prove nothing.
+    let groups: Vec<Vec<String>> = grouped
+        .scene
+        .objects
+        .iter()
+        .filter_map(|object| match object {
+            SceneObjectView::Group { children, .. } => Some(children.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        groups,
+        vec![vec!["s2".to_owned(), "s3".to_owned()]],
+        "one group holds the two graphics"
+    );
+    assert_eq!(
+        render_drawing(&grouped).content,
+        render_drawing(&flat).content,
+        "a group around two graphics changes no byte of the drawing"
+    );
+}
+
+#[test]
+fn a_graphic_width_override_changes_only_that_graphic_group() {
+    let plain = render_drawing(&build(two_graphic_commands(None))).content;
+    let overridden = render_drawing(&build(two_graphic_commands(Some(2.75)))).content;
+    assert_eq!(
+        plain.lines().count(),
+        overridden.lines().count(),
+        "the override adds no element"
+    );
+    let changed: Vec<(&str, &str)> = plain
+        .lines()
+        .zip(overridden.lines())
+        .filter(|(before, after)| before != after)
+        .collect();
+    assert_eq!(
+        changed.len(),
+        1,
+        "only the overridden graphic's group line changes, got {changed:?}"
+    );
+    let (before, after) = changed[0];
+    assert!(
+        before.contains(r#"stroke-width="1.2""#) && after.contains(r#"stroke-width="2.75""#),
+        "the group takes the document width without the override and 2.75 with it, got {before} \
+         and {after}"
+    );
+}
+
+#[test]
+fn graphic_and_image_ink_lies_inside_the_view_box() {
+    // Each case with the number of points its ink is checked at: every stroke point of every graphic
+    // mark (a head's corners included) and each image corner.
+    let cases = [
+        ("scene-graphics", build(scene_graphics_commands()), 20),
+        ("scene-image", build(scene_image_commands()), 2),
+        ("graphics-only", build(graphics_only_commands()), 11),
+    ];
+    for (name, view, expected) in cases {
+        let drawing = render_drawing(&view);
+        let document = roxmltree::Document::parse(&drawing.content)
+            .unwrap_or_else(|error| panic!("{name} is not well-formed XML: {error}"));
+        assert_eq!(
+            check_ink(name, &document, drawing.view_box),
+            expected,
+            "{name}: the number of ink points checked"
+        );
+    }
+}
+
+#[test]
+fn an_atomless_document_with_a_graphic_has_its_ink_as_view_box() {
+    // A 2.5 pt line from (10, 20) to (50, 60) reaches 1.25 pt past each end, so its ink spans
+    // x 8.75 to 51.25 and y 18.75 to 61.25. Each edge is already on the hundredth.
+    let view = build(json!([
+        {"op":"add_graphic","shape":"line","points":[{"x":10,"y":20},{"x":50,"y":60}]},
+        {"op":"set_graphic_line_width","object":"s2","line_width_pt":2.5}
+    ]));
+    assert!(view.atoms.is_empty(), "the document holds no atom");
+    let drawing = render_drawing(&view);
+    assert_eq!(
+        drawing.view_box,
+        ViewBox {
+            x: 8.75,
+            y: 18.75,
+            width: 42.5,
+            height: 42.5,
+        },
+        "with no atom, the view box is the line's ink"
+    );
+    assert!(
+        drawing
+            .content
+            .contains(r#"viewBox="8.75 18.75 42.5 42.5""#),
+        "the root writes that box, got {}",
+        drawing.content
+    );
+}
+
+#[test]
+fn an_image_carries_the_stored_png_bytes() {
+    let view = build(json!([
+        {"op":"add_image","mime_type":"image/png","data_base64":PNG,"origin":{"x":1,"y":2},"size_pt":{"x":10,"y":20}}
+    ]));
+    let drawing = render_drawing(&view);
+    let document = roxmltree::Document::parse(&drawing.content).unwrap();
+    let image = document
+        .descendants()
+        .find(|node| node.tag_name().name() == "image")
+        .expect("the drawing holds the image");
+    let href = image
+        .attribute((XLINK_NAMESPACE, "href"))
+        .expect("the image names its bytes in xlink:href");
+    let payload = href
+        .strip_prefix("data:image/png;base64,")
+        .expect("the reference is a PNG data URI carrying base64 text");
+    let stored = view
+        .scene
+        .objects
+        .iter()
+        .find_map(|object| match object {
+            SceneObjectView::Image { data_base64, .. } => Some(data_base64.as_str()),
+            _ => None,
+        })
+        .expect("the view holds the image");
+    assert_eq!(
+        payload, stored,
+        "the data URI carries the view's base64 text unchanged"
+    );
+    let drawn = transport_base64::decode(payload)
+        .unwrap_or_else(|error| panic!("the data URI is not canonical base64: {error:?}"));
+    assert_eq!(
+        drawn,
+        transport_base64::decode(PNG).unwrap(),
+        "the drawn bytes are the PNG that was sent"
+    );
+    assert!(
+        drawn.starts_with(&PNG_SIGNATURE),
+        "the drawn bytes do not begin with the PNG signature: {drawn:02x?}"
+    );
 }

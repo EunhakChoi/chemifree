@@ -1,5 +1,39 @@
 # Chemifree 새 세션 인계
 
+## P38b1 SVG 장면 그래픽·이미지 export
+
+상태는 `partial`이다. P38b1은 bounded SVG drawing export(P38a)에 장면 그래픽과 PNG 이미지를 더한다. 일반 SVG 출력이라는 주장은 없다. P38은 `in_progress`이고 RENDER-01은 partial이며, 둘 다 완료가 아니다.
+
+**범위**
+
+- 장면 그래픽 여섯 종(선, 사각형, 타원, 화살표, 다각형, 큐빅 스플라인)을 그린다. 그래픽마다 선 굵기를 따로 둘 수 있고, 없으면 문서 선 굵기를 쓴다.
+- PNG 이미지는 저장된 바이트의 base64를 그대로 넣고, 원점과 pt 크기의 사각형에 맞춰 늘려 그린다.
+- 그리는 순서는 장면 객체 순서다. 그래픽과 이미지는 원자·결합과 섞여 그 객체가 놓인 자리에 그려진다.
+- 보기 상자(view box)는 그래픽의 잉크와 이미지 사각형을 포함한다.
+- 손실 표는 16행이다. P38a의 18행에서 그래픽과 이미지 행이 빠졌다.
+- 모델 id는 `chemifree-svg-2`다.
+- 웹의 그래픽 기하를 `apps/web/src/editor/graphic-marks.ts`로 옮긴다. 동작을 바꾸지 않는 리팩터링이며, `scripts/svg-parity-client-check.mjs`가 Rust 레이아웃과 TS 기하(그래픽 표시, 이미지 모서리, 그리는 순서)를 비교한다.
+
+**그리지 않는 것**
+
+- 캡션: 동의 손실로 보고한다. 글자 셰이핑을 다루는 P38b2 범위다.
+- 클리핑, 레이어, 이미지 회전, 웹 다운로드 UI, `render.scene`.
+- P38a 절의 '그리지 않거나 다르게 그리는 것' 목록에서 '캡션, 그래픽, 이미지' 항목은 이제 캡션만 해당한다.
+
+**결정**
+
+- Rust와 TS는 코드를 공유하지 않는다(P38a가 WASM과 JS 런타임을 거절했다). 그래픽 규칙은 Rust로 옮기고, 웹 `SceneGraphic`은 `graphicMarks`가 돌려주는 기하를 읽는다. 이 리팩터링은 웹 캔버스 코드를 건드린다.
+- 마크업: 그래픽마다 `<g>` 하나로 묶고 요소를 한 줄씩 쓴다. 이미지는 그룹 없이 한 줄이며 `xlink:href`를 쓴다(루트가 `version="1.1"`이므로). `xmlns:xlink`는 그림에 이미지가 있을 때만 선언한다.
+- 레이아웃: `DrawingLayout`에 그리는 순서 목록 `objects`를 더해 패리티 검사의 기준으로 쓴다. 이미지 항목은 좌표만 담고 바이트는 쓸 때 복사한다. 기하는 반올림 없이 두고 쓸 때만 반올림한다.
+- 숫자: P38a와 같은 `writer::number`(소수 둘째 자리, JS `Math.round` 의미)를 쓴다. 선 굵기도 같은 방식으로 반올림하며, 이는 P38a에서 받아들인 차이다.
+- 이미지 크기: 새 한도를 두지 않고 거절하지 않는다. 기존 입력 한도(PNG 원본 128 KiB, 이미지당 1,048,576 px, 장면 전체 4,194,304 px(출현마다 센다), 현재 문서 가변 내용 48 MiB)가 이미 묶는다. 48 MiB에 가까운 응답의 HTTP·CLI 처리는 확인하지 않았다.
+- 보기 상자: 그래픽의 잉크 상자는 표시 기하의 모든 점(큐빅은 제어점 포함)을 감싸고 선 굵기의 절반만큼 키운다. 이미지는 사각형 그대로다.
+- 손실: 그래픽과 이미지 행을 지웠다. 장면 그룹과 장면 참조는 그리지 않으므로 동의 없는 손실로 남고, 캡션은 동의 손실로 남는다. 그래픽과 이미지만 동의 손실이던 문서는 이제 동의 없이 내보내며 `accepted_losses`는 무시된다.
+- 모델 id: 마크업과 기하가 바뀌므로 `chemifree-svg-1`에서 `chemifree-svg-2`로 올렸다. 동의 다이제스트에는 모델 id가 들어가지 않으며, 그래픽과 이미지가 없는 그림의 마크업은 바꾸지 않도록 설계했다.
+- 정정: 앞선 설계 초안은 원자 없이 그래픽이나 이미지만 있는 문서가 손실이 없어 `ok`가 된다고 적었다. 이 주장은 틀렸다. outcome은 손실이 하나라도 있으면 `partial`이다. 제목, 선택, 장면 참조, 장면 그룹은 동의 없이 보고되는 손실이므로, 이들이 있으면 원자가 없어도 `partial`이다. `ok`는 손실이 전혀 없을 때만이다.
+
+**검증: 리드가 게이트 후 기록**
+
 ## P38a SVG 도면 export
 
 상태는 `partial`이다. P38a2는 P38a1 렌더러 코어(PR #225, 병합 커밋 `5fefd05d`)를 `document.export`(`format: "svg"`, HTTP·CLI·연산 계약 1)에 연결한다. 이것은 bounded SVG drawing export(P38a)다. 일반 SVG 출력이나 브라우저 캔버스와 같은 그림이라는 주장은 없다. P38은 `in_progress`이고 RENDER-01은 partial이며, 둘 다 완료가 아니다.
@@ -21,7 +55,7 @@
 - 라벨 꾸밈 bold·italic·underline·outline·shadow(보통 글자로 그린다)
 - 질의 라벨 목록이 3개를 넘는 경우(잘라서 "…"로 그린다)
 - Et·fragment 축약 표시(전체 그래프로 그린다)
-- 캡션, 그래픽, 이미지
+- 캡션, 그래픽, 이미지 (P38a 당시. 그래픽과 이미지는 P38b1에서 그린다. 위 P38b1 절 참조)
 
 **결정**
 
@@ -39,7 +73,7 @@ PR과 CI 링크: PR 본문과 리뷰 기록 댓글에 둔다.
 
 1. 글자 셰이핑과 경계 엔진(측정 근거로 뷰어 글꼴 차이 줄이기)
 2. 클리핑과 레이어
-3. 장면 그래픽, 캡션, 이미지의 SVG 출력(지금은 동의 손실로만 보고)
+3. 캡션의 SVG 출력(지금은 동의 손실로만 보고). 장면 그래픽과 이미지는 P38b1에서 그린다
 4. 웹과 공유하는 렌더러와 `render.scene` 연결 여부
 
 ## P38a1 기록: renderer core (PR #225)
@@ -663,7 +697,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 113개(implemented 64, partial 13, unverified 3, not_implemented 33) · conformance 사례 117개(passed 117: accept 85·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 113개(implemented 64, partial 13, unverified 3, not_implemented 33) · conformance 사례 118개(passed 118: accept 86·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

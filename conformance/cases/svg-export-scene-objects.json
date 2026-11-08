@@ -1,0 +1,90 @@
+{
+  "id": "svg-export-scene-objects",
+  "title": "A line graphic, an arrow graphic and a PNG image export as drawn SVG elements under chemifree-svg-2 with an empty loss report",
+  "requirements": [
+    "RENDER-01"
+  ],
+  "axis": "scene",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_graphic",
+          "shape": "line",
+          "points": [
+            {
+              "x": 0,
+              "y": 70
+            },
+            {
+              "x": 20,
+              "y": 70
+            }
+          ]
+        },
+        {
+          "op": "add_graphic",
+          "shape": "arrow",
+          "points": [
+            {
+              "x": 30,
+              "y": 70
+            },
+            {
+              "x": 50,
+              "y": 70
+            }
+          ]
+        },
+        {
+          "op": "add_image",
+          "mime_type": "image/png",
+          "data_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg==",
+          "origin": {
+            "x": 0,
+            "y": 80
+          },
+          "size_pt": {
+            "x": 10,
+            "y": 10
+          }
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "svg-scene-objects",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "svg"
+        }
+      },
+      "expect": {
+        "loss_report": [],
+        "model_id": "chemifree-svg-2",
+        "outcome": "ok",
+        "result": {
+          "media_type": "image/svg+xml",
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" version=\"1.1\" width=\"51.2pt\" height=\"23.6pt\" viewBox=\"-0.6 66.4 51.2 23.6\">\n<g>\n</g>\n<g fill=\"none\" stroke=\"#000000\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n<line x1=\"0\" y1=\"70\" x2=\"20\" y2=\"70\"/>\n</g>\n<g fill=\"none\" stroke=\"#000000\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n<line x1=\"30\" y1=\"70\" x2=\"50\" y2=\"70\"/>\n<polygon points=\"50,70 44,73 44,67\" fill=\"#000000\"/>\n</g>\n<image x=\"0\" y=\"80\" width=\"10\" height=\"10\" preserveAspectRatio=\"none\" xlink:href=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg==\"/>\n</svg>\n"
+        }
+      }
+    }
+  ]
+}
