@@ -14,8 +14,18 @@ const DOTTED: &str = "0.1 2.2";
 
 /// A number as the drawing writes it: rounded to the hundredth, in its shortest form, and `0` for
 /// zero whatever its sign.
+///
+/// # Panics
+///
+/// Panics if `value` is not finite, in debug and release builds alike, so that a non-finite
+/// number stops the drawing instead of being written as `NaN` or `inf`. A view built from a
+/// `Document` never holds a non-finite number: every position is a `Point`, which `Point::new`
+/// keeps finite and within `MAX_COORDINATE`; every document's settings have passed
+/// `Settings::validate`; and the layout checks that a length is not zero before dividing by it.
+/// `render_drawing` is public and takes any `DocumentView`, including one whose fields a caller
+/// has changed, so such a field still reaches this panic.
 pub(super) fn number(value: f64) -> String {
-    debug_assert!(
+    assert!(
         value.is_finite(),
         "a drawing number must be finite, got {value}"
     );
@@ -27,7 +37,8 @@ pub(super) fn number(value: f64) -> String {
     }
 }
 
-/// Escapes `text` for element content or an attribute value.
+/// Escapes `text` for element content or an attribute value. A character that XML 1.0 forbids is
+/// dropped, because not even a character reference can write it.
 pub(super) fn escape(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     for character in text.chars() {
@@ -36,10 +47,21 @@ pub(super) fn escape(text: &str) -> String {
             '<' => escaped.push_str("&lt;"),
             '>' => escaped.push_str("&gt;"),
             '"' => escaped.push_str("&quot;"),
-            other => escaped.push(other),
+            other if is_xml_char(other) => escaped.push(other),
+            _ => {}
         }
     }
     escaped
+}
+
+/// Whether XML 1.0 allows `character` in a document, as its `Char` production (section 2.2) does:
+/// tab, line feed and carriage return, plus every code point from U+0020 to U+10FFFF except the
+/// surrogates, U+FFFE and U+FFFF.
+fn is_xml_char(character: char) -> bool {
+    matches!(
+        u32::from(character),
+        0x9 | 0xA | 0xD | 0x20..=0xD7FF | 0xE000..=0xFFFD | 0x10000..=0x10FFFF
+    )
 }
 
 /// The points of a polyline or polygon: `x,y` pairs separated by spaces.
@@ -165,12 +187,7 @@ fn text_element(at: Point, label: &AtomLabel) -> String {
 /// One instance as a group: its bonds' strokes in the order of `view.bonds`, in a group with the
 /// stroke style, and its labels in the order of `view.atoms`, in a group with the label font. A
 /// group is written only when it has something in it.
-fn instance_block(
-    view: &DocumentView,
-    instance: &InstanceLayout,
-    family: &str,
-    line_width: f64,
-) -> Vec<String> {
+fn instance_block(view: &DocumentView, instance: &InstanceLayout, family: &str) -> Vec<String> {
     let strokes: Vec<String> = view
         .bonds
         .iter()
@@ -191,7 +208,7 @@ fn instance_block(
     if !strokes.is_empty() {
         lines.push(format!(
             r##"<g fill="none" stroke="#000000" stroke-width="{}" stroke-linecap="round" stroke-linejoin="round">"##,
-            number(line_width)
+            number(view.settings.line_width_pt)
         ));
         lines.extend(strokes);
         lines.push("</g>".to_owned());
@@ -220,12 +237,7 @@ pub(super) fn document(view: &DocumentView, layout: &DrawingLayout, view_box: Vi
         ),
     ];
     for instance in &layout.instances {
-        lines.extend(instance_block(
-            view,
-            instance,
-            family,
-            view.settings.line_width_pt,
-        ));
+        lines.extend(instance_block(view, instance, family));
     }
     lines.push("</svg>".to_owned());
     let mut content = lines.join("\n");
@@ -268,6 +280,33 @@ mod tests {
     #[test]
     fn escape_replaces_the_four_markup_characters() {
         assert_eq!(escape("[A&B]<\"x\">"), "[A&amp;B]&lt;&quot;x&quot;&gt;");
+    }
+
+    #[test]
+    fn escape_drops_characters_xml_1_0_forbids_and_keeps_legal_text() {
+        let text = "a\u{1}b\u{FFFE}\u{FFFF}c & <d> \"e\"\t\n\r";
+        assert_eq!(
+            escape(text),
+            "abc &amp; &lt;d&gt; &quot;e&quot;\t\n\r",
+            "U+0001, U+FFFE and U+FFFF are dropped; escapes, tab, line feed and carriage return are kept"
+        );
+
+        let bounds = LabelBox {
+            x: 0.0,
+            y: 0.0,
+            width: 0.0,
+            height: 0.0,
+        };
+        let label = AtomLabel {
+            x: 0.0,
+            runs: vec![run(text, 12.0, 0.0, 400)],
+            chunk_box: bounds,
+            bounds,
+        };
+        let fragment = text_element(Point { x: 0.0, y: 0.0 }, &label);
+        roxmltree::Document::parse(&fragment).unwrap_or_else(|error| {
+            panic!("the rendered label is not well-formed XML: {error}\n{fragment}")
+        });
     }
 
     #[test]

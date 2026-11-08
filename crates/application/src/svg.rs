@@ -202,7 +202,9 @@ fn label_box(labels: &BTreeMap<String, AtomLabel>, id: &str, at: Point) -> Optio
         .map(|label| geometry::placed(label.bounds, at))
 }
 
-/// Draws `view` as SVG text. It is pure, and it never fails: every instance of the scene is drawn.
+/// Draws `view` as SVG text, with no error path: every instance of the scene is drawn. It panics
+/// only if `view` holds a non-finite number, which a view built from a document never does; see
+/// `number` in `svg/writer.rs`.
 pub fn render_drawing(view: &DocumentView) -> SvgDrawing {
     let layout = layout_drawing(view);
     let view_box = view_box_of(view, &layout);

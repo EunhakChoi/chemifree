@@ -644,3 +644,17 @@ fn a_document_without_atoms_has_an_empty_view_box() {
         drawing.content
     );
 }
+
+/// A caller may change a view's settings after it is built, so a non-finite number can reach the
+/// drawing. The drawing stops there rather than writing it as `NaN`.
+#[test]
+#[should_panic(expected = "a drawing number must be finite")]
+fn a_non_finite_number_stops_the_drawing() {
+    // The line width is written only with a bond's strokes, so the view needs a bond.
+    let mut view = build(json!([
+        {"op":"add_atom","element":"C","position":{"x":0,"y":0}},
+        {"op":"add_atom","element":"C","position":{"x":26,"y":0},"bond_to":{"atom":"a1","order":"single"}}
+    ]));
+    view.settings.line_width_pt = f64::NAN;
+    render_drawing(&view);
+}

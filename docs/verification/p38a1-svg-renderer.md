@@ -118,3 +118,13 @@ Each mutated file was restored from its backup, and a final `cmp` pass found eve
 ## Status
 
 P38a1 renderer core only; no export path yet. P38 remains `in_progress`. P38a2 adds the export surface and has not started.
+
+## Known limits from review
+
+These are limits of the current code. None is fixed in P38a1.
+
+- Labels are centred with `dominant-baseline="central"`, which browsers honour. Some non-browser consumers (for example Inkscape, librsvg, Batik or converters) may ignore it, so labels may not be centred on their atoms there; that is an open follow-up, as no such consumer has been checked.
+- A document without atoms yields a 0x0 SVG (`width="0pt" height="0pt"`, `viewBox="0 0 0 0"`). Whether the export operation refuses such a document or reports it is decided in P38a2.
+- The cost of the per-instance layout in `layout_drawing` and of the per-bond ring search (`geometry::bond_rings`) has not been measured.
+- The bond-stroke tolerance of 0.011 in `scripts/svg-parity-client-check.mjs` is one rounding step at the hundredth. It comes from tie handling, since a tie can round one step apart on the two sides, and not from `js_round` being inexact; its tie cases are unit-tested in `svg/geometry.rs`.
+- The stroke width is read from `view.settings.line_width_pt` in three places (`layout_drawing`, `view_box_of` and the stroke-width attribute in `svg/writer.rs`), which agree today because they all read the same field of one immutable view. Computing it once in `render_drawing` is a possible later cleanup, but `layout_drawing` is `pub`, so passing the value down would change a public signature.

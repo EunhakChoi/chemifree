@@ -156,6 +156,37 @@ pub(super) fn distance(a: Point, b: Point) -> f64 {
     (dx * dx + dy * dy).sqrt()
 }
 
+/// The point `by` along the axis from `origin`, where `(ux, uy)` is the axis's unit direction. A
+/// negative `by` moves against that direction. Not rounded.
+fn point_along(origin: Point, ux: f64, uy: f64, by: f64) -> Point {
+    Point {
+        x: origin.x + ux * by,
+        y: origin.y + uy * by,
+    }
+}
+
+/// The point `offset` to one side of the axis from `point`, where `(ux, uy)` is the axis's unit
+/// direction; a negative `offset` is the other side. Not rounded.
+fn point_beside(point: Point, ux: f64, uy: f64, offset: f64) -> Point {
+    Point {
+        x: point.x - uy * offset,
+        y: point.y + ux * offset,
+    }
+}
+
+/// [`point_beside`] with both coordinates rounded by [`round2`], as [`rounded`] does.
+fn point_beside_rounded(point: Point, ux: f64, uy: f64, offset: f64) -> Point {
+    rounded(point_beside(point, ux, uy, offset))
+}
+
+/// The point a fraction `t` of the way from `a` to `b`, so `a` at 0 and `b` at 1. Not rounded.
+fn point_between(a: Point, b: Point, t: f64) -> Point {
+    Point {
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+    }
+}
+
 /// `Math.sign`: 1, -1, or 0 for zero (Rust's `signum` gives 1 for zero).
 fn js_sign(value: f64) -> f64 {
     if value > 0.0 {
@@ -432,14 +463,6 @@ fn mark_strokes(mark: DrawnMark, ends: Ends, line_width: f64) -> Vec<Stroke> {
     let gap = LABEL_GAP + line_width / 2.0;
     let ux = (end.x - begin.x) / length;
     let uy = (end.y - begin.y) / length;
-    let along = |at: f64| Point {
-        x: begin.x + ux * at,
-        y: begin.y + uy * at,
-    };
-    let beside = |point: Point, offset: f64| Point {
-        x: round2(point.x - uy * offset),
-        y: round2(point.y + ux * offset),
-    };
     let Some((a, b)) = clipped(begin, end, begin_box, end_box, gap) else {
         return Vec::new();
     };
@@ -464,10 +487,14 @@ fn mark_strokes(mark: DrawnMark, ends: Ends, line_width: f64) -> Vec<Stroke> {
         // A cut end still at the narrow point is one corner, not two.
         let corners = |at: f64| -> Vec<Point> {
             let width = half(at);
+            let on_axis = point_along(begin, ux, uy, at);
             if width < 0.005 {
-                vec![beside(along(at), 0.0)]
+                vec![point_beside_rounded(on_axis, ux, uy, 0.0)]
             } else {
-                vec![beside(along(at), width), beside(along(at), -width)]
+                vec![
+                    point_beside_rounded(on_axis, ux, uy, width),
+                    point_beside_rounded(on_axis, ux, uy, -width),
+                ]
             }
         };
         let mut points = corners(from);
@@ -479,7 +506,11 @@ fn mark_strokes(mark: DrawnMark, ends: Ends, line_width: f64) -> Vec<Stroke> {
     let pitch = HASH_SPACING.max(length / MAX_PARTS);
     let stripe = |at: f64| -> (Point, Point) {
         let reach = (line_width / 2.0).max(half(at));
-        (beside(along(at), reach), beside(along(at), -reach))
+        let on_axis = point_along(begin, ux, uy, at);
+        (
+            point_beside_rounded(on_axis, ux, uy, reach),
+            point_beside_rounded(on_axis, ux, uy, -reach),
+        )
     };
     let mut segments = Vec::new();
     let mut k = 0usize;
@@ -519,17 +550,13 @@ fn crossed_strokes(ends: Ends, lines: Lines) -> Vec<Stroke> {
     let gap = LABEL_GAP + lines.width / 2.0;
     let ux = (end.x - begin.x) / length;
     let uy = (end.y - begin.y) / length;
-    let beside = |point: Point, offset: f64| Point {
-        x: round2(point.x - uy * offset),
-        y: round2(point.y + ux * offset),
-    };
     let offset = DOUBLE_OFFSET * lines.spacing;
     [offset, -offset]
         .into_iter()
         .filter_map(|side| {
             let (a, b) = clipped_across(
-                beside(begin, side),
-                beside(end, -side),
+                point_beside_rounded(begin, ux, uy, side),
+                point_beside_rounded(end, ux, uy, -side),
                 begin_box,
                 end_box,
                 gap,
@@ -551,10 +578,6 @@ fn clipped_across(
     gap: f64,
 ) -> Option<(Point, Point)> {
     let length = distance(a, b);
-    let at = |t: f64| Point {
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t,
-    };
     // Where the whole line runs inside a grown box, if that part meets the segment at all.
     let met = |bounds: Option<LabelBox>| {
         bounds
@@ -563,7 +586,7 @@ fn clipped_across(
     };
     let start = met(a_box).map_or(0.0, |(_, leave)| leave.clamp(0.0, 1.0));
     let end = met(b_box).map_or(1.0, |(enter, _)| enter.clamp(0.0, 1.0));
-    (end > start && length > 0.0).then(|| (at(start), at(end)))
+    (end > start && length > 0.0).then(|| (point_between(a, b, start), point_between(a, b, end)))
 }
 
 /// The part of the segment from `a` to `b` outside both grown label boxes, from where it leaves
@@ -577,10 +600,6 @@ fn clipped(
     gap: f64,
 ) -> Option<(Point, Point)> {
     let length = distance(a, b);
-    let at = |t: f64| Point {
-        x: a.x + (b.x - a.x) * t,
-        y: a.y + (b.y - a.y) * t,
-    };
     let from_a = a_box.and_then(|bounds| inside(a, b, grown(bounds, gap)));
     let into_b = b_box.and_then(|bounds| inside(a, b, grown(bounds, gap)));
     let start = match from_a {
@@ -591,7 +610,7 @@ fn clipped(
         Some((enter, leave)) if leave >= 1.0 => enter.clamp(0.0, 1.0),
         _ => 1.0,
     };
-    (end > start && length > 0.0).then(|| (at(start), at(end)))
+    (end > start && length > 0.0).then(|| (point_between(a, b, start), point_between(a, b, end)))
 }
 
 /// Where the line through `a` (at 0) and `b` (at 1) runs inside `bounds`: its entry and exit
@@ -662,10 +681,6 @@ pub(super) fn bond_strokes(bond: &BondView, ends: Ends, side: f64, lines: Lines)
     let gap = LABEL_GAP + lines.width / 2.0;
     let ux = (end.x - begin.x) / length;
     let uy = (end.y - begin.y) / length;
-    let shifted = |point: Point, offset: f64| Point {
-        x: point.x - uy * offset,
-        y: point.y + ux * offset,
-    };
     let clip = |a: Point, b: Point| clipped(a, b, begin_box, end_box, gap);
     // One line of the bond, offset from its axis; `inset` pulls its ends back at bare vertices.
     let line = |offset: f64, inset: f64| -> Option<(Point, Point)> {
@@ -673,20 +688,17 @@ pub(super) fn bond_strokes(bond: &BondView, ends: Ends, side: f64, lines: Lines)
         let from = if begin_box.is_some() {
             begin
         } else {
-            Point {
-                x: begin.x + ux * pulled,
-                y: begin.y + uy * pulled,
-            }
+            point_along(begin, ux, uy, pulled)
         };
         let to = if end_box.is_some() {
             end
         } else {
-            Point {
-                x: end.x - ux * pulled,
-                y: end.y - uy * pulled,
-            }
+            point_along(end, ux, uy, -pulled)
         };
-        let (a, b) = clip(shifted(from, offset), shifted(to, offset))?;
+        let (a, b) = clip(
+            point_beside(from, ux, uy, offset),
+            point_beside(to, ux, uy, offset),
+        )?;
         Some((rounded(a), rounded(b)))
     };
     let drawn = |offset: f64, pattern: Pattern, inset: f64| {
@@ -720,14 +732,11 @@ pub(super) fn bond_strokes(bond: &BondView, ends: Ends, side: f64, lines: Lines)
                 return Vec::new();
             };
             let size = DATIVE_HEAD_LENGTH.min(distance(start, tip));
-            let back = Point {
-                x: tip.x - ux * size,
-                y: tip.y - uy * size,
-            };
+            let back = point_along(tip, ux, uy, -size);
             let head = [
-                shifted(back, ARROWHEAD_HALF_WIDTH),
+                point_beside(back, ux, uy, ARROWHEAD_HALF_WIDTH),
                 tip,
-                shifted(back, -ARROWHEAD_HALF_WIDTH),
+                point_beside(back, ux, uy, -ARROWHEAD_HALF_WIDTH),
             ];
             vec![
                 segment_stroke((start, tip), Pattern::Solid),
@@ -753,13 +762,7 @@ pub(super) fn bond_strokes(bond: &BondView, ends: Ends, side: f64, lines: Lines)
                     } else {
                         ZIGZAG_HALF_WIDTH
                     };
-                    rounded(shifted(
-                        Point {
-                            x: a.x + (b.x - a.x) * t,
-                            y: a.y + (b.y - a.y) * t,
-                        },
-                        offset,
-                    ))
+                    point_beside_rounded(point_between(a, b, t), ux, uy, offset)
                 })
                 .collect();
             vec![Stroke::Polyline { points }]
