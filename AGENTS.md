@@ -42,6 +42,6 @@ Do not publish scientific behavior as complete. Document implementation status a
 
 ## Completed-work cleanup
 
-After testing is finished, remove disposable test environments and their task-owned processes, worktrees, build outputs, and temporary data once required evidence is retained. Never remove an environment while a test, build, browser, server, or another task still uses it.
+After testing is finished, remove disposable test environments and their task-owned processes, worktrees, and temporary data once required evidence is retained. The sandbox runner's shared build cache (`target-shared`, capped at 50 GiB and trimmed by the runner itself) is kept between runs; do not purge it per task. Never remove an environment while a test, build, browser, server, or another task still uses it.
 
 After a PR is merged, remove its completed local and remote topic branches and disposable worktrees after verifying the merge and that no later unmerged work remains. Preserve main and other long-lived branches, user data, dirty or active worktrees (including untracked files), and ongoing work. If ownership or completion is uncertain, leave the resource in place and record the deferred cleanup. See .github/CONTRIBUTING.md for the procedure.
