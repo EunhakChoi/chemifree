@@ -4,9 +4,13 @@ Scope: `document.export` with `format: "svg"` now draws scene graphics (line, re
 
 ## Run after the last edit
 
-- `npm run check` in the sandbox (one run, one build cache): exit 0. Cargo tests 2424 passed, 0 failed (2406 before, 18 new), 2 skipped; client tests 762 passed, 0 failed; conformance 118 cases, 118 passed (one new: `svg-export-scene-objects`); `npm run test:traceability`: ok.
+- `npm run check` in the sandbox (one run, one build cache): exit 0. Cargo tests 2429 passed, 0 failed (2406 before, 23 new), 2 skipped; client tests 762 passed, 0 failed; conformance 118 cases, 118 passed (one new: `svg-export-scene-objects`); `npm run test:traceability`: ok.
 - Browser (Chrome, sandbox, each exit 0): `graphic-line-width`, `graphic-ellipse`, `graphic-spline`, `graphic-polygon`, `graphic-creation`, `graphic-points`, `embedded-image`, run after the full check. They exercise `SceneGraphic` after the extraction. The label-shadow and caption browser checks were not part of this run.
-- New and changed tests: `svg/scene.rs` unit tests (7), `svg/writer.rs` unit tests (4), `tests/svg_render.rs` (6 new tests, 3 new goldens `scene-graphics.svg`, `scene-image.svg`, `graphics-only.svg`; the 9 older goldens are byte-identical and only `parity.json` gained the `objects` field), `tests/svg_loss_drift.rs` (42 rows: 26 drawn, 16 not drawn), `tests/svg_operations.rs` (`a_graphic_and_image_drawing_exports_without_consent`), `tests/format_wording.rs` (7 expectations), `scripts/svg-parity-client-check.mjs` (25 tests: three new cases, the paint list and the graphic and image numbers compared with the web at 1e-6), conformance case `svg-export-scene-objects`.
+- New and changed tests: `svg/scene.rs` unit tests (9), `svg/writer.rs` unit tests (5), `svg.rs` unit tests (2), `tests/svg_render.rs` (6 new tests, 3 new goldens `scene-graphics.svg`, `scene-image.svg`, `graphics-only.svg`; the 9 older goldens are byte-identical and only `parity.json` gained the `objects` field), `tests/svg_loss_drift.rs` (42 rows: 26 drawn, 16 not drawn), `tests/svg_operations.rs` (`a_graphic_and_image_drawing_exports_without_consent`), `tests/format_wording.rs` (7 expectations), `scripts/svg-parity-client-check.mjs` (25 tests: three new cases, the paint list and the graphic and image numbers compared with the web at 1e-6), conformance case `svg-export-scene-objects`.
+
+## Review fixes after the independent review
+
+Applied before the final run: `geometry::distance` reused for the arrow head (bit-identical), `graphic_marks` total with test `a_graphic_with_the_wrong_point_count_draws_nothing`, image ink from rounded values with test `an_off_grid_image_edge_lies_inside_the_view_box`, one base64 copy and indexed lookups in the writer with test `two_images_keep_their_own_base64`, React keys in `SceneGraphic`; and, from the Codex review, a graphic's ink measured from the marks and stroke width as the writer rounds them (`scene::rounded`, test `an_off_grid_graphic_edge_lies_inside_the_view_box`). The goldens did not change. The graphic browser checks ran again after the fixes and passed. Each new test was shown to fail under its mutation (polygon guard widened; image arm back to unrounded values), then the file was restored and compared byte for byte.
 
 ## Mutations (each applied alone, then restored and compared byte for byte)
 
@@ -38,8 +42,8 @@ Scope: `document.export` with `format: "svg"` now draws scene graphics (line, re
 ## Not run or not covered
 
 - Rendering in a viewer: the output is compared as text, geometry and structure, not as pixels. Visual correctness of arrows, ellipses and images in viewers and the handling of `xlink:href` by SVG-2-only tools are not checked.
-- A drawn edge can lie less than 0.01 pt outside the view box for a stroke width or point off the 0.01 grid, because the view box uses the unrounded width and the markup the rounded one; no fixture hits it.
+- A graphic's drawn edge can lie less than 0.01 pt outside the view box for a stroke width or point off the 0.01 grid, because the view box uses the unrounded width and the markup the rounded one; no fixture hits it. An image rectangle and a graphic's marks and stroke width are measured as the writer rounds them, so they lie inside (`an_off_grid_image_edge_lies_inside_the_view_box`, `an_off_grid_graphic_edge_lies_inside_the_view_box`). A size below 0.005 pt rounds to 0 in the output.
 - An instance missing from `scene.objects` (painted first, as in P38a) is not in any fixture of the parity script, and the web never draws such an instance.
 - Very large replies (images near the document admission limit) were not exercised over HTTP or CLI; the exporter adds no limit and no refusal.
 - The label-shadow, caption and other browser suites did not run locally for this change; CI runs them.
-- `graphic_marks` panics on a graphic whose point count its shape does not admit (the domain rejects such a graphic; documented under `# Panics`).
+- A graphic whose point count its shape does not admit draws nothing (`graphic_marks` is total); the domain rejects such a graphic, so no document reaches it. The web `graphicMarks` has no such length check, as the canvas before the extraction.

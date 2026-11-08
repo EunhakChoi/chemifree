@@ -1162,13 +1162,13 @@ function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPer
   const underlay = graphicUnderlay(lineWidth, unitsPerPixel)
   return (
     <g data-scene-object={object.id} onPointerDown={onPointerDown} strokeLinecap="round" strokeLinejoin="round">
-      {marks.map((mark) => {
+      {marks.map((mark, index) => {
         switch (mark.shape) {
           case 'cubic': {
             const [p0, c1, c2, p3] = mark.points
             const d = `M ${p0.x} ${p0.y} C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${p3.x} ${p3.y}`
             return (
-              <Fragment key={mark.shape}>
+              <Fragment key={`${index}:${mark.shape}`}>
                 <path d={d} fill="none" stroke="transparent" strokeWidth={hitWidth} />
                 {selected && <path d={d} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
                 <path d={d} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
@@ -1178,7 +1178,7 @@ function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPer
           case 'polygon': {
             const points = mark.points.map((point) => `${point.x},${point.y}`).join(' ')
             return (
-              <Fragment key={mark.shape}>
+              <Fragment key={`${index}:${mark.shape}`}>
                 <polygon points={points} fill="none" stroke="transparent" strokeWidth={hitWidth} />
                 {selected && <polygon points={points} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
                 <polygon points={points} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
@@ -1188,7 +1188,7 @@ function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPer
           case 'rect': {
             const box = { x: mark.x, y: mark.y, width: mark.width, height: mark.height }
             return (
-              <Fragment key={mark.shape}>
+              <Fragment key={`${index}:${mark.shape}`}>
                 <rect {...box} fill="none" stroke="transparent" strokeWidth={hitWidth} />
                 {selected && <rect {...box} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
                 <rect {...box} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
@@ -1198,7 +1198,7 @@ function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPer
           case 'ellipse': {
             const box = { cx: mark.cx, cy: mark.cy, rx: mark.rx, ry: mark.ry }
             return (
-              <Fragment key={mark.shape}>
+              <Fragment key={`${index}:${mark.shape}`}>
                 <ellipse {...box} fill="none" stroke="transparent" strokeWidth={hitWidth} />
                 {selected && <ellipse {...box} fill="none" className="stroke-primary/40" strokeWidth={underlay} />}
                 <ellipse {...box} fill="none" className="stroke-foreground" strokeWidth={lineWidth} />
@@ -1208,7 +1208,7 @@ function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPer
           case 'line': {
             const ends = { x1: mark.x1, y1: mark.y1, x2: mark.x2, y2: mark.y2 }
             return (
-              <Fragment key={mark.shape}>
+              <Fragment key={`${index}:${mark.shape}`}>
                 <line {...ends} stroke="transparent" strokeWidth={hitWidth} />
                 {selected && <line {...ends} className="stroke-primary/40" strokeWidth={underlay} />}
                 <line {...ends} className="stroke-foreground" strokeWidth={lineWidth} />
@@ -1218,7 +1218,7 @@ function SceneGraphic({ object, selected, lineWidth: documentLineWidth, unitsPer
           case 'head': {
             const points = mark.points.map((point) => `${point.x},${point.y}`).join(' ')
             return (
-              <Fragment key={mark.shape}>
+              <Fragment key={`${index}:${mark.shape}`}>
                 {selected && <polygon points={points} className="fill-primary/40 stroke-primary/40" strokeWidth={underlay} />}
                 <polygon points={points} className="fill-foreground stroke-foreground" strokeWidth={lineWidth} />
               </Fragment>

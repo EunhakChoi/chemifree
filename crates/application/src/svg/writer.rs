@@ -2,6 +2,8 @@
 //! here, and nothing else writes markup. Each element is one line, in document order, with no ids,
 //! classes, styles or data attributes, so one layout always writes the same bytes.
 
+use std::collections::BTreeMap;
+
 use super::font;
 use super::geometry::{self, PathStep, Pattern, Point, Stroke};
 use super::label::AtomLabel;
@@ -41,17 +43,29 @@ pub(super) fn number(value: f64) -> String {
 /// dropped, because not even a character reference can write it.
 pub(super) fn escape(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
-    for character in text.chars() {
-        match character {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            other if is_xml_char(other) => escaped.push(other),
-            _ => {}
-        }
-    }
+    escape_into(&mut escaped, text);
     escaped
+}
+
+/// Appends `text` to `out`, escaped as `escape` escapes it. Text that needs no change is copied in
+/// runs, so a long text costs one copy and no intermediate string.
+fn escape_into(out: &mut String, text: &str) {
+    let mut run_start = 0;
+    for (index, character) in text.char_indices() {
+        let replacement = match character {
+            '&' => "&amp;",
+            '<' => "&lt;",
+            '>' => "&gt;",
+            '"' => "&quot;",
+            other if is_xml_char(other) => continue,
+            // A character XML 1.0 forbids is dropped: nothing replaces it.
+            _ => "",
+        };
+        out.push_str(&text[run_start..index]);
+        out.push_str(replacement);
+        run_start = index + character.len_utf8();
+    }
+    out.push_str(&text[run_start..]);
 }
 
 /// Whether XML 1.0 allows `character` in a document, as its `Char` production (section 2.2) does:
@@ -298,46 +312,66 @@ fn mark_element(mark: &GraphicMark) -> String {
     }
 }
 
-/// The MIME type and base64 text of the image object `id` of `view`.
-///
-/// # Panics
-///
-/// Panics if `view` holds no image object with `id`. The layout of `view` names only its image
-/// objects, so a missing one is a bug, not an input error.
-fn image_data<'a>(view: &'a DocumentView, id: &str) -> (&'a str, &'a str) {
-    view.scene
-        .objects
-        .iter()
-        .find_map(|object| match object {
-            SceneObjectView::Image {
-                id: object_id,
-                mime_type,
-                data_base64,
-                ..
-            } if object_id == id => Some((*mime_type, data_base64.as_str())),
-            _ => None,
-        })
-        .expect("the layout names only image objects of its view")
+/// Each instance of `instances` by its id, so that an object finds its instance in one lookup. An
+/// id that two instances hold keeps the first, as a search in layout order would find it.
+fn instance_index(instances: &[InstanceLayout]) -> BTreeMap<&str, &InstanceLayout> {
+    let mut index = BTreeMap::new();
+    for instance in instances {
+        index.entry(instance.instance.as_str()).or_insert(instance);
+    }
+    index
+}
+
+/// The MIME type and base64 text of each image object of `view`, by its id. One pass over the
+/// scene indexes them all. An id that two image objects hold keeps the first, as a search in scene
+/// order would find it.
+fn image_index(view: &DocumentView) -> BTreeMap<&str, (&str, &str)> {
+    let mut images = BTreeMap::new();
+    for object in &view.scene.objects {
+        if let SceneObjectView::Image {
+            id,
+            mime_type,
+            data_base64,
+            ..
+        } = object
+        {
+            images
+                .entry(id.as_str())
+                .or_insert((*mime_type, data_base64.as_str()));
+        }
+    }
+    images
 }
 
 /// One image as one element: its rectangle in pt, which the image fills
 /// (`preserveAspectRatio="none"`), and its bytes as a data URL. The reference is `xlink:href`, the
 /// form SVG 1.1 defines, so the root declares the `xlink` namespace when the drawing holds an image.
 fn image_element(x: f64, y: f64, width: f64, height: f64, mime: &str, base64: &str) -> String {
-    format!(
-        r#"<image x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="none" xlink:href="{}"/>"#,
+    let mut element = format!(
+        r#"<image x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="none" xlink:href="data:{}"#,
         number(x),
         number(y),
         number(width),
         number(height),
-        escape(&format!("data:{mime};base64,{base64}"))
-    )
+        escape(mime)
+    );
+    element.push_str(";base64,");
+    // Escaping changes nothing in base64. It stays because `data_base64` is a public field, and
+    // any other text must not break the attribute.
+    escape_into(&mut element, base64);
+    element.push_str("\"/>");
+    element
 }
 
 /// The whole drawing: the XML declaration, the root `svg` element with its size and view box, each
 /// object in paint order, and the closing tag. One element per line, with a trailing newline. The
 /// root declares the `xlink` namespace only when the drawing holds an image, so a drawing without
 /// one keeps its bytes.
+///
+/// # Panics
+///
+/// Panics if `layout` names an instance that it does not list, or an image that `view` does not
+/// hold. The layout is built from the same view, so either is a bug, not an input error.
 pub(super) fn document(view: &DocumentView, layout: &DrawingLayout, view_box: ViewBox) -> String {
     let x = number(view_box.x);
     let y = number(view_box.y);
@@ -353,6 +387,8 @@ pub(super) fn document(view: &DocumentView, layout: &DrawingLayout, view_box: Vi
     } else {
         ""
     };
+    let instances = instance_index(&layout.instances);
+    let images = image_index(view);
     let mut lines = vec![
         r#"<?xml version="1.0" encoding="UTF-8"?>"#.to_owned(),
         format!(
@@ -362,10 +398,9 @@ pub(super) fn document(view: &DocumentView, layout: &DrawingLayout, view_box: Vi
     for object in &layout.objects {
         match object {
             ObjectLayout::Instance { id } => {
-                let instance = layout
-                    .instances
-                    .iter()
-                    .find(|instance| instance.instance == *id)
+                let instance = instances
+                    .get(id.as_str())
+                    .copied()
                     .expect("an instance object names an instance the layout lists");
                 lines.extend(instance_block(view, instance, family));
             }
@@ -381,7 +416,10 @@ pub(super) fn document(view: &DocumentView, layout: &DrawingLayout, view_box: Vi
                 width: image_width,
                 height: image_height,
             } => {
-                let (mime, base64) = image_data(view, id);
+                let (mime, base64) = images
+                    .get(id.as_str())
+                    .copied()
+                    .expect("the layout names only image objects of its view");
                 lines.push(image_element(
                     *image_x,
                     *image_y,
@@ -685,6 +723,48 @@ mod tests {
                 r#"<image x="10" y="20" width="30" height="40" preserveAspectRatio="none" xlink:href="data:image/png;base64,iVBORw0KGgoA+/8="/>"#
             ),
             "the data URI is the stored base64 unchanged, the image fills its rectangle, and the reference is xlink:href"
+        );
+    }
+
+    #[test]
+    fn two_images_keep_their_own_base64() {
+        let image = |id: &str, base64: &str, x: f64| {
+            let scene_object = SceneObjectView::Image {
+                id: id.to_owned(),
+                parent: None,
+                mime_type: "image/png",
+                data_base64: base64.to_owned(),
+                origin: PositionView { x, y: 0.0 },
+                size_pt: PositionView { x: 10.0, y: 10.0 },
+                pixel_width: 1,
+                pixel_height: 1,
+            };
+            let layout_object = ObjectLayout::Image {
+                id: id.to_owned(),
+                x,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            };
+            (scene_object, layout_object)
+        };
+        let (first_object, first_layout) = image("img1", "AAAA", 0.0);
+        let (second_object, second_layout) = image("img2", "BBBB", 20.0);
+        let content = drawing(
+            vec![first_object, second_object],
+            vec![first_layout, second_layout],
+        );
+        let images: Vec<&str> = content
+            .lines()
+            .filter(|line| line.starts_with("<image"))
+            .collect();
+        assert_eq!(
+            images,
+            [
+                r#"<image x="0" y="0" width="10" height="10" preserveAspectRatio="none" xlink:href="data:image/png;base64,AAAA"/>"#,
+                r#"<image x="20" y="0" width="10" height="10" preserveAspectRatio="none" xlink:href="data:image/png;base64,BBBB"/>"#,
+            ],
+            "each image element writes the base64 of its own object, in paint order"
         );
     }
 

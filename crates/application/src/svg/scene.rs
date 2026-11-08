@@ -4,7 +4,7 @@
 
 use serde::Serialize;
 
-use super::geometry::Point;
+use super::geometry::{self, Point};
 use crate::{GraphicShapeDto, PositionView};
 
 /// One primitive of a graphic, in the order it is painted (`SceneGraphic`,
@@ -76,53 +76,95 @@ const GRAPHIC_ARROW_HALF_WIDTH: f64 = 3.0;
 /// - A spline is one `Cubic` through its four points in stored order, with no evaluation
 ///   (`structure-canvas.tsx:1161-1169`, `spline.ts:13-17`).
 ///
-/// # Panics
-///
-/// Panics if `points` has the wrong count for `shape`: two for a line, rectangle, ellipse or arrow,
-/// and four for a spline. The domain admits no other count (`Graphic::validate`, in
-/// `crates/domain/src/scene.rs:92-100`), so a wrong count is a bug in the view, not an input error.
+/// A point count that `shape` does not admit draws nothing, so the result is empty: two points for
+/// a line, arrow, rectangle or ellipse, four for a spline, and at least three for a polygon. The
+/// domain rejects such a graphic (`Graphic::validate`, crates/domain/src/scene.rs:92-100), so an
+/// empty list is unreachable from a document; it only keeps the renderer total for a hand-made
+/// view.
 #[must_use]
 pub(super) fn graphic_marks(shape: GraphicShapeDto, points: &[PositionView]) -> Vec<GraphicMark> {
     let stored: Vec<Point> = points.iter().map(to_point).collect();
-    match shape {
-        GraphicShapeDto::Line => {
-            let (from, to) = corners(&stored);
-            vec![segment(from, to)]
-        }
-        GraphicShapeDto::Arrow => {
-            let (from, tip) = corners(&stored);
+    match (shape, stored.as_slice()) {
+        (GraphicShapeDto::Line, &[from, to]) => vec![segment(from, to)],
+        (GraphicShapeDto::Arrow, &[from, tip]) => {
             let mut marks = vec![segment(from, tip)];
             marks.extend(arrow_head(from, tip));
             marks
         }
-        GraphicShapeDto::Rectangle => {
-            let (first, second) = corners(&stored);
-            vec![GraphicMark::Rect {
-                x: first.x.min(second.x),
-                y: first.y.min(second.y),
-                width: (first.x - second.x).abs(),
-                height: (first.y - second.y).abs(),
-            }]
-        }
-        GraphicShapeDto::Ellipse => {
-            let (first, second) = corners(&stored);
-            vec![GraphicMark::Ellipse {
-                cx: (first.x + second.x) / 2.0,
-                cy: (first.y + second.y) / 2.0,
-                rx: (first.x - second.x).abs() / 2.0,
-                ry: (first.y - second.y).abs() / 2.0,
-            }]
-        }
-        GraphicShapeDto::Polygon => vec![GraphicMark::Polygon { points: stored }],
-        GraphicShapeDto::Spline => {
-            assert_eq!(
-                stored.len(),
-                4,
-                "a spline stores its start, its two controls and its end"
-            );
-            vec![GraphicMark::Cubic { points: stored }]
-        }
+        (GraphicShapeDto::Rectangle, &[first, second]) => vec![GraphicMark::Rect {
+            x: first.x.min(second.x),
+            y: first.y.min(second.y),
+            width: (first.x - second.x).abs(),
+            height: (first.y - second.y).abs(),
+        }],
+        (GraphicShapeDto::Ellipse, &[first, second]) => vec![GraphicMark::Ellipse {
+            cx: (first.x + second.x) / 2.0,
+            cy: (first.y + second.y) / 2.0,
+            rx: (first.x - second.x).abs() / 2.0,
+            ry: (first.y - second.y).abs() / 2.0,
+        }],
+        (GraphicShapeDto::Polygon, [_, _, _, ..]) => vec![GraphicMark::Polygon { points: stored }],
+        (GraphicShapeDto::Spline, &[_, _, _, _]) => vec![GraphicMark::Cubic { points: stored }],
+        // Every shape is listed, so that a new shape must decide its point count here.
+        (
+            GraphicShapeDto::Line
+            | GraphicShapeDto::Arrow
+            | GraphicShapeDto::Rectangle
+            | GraphicShapeDto::Ellipse
+            | GraphicShapeDto::Polygon
+            | GraphicShapeDto::Spline,
+            _,
+        ) => Vec::new(),
     }
+}
+
+/// The marks as the writer writes them: each number of each mark rounded to the hundredth by
+/// `geometry::round2`, one number at a time, as `svg/writer.rs` writes it. A rectangle's corner and
+/// size are rounded apart, not its far corner, because the browser adds them.
+#[must_use]
+pub(super) fn rounded(marks: &[GraphicMark]) -> Vec<GraphicMark> {
+    marks
+        .iter()
+        .map(|mark| match mark {
+            GraphicMark::Line { x1, y1, x2, y2 } => GraphicMark::Line {
+                x1: geometry::round2(*x1),
+                y1: geometry::round2(*y1),
+                x2: geometry::round2(*x2),
+                y2: geometry::round2(*y2),
+            },
+            GraphicMark::Head { points } => GraphicMark::Head {
+                points: rounded_points(points),
+            },
+            GraphicMark::Rect {
+                x,
+                y,
+                width,
+                height,
+            } => GraphicMark::Rect {
+                x: geometry::round2(*x),
+                y: geometry::round2(*y),
+                width: geometry::round2(*width),
+                height: geometry::round2(*height),
+            },
+            GraphicMark::Ellipse { cx, cy, rx, ry } => GraphicMark::Ellipse {
+                cx: geometry::round2(*cx),
+                cy: geometry::round2(*cy),
+                rx: geometry::round2(*rx),
+                ry: geometry::round2(*ry),
+            },
+            GraphicMark::Polygon { points } => GraphicMark::Polygon {
+                points: rounded_points(points),
+            },
+            GraphicMark::Cubic { points } => GraphicMark::Cubic {
+                points: rounded_points(points),
+            },
+        })
+        .collect()
+}
+
+/// Each point with both coordinates rounded by `geometry::rounded`.
+fn rounded_points(points: &[Point]) -> Vec<Point> {
+    points.iter().copied().map(geometry::rounded).collect()
 }
 
 /// The box that the ink of `marks` covers, as `(min x, min y, max x, max y)` in pt, or `None` when
@@ -196,12 +238,12 @@ pub(super) fn effective_width(line_width_pt: Option<f64>, document: f64) -> f64 
 }
 
 /// The head of an arrow whose shaft runs from `from` to `tip`, or `None` when the shaft has no
-/// length (`structure-canvas.tsx:1181-1184, 1204`). The length is the square root of the sum of
-/// squares, as `distance` in `svg/geometry.rs` computes it, where the canvas uses `Math.hypot`.
+/// length (`structure-canvas.tsx:1181-1184, 1204`). The length is `geometry::distance`, which the
+/// canvas's `Math.hypot` may differ from by one ULP.
 fn arrow_head(from: Point, tip: Point) -> Option<GraphicMark> {
     let dx = tip.x - from.x;
     let dy = tip.y - from.y;
-    let length = (dx * dx + dy * dy).sqrt();
+    let length = geometry::distance(from, tip);
     if length > 0.0 {
         let ux = dx / length;
         let uy = dy / length;
@@ -220,21 +262,6 @@ fn arrow_head(from: Point, tip: Point) -> Option<GraphicMark> {
         })
     } else {
         None
-    }
-}
-
-/// The two points of a graphic stored as exactly two: its endpoints, or two opposite corners.
-///
-/// # Panics
-///
-/// Panics unless `points` holds exactly two points.
-fn corners(points: &[Point]) -> (Point, Point) {
-    match points {
-        &[first, second] => (first, second),
-        _ => panic!(
-            "a graphic of this shape stores two points, found {}",
-            points.len()
-        ),
     }
 }
 
@@ -403,6 +430,41 @@ mod tests {
     }
 
     #[test]
+    fn a_graphic_with_the_wrong_point_count_draws_nothing() {
+        // Each count below is one that its shape does not admit: two points for a line, arrow,
+        // rectangle or ellipse, four for a spline and at least three for a polygon. Such a graphic
+        // must draw no marks rather than panic, so it has no ink box either.
+        let one = [position(0.0, 0.0)];
+        let two = [position(0.0, 0.0), position(10.0, 0.0)];
+        let three = [position(0.0, 0.0), position(4.0, 0.0), position(4.0, 3.0)];
+        let five = [
+            position(0.0, 0.0),
+            position(4.0, 0.0),
+            position(4.0, 3.0),
+            position(8.0, 3.0),
+            position(8.0, 6.0),
+        ];
+        let cases: [(&str, GraphicShapeDto, &[PositionView]); 11] = [
+            ("line, 1 point", GraphicShapeDto::Line, &one),
+            ("line, 3 points", GraphicShapeDto::Line, &three),
+            ("arrow, 1 point", GraphicShapeDto::Arrow, &one),
+            ("arrow, 3 points", GraphicShapeDto::Arrow, &three),
+            ("rectangle, 1 point", GraphicShapeDto::Rectangle, &one),
+            ("rectangle, 3 points", GraphicShapeDto::Rectangle, &three),
+            ("ellipse, 1 point", GraphicShapeDto::Ellipse, &one),
+            ("ellipse, 3 points", GraphicShapeDto::Ellipse, &three),
+            ("spline, 3 points", GraphicShapeDto::Spline, &three),
+            ("spline, 5 points", GraphicShapeDto::Spline, &five),
+            ("polygon, 2 points", GraphicShapeDto::Polygon, &two),
+        ];
+        for (name, shape, stored) in cases {
+            let marks = graphic_marks(shape, stored);
+            assert!(marks.is_empty(), "{name} draws nothing, got {marks:?}");
+            assert_eq!(ink(&marks, 2.0), None, "{name} has no ink box");
+        }
+    }
+
+    #[test]
     fn ink_grows_each_mark_by_half_the_line_width() {
         // Boxes are (min x, min y, max x, max y) of each shape's ink, grown by half the width
         // on every side: by 1 at width 2.0 and by 0.25 at width 0.5. The arrow's head reaches
@@ -473,6 +535,98 @@ mod tests {
             effective_width(None, 2.0),
             2.0,
             "a missing width inherits the document width",
+        );
+    }
+
+    #[test]
+    fn rounded_marks_round_each_number_to_the_hundredth() {
+        // Each number is rounded on its own, as the writer writes it. A rectangle's corner and size
+        // are rounded apart: x 0.005 and width 0.005 become 0.01 and 0.01, so the browser draws the
+        // far edge at 0.02.
+        let marks = [
+            GraphicMark::Rect {
+                x: 0.004,
+                y: 1.006,
+                width: 10.006,
+                height: 2.994,
+            },
+            GraphicMark::Rect {
+                x: 0.005,
+                y: 0.0,
+                width: 0.005,
+                height: 1.0,
+            },
+            GraphicMark::Ellipse {
+                cx: 0.004,
+                cy: 1.006,
+                rx: 5.006,
+                ry: 2.004,
+            },
+            GraphicMark::Line {
+                x1: 0.004,
+                y1: -0.004,
+                x2: 1.006,
+                y2: 1.994,
+            },
+            GraphicMark::Head {
+                points: vec![point(1.006, 0.004), point(-2.994, 3.006)],
+            },
+            GraphicMark::Polygon {
+                points: vec![point(0.004, 0.006), point(4.994, 0.0), point(2.5, 8.004)],
+            },
+            GraphicMark::Cubic {
+                points: vec![
+                    point(0.004, 0.0),
+                    point(2.0, 6.006),
+                    point(5.0, -3.0),
+                    point(8.0, 1.004),
+                ],
+            },
+        ];
+        let expected = [
+            GraphicMark::Rect {
+                x: 0.0,
+                y: 1.01,
+                width: 10.01,
+                height: 2.99,
+            },
+            GraphicMark::Rect {
+                x: 0.01,
+                y: 0.0,
+                width: 0.01,
+                height: 1.0,
+            },
+            GraphicMark::Ellipse {
+                cx: 0.0,
+                cy: 1.01,
+                rx: 5.01,
+                ry: 2.0,
+            },
+            GraphicMark::Line {
+                x1: 0.0,
+                y1: 0.0,
+                x2: 1.01,
+                y2: 1.99,
+            },
+            GraphicMark::Head {
+                points: vec![point(1.01, 0.0), point(-2.99, 3.01)],
+            },
+            GraphicMark::Polygon {
+                points: vec![point(0.0, 0.01), point(4.99, 0.0), point(2.5, 8.0)],
+            },
+            GraphicMark::Cubic {
+                points: vec![
+                    point(0.0, 0.0),
+                    point(2.0, 6.01),
+                    point(5.0, -3.0),
+                    point(8.0, 1.0),
+                ],
+            },
+        ];
+        assert_eq!(
+            rounded(&marks),
+            expected,
+            "each number rounds to the hundredth"
         );
     }
 }
