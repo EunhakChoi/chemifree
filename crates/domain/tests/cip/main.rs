@@ -596,7 +596,8 @@ fn the_request_cap_stops_the_request_and_does_not_depend_on_the_order() {
         assert!(
             matches!(
                 stop,
-                Some(Stop::RequestLimit { limit, .. }) if limit == limits.request_nodes
+                Some(Stop::RequestLimit { limit, used })
+                    if limit == limits.request_nodes && used == one_item * 2
             ),
             "order {order:?}: {stop:?}"
         );
@@ -781,7 +782,8 @@ fn many_centers_refused_after_a_large_expansion_still_hit_the_request_cap() {
         assert!(
             matches!(
                 stop,
-                Some(Stop::RequestLimit { limit, .. }) if limit == limits.request_nodes
+                Some(Stop::RequestLimit { limit, used })
+                    if limit == limits.request_nodes && used == alone.nodes * 4
             ),
             "four refused items of {} nodes each, order {order:?}: {stop:?}",
             alone.nodes

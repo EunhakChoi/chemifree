@@ -5,7 +5,7 @@ Scope: the `resource_limit` reply of `chem.cip` gains `details.nodes_used`, the 
 ## Tests
 
 - `crates/application/tests/cip_operation.rs`: the existing refusal tests pin `nodes_used`. The centers refusal is 36 and the bonds refusal is 4, each the cost that the same test measures without a limit; a fake labeler that over-reports pins 1001 for every stage; the scan, item-cap and over-limit refusals assert `nodes_used > limit` (their exact count is the built-in's per-unit cost and is not derived in the test).
-- `crates/domain/tests/cip/main.rs`: the two `RequestLimit` equality assertions now match `limit` and ignore `used` (the old equality only checked `limit`).
+- `crates/domain/tests/cip/main.rs`: the two `RequestLimit` assertions pin `limit` and the exact running total `used` (2 x one item, 4 x one refused item).
 
 ## Mutations (each in a private copy)
 
@@ -15,6 +15,7 @@ Scope: the `resource_limit` reply of `chem.cip` gains `details.nodes_used`, the 
 | the labeler-report stop sets `used` 0 | the over-reporting labeler test |
 | domain centers stop `used` 0 | the limit-reply test (centers) |
 | domain double-bond stop `used` 0 | the limit-reply test (bonds) |
+| `charge` reports the last item's nodes instead of the running total | both domain request-cap tests |
 
 Limits of the proof: the `nodes_used > limit` lines that follow an exact check in one block, and the bonds, mixed and scan iterations of the fake-labeler loop, were not mutated one by one.
 
