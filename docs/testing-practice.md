@@ -66,6 +66,7 @@ Each is a documented command; see the README and CI (`.github/workflows/ci.yml`)
 | Rust tests | `cargo nextest run --workspace --locked --no-fail-fast`, then `cargo test --workspace --doc --locked` for doctests (inside `npm run check:rust`) |
 | Lint, web | `npm run lint` |
 | Types, web | `npm run typecheck` |
+| Nextest overrides | `npm run test:nextest-overrides` (every exact `test(=...)` name in `.config/nextest.toml` must match a listed test; its unit tests run in `npm run test:checks`) |
 | Web client | `npm run test:client` |
 | Web build | `npm run build:web` |
 | HTTP/CLI contracts | `npm run test:contracts` |

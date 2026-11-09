@@ -9,6 +9,8 @@ slow-timeout = { period = "120s", terminate-after = 5 }
 # Each test below has a wall-clock budget or a promptness deadline, which fails when the runner is
 # busy. Each takes four test threads, so at most a few of the heavy tests run beside it. Taking every
 # thread (`num-test-threads`) measured twice as slow overall: each such test drains the whole runner.
+# `npm run test:nextest-overrides` fails when a name below matches no listed test (a rename would
+# otherwise end the reservation silently); a new override needs package(...) and binary(...) as well.
 [[profile.default.overrides]]
 filter = "package(chemifree-api) & binary(http_disconnect) & test(=closing_the_connection_stops_a_running_conversion)"
 threads-required = 4
