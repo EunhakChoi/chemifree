@@ -426,6 +426,48 @@ test('the handoff has exactly one partial list sentence', () => {
   expectProblem(two, /docs\/HANDOFF\.ko\.md: needs exactly one line containing .* \(found 2\)/)
 })
 
+test('the handoff partial list in another order names the order and the expected list', () => {
+  const inputs = base()
+  const [first, second, ...rest] = partialIds(inputs)
+  assert.ok(second, 'two partial requirements to swap')
+  setHandoff(inputs, partialSentence([second, first, ...rest]))
+  expectProblem(inputs, /docs\/HANDOFF\.ko\.md: .*\(order differs from the registry\); expected list: /)
+})
+
+test('the handoff partial list names a repeated id as duplicated', () => {
+  const inputs = base()
+  assert.equal(requirement(inputs, 'OPS-02').status, 'partial')
+  setHandoff(inputs, partialSentence([...partialIds(inputs), 'OPS-02']))
+  expectProblem(inputs, /docs\/HANDOFF\.ko\.md: .*\(duplicated: OPS-02\); expected list: /)
+})
+
+test('the handoff partial list without its terminator is refused', () => {
+  const inputs = base()
+  setHandoff(inputs, `${PARTIAL_PHRASE}${partialIds(inputs).join(', ')}이며 나머지는 not_implemented다.`)
+  expectProblem(inputs, /docs\/HANDOFF\.ko\.md: the partial list must end with "이고"; expected list: /)
+})
+
+test('the handoff partial list claim that the rest are not_implemented must hold', () => {
+  const inputs = base()
+  assert.equal(requirement(inputs, 'REACTION-01').status, 'not_implemented')
+  requirement(inputs, 'REACTION-01').status = 'unverified'
+  part(inputs, 'REACTION-01.rest').status = 'unverified'
+  inputs.roadmap.value.requirement_mapping.find((entry) => entry.id === 'REACTION-01').current_status = 'unverified'
+  syncDocs(inputs)
+  expectProblem(inputs, /나머지는 not_implemented", which is untrue; .*: REACTION-01 \(unverified\)$/)
+})
+
+test('the handoff partial list checks the rest claim only when the sentence makes it', () => {
+  const inputs = base()
+  assert.equal(requirement(inputs, 'REACTION-01').status, 'not_implemented')
+  requirement(inputs, 'REACTION-01').status = 'unverified'
+  part(inputs, 'REACTION-01.rest').status = 'unverified'
+  inputs.roadmap.value.requirement_mapping.find((entry) => entry.id === 'REACTION-01').current_status = 'unverified'
+  syncDocs(inputs)
+  setHandoff(inputs, `${PARTIAL_PHRASE}${partialIds(inputs).join(', ')}이고 나머지 상태는 이 문장에 없다.`)
+  assert.deepEqual(checkInputs(inputs), [])
+})
+
 test('npm run check must run the conformance and traceability steps in order', () => {
   const inputs = base()
   const scripts = inputs.packageJson.value.scripts

@@ -24,6 +24,7 @@ const HANDOFF_DOC = 'docs/HANDOFF.ko.md'
 export const TOTALS_DOCS = ['docs/TRACEABILITY.ko.md', HANDOFF_DOC]
 const PARTIAL_PHRASE = '이 커밋 기준 partial 요구사항은 '
 const PARTIAL_LIST_END = '이고'
+const PARTIAL_REST_CLAIM = '나머지는 not_implemented'
 const ROUTE_STATUSES = ['implemented', 'partial', 'unverified', 'not_implemented']
 const OUTCOMES = ['passed', 'failed', 'not_run']
 const KINDS = ['accept', 'reject']
@@ -52,6 +53,7 @@ const SHA256 = /^[0-9a-f]{64}$/
 const SCRIPT_NAME = /^[A-Za-z0-9:_.@/-]+$/
 const REQUIREMENT_FIELDS = ['id', 'domain', 'summary', 'operations', 'status', 'parts']
 const REQUIREMENT_ID = /^[A-Z]+-[0-9]{2}$/
+const REQUIREMENT_IDS_IN_TEXT = new RegExp(REQUIREMENT_ID.source.replace(/^\^|\$$/g, ''), 'g')
 const ROADMAP_ID = /^[A-Z][0-9]{1,3}$/
 
 /** The repository root for a module URL inside scripts/. */
@@ -744,9 +746,11 @@ function checkTotals(inputs, fail) {
 /**
  * The handoff's partial list must equal the partial requirements in registry order. The list is
  * the ids between PARTIAL_PHRASE and PARTIAL_LIST_END on the one line that holds the phrase.
+ * When that line also says the other requirements are not_implemented, that claim must hold.
  */
 function checkPartialList(text, inputs, fail) {
-  const expected = arrayOr(inputs.requirements.value?.requirements)
+  const requirements = arrayOr(inputs.requirements.value?.requirements)
+  const expected = requirements
     .filter((requirement) => requirement?.status === 'partial')
     .map((requirement) => requirement?.id)
   const list = expected.join(', ')
@@ -765,13 +769,33 @@ function checkPartialList(text, inputs, fail) {
     fail(`${HANDOFF_DOC}: the partial list must end with ${JSON.stringify(PARTIAL_LIST_END)}; expected list: ${list}`)
     return
   }
-  const listed = line.slice(from, to).match(/[A-Z]+-[0-9]{2}/g) ?? []
+  if (line.includes(PARTIAL_REST_CLAIM)) {
+    const contradicting = requirements.filter(
+      (requirement) => requirement?.status !== 'partial' && requirement?.status !== 'not_implemented',
+    )
+    if (contradicting.length > 0) {
+      const names = contradicting.map((requirement) => `${requirement?.id} (${requirement?.status})`).join(', ')
+      fail(
+        `${HANDOFF_DOC}: the sentence says ${JSON.stringify(PARTIAL_REST_CLAIM)}, which is untrue; ` +
+          `requirements that are not partial must be not_implemented: ${names}`,
+      )
+    }
+  }
+  const listed = line.slice(from, to).match(REQUIREMENT_IDS_IN_TEXT) ?? []
+  // Registry order is required so the expected list in the message can be pasted into the handoff as is.
   if (sameJson(listed, expected)) return
   const missing = expected.filter((id) => !listed.includes(id))
   const extra = listed.filter((id) => !expected.includes(id))
+  const duplicated = [...new Set(listed.filter((id, index) => listed.indexOf(id) !== index))]
+  const differences = []
+  if (missing.length > 0 || extra.length > 0) {
+    differences.push(`missing: ${missing.join(', ') || 'none'}; extra: ${extra.join(', ') || 'none'}`)
+  }
+  if (duplicated.length > 0) differences.push(`duplicated: ${duplicated.join(', ')}`)
+  if (differences.length === 0) differences.push('order differs from the registry')
   fail(
     `${HANDOFF_DOC}: the partial list must equal the partial requirements in registry order ` +
-      `(missing: ${missing.join(', ') || 'none'}; extra: ${extra.join(', ') || 'none'}); expected list: ${list}`,
+      `(${differences.join('; ')}); expected list: ${list}`,
   )
 }
 
