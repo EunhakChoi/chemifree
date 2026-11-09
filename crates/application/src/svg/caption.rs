@@ -10,6 +10,8 @@
 //!
 //! The reserved box is a model, not the ink. A viewer's generic face may be wider or taller than
 //! the advance table predicts, so its text can reach past the box, as label text can.
+//! The advances ignore a run's weight and style, and a character the table does not list takes its
+//! fixed fallback advance, so the box can also be wider than the text.
 
 use serde::Serialize;
 
