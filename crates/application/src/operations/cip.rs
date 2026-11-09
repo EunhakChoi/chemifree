@@ -6,9 +6,8 @@
 //! never written back and never read from a mark or a position.
 
 use std::collections::BTreeSet;
-use std::time::{Duration, Instant};
 
-use chemifree_domain::budget::{Budget, Interrupted};
+use chemifree_domain::budget::Interrupted;
 use chemifree_domain::cip::{
     BondReport, Candidates, CenterReport, Limits, Reason, State, Stop, Warning,
 };
@@ -505,30 +504,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             reply
         };
         // The limit is resolved before anything else, so a limit above the maximum is refused
-        // whatever the document is.
-        let limit_ms = match self.compute_limits.resolve(p.time_limit_ms) {
-            Ok(limit_ms) => limit_ms,
-            Err(maximum) => {
-                let mut details = Map::new();
-                details.insert("maximum_ms".into(), maximum.into());
-                return with_model(known.invalid(Diagnostic {
-                    code: ErrorCode::InvalidRequest.as_str(),
-                    severity: Severity::Error,
-                    message: format!("time_limit_ms is above the maximum of {maximum} ms."),
-                    path: Some("parameters.time_limit_ms".into()),
-                    details,
-                }));
-            }
+        // whatever the document is. One budget for the whole request: the scan, the centers and
+        // the bonds share its deadline.
+        let (budget, limit_ms) = match self.start_time_limit(p.time_limit_ms, cancel) {
+            Ok(started) => started,
+            Err(refusal) => return with_model(known.invalid(refusal)),
         };
-        // Limits are capped far below what an `Instant` can add; a deadline that could not be
-        // formed would still stop the computation at once rather than never.
-        let now = Instant::now();
-        let deadline = Some(
-            now.checked_add(Duration::from_millis(limit_ms))
-                .unwrap_or(now),
-        );
-        // One budget for the whole request: the scan, the centers and the bonds share its deadline.
-        let budget = Budget::new(cancel, deadline);
         let scope = match parse_scope(p.scope) {
             Ok(scope) => scope,
             Err(invalid) => return with_model(known.invalid(invalid)),
@@ -619,6 +600,20 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     }
                 }
             }
+        }
+        // The budget is asked once before the scan and the labeling, so an expired limit or a
+        // cancel stops the request even when it has nothing to label.
+        if let Err(interrupted) = budget.check() {
+            // An interruption's reply names no stage; `Stage::Scan` only fills the parameter.
+            return with_model(Self::stopped(
+                known,
+                Stage::Scan,
+                Stop::Interrupted(interrupted),
+                revision,
+                checker.size(),
+                limits,
+                limit_ms,
+            ));
         }
         // The scan labels every candidate it finds, so those reports are the answer for those
         // units; only the stored and named units it did not cover are labeled afterwards, with

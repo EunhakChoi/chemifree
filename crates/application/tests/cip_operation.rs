@@ -1496,11 +1496,16 @@ impl CipLabeler for Spinning {
 fn zero_limit_stops(scope: &str) {
     let (app, _directory) = application();
     let (built, _) = smiles(&app, SELECTION);
-    let before = whole(&app, &built);
+    zero_limit_stops_on(&app, &built, scope);
+}
+
+/// `zero_limit_stops` on the document `built`, whatever it holds.
+fn zero_limit_stops_on(app: &App, built: &Built, scope: &str) {
+    let before = whole(app, built);
     let reply = call(
-        &app,
+        app,
         scope,
-        &request(&built, &json!({"scope": scope, "time_limit_ms": 0})),
+        &request(built, &json!({"scope": scope, "time_limit_ms": 0})),
     );
     assert_eq!(reply["outcome"], "error", "{reply}");
     assert_eq!(reply["result"], Value::Null, "no partial result: {reply}");
@@ -1514,7 +1519,7 @@ fn zero_limit_stops(scope: &str) {
         reply["document_revision"], before["document"]["revision"],
         "the revision is the document's: {reply}"
     );
-    assert_eq!(whole(&app, &built), before, "nothing changed: {reply}");
+    assert_eq!(whole(app, built), before, "nothing changed: {reply}");
 }
 
 #[test]
@@ -1525,6 +1530,48 @@ fn a_zero_time_limit_stops_the_labeling_and_changes_nothing() {
 #[test]
 fn a_zero_time_limit_stops_the_scan_and_changes_nothing() {
     zero_limit_stops("stereogenic");
+}
+
+#[test]
+fn a_zero_time_limit_stops_a_document_with_no_stored_stereo_and_changes_nothing() {
+    // Alanine without a configuration: the stored scope has no units, so the labeler is never
+    // asked, and only the budget can stop the request.
+    let (app, _directory) = application();
+    let (built, _) = smiles(&app, "CC(N)C(=O)O");
+    zero_limit_stops_on(&app, &built, "stored");
+}
+
+#[test]
+fn a_zero_time_limit_stops_an_empty_document_and_changes_nothing() {
+    // No atoms, so nothing is stored or labeled, and only the budget can stop the request. A
+    // transaction needs a command, so the document is only created; a new one is at revision 0,
+    // as `build_ordered` expects.
+    let (app, _directory) = application();
+    let built = Built {
+        id: created(&app),
+        ids: Vec::new(),
+        bond_ids: Vec::new(),
+        revision: 0,
+    };
+    zero_limit_stops_on(&app, &built, "stored");
+}
+
+#[test]
+fn a_cancel_wins_over_a_zero_time_limit_on_a_document_with_no_stored_stereo() {
+    let (app, _directory) = application();
+    let (built, _) = smiles(&app, "CC(N)C(=O)O");
+    let before = whole(&app, &built);
+    let flag = CancelFlag::new();
+    flag.cancel();
+    // Nothing is labeled, and the budget's first question is the cancel, asked before the deadline.
+    let body = json!({"contract": 1, "request_id": "nothing", "profile": "preserve-semantics",
+                      "operation": "chem.cip",
+                      "parameters": request(&built, &json!({"time_limit_ms": 0}))});
+    let reply = serde_json::to_value(app.execute_with(body.to_string().as_bytes(), &flag)).unwrap();
+    assert_eq!(reply["outcome"], "error", "{reply}");
+    assert_eq!(codes(&reply), ["cancelled"], "{reply}");
+    assert_eq!(reply["diagnostics"][0]["details"], json!({}), "{reply}");
+    assert_eq!(whole(&app, &built), before, "{reply}");
 }
 
 #[test]
