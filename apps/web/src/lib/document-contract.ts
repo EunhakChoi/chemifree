@@ -664,12 +664,16 @@ export interface TrashListResponse {
   api_version: typeof API_VERSION
   documents: TrashedSummary[]
   unreadable: { id: string; message: string }[]
+  /** True when the service's cap of 1,000 documents left some unread; absent from a service that predates it. */
+  truncated?: boolean
 }
 
 export interface DocumentListResponse {
   api_version: typeof API_VERSION
   documents: DocumentSummary[]
   unreadable: { id: string; message: string }[]
+  /** True when the service's cap of 1,000 documents left some unread; absent from a service that predates it. */
+  truncated?: boolean
 }
 
 /** `"$N"` names the atom added by command N earlier in the same transaction. */
@@ -1478,7 +1482,8 @@ function isTrashList(value: unknown): value is TrashListResponse {
     Array.isArray(value.documents) &&
     value.documents.every(isTrashed) &&
     Array.isArray(value.unreadable) &&
-    value.unreadable.every((item) => isRecord(item) && typeof item.id === 'string' && typeof item.message === 'string')
+    value.unreadable.every((item) => isRecord(item) && typeof item.id === 'string' && typeof item.message === 'string') &&
+    (value.truncated === undefined || typeof value.truncated === 'boolean')
   )
 }
 
@@ -1494,7 +1499,8 @@ function isList(value: unknown): value is DocumentListResponse {
     Array.isArray(value.documents) &&
     value.documents.every(isSummary) &&
     Array.isArray(value.unreadable) &&
-    value.unreadable.every((item) => isRecord(item) && typeof item.id === 'string' && typeof item.message === 'string')
+    value.unreadable.every((item) => isRecord(item) && typeof item.id === 'string' && typeof item.message === 'string') &&
+    (value.truncated === undefined || typeof value.truncated === 'boolean')
   )
 }
 

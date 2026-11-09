@@ -611,11 +611,11 @@ impl<R: DocumentRepository> Documents<R> {
         }
         let mut unreadable = Vec::new();
         let remaining = MAX_LISTED_DOCUMENTS.saturating_sub(documents.len());
-        for id in stored
-            .into_iter()
-            .filter(|id| !open.contains(id))
-            .take(remaining)
-        {
+        let unopened: Vec<DocumentId> =
+            stored.into_iter().filter(|id| !open.contains(id)).collect();
+        // Counted before the cap, so truncation is known without reading past it.
+        let truncated = unopened.len() > remaining;
+        for id in unopened.into_iter().take(remaining) {
             match self.repository.load(&id) {
                 // Numbered as opening it would number it, so no listed revision is reused.
                 Ok(Some(document)) => match Session::open(document, retired.get(&id).copied()) {
@@ -656,6 +656,7 @@ impl<R: DocumentRepository> Documents<R> {
             api_version: API_VERSION,
             documents,
             unreadable,
+            truncated,
         })
     }
 
@@ -2384,6 +2385,7 @@ impl<R: DocumentRepository> Documents<R> {
         });
         let mut documents = Vec::new();
         let mut unreadable = Vec::new();
+        let truncated = entries.len() > MAX_LISTED_DOCUMENTS;
         for entry in entries.into_iter().take(MAX_LISTED_DOCUMENTS) {
             match self.repository.load_trashed(&entry.id) {
                 Ok(Some(document)) => documents.push(TrashedSummary {
@@ -2410,6 +2412,7 @@ impl<R: DocumentRepository> Documents<R> {
             api_version: API_VERSION,
             documents,
             unreadable,
+            truncated,
         })
     }
 

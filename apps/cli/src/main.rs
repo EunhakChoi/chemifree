@@ -10,10 +10,10 @@ use chemifree_application::{
     BondConfigurationDto, BondEndDto, BondQueryDto, BondView, CaptionAlignmentDto,
     CaptionScriptDto, CaptionStyleDto, CaptionWeightDto, CommandDto, CopyResponse, DeleteResponse,
     DocumentListResponse, DocumentResponse, DraftDiscardResponse, ErrorCode, GraphicShapeDto,
-    HydrogensDto, ListQuery, ListSort, MarkDto, OperationResponse, PreferencesChange,
-    PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto, RegistryEntryStatus,
-    RestoreResponse, SceneObjectView, SelectionDto, SettingsDto, SettingsSource,
-    StereoGroupKindDto, StereoView, TransactionSelections, TrashListResponse,
+    HydrogensDto, ListQuery, ListSort, MAX_LISTED_DOCUMENTS, MarkDto, OperationResponse,
+    PreferencesChange, PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto,
+    RegistryEntryStatus, RestoreResponse, SceneObjectView, SelectionDto, SettingsDto,
+    SettingsSource, StereoGroupKindDto, StereoView, TransactionSelections, TrashListResponse,
 };
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
@@ -716,6 +716,11 @@ fn print_list(response: &DocumentListResponse) {
     for entry in &response.unreadable {
         eprintln!("unreadable {}: {}", entry.id, entry.message);
     }
+    if response.truncated {
+        eprintln!(
+            "incomplete: only the first {MAX_LISTED_DOCUMENTS} stored documents are listed; the rest were not read, so a title search cannot find them"
+        );
+    }
 }
 
 fn print_trash(response: &TrashListResponse) {
@@ -734,6 +739,11 @@ fn print_trash(response: &TrashListResponse) {
     }
     for entry in &response.unreadable {
         eprintln!("unreadable {}: {}", entry.id, entry.message);
+    }
+    if response.truncated {
+        eprintln!(
+            "incomplete: only the first {MAX_LISTED_DOCUMENTS} trashed documents are listed; the rest were not read"
+        );
     }
 }
 

@@ -410,6 +410,15 @@ function DocumentPicker({ editor }: { editor: DocumentEditor }) {
             </AlertDescription>
           </Alert>
         )}
+        {list.kind === 'ready' && list.list.truncated === true && (
+          <Alert data-testid="documents-truncated">
+            <TriangleAlertIcon aria-hidden="true" />
+            <AlertTitle>List is incomplete</AlertTitle>
+            <AlertDescription>
+              Only the first 1,000 stored documents are listed. The rest were not read, so a search cannot find them.
+            </AlertDescription>
+          </Alert>
+        )}
       </section>
       <TrashSection editor={editor} />
     </div>
@@ -571,6 +580,15 @@ function TrashSection({ editor }: { editor: DocumentEditor }) {
           <AlertTitle>Unreadable files in the trash</AlertTitle>
           <AlertDescription>
             {trash.trash.unreadable.map((item) => `${item.id}: ${item.message}`).join(' · ')}
+          </AlertDescription>
+        </Alert>
+      )}
+      {trash.kind === 'ready' && trash.trash.truncated === true && (
+        <Alert data-testid="trash-truncated">
+          <TriangleAlertIcon aria-hidden="true" />
+          <AlertTitle>List is incomplete</AlertTitle>
+          <AlertDescription>
+            Only the first 1,000 trashed documents are listed. The rest were not read.
           </AlertDescription>
         </Alert>
       )}
