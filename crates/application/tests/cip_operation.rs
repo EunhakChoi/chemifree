@@ -1289,6 +1289,13 @@ fn a_request_over_the_node_limit_is_refused_whole_with_the_numbers() {
     assert_eq!(refusal["details"]["items"], 121);
     assert_eq!(refusal["details"]["item_limit"], 20_000);
     assert_eq!(refusal["details"]["parameter"], "atoms");
+    // The exact count is the built-in digraph's cost for this grid, which this test does not
+    // model, so it pins only that the stop counted past the limit it crossed.
+    let (used, limit) = nodes_used_and_limit(refusal);
+    assert!(
+        used > limit,
+        "the stop reports the count at the crossing, which is past the limit: {used} vs {limit}"
+    );
     assert_eq!(reply["diagnostics"].as_array().unwrap().len(), 1);
     assert_eq!(whole(&app, &built), before);
     // Naming fewer atoms is the way out, and each of them is a limit of its own, not a label.
@@ -1345,6 +1352,13 @@ fn the_limits_are_those_of_the_labeler_and_a_reached_item_cap_is_unsupported_nev
     let reply = call(&app, "request", &request(&built, &json!({})));
     assert_eq!(reply["diagnostics"][0]["code"], "resource_limit");
     assert_eq!(reply["diagnostics"][0]["details"]["limit"], 1);
+    // The stop counts the running total at the unit that crossed the limit of 1, which is more
+    // than 1. The exact count is the built-in digraph's, so only the direction is pinned.
+    let (used, limit) = nodes_used_and_limit(&reply["diagnostics"][0]);
+    assert!(
+        used > limit,
+        "the stop counts past the limit of 1: {used} vs {limit}"
+    );
 }
 
 /// The built-in rules, noting what the centers cost and what is left for the double bonds.
@@ -2528,6 +2542,15 @@ fn nodes_of(log: &Arc<Mutex<Vec<Call>>>, stage: &str) -> usize {
         .sum()
 }
 
+/// The nodes a `resource_limit` refusal counted when it stopped, and the limit it stopped at.
+fn nodes_used_and_limit(stop: &Value) -> (u64, u64) {
+    let used = stop["details"]["nodes_used"]
+        .as_u64()
+        .expect("nodes_used is a count");
+    let limit = stop["details"]["limit"].as_u64().expect("limit is a count");
+    (used, limit)
+}
+
 #[test]
 fn the_scan_and_the_labeling_share_one_request_budget_and_nothing_is_labeled_twice() {
     let molecule = with_isopropanol();
@@ -2607,6 +2630,13 @@ fn a_limit_reply_names_the_stage_that_stopped() {
         stop["details"]["items"], 17,
         "9 atoms and 8 bonds are scanned"
     );
+    // The scan stops at the first unit whose charge takes the running total past the limit of 1,
+    // and reports that total. The exact total is the built-in's, so only the direction is pinned.
+    let (used, limit) = nodes_used_and_limit(stop);
+    assert!(
+        used > limit,
+        "the scan stops past its limit: {used} vs {limit}"
+    );
     assert!(
         stop["message"].as_str().unwrap().contains("scope"),
         "{stop}"
@@ -2617,6 +2647,15 @@ fn a_limit_reply_names_the_stage_that_stopped() {
     assert_eq!(stop["path"], "parameters.atoms");
     assert_eq!(stop["details"]["stage"], "centers");
     assert_eq!(stop["details"]["items"], 3);
+    // The limit is one node short of the two centers' total, so the charge crosses it only once
+    // both are counted, and the stop reports both: `centers`, the sum the unconstrained run above
+    // measured for them.
+    assert_eq!(stop["details"]["nodes_used"], centers, "{stop}");
+    let (used, limit) = nodes_used_and_limit(stop);
+    assert!(
+        used > limit,
+        "the centers stop counts past its limit: {used} vs {limit}"
+    );
     // The double bonds stop, on what the centers left, and say so without rewriting the number.
     let (reply, _) = ask(
         centers + bonds - 1,
@@ -2629,6 +2668,15 @@ fn a_limit_reply_names_the_stage_that_stopped() {
     assert_eq!(stop["details"]["limit"], bonds - 1, "what the centers left");
     assert_eq!(stop["details"]["request_limit"], centers + bonds - 1);
     assert_eq!(stop["details"]["items"], 3);
+    // The centers fit, so the one double bond is charged against what they left. It is the only
+    // unit charged, so the stop counts its whole cost: `bonds`, the cost the unconstrained run
+    // above measured for it.
+    assert_eq!(stop["details"]["nodes_used"], bonds, "{stop}");
+    let (used, limit) = nodes_used_and_limit(stop);
+    assert!(
+        used > limit,
+        "the bonds stop counts past its limit: {used} vs {limit}"
+    );
 }
 
 #[test]
@@ -2860,6 +2908,13 @@ fn a_labeler_that_reports_more_work_than_it_was_given_has_hit_the_limit() {
         let stop = &reply["diagnostics"][0];
         assert_eq!(stop["code"], "resource_limit", "{stage}: {reply}");
         assert_eq!(stop["details"]["stage"], reported, "{stage}");
+        // The fake reports 1_001 nodes for the one unit it labels, or 1_001 for the scan's total,
+        // and the request limit is 1_000, so the stop counts exactly that 1_001. In mixed-bonds
+        // the centers take some of the limit first, so the bonds' limit is lower, and 1_001 is
+        // still past it.
+        assert_eq!(stop["details"]["nodes_used"], 1_001, "{stage}: {reply}");
+        let (used, limit) = nodes_used_and_limit(stop);
+        assert!(used > limit, "{stage}: {used} vs {limit}");
     }
 }
 
