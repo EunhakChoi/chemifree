@@ -4,6 +4,7 @@ mod active_data;
 mod active_registry;
 pub mod cip;
 mod clipboard;
+mod compute_gate;
 mod contract;
 mod ct_projection;
 pub mod ctfile;
@@ -147,6 +148,7 @@ pub use repository::{
 };
 pub use turns::TURN_WAIT;
 
+use compute_gate::ComputeGate;
 use documents::{Documents, SettingsMutation};
 use preferences::PreferenceService;
 
@@ -180,6 +182,8 @@ pub struct Application<C, R> {
     preview_generation: Option<[u8; 16]>,
     property_data_readiness: properties::DataReadiness,
     compute_limits: ComputeLimits,
+    /// Bounds how many computations run at once and stops them when the host shuts down.
+    compute_gate: ComputeGate,
 }
 
 /// How long a computation that runs outside the session lock may take. The limit is a safety
@@ -260,6 +264,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             cip_labeler: Arc::new(cip::BuiltinCip),
             property_data_readiness: properties::DataReadiness::default(),
             compute_limits: ComputeLimits::default(),
+            compute_gate: ComputeGate::new(ComputeGate::machine_default()),
         }
     }
 
@@ -271,6 +276,25 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             compute_limits: compute_limits.capped(),
             ..self
         }
+    }
+
+    /// Replaces how many computations may run at once, as an entry adapter or a test
+    /// configures them. A computation that finds every slot taken waits for one within its own
+    /// time limit. Values below 1 are raised to 1 and values above 64 are lowered to 64. By
+    /// default a machine runs as many as it has cores, at most four.
+    #[must_use]
+    pub fn with_compute_concurrency(self, computations: usize) -> Self {
+        Self {
+            compute_gate: ComputeGate::new(computations),
+            ..self
+        }
+    }
+
+    /// Stops every running and waiting computation with `cancelled` and refuses new ones; for a
+    /// host that is shutting down. A running computation stops at its next checkpoint and
+    /// commits nothing. Other operations keep working.
+    pub fn cancel_computations(&self) {
+        self.compute_gate.close();
     }
 
     /// Rebuilds the format wording from the codecs now connected.

@@ -2413,9 +2413,10 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
 
     /// Resolves a request's `time_limit_ms` and starts the clock of the computation it bounds.
     /// A limit above the maximum is refused with the same diagnostic for every operation that
-    /// takes a time limit.
+    /// takes a time limit. The clock starts before any wait for a computation slot, and the
+    /// budget also stops once the host shuts down.
     fn start_time_limit<'a>(
-        &self,
+        &'a self,
         requested: Option<u64>,
         cancel: &'a dyn Interrupt,
     ) -> Result<(Budget<'a>, u64), Diagnostic> {
@@ -2440,7 +2441,8 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             now.checked_add(Duration::from_millis(limit_ms))
                 .unwrap_or(now),
         );
-        Ok((Budget::new(cancel, deadline), limit_ms))
+        let budget = Budget::new(cancel, deadline).also(self.compute_gate.shutdown_flag());
+        Ok((budget, limit_ms))
     }
 
     fn dispatch(
@@ -2589,7 +2591,12 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     };
                     let outcome = self.documents.convert_aromaticity(&p.document_id, request_id, p.expected_revision, p.to,
                         TransactionSelections { before: p.selection_before, after: p.selection_after },
-                        Compute { interrupt: &budget, limit_ms, requested_ms: p.time_limit_ms });
+                        Compute {
+                            interrupt: &budget,
+                            limit_ms,
+                            requested_ms: p.time_limit_ms,
+                            gate: &self.compute_gate,
+                        });
                     let mut reply = known.document(outcome);
                     reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
                     reply

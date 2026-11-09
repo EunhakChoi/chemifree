@@ -23,6 +23,7 @@ use chemifree_domain::stereo_group::{GroupKind, GroupNote, LeaveCause, StereoGro
 use chemifree_domain::{aromaticity, graph::MoleculeGraph};
 
 use crate::API_VERSION;
+use crate::compute_gate::ComputeGate;
 use crate::contract::{
     self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
     DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse,
@@ -1011,7 +1012,8 @@ impl<R: DocumentRepository> Documents<R> {
     /// The conversion is computed on a copy of the graph while no lock is held, so other
     /// requests, including edits to this very document, go on meanwhile. Its result is applied
     /// only if the document is still at `expected_revision`; otherwise nothing is applied and
-    /// the request is refused with `revision_conflict`. `compute` can stop the computation.
+    /// the request is refused with `revision_conflict`. `compute` can stop the computation,
+    /// including while it waits for a free slot.
     pub(crate) fn convert_aromaticity(
         &self,
         id: &str,
@@ -1045,6 +1047,10 @@ impl<R: DocumentRepository> Documents<R> {
             session.expect_revision(expected_revision)?;
             MoleculeGraph::from_document(&session.document)
         };
+        let permit = compute
+            .gate
+            .enter(compute.interrupt)
+            .map_err(|interrupted| interruption(interrupted, compute.limit_ms))?;
         let target = match conversion {
             AromaticityConversion::Aromatic => aromaticity::Target::Aromatic,
             AromaticityConversion::Kekule => aromaticity::Target::Kekule,
@@ -1056,6 +1062,9 @@ impl<R: DocumentRepository> Documents<R> {
                     interruption(interrupted, compute.limit_ms)
                 }
             })?;
+        // The slot is given back before the session lock is taken again, so that waiting for
+        // the lock does not keep another computation out.
+        drop(permit);
         // The lock is taken again, which checks the replay, the hold and the revision again:
         // an edit made while the conversion was computed refuses its result. A stop that came
         // after the last checkpoint is honoured here too, immediately before the edit is
@@ -2893,7 +2902,7 @@ fn aromaticity_refusal(reason: &'static str) -> ApplicationError {
     }
 }
 
-/// What can stop a computation that runs outside the session lock.
+/// What bounds a computation that runs outside the session lock.
 #[derive(Clone, Copy)]
 pub(crate) struct Compute<'a> {
     /// Asked at the computation's checkpoints.
@@ -2902,6 +2911,8 @@ pub(crate) struct Compute<'a> {
     pub limit_ms: u64,
     /// The limit the request asked for, if it asked for one.
     pub requested_ms: Option<u64>,
+    /// The gate the computation takes a slot from before it runs.
+    pub gate: &'a ComputeGate,
 }
 
 /// A computation stopped before it finished: `limit_ms` is the time limit that was in force.
