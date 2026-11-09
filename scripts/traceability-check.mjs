@@ -20,7 +20,10 @@ export const STATUSES = [
   'intentionally_rejected',
 ]
 export const TOTALS_PREFIX = '현재 집계:'
-export const TOTALS_DOCS = ['docs/TRACEABILITY.ko.md', 'docs/HANDOFF.ko.md']
+const HANDOFF_DOC = 'docs/HANDOFF.ko.md'
+export const TOTALS_DOCS = ['docs/TRACEABILITY.ko.md', HANDOFF_DOC]
+const PARTIAL_PHRASE = '이 커밋 기준 partial 요구사항은 '
+const PARTIAL_LIST_END = '이고'
 const ROUTE_STATUSES = ['implemented', 'partial', 'unverified', 'not_implemented']
 const OUTCOMES = ['passed', 'failed', 'not_run']
 const KINDS = ['accept', 'reject']
@@ -734,7 +737,42 @@ function checkTotals(inputs, fail) {
     if (lines.length !== 1 || lines[0] !== expected) {
       fail(`${doc}: needs exactly one line starting ${TOTALS_PREFIX} (found ${lines.length}); paste:\n${expected}`)
     }
+    if (doc === HANDOFF_DOC) checkPartialList(input.text, inputs, fail)
   }
+}
+
+/**
+ * The handoff's partial list must equal the partial requirements in registry order. The list is
+ * the ids between PARTIAL_PHRASE and PARTIAL_LIST_END on the one line that holds the phrase.
+ */
+function checkPartialList(text, inputs, fail) {
+  const expected = arrayOr(inputs.requirements.value?.requirements)
+    .filter((requirement) => requirement?.status === 'partial')
+    .map((requirement) => requirement?.id)
+  const list = expected.join(', ')
+  const lines = text.split(/\r?\n/).filter((line) => line.includes(PARTIAL_PHRASE))
+  if (lines.length !== 1) {
+    fail(
+      `${HANDOFF_DOC}: needs exactly one line containing ${JSON.stringify(PARTIAL_PHRASE)} ` +
+        `(found ${lines.length}); expected list: ${list}`,
+    )
+    return
+  }
+  const [line] = lines
+  const from = line.indexOf(PARTIAL_PHRASE) + PARTIAL_PHRASE.length
+  const to = line.indexOf(PARTIAL_LIST_END, from)
+  if (to === -1) {
+    fail(`${HANDOFF_DOC}: the partial list must end with ${JSON.stringify(PARTIAL_LIST_END)}; expected list: ${list}`)
+    return
+  }
+  const listed = line.slice(from, to).match(/[A-Z]+-[0-9]{2}/g) ?? []
+  if (sameJson(listed, expected)) return
+  const missing = expected.filter((id) => !listed.includes(id))
+  const extra = listed.filter((id) => !expected.includes(id))
+  fail(
+    `${HANDOFF_DOC}: the partial list must equal the partial requirements in registry order ` +
+      `(missing: ${missing.join(', ') || 'none'}; extra: ${extra.join(', ') || 'none'}); expected list: ${list}`,
+  )
 }
 
 function checkSpec(inputs, fail) {

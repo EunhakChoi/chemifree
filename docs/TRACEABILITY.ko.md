@@ -173,6 +173,7 @@ P31은 웹 캔버스의 로컬 중심·배율, pointer 고정 zoom·pan·fit·10
 - 기록: 결과가 묶음의 사례 순서대로이고 id·title·requirements·axis·kind·pending이 사례 파일과 같으며 현재 사례 파일의 SHA-256을 가짐, pending일 때만 `not_run`, `failed` 없음, 개수 = 재계산. `target/conformance/report.json`이 있어야 하고(없으면 `npm run test:conformance` 안내) 기록과 바이트 단위로 같아야 한다.
 - `npm run check`가 `test:conformance`, `test:traceability`, `test:checks`를 직접 실행하고, 앞의 것을 뒤의 둘보다 먼저 실행.
 - `현재 집계:` 줄이 이 문서와 HANDOFF.ko.md에 정확히 한 번씩 있고 계산값과 같음. 다르면 붙여 넣을 줄을 출력한다.
+- HANDOFF.ko.md의 `이 커밋 기준 partial 요구사항은 …이고` 문장이 정확히 한 번 있고, 거기 적힌 ID가 requirements.json에서 상태가 `partial`인 요구사항의 ID와 등록 순서까지 같음. 다르면 빠진 ID, 더 적힌 ID와 기대하는 목록을 출력한다.
 - `CHEMIFREE_SPEC_DIR`(그 아래에 `spec/`이 있는 디렉터리)가 있으면 추가로: 출처 파일의 SHA-256, 요구사항 ID 33개의 집합, 적힌 연산 이름이 operations.json에 있는지, 전체·출처별·경로별(출처별 포함) 선언 수.
 
 ## 검사가 확인하지 않는 것
