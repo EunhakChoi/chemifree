@@ -30,6 +30,7 @@ const { stillApplicable } = await import('../apps/web/src/editor/commands.ts')
 const { groupableSceneObjects, mergeGroupSelection, selectionAfterGroup, selectionSnapshot } = await import('../apps/web/src/editor/scene-selection.ts')
 const { sceneGeometry, sceneGeometryCommands } = await import('../apps/web/src/editor/scene-geometry.ts')
 const { marqueeSelection, sceneOnlySelection, selectionGeometry, selectionMove, selectionTransform } = await import('../apps/web/src/editor/selection-geometry.ts')
+const { captionRunStyle, captionTextAnchor } = await import('../apps/web/src/editor/caption-style.ts')
 const {
   CT_FALLBACK_REASONS, CT_REFUSAL_SENTENCES, CTAB_OPTIONS, LOSS_SENTENCES, afterDownloadFailure, afterExportFailure, ctRefusalSentence, ctabParameters,
   lossHeading, parseCtabChoice, writtenDialectMatches,
@@ -6747,4 +6748,54 @@ test('clipboard SMILES import enforces preview fields and the exact multibyte UT
   client.createClipboardSmilesImport({ ...input, source: boundary })
   assert.throws(() => client.createClipboardSmilesImport({ ...input, source: boundary + 'C' }), { code: 'invalid_request' })
   assert.equal(writes, 0)
+})
+
+test('a caption run without its own size or font takes the label size and font', () => {
+  assert.deepEqual(captionRunStyle({ text: 'H', script: 'baseline', weight: 'normal', style: 'normal' }, { label_font: 'serif', label_size_pt: 9 }),
+    { family: 'serif', size: 9, shift: 0, weight: 'normal', style: 'normal', color: null, outline: null })
+})
+
+test('a caption run with its own size and font keeps them, with its weight and style', () => {
+  assert.deepEqual(captionRunStyle({ text: 'x', size_pt: 20, font: 'monospace', script: 'baseline', weight: 'bold', style: 'italic' }, { label_font: 'sans-serif', label_size_pt: 12 }),
+    { family: 'monospace', size: 20, shift: 0, weight: 'bold', style: 'italic', color: null, outline: null })
+})
+
+test('a caption run subscript is two thirds of the run size and sinks by a third of the run size', () => {
+  assert.deepEqual(captionRunStyle({ text: '2', size_pt: 12, script: 'subscript', weight: 'normal', style: 'normal' }, { label_font: 'sans-serif', label_size_pt: 12 }),
+    { family: 'sans-serif', size: 8, shift: 4, weight: 'normal', style: 'normal', color: null, outline: null })
+})
+
+test('a caption run superscript is two thirds of the run size and rises by five twelfths of it', () => {
+  assert.deepEqual(captionRunStyle({ text: 'n', size_pt: 24, script: 'superscript', weight: 'normal', style: 'italic' }, { label_font: 'sans-serif', label_size_pt: 12 }),
+    { family: 'sans-serif', size: 16, shift: -10, weight: 'normal', style: 'italic', color: null, outline: null })
+})
+
+test('a caption run script without its own size is scaled from the label size', () => {
+  assert.deepEqual(captionRunStyle({ text: 'x', size_pt: null, script: 'superscript', weight: 'normal', style: 'normal' }, { label_font: 'sans-serif', label_size_pt: 9 }),
+    { family: 'sans-serif', size: 6, shift: -3.75, weight: 'normal', style: 'normal', color: null, outline: null })
+})
+
+test('a caption run outline is one sixteenth of its glyph size', () => {
+  assert.deepEqual(captionRunStyle({ text: 'O', outline: true, script: 'baseline', weight: 'normal', style: 'normal' }, { label_font: 'sans-serif', label_size_pt: 12 }),
+    { family: 'sans-serif', size: 12, shift: 0, weight: 'normal', style: 'normal', color: null, outline: 0.75 })
+})
+
+test('a caption run outline on a subscript uses the scaled glyph size, not the run size', () => {
+  assert.deepEqual(captionRunStyle({ text: 'O', size_pt: 12, outline: true, script: 'subscript', weight: 'normal', style: 'normal' }, { label_font: 'sans-serif', label_size_pt: 12 }),
+    { family: 'sans-serif', size: 8, shift: 4, weight: 'normal', style: 'normal', color: null, outline: 0.5 })
+})
+
+test('a caption run without a stored colour keeps a null colour for the theme foreground', () => {
+  const settings = { label_font: 'sans-serif', label_size_pt: 12 }
+  assert.equal(captionRunStyle({ text: 'x', color: null, script: 'baseline', weight: 'normal', style: 'normal' }, settings).color, null)
+  assert.equal(captionRunStyle({ text: 'x', script: 'baseline', weight: 'normal', style: 'normal' }, settings).color, null)
+})
+
+test('a caption run keeps a stored colour exactly as written', () => {
+  assert.equal(captionRunStyle({ text: 'x', color: '#1A2B3C', script: 'baseline', weight: 'normal', style: 'normal' }, { label_font: 'sans-serif', label_size_pt: 12 }).color, '#1A2B3C')
+})
+
+test('captionTextAnchor maps left, center and right to start, middle and end', () => {
+  assert.deepEqual({ left: captionTextAnchor('left'), center: captionTextAnchor('center'), right: captionTextAnchor('right') },
+    { left: 'start', center: 'middle', right: 'end' })
 })

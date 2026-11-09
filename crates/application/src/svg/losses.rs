@@ -3,19 +3,22 @@
 //! feature, in the fixed order below, and each one is `dropped`. A feature found at several IDs
 //! lists them in ascending ID order.
 //!
-//! The table has 16 features. Scene graphics and images are drawn, so they are not reported. A
-//! caption is not drawn and needs consent. A scene group has no ink of its own, and scene
+//! The table has 17 features. Scene graphics and images are drawn, so they are not reported. A
+//! caption outside the drawn character set is not drawn and needs consent, and the underline of a
+//! drawn caption is not drawn and needs consent. A scene group has no ink of its own, and scene
 //! references are not drawn or kept; neither needs consent.
 //!
 //! The rules must agree with `render_drawing`, so this module calls the renderer's own rules and
 //! does not copy them: the mark rule (`mark_is_drawn` in `geometry.rs`), the bond counts
 //! (`degrees` in `geometry.rs`), the zero-length test (`is_zero_length` in `geometry.rs`) on each
 //! placement's points (`placements` and `placement_positions` in `svg.rs`), whether an atom is
-//! labelled (`shows_label` in `label.rs`) and the number of query elements a label names
-//! (`SHOWN_QUERY_ELEMENTS` in `label.rs`).
+//! labelled (`shows_label` in `label.rs`), the number of query elements a label names
+//! (`SHOWN_QUERY_ELEMENTS` in `label.rs`), and whether a caption is drawn (`caption_drawable` in
+//! `caption.rs`).
 
 use std::collections::BTreeMap;
 
+use super::caption;
 use super::geometry;
 use super::label::{self, SHOWN_QUERY_ELEMENTS};
 use super::{placement_positions, placements};
@@ -45,6 +48,7 @@ pub(crate) fn svg_losses(view: &DocumentView) -> Vec<Loss> {
         stereo_groups(view),
         abbreviation_displays(view),
         captions(view),
+        caption_underline(view),
     ]
     .into_iter()
     .flatten()
@@ -363,9 +367,11 @@ fn abbreviation_displays(view: &DocumentView) -> Option<Loss> {
     })
 }
 
+/// The captions with a character outside the drawn set. `caption::caption_drawable` refuses such a
+/// caption whole, so none of its text is drawn. A caption inside the set is drawn and not listed.
 fn captions(view: &DocumentView) -> Option<Loss> {
     object_list(view, |object| {
-        matches!(object, SceneObjectView::Caption { .. })
+        matches!(object, SceneObjectView::Caption { runs, .. } if !caption::caption_drawable(runs))
     })
     .map(|list| {
         loss(
@@ -373,7 +379,29 @@ fn captions(view: &DocumentView) -> Option<Loss> {
             format!("document.scene.objects{list}"),
             SemanticImpact::Rendering,
             LossConsent::Required,
-            "Captions are not drawn.",
+            "Captions with characters outside the drawn set are not drawn.",
+        )
+    })
+}
+
+/// The drawn captions with an underlined run. The underline is not drawn, but the rest of the
+/// caption is, so only the underline is reported. A caption that `captions` lists is not drawn at
+/// all, so its underline is not listed here.
+fn caption_underline(view: &DocumentView) -> Option<Loss> {
+    object_list(view, |object| {
+        matches!(
+            object,
+            SceneObjectView::Caption { runs, .. }
+                if caption::caption_drawable(runs) && runs.iter().any(|run| run.underline)
+        )
+    })
+    .map(|list| {
+        loss(
+            "caption_underline",
+            format!("document.scene.objects{list}"),
+            SemanticImpact::Rendering,
+            LossConsent::Required,
+            "Caption underlines are not drawn.",
         )
     })
 }

@@ -1,5 +1,6 @@
-//! The SVG drawing (P38a1, with the graphics and images of P38b1): byte-exact goldens, structure
-//! checks, determinism, save and reopen identity, and the parity fixture that the web check reads.
+//! The SVG drawing (P38a1, with the graphics and images of P38b1 and the captions of P38b2):
+//! byte-exact goldens, structure checks, determinism, save and reopen identity, and the parity
+//! fixture that the web check reads.
 //! A run with `CHEMIFREE_BLESS_SVG=1` writes the goldens and the fixture and then fails, so a
 //! passing run never changes a file.
 
@@ -7,7 +8,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use chemifree_application::svg::{
-    ADVANCE_TABLE_ID, DrawingLayout, LabelBox, SvgDrawing, ViewBox, layout_drawing, render_drawing,
+    ADVANCE_TABLE_ID, DrawingLayout, LabelBox, ObjectLayout, SvgDrawing, ViewBox, layout_drawing,
+    render_drawing,
 };
 use chemifree_application::transport_base64;
 use chemifree_application::{Application, DocumentView, SceneObjectView};
@@ -65,9 +67,12 @@ const ATTRIBUTES: &[&str] = &[
     "dy",
     "font-size",
     "font-weight",
+    "font-style",
     "preserveAspectRatio",
     "href",
     "space",
+    "opacity",
+    "visibility",
 ];
 /// The attributes whose values are numbers (or lists of numbers), which carry at most two decimals.
 const NUMERIC: &[&str] = &[
@@ -90,6 +95,7 @@ const NUMERIC: &[&str] = &[
     "stroke-dasharray",
     "dy",
     "font-size",
+    "opacity",
 ];
 /// The generic families a label font may name.
 const FAMILIES: &[&str] = &["sans-serif", "serif", "monospace"];
@@ -306,6 +312,43 @@ fn graphics_only_commands() -> Value {
     ])
 }
 
+/// Five captions in a caption-only document: a left caption with a subscript; a centre caption with
+/// an italic serif run, a superscript and a bold run whose spaces are kept; a right caption in a
+/// monospace face with a subscript; a left caption with a size override, an outline, a stored
+/// colour and a shadow on one run, so that the shadow copy hides the other runs; a centre caption
+/// of Greek letters and the equilibrium arrow.
+fn caption_commands() -> Value {
+    json!([
+        {"op":"add_caption","anchor":{"x":0,"y":20},"alignment":"left","runs":[
+            {"text":"H","script":"baseline"},
+            {"text":"2","script":"subscript"},
+            {"text":"O","script":"baseline"}
+        ]},
+        {"op":"add_caption","anchor":{"x":60,"y":50},"alignment":"center","runs":[
+            {"text":"x","script":"baseline","style":"italic","font":"serif"},
+            {"text":"2","script":"superscript"},
+            {"text":" + ","script":"baseline","weight":"bold"},
+            {"text":"1","script":"baseline"}
+        ]},
+        {"op":"add_caption","anchor":{"x":120,"y":80},"alignment":"right","runs":[
+            {"text":"CH","script":"baseline","font":"monospace"},
+            {"text":"3","script":"subscript","font":"monospace"},
+            {"text":"OH","script":"baseline"}
+        ]},
+        {"op":"add_caption","anchor":{"x":0,"y":120},"alignment":"left","runs":[
+            {"text":"Ω","script":"superscript","size_pt":18},
+            {"text":"α","script":"baseline","size_pt":18,"outline":true},
+            {"text":"β","script":"baseline","color":"#1A2B3C","shadow":true},
+            {"text":"γ","script":"baseline"}
+        ]},
+        {"op":"add_caption","anchor":{"x":60,"y":160},"alignment":"center","runs":[
+            {"text":"Δ","script":"baseline"},
+            {"text":" ⇌ ","script":"baseline"},
+            {"text":"α","script":"superscript"}
+        ]}
+    ])
+}
+
 /// A carbon, a line and a rectangle. With `width`, the line also gets that explicit width (`s2`).
 fn two_graphic_commands(width: Option<f64>) -> Value {
     let mut commands = vec![
@@ -336,6 +379,7 @@ fn golden_documents() -> Vec<(&'static str, DocumentView)> {
         ("scene-graphics", build(scene_graphics_commands())),
         ("scene-image", build(scene_image_commands())),
         ("graphics-only", build(graphics_only_commands())),
+        ("captions", build(caption_commands())),
     ]
 }
 
@@ -445,8 +489,9 @@ fn assert_two_decimals(name: &str, element: &str, attribute: &str, value: &str) 
 }
 
 /// Checks one drawing's markup against the structure it documents: well-formed XML, the root and
-/// its size, the allowed elements and attributes, two decimals at most, black or transparent paint,
-/// every drawn point inside the view box, and one text element per labelled atom in each instance.
+/// its size, the allowed elements and attributes, two decimals at most, black or transparent paint
+/// (a caption run's stored colour aside), every drawn point inside the view box, and one text
+/// element per labelled atom and per caption text (a caption's shadow copy adds one).
 fn check_structure(name: &str, drawing: &SvgDrawing, layout: &DrawingLayout) {
     let content = drawing.content.as_str();
     assert!(
@@ -514,7 +559,7 @@ fn check_structure(name: &str, drawing: &SvgDrawing, layout: &DrawingLayout) {
             );
             match attribute_name {
                 "fill" | "stroke" => assert!(
-                    value == "#000000" || value == "none",
+                    value == "#000000" || value == "none" || caption_run_colour(node, value),
                     "{name}: <{element} {attribute_name}={value}> is not black or transparent"
                 ),
                 "font-family" => assert!(
@@ -587,9 +632,20 @@ fn check_structure(name: &str, drawing: &SvgDrawing, layout: &DrawingLayout) {
         .iter()
         .map(|instance| instance.labels.len())
         .sum();
+    // A caption writes one text element, and its shadow copy a second one (`svg/caption.rs`).
+    let captions: usize = layout
+        .objects
+        .iter()
+        .map(|object| match object {
+            ObjectLayout::Caption(caption) if caption.shadow => 2,
+            ObjectLayout::Caption(_) => 1,
+            _ => 0,
+        })
+        .sum();
     assert_eq!(
-        texts, labelled,
-        "{name}: one text element per labelled atom in each instance"
+        texts,
+        labelled + captions,
+        "{name}: one text element per labelled atom and per caption text"
     );
     for instance in &layout.instances {
         for (id, label) in &instance.labels {
@@ -794,28 +850,78 @@ fn mark_points(mark: roxmltree::Node) -> Vec<(f64, f64)> {
     }
 }
 
-/// What each top-level object of a drawing is, in document order: `instance` for an instance's
-/// group, `graphic` for a graphic's group (the only top-level group with a stroke width), and
-/// `image` for an image.
+/// What the top-level element `object` of a drawing is: `instance` for an instance's group,
+/// `graphic` for a graphic's group (the only top-level group with a stroke width), `caption` for
+/// a caption's group (a top-level group that holds a text element directly), and `image` for an
+/// image.
+fn object_kind(object: roxmltree::Node) -> &'static str {
+    match object.tag_name().name() {
+        "image" => "image",
+        "g" if object.attribute("stroke-width").is_some() => "graphic",
+        "g" if holds_text(object) => "caption",
+        "g" => "instance",
+        other => panic!("<{other}> is not a top-level object of a drawing"),
+    }
+}
+
+/// Whether `node` has a text element among its children. An instance's group holds only groups, and
+/// a caption's group holds its text, so this tells a caption from an instance.
+fn holds_text(node: roxmltree::Node) -> bool {
+    node.children()
+        .any(|child| child.is_element() && child.tag_name().name() == "text")
+}
+
+/// The top-level element of a drawing that `node` belongs to: the object that `node` draws.
+fn object_of<'a, 'input>(node: roxmltree::Node<'a, 'input>) -> roxmltree::Node<'a, 'input> {
+    node.ancestors()
+        .find(|ancestor| {
+            ancestor
+                .parent_element()
+                .is_some_and(|parent| parent.parent_element().is_none())
+        })
+        .expect("an element of a drawing lies inside one of its objects")
+}
+
+/// Whether `value` is a stored caption colour: `#` and six uppercase hexadecimal digits, which
+/// is the canonical form the domain stores (`crates/domain/src/scene.rs`).
+fn is_hex_colour(value: &str) -> bool {
+    value.strip_prefix('#').is_some_and(|digits| {
+        digits.len() == 6
+            && digits
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'A'..=b'F').contains(&byte))
+    })
+}
+
+/// Whether the paint `value` of `node` is a caption run's stored colour: a `tspan` of a caption's
+/// text with a canonical `#RRGGBB`. Every other fill or stroke is black or transparent.
+fn caption_run_colour(node: roxmltree::Node, value: &str) -> bool {
+    node.tag_name().name() == "tspan"
+        && object_kind(object_of(node)) == "caption"
+        && is_hex_colour(value)
+}
+
+/// What each top-level object of a drawing is, in document order (see `object_kind`).
 fn painted_kinds(document: &roxmltree::Document) -> Vec<&'static str> {
     document
         .root_element()
         .children()
         .filter(|node| node.is_element())
-        .map(|node| match node.tag_name().name() {
-            "image" => "image",
-            "g" if node.attribute("stroke-width").is_some() => "graphic",
-            "g" => "instance",
-            other => panic!("<{other}> is not a top-level object of a drawing"),
-        })
+        .map(object_kind)
         .collect()
 }
 
 /// Checks that the ink of every top-level graphic and image of `document` lies inside `view_box`,
-/// and returns how many points it checked. A graphic's ink reaches half its stroke width past each
-/// of its points (round caps and joins), so each point is checked with that reach on both sides.
-/// An image has no stroke, so its corners are checked as they are.
-fn check_ink(name: &str, document: &roxmltree::Document, view_box: ViewBox) -> usize {
+/// that each caption's reserved box in `layout` does too, and returns how many points it checked. A
+/// graphic's ink reaches half its stroke width past each of its points (round caps and joins), so
+/// each point is checked with that reach on both sides. An image has no stroke, so its corners are
+/// checked as they are. A caption's box is not written, so its corners come from the layout.
+fn check_ink(
+    name: &str,
+    document: &roxmltree::Document,
+    view_box: ViewBox,
+    layout: &DrawingLayout,
+) -> usize {
     let mut checked = 0;
     for node in document
         .root_element()
@@ -857,6 +963,21 @@ fn check_ink(name: &str, document: &roxmltree::Document, view_box: ViewBox) -> u
             _ => {}
         }
     }
+    for object in &layout.objects {
+        if let ObjectLayout::Caption(caption) = object {
+            let bounds = &caption.bounds;
+            for (px, py) in [
+                (bounds.x, bounds.y),
+                (bounds.x + bounds.width, bounds.y + bounds.height),
+            ] {
+                assert!(
+                    inside(view_box, px, py),
+                    "{name}: a caption's reserved box corner ({px}, {py}) lies outside the view box"
+                );
+                checked += 1;
+            }
+        }
+    }
     checked
 }
 
@@ -876,6 +997,13 @@ fn graphics_and_images_paint_in_scene_order_between_instances() {
             build(scene_image_commands()),
             vec!["instance", "image", "instance"],
         ),
+        (
+            "captions",
+            build(caption_commands()),
+            vec![
+                "instance", "caption", "caption", "caption", "caption", "caption",
+            ],
+        ),
     ];
     for (name, view, expected) in cases {
         // The premise: the scene lists its objects in the order this test expects.
@@ -887,7 +1015,8 @@ fn graphics_and_images_paint_in_scene_order_between_instances() {
                 SceneObjectView::Instance { .. } => Some("instance"),
                 SceneObjectView::Graphic { .. } => Some("graphic"),
                 SceneObjectView::Image { .. } => Some("image"),
-                SceneObjectView::Caption { .. } | SceneObjectView::Group { .. } => None,
+                SceneObjectView::Caption { .. } => Some("caption"),
+                SceneObjectView::Group { .. } => None,
             })
             .collect();
         assert_eq!(
@@ -992,19 +1121,20 @@ fn a_graphic_width_override_changes_only_that_graphic_group() {
 
 #[test]
 fn graphic_and_image_ink_lies_inside_the_view_box() {
-    // Each case with the number of points its ink is checked at: every stroke point of every graphic
-    // mark (a head's corners included) and each image corner.
+    // Each case with the number of points its ink is checked at: every stroke point of each graphic
+    // mark (a head's corners included), each image corner, and each corner of a caption's box.
     let cases = [
         ("scene-graphics", build(scene_graphics_commands()), 20),
         ("scene-image", build(scene_image_commands()), 2),
         ("graphics-only", build(graphics_only_commands()), 11),
+        ("captions", build(caption_commands()), 10),
     ];
     for (name, view, expected) in cases {
         let drawing = render_drawing(&view);
         let document = roxmltree::Document::parse(&drawing.content)
             .unwrap_or_else(|error| panic!("{name} is not well-formed XML: {error}"));
         assert_eq!(
-            check_ink(name, &document, drawing.view_box),
+            check_ink(name, &document, drawing.view_box, &layout_drawing(&view)),
             expected,
             "{name}: the number of ink points checked"
         );

@@ -4294,6 +4294,641 @@
         "table": "chemifree-label-advance-1"
       },
       "name": "graphics-only"
+    },
+    {
+      "document": {
+        "abbreviations": [],
+        "atoms": [],
+        "bonds": [],
+        "fragment_displays": [],
+        "id": "parity-fixture",
+        "molecule": {
+          "id": "m1"
+        },
+        "revision": 1,
+        "scene": {
+          "instances": [
+            {
+              "id": "s1",
+              "molecule": "m1",
+              "page": "p1",
+              "positions": []
+            }
+          ],
+          "objects": [
+            {
+              "id": "s1",
+              "kind": "instance",
+              "molecule": "m1",
+              "parent": null
+            },
+            {
+              "alignment": "left",
+              "anchor": {
+                "x": 0.0,
+                "y": 20.0
+              },
+              "id": "s2",
+              "kind": "caption",
+              "parent": null,
+              "runs": [
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "H",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "subscript",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "2",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "O",
+                  "underline": false,
+                  "weight": "normal"
+                }
+              ]
+            },
+            {
+              "alignment": "center",
+              "anchor": {
+                "x": 60.0,
+                "y": 50.0
+              },
+              "id": "s3",
+              "kind": "caption",
+              "parent": null,
+              "runs": [
+                {
+                  "color": null,
+                  "font": "serif",
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "italic",
+                  "text": "x",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "superscript",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "2",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": " + ",
+                  "underline": false,
+                  "weight": "bold"
+                },
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "1",
+                  "underline": false,
+                  "weight": "normal"
+                }
+              ]
+            },
+            {
+              "alignment": "right",
+              "anchor": {
+                "x": 120.0,
+                "y": 80.0
+              },
+              "id": "s4",
+              "kind": "caption",
+              "parent": null,
+              "runs": [
+                {
+                  "color": null,
+                  "font": "monospace",
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "CH",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": null,
+                  "font": "monospace",
+                  "outline": false,
+                  "script": "subscript",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "3",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "OH",
+                  "underline": false,
+                  "weight": "normal"
+                }
+              ]
+            },
+            {
+              "alignment": "left",
+              "anchor": {
+                "x": 0.0,
+                "y": 120.0
+              },
+              "id": "s5",
+              "kind": "caption",
+              "parent": null,
+              "runs": [
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "superscript",
+                  "shadow": false,
+                  "size_pt": 18.0,
+                  "style": "normal",
+                  "text": "Ω",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": true,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": 18.0,
+                  "style": "normal",
+                  "text": "α",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": "#1A2B3C",
+                  "font": null,
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": true,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "β",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "γ",
+                  "underline": false,
+                  "weight": "normal"
+                }
+              ]
+            },
+            {
+              "alignment": "center",
+              "anchor": {
+                "x": 60.0,
+                "y": 160.0
+              },
+              "id": "s6",
+              "kind": "caption",
+              "parent": null,
+              "runs": [
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "Δ",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "baseline",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": " ⇌ ",
+                  "underline": false,
+                  "weight": "normal"
+                },
+                {
+                  "color": null,
+                  "font": null,
+                  "outline": false,
+                  "script": "superscript",
+                  "shadow": false,
+                  "size_pt": null,
+                  "style": "normal",
+                  "text": "α",
+                  "underline": false,
+                  "weight": "normal"
+                }
+              ]
+            }
+          ],
+          "pages": [
+            {
+              "id": "p1"
+            }
+          ],
+          "references": [],
+          "roots": [
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+            "s5",
+            "s6"
+          ]
+        },
+        "selection": {
+          "atoms": [],
+          "bonds": [],
+          "objects": []
+        },
+        "settings": {
+          "bond_length_pt": 30.0,
+          "carbon_labels": "default",
+          "display_unit": "pt",
+          "label_font": "sans-serif",
+          "label_outline": false,
+          "label_shadow": false,
+          "label_size_pt": 12.0,
+          "label_style": "normal",
+          "label_underline": false,
+          "label_weight": "normal",
+          "line_width_pt": 1.2
+        },
+        "stereo": {
+          "atoms": [],
+          "bonds": [],
+          "groups": []
+        },
+        "title": "Untitled"
+      },
+      "layout": {
+        "instances": [
+          {
+            "atoms": {},
+            "bonds": {},
+            "instance": "s1",
+            "labels": {}
+          }
+        ],
+        "objects": [
+          {
+            "id": "s1",
+            "kind": "instance"
+          },
+          {
+            "anchor": "start",
+            "bounds": {
+              "height": 23.2,
+              "width": 28.64,
+              "x": -2.48,
+              "y": 6.0
+            },
+            "id": "s2",
+            "kind": "caption",
+            "runs": [
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "normal",
+                "text": "H",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": 4.0,
+                "size": 8.0,
+                "style": "normal",
+                "text": "2",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "normal",
+                "text": "O",
+                "underline": false,
+                "weight": "normal"
+              }
+            ],
+            "shadow": false,
+            "x": 0.0,
+            "y": 20.0
+          },
+          {
+            "anchor": "middle",
+            "bounds": {
+              "height": 21.799999999999997,
+              "width": 58.40000000000002,
+              "x": 30.379999999999995,
+              "y": 35.0
+            },
+            "id": "s3",
+            "kind": "caption",
+            "runs": [
+              {
+                "color": "#000000",
+                "family": "serif",
+                "outline": null,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "italic",
+                "text": "x",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": -5.0,
+                "size": 8.0,
+                "style": "normal",
+                "text": "2",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "normal",
+                "text": " + ",
+                "underline": false,
+                "weight": "bold"
+              },
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "normal",
+                "text": "1",
+                "underline": false,
+                "weight": "normal"
+              }
+            ],
+            "shadow": false,
+            "x": 60.0,
+            "y": 50.0
+          },
+          {
+            "anchor": "end",
+            "bounds": {
+              "height": 23.200000000000003,
+              "width": 43.28,
+              "x": 79.2,
+              "y": 66.0
+            },
+            "id": "s4",
+            "kind": "caption",
+            "runs": [
+              {
+                "color": "#000000",
+                "family": "monospace",
+                "outline": null,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "normal",
+                "text": "CH",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#000000",
+                "family": "monospace",
+                "outline": null,
+                "shadow": false,
+                "shift": 4.0,
+                "size": 8.0,
+                "style": "normal",
+                "text": "3",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "normal",
+                "text": "OH",
+                "underline": false,
+                "weight": "normal"
+              }
+            ],
+            "shadow": false,
+            "x": 120.0,
+            "y": 80.0
+          },
+          {
+            "anchor": "start",
+            "bounds": {
+              "height": 32.82499999999999,
+              "width": 66.485,
+              "x": -3.0425,
+              "y": 97.9375
+            },
+            "id": "s5",
+            "kind": "caption",
+            "runs": [
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": -7.5,
+                "size": 12.0,
+                "style": "normal",
+                "text": "Ω",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": 1.125,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 18.0,
+                "style": "normal",
+                "text": "α",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#1A2B3C",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": true,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "normal",
+                "text": "β",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "normal",
+                "text": "γ",
+                "underline": false,
+                "weight": "normal"
+              }
+            ],
+            "shadow": true,
+            "x": 0.0,
+            "y": 120.0
+          },
+          {
+            "anchor": "middle",
+            "bounds": {
+              "height": 21.80000000000001,
+              "width": 66.4,
+              "x": 26.719999999999995,
+              "y": 145.0
+            },
+            "id": "s6",
+            "kind": "caption",
+            "runs": [
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "normal",
+                "text": "Δ",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": 0.0,
+                "size": 12.0,
+                "style": "normal",
+                "text": " ⇌ ",
+                "underline": false,
+                "weight": "normal"
+              },
+              {
+                "color": "#000000",
+                "family": "sans-serif",
+                "outline": null,
+                "shadow": false,
+                "shift": -5.0,
+                "size": 8.0,
+                "style": "normal",
+                "text": "α",
+                "underline": false,
+                "weight": "normal"
+              }
+            ],
+            "shadow": false,
+            "x": 60.0,
+            "y": 160.0
+          }
+        ],
+        "table": "chemifree-label-advance-1"
+      },
+      "name": "captions"
     }
   ],
   "table": "chemifree-label-advance-1"

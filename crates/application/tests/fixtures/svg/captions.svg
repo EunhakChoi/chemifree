@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="125.53pt" height="160.8pt" viewBox="-3.05 6 125.53 160.8">
+<g>
+</g>
+<g>
+<text x="0" y="20" text-anchor="start" xml:space="preserve"><tspan font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000">H</tspan><tspan dy="4" font-family="sans-serif" font-size="8" font-weight="normal" font-style="normal" fill="#000000">2</tspan><tspan dy="-4" font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000">O</tspan></text>
+</g>
+<g>
+<text x="60" y="50" text-anchor="middle" xml:space="preserve"><tspan font-family="serif" font-size="12" font-weight="normal" font-style="italic" fill="#000000">x</tspan><tspan dy="-5" font-family="sans-serif" font-size="8" font-weight="normal" font-style="normal" fill="#000000">2</tspan><tspan dy="5" font-family="sans-serif" font-size="12" font-weight="bold" font-style="normal" fill="#000000"> + </tspan><tspan font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000">1</tspan></text>
+</g>
+<g>
+<text x="120" y="80" text-anchor="end" xml:space="preserve"><tspan font-family="monospace" font-size="12" font-weight="normal" font-style="normal" fill="#000000">CH</tspan><tspan dy="4" font-family="monospace" font-size="8" font-weight="normal" font-style="normal" fill="#000000">3</tspan><tspan dy="-4" font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000">OH</tspan></text>
+</g>
+<g>
+<g opacity="0.35">
+<text x="1" y="121" text-anchor="start" xml:space="preserve"><tspan dy="-7.5" font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000" visibility="hidden">Ω</tspan><tspan dy="7.5" font-family="sans-serif" font-size="18" font-weight="normal" font-style="normal" fill="none" stroke="#000000" stroke-width="1.13" stroke-linejoin="round" visibility="hidden">α</tspan><tspan font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#1A2B3C">β</tspan><tspan font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000" visibility="hidden">γ</tspan></text>
+</g>
+<text x="0" y="120" text-anchor="start" xml:space="preserve"><tspan dy="-7.5" font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000">Ω</tspan><tspan dy="7.5" font-family="sans-serif" font-size="18" font-weight="normal" font-style="normal" fill="none" stroke="#000000" stroke-width="1.13" stroke-linejoin="round">α</tspan><tspan font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#1A2B3C">β</tspan><tspan font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000">γ</tspan></text>
+</g>
+<g>
+<text x="60" y="160" text-anchor="middle" xml:space="preserve"><tspan font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000">Δ</tspan><tspan font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000"> ⇌ </tspan><tspan dy="-5" font-family="sans-serif" font-size="8" font-weight="normal" font-style="normal" fill="#000000">α</tspan></text>
+</g>
+</svg>

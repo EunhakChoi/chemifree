@@ -1,5 +1,6 @@
 import type { PointerEvent } from 'react'
 
+import { captionRunStyle } from '@/editor/caption-style'
 import type { Box } from '@/editor/label'
 import type { DocumentSettings, Position, SceneObject } from '@/lib/document-contract'
 import { cn } from '@/lib/utils'
@@ -14,6 +15,7 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
   onPointerDown: (event: PointerEvent<SVGGElement>) => void
 }) {
   const size = settings.label_size_pt
+  const styledRuns = object.runs.map((run) => ({ run, runStyle: captionRunStyle(run, settings) }))
   function renderText(shadow: boolean) {
     return (
       <text aria-hidden={shadow || undefined} pointerEvents={shadow ? 'none' : undefined}
@@ -23,16 +25,17 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
         fontFamily={settings.label_font === 'sans-serif' ? undefined : settings.label_font}
         fontSize={size} data-caption-text={shadow ? undefined : object.id} role={shadow ? undefined : "img"}
         aria-label={shadow ? undefined : `Caption ${object.id}: ${object.runs.map((run) => run.text).join('')}`}>
-        {object.runs.map((run, index) => {
-          const runSize = run.size_pt ?? size
-          const glyphSize = run.script === 'baseline' ? runSize : runSize * 2 / 3
+        {styledRuns.map(({ run, runStyle }, index) => {
+          // A run without its own font inherits the label font from the text element, so it sets no font attribute.
+          const ownFont = run.font ?? null
+          const outlined = runStyle.outline !== null
           return (
-            <tspan visibility={shadow && !run.shadow ? 'hidden' : undefined} data-caption-shadow={shadow ? undefined : run.shadow ? 'true' : 'false'} fill={run.color ?? undefined} data-caption-outline={shadow ? undefined : run.outline ? 'true' : 'false'}
-              style={{ fill: run.outline ? 'none' : run.color ?? undefined, stroke: run.outline ? run.color ?? 'inherit' : 'none', strokeWidth: run.outline ? glyphSize / 16 : 0, strokeLinejoin: 'round' }} key={index} data-caption-script={run.script}
-              className={run.font === 'sans-serif' ? 'font-sans' : undefined}
-              fontFamily={run.font === 'sans-serif' ? undefined : run.font ?? undefined} fontWeight={run.weight} fontStyle={run.style}
-              fontSize={glyphSize}
-              y={object.anchor.y + (run.script === 'subscript' ? runSize / 3 : run.script === 'superscript' ? -runSize * 5 / 12 : 0)}>{run.text}</tspan>
+            <tspan visibility={shadow && !run.shadow ? 'hidden' : undefined} data-caption-shadow={shadow ? undefined : run.shadow ? 'true' : 'false'} fill={runStyle.color ?? undefined} data-caption-outline={shadow ? undefined : outlined ? 'true' : 'false'}
+              style={{ fill: outlined ? 'none' : runStyle.color ?? undefined, stroke: outlined ? runStyle.color ?? 'inherit' : 'none', strokeWidth: runStyle.outline ?? 0, strokeLinejoin: 'round' }} key={index} data-caption-script={run.script}
+              className={ownFont === 'sans-serif' ? 'font-sans' : undefined}
+              fontFamily={ownFont === null || ownFont === 'sans-serif' ? undefined : runStyle.family} fontWeight={runStyle.weight} fontStyle={runStyle.style}
+              fontSize={runStyle.size}
+              y={object.anchor.y + runStyle.shift}>{run.text}</tspan>
           )
         })}
       </text>
@@ -45,12 +48,12 @@ export function SceneCaption({ object, box, settings, selected, delta, onPointer
       <g data-caption-shadow-layer="" aria-hidden="true" pointerEvents="none" opacity={0.35} transform="translate(1 1)">
         {renderText(true)}
         <g className="fill-foreground">
-          {object.runs.map((run, index) => run.shadow && run.underline && <rect key={index} data-caption-underline-shadow={index} fill={run.color ?? undefined} />)}
+          {styledRuns.map(({ run, runStyle }, index) => run.shadow && run.underline && <rect key={index} data-caption-underline-shadow={index} fill={runStyle.color ?? undefined} />)}
         </g>
       </g>
       {renderText(false)}
       <g aria-hidden="true" pointerEvents="none" className="fill-foreground" data-caption-underlines="">
-        {object.runs.map((run, index) => run.underline && <rect key={index} data-caption-underline={index} fill={run.color ?? undefined} />)}
+        {styledRuns.map(({ run, runStyle }, index) => run.underline && <rect key={index} data-caption-underline={index} fill={runStyle.color ?? undefined} />)}
       </g>
     </g>
   )

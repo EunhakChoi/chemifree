@@ -65,6 +65,31 @@
 - 행동 변화(`time_limit_ms`가 없는 요청에 5초 기본 시계)는 병합 전 소유자가 승인했다.
 - 브라우저 스모크 검사는 로컬에서 돌리지 않았고, PR CI의 browser 단계가 실행해 통과했다.
 
+## P38b2 SVG 캡션 export
+
+상태는 `partial`이다. P38b2는 bounded SVG drawing export에 캡션을 더한다. 일반 SVG 출력이라는 주장은 없다. P38은 `in_progress`이고 RENDER-01은 partial이며, 둘 다 완료가 아니다.
+
+**범위**
+
+- 모든 문자가 그릴 집합에 든 캡션은 `<text>` 하나와 런마다 `<tspan>` 하나로 그린다. 집합은 인쇄 가능한 ASCII, 라틴-1(U+00AD 제외), 그리스 대문자와 소문자, 그리고 U+2013·2014·2026·2032·2033·2190·2192·21CC·2212다.
+- 정렬은 `text-anchor`(start·middle·end)로, 첨자는 상대 `dy`로 쓴다. 런마다 글꼴 계열(일반 키워드), 크기, 굵기, 기울임, 채움 색을 싣는다. 외곽선은 크기의 1/16 선이며 그림자는 1 pt 오른쪽·아래의 복사본(불투명도 0.35)이다.
+- 보기 상자는 기존 글자 너비 표(`chemifree-label-advance-1`)로 캡션의 예약 상자를 계산해 포함한다. 위 1.0 em, 아래 0.4 em, 외곽선 절반, 그림자 +1 pt, 여백 2 pt다. 예약 상자는 모델이며 뷰어 글꼴이 더 넓으면 글자가 상자를 넘을 수 있다.
+- 손실 표는 17행이다. `caption`은 집합 밖 문자가 든 캡션(전혀 그리지 않음)만, 새 `caption_underline`은 그린 캡션의 밑줄만 보고한다. 둘 다 동의 손실이다.
+- 모델 id는 `chemifree-svg-3`이고 글자 너비 표 id는 그대로다.
+
+**그리지 않는 것**
+
+- 밑줄, 집합 밖 문자(이모지, CJK, 결합 문자, 오른쪽에서 왼쪽 문자 등)가 든 캡션, 글꼴 임베딩과 글리프 외곽선(P38b3, 열린 미배정 제안), 클리핑, 레이어, 웹 다운로드 UI, `render.scene`.
+
+**결정**
+
+- 저장된 캡션 색은 그린다. 기존 규칙 '모든 잉크는 검정'의 예외이며 CONTRACT에 적었다. 색이 없으면 `#000000`이다.
+- 그리는 문자를 집합으로 제한한 이유는 셰이핑·결합·양방향 처리가 필요 없는 문자만 일반 글꼴로 안전하게 놓을 수 있기 때문이다. 집합 밖 문자가 하나라도 있으면 캡션 전체를 그리지 않는다.
+- Rust와 TS는 코드를 공유하지 않는다. 웹의 런 규칙은 `apps/web/src/editor/caption-style.ts`로 옮기고(동작 불변), `scripts/svg-parity-client-check.mjs`가 Rust 레이아웃과 비교한다.
+
+**검증** (기록 `docs/verification/p38b2-svg-captions.md`)
+
+
 ## P38b1 SVG 장면 그래픽·이미지 export
 
 상태는 `partial`이다. P38b1은 bounded SVG drawing export(P38a)에 장면 그래픽과 PNG 이미지를 더한다. 일반 SVG 출력이라는 주장은 없다. P38은 `in_progress`이고 RENDER-01은 partial이며, 둘 다 완료가 아니다.
@@ -76,12 +101,12 @@
 - 그리는 순서는 장면 객체 순서다. 그래픽과 이미지는 원자·결합과 섞여 그 객체가 놓인 자리에 그려진다.
 - 보기 상자(view box)는 그래픽의 잉크와 이미지 사각형을 포함한다.
 - 손실 표는 16행이다. P38a의 18행에서 그래픽과 이미지 행이 빠졌다.
-- 모델 id는 `chemifree-svg-2`다.
+- 모델 id는 `chemifree-svg-2`였다(P38b2에서 `chemifree-svg-3`).
 - 웹의 그래픽 기하를 `apps/web/src/editor/graphic-marks.ts`로 옮긴다. 동작을 바꾸지 않는 리팩터링이며, `scripts/svg-parity-client-check.mjs`가 Rust 레이아웃과 TS 기하(그래픽 표시, 이미지 모서리, 그리는 순서)를 비교한다.
 
 **그리지 않는 것**
 
-- 캡션: 동의 손실로 보고한다. 글자 셰이핑을 다루는 P38b2 범위다.
+- 캡션: P38b2에서 그릴 수 있는 문자의 캡션을 그린다(위 P38b2 절 참조).
 - 클리핑, 레이어, 이미지 회전, 웹 다운로드 UI, `render.scene`.
 - P38a 절의 '그리지 않거나 다르게 그리는 것' 목록에서 '캡션, 그래픽, 이미지' 항목은 이제 캡션만 해당한다.
 
@@ -125,7 +150,7 @@
 - 라벨 꾸밈 bold·italic·underline·outline·shadow(보통 글자로 그린다)
 - 질의 라벨 목록이 3개를 넘는 경우(잘라서 "…"로 그린다)
 - Et·fragment 축약 표시(전체 그래프로 그린다)
-- 캡션, 그래픽, 이미지 (P38a 당시. 그래픽과 이미지는 P38b1에서 그린다. 위 P38b1 절 참조)
+- 캡션, 그래픽, 이미지 (P38a 당시. 그래픽과 이미지는 P38b1에서, 그릴 수 있는 문자의 캡션은 P38b2에서 그린다. 위 절 참조)
 
 **결정**
 
@@ -143,7 +168,7 @@ PR과 CI 링크: PR 본문과 리뷰 기록 댓글에 둔다.
 
 1. 글자 셰이핑과 경계 엔진(측정 근거로 뷰어 글꼴 차이 줄이기)
 2. 클리핑과 레이어
-3. 캡션의 SVG 출력(지금은 동의 손실로만 보고). 장면 그래픽과 이미지는 P38b1에서 그린다
+3. 집합 밖 문자의 캡션과 밑줄의 SVG 출력, 글꼴 임베딩과 글리프 외곽선(P38b3, 열린 미배정). 장면 그래픽과 이미지는 P38b1에서, 그릴 수 있는 문자의 캡션은 P38b2에서 그린다
 4. 웹과 공유하는 렌더러와 `render.scene` 연결 여부
 
 ## P38a1 기록: renderer core (PR #225)
@@ -785,7 +810,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 113개(implemented 64, partial 13, unverified 3, not_implemented 33) · conformance 사례 118개(passed 118: accept 86·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 113개(implemented 64, partial 13, unverified 3, not_implemented 33) · conformance 사례 119개(passed 119: accept 87·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, MODEL-03, CODEC-01, CODEC-02, CODEC-03, CODEC-05, CODEC-06, OPS-01, OPS-02, CHEM-01, CHEM-02, STEREO-01, RENDER-01, STYLE-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

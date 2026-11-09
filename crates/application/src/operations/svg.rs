@@ -2,8 +2,9 @@
 //! document and changes neither the document nor its history. SVG is export only: it cannot be
 //! imported.
 //!
-//! The export draws atoms, bonds, scene graphics and PNG images. Captions and other scene content
-//! are reported as losses.
+//! The export draws atoms, bonds, scene graphics, PNG images and captions in the bounded character
+//! set. A caption is drawn without its underline, which is reported as a loss. Other captions and
+//! scene content are reported as losses.
 
 use serde::Serialize;
 
@@ -25,8 +26,10 @@ pub(super) struct SvgExportParameters {
     accepted_losses: Option<String>,
 }
 
-/// A bounded SVG drawing of the document's atoms, bonds, scene graphics and PNG images, with the
-/// working copy it was written from. Captions and other scene content are reported as losses.
+/// A bounded SVG drawing of the document's atoms, bonds, scene graphics, PNG images and captions
+/// in the bounded character set, with the working copy it was written from. A caption in that set
+/// is drawn without its underline, which is reported as a loss; other captions and scene content
+/// are reported as losses.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct SvgExportResult {
     pub content: String,

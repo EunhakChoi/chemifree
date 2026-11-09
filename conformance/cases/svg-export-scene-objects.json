@@ -1,6 +1,6 @@
 {
   "id": "svg-export-scene-objects",
-  "title": "A line graphic, an arrow graphic and a PNG image export as drawn SVG elements under chemifree-svg-2 with an empty loss report",
+  "title": "A line graphic, an arrow graphic and a PNG image export as drawn SVG elements under chemifree-svg-3 with an empty loss report",
   "requirements": [
     "RENDER-01"
   ],
@@ -78,7 +78,7 @@
       },
       "expect": {
         "loss_report": [],
-        "model_id": "chemifree-svg-2",
+        "model_id": "chemifree-svg-3",
         "outcome": "ok",
         "result": {
           "media_type": "image/svg+xml",

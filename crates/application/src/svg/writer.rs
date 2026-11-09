@@ -1,9 +1,11 @@
-//! The markup of a drawing. Number formatting, escaping and the text of every element are decided
-//! here, and nothing else writes markup. Each element is one line, in document order, with no ids,
-//! classes, styles or data attributes, so one layout always writes the same bytes.
+//! The markup of a drawing. Number formatting and escaping are decided here, and the text of every
+//! element is written by this module or by the caption module (`caption.rs`), through them. Each
+//! element is one line, in document order, with no ids, classes, styles or data attributes, so one
+//! layout always writes the same bytes.
 
 use std::collections::BTreeMap;
 
+use super::caption;
 use super::font;
 use super::geometry::{self, PathStep, Pattern, Point, Stroke};
 use super::label::AtomLabel;
@@ -429,6 +431,7 @@ pub(super) fn document(view: &DocumentView, layout: &DrawingLayout, view_box: Vi
                     base64,
                 ));
             }
+            ObjectLayout::Caption(caption) => lines.extend(caption::caption_markup(caption)),
         }
     }
     lines.push("</svg>".to_owned());

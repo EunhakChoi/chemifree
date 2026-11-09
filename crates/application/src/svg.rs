@@ -1,5 +1,5 @@
-//! Bounded SVG drawing of a document's atoms, bonds, graphics and images (P38a1, P38b1). This is a
-//! pure text renderer over a `DocumentView`, with no font engine and no I/O.
+//! Bounded SVG drawing of a document's atoms, bonds, graphics, images and captions (P38a1, P38b1,
+//! P38b2). This is a pure text renderer over a `DocumentView`, with no font engine and no I/O.
 //! `document.export` with format `svg` (operations/svg.rs) serves it over HTTP and the CLI, so
 //! its markup is public output: a change to it needs `SVG_MODEL`, the goldens, the conformance
 //! cases and the loss table checked.
@@ -8,11 +8,14 @@
 //! the drawing order follows `structure-canvas.tsx`. `layout_drawing` exposes that layout as data,
 //! which the parity fixture compares with the web code.
 //!
-//! Not drawn: radical dots, attachment points, abbreviation and fragment displays, captions,
-//! groups, stereo perception (no descriptor is computed; the stored wedge, hash and wavy marks are
-//! drawn), and bold, italic, underline, outline and shadow typography. The status of each is in
-//! `docs/verification/p38a1-svg-renderer.md`.
+//! Not drawn: radical dots, attachment points, abbreviation and fragment displays, captions
+//! outside the drawn character set, caption underlines (`caption.rs`), groups, stereo perception
+//! (no descriptor is computed; the stored wedge, hash and wavy marks are drawn), and the bold,
+//! italic, underline, outline and shadow typography of atom labels. The status of each is in
+//! `docs/verification/p38a1-svg-renderer.md`, and that of captions in
+//! `docs/verification/p38b2-svg-captions.md`.
 
+mod caption;
 mod font;
 mod geometry;
 mod label;
@@ -33,7 +36,7 @@ pub(crate) use losses::svg_losses;
 pub use scene::{GraphicMark, ObjectLayout};
 
 /// The version of the drawing's markup and geometry. A change to either changes it.
-pub const SVG_MODEL: &str = "chemifree-svg-2";
+pub const SVG_MODEL: &str = "chemifree-svg-3";
 
 /// How far a label box reaches past its label on each side, in pt, in the view box (`LABEL_MARGIN`).
 const LABEL_MARGIN: f64 = 4.0;
@@ -211,10 +214,10 @@ pub fn layout_drawing(view: &DocumentView) -> DrawingLayout {
 
 /// The paint list of `view`, in the order the web paints it (`structure-canvas.tsx:1056-1088`).
 /// An instance without a scene object comes first, as `placements` orders it. Then come the
-/// objects of `scene.objects` in order: each instance with a placement, each graphic and each
-/// image. A group and a caption have no entry: a group draws nothing, and no caption is drawn. A
-/// graphic whose point count its shape does not admit draws nothing: the domain rejects it
-/// (`Graphic::validate`).
+/// objects of `scene.objects` in order: each instance with a placement, each graphic, each image,
+/// and each caption that `caption::layout_caption` lays out. A group has no entry, since it draws
+/// nothing, and a caption outside the drawn character set has none either. A graphic whose point
+/// count its shape does not admit draws nothing: the domain rejects it (`Graphic::validate`).
 fn paint_list(view: &DocumentView, instances: &[InstanceLayout]) -> Vec<ObjectLayout> {
     let listed: BTreeSet<&str> = instance_object_ids(view).into_iter().collect();
     let placed: BTreeSet<&str> = instances
@@ -262,7 +265,20 @@ fn paint_list(view: &DocumentView, instances: &[InstanceLayout]) -> Vec<ObjectLa
                     height: size_pt.y,
                 });
             }
-            SceneObjectView::Caption { .. } | SceneObjectView::Group { .. } => {}
+            SceneObjectView::Caption {
+                id,
+                anchor,
+                alignment,
+                runs,
+                ..
+            } => {
+                if let Some(layout) =
+                    caption::layout_caption(&view.settings, id, *anchor, *alignment, runs)
+                {
+                    objects.push(ObjectLayout::Caption(layout));
+                }
+            }
+            SceneObjectView::Group { .. } => {}
         }
     }
     objects
@@ -289,9 +305,10 @@ pub fn render_drawing(view: &DocumentView) -> SvgDrawing {
 }
 
 /// The view box of a drawing (`viewBox`): the union of every drawn atom's point grown by the reach
-/// of a bond's ink, of every label box grown by `LABEL_MARGIN`, and of every graphic's ink and
-/// every image's rectangle, each as the writer rounds it, with each edge moved outward to the
-/// hundredth. A drawing with no atom, graphic or image has the empty box at the origin.
+/// of a bond's ink, of every label box grown by `LABEL_MARGIN`, of every graphic's ink and every
+/// image's rectangle, each as the writer rounds it, and of every caption's reserved box. Each edge
+/// is moved outward to the hundredth. A drawing with no atom, graphic, image or caption has the
+/// empty box at the origin.
 fn view_box_of(view: &DocumentView, layout: &DrawingLayout) -> ViewBox {
     let line_width = view.settings.line_width_pt;
     let reach = geometry::stroke_reach(line_width, geometry::bond_spacing(line_width));
@@ -320,35 +337,8 @@ fn view_box_of(view: &DocumentView, layout: &DrawingLayout) -> ViewBox {
         }
     }
     for object in &layout.objects {
-        match object {
-            // An instance's atoms and labels are counted above, from `layout.instances`.
-            ObjectLayout::Instance { .. } => {}
-            // `graphic_block` and `mark_element` write each number rounded to the hundredth, so the
-            // view box must hold the ink of the rounded marks, at the rounded width.
-            ObjectLayout::Graphic { width, marks, .. } => {
-                let ink = scene::ink(&scene::rounded(marks), geometry::round2(*width));
-                if let Some((left, top, right, bottom)) = ink {
-                    include(left, top, right, bottom);
-                }
-            }
-            // `image_element` writes each of these rounded to the hundredth, so the view box must
-            // hold the rounded rectangle, not the unrounded one.
-            ObjectLayout::Image {
-                x,
-                y,
-                width,
-                height,
-                ..
-            } => {
-                let left = geometry::round2(*x);
-                let top = geometry::round2(*y);
-                include(
-                    left,
-                    top,
-                    left + geometry::round2(*width),
-                    top + geometry::round2(*height),
-                );
-            }
+        if let Some((left, top, right, bottom)) = scene::object_ink(object) {
+            include(left, top, right, bottom);
         }
     }
     let Some((left, top, right, bottom)) = edges else {
