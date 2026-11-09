@@ -83,6 +83,28 @@ def _inversions(sequence: list[int]) -> int:
     )
 
 
+def _children(
+    adjacency: dict[int, list[tuple[int, str]]], atom: int, parent: int | None
+) -> list[int]:
+    """Returns the neighbors the SMILES writer visits after atom, in order."""
+    return sorted(n for n, _ in adjacency[atom] if n != parent)
+
+
+def _written_positions(
+    adjacency: dict[int, list[tuple[int, str]]], root: int
+) -> dict[int, int]:
+    """Returns the position at which the SMILES writer reaches each atom."""
+    positions: dict[int, int] = {}
+
+    def visit(atom: int, parent: int | None) -> None:
+        positions[atom] = len(positions)
+        for child in _children(adjacency, atom, parent):
+            visit(child, atom)
+
+    visit(root, None)
+    return positions
+
+
 def _smiles(fixture: dict[str, Any]) -> str:
     """OpenSMILES for the stated configuration, written from the fixture alone."""
     atoms = fixture["atoms"]
@@ -128,7 +150,7 @@ def _smiles(fixture: dict[str, Any]) -> str:
         return f"[{symbol}{tag}{hydrogen}]"
 
     def write(atom: int, parent: int | None) -> str:
-        children = sorted(n for n, _ in adjacency[atom] if n != parent)
+        children = _children(adjacency, atom, parent)
         text = token(atom, parent, children)
         parts = []
         for child in children:
@@ -154,6 +176,19 @@ def _smiles(fixture: dict[str, Any]) -> str:
     first = centers.get(0)
     if first is not None and "LP" in first["order"]:
         root = min(n for n, _ in adjacency[0])
+    # The marks above assume the writer reaches each begin atom before its end
+    # atom. A walk that reaches an end atom first would invert them, so refuse.
+    positions = _written_positions(adjacency, root)
+    for double in expect.get("double_bonds", []):
+        if double["relation"] == "unknown":
+            continue
+        bond = double["bond"]
+        begin, end, _kind, _mark = fixture["bonds"][bond]
+        if positions[end] < positions[begin]:
+            raise FixtureError(
+                f"{fixture['name']}: end atom {end} is written before begin "
+                f"atom {begin} of double bond {bond}; its marks would invert"
+            )
     return write(root, None)
 
 

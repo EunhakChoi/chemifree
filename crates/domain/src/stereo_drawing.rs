@@ -455,7 +455,7 @@ impl<'a> Drawing<'a> {
             .graph
             .atom(atom)
             .ok_or(DeriveError::UnknownAtom(atom))?;
-        let neighbors = self.graph.neighbors(atom);
+        let neighbors: &[(AtomId, BondId)] = &self.graph.neighbors(atom);
         if matches!(record.kind, AtomKind::Query(_)) || !(3..=4).contains(&neighbors.len()) {
             return Err(StereoError::CenterUnsupported.into());
         }
@@ -465,7 +465,7 @@ impl<'a> Drawing<'a> {
         let mut own_mark = false;
         let mut wavy = false;
         let mut wavy_to_non_center = false;
-        for &(neighbor, bond_id) in &neighbors {
+        for &(neighbor, bond_id) in neighbors {
             let bond = self
                 .graph
                 .bond(bond_id)

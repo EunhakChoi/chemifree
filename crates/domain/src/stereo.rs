@@ -19,6 +19,7 @@
 //! depictions, and the OpenSMILES neighbor-order handedness (looking from the first neighbor
 //! toward the center, the other three run anticlockwise for `@` and clockwise for `@@`).
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 
@@ -600,9 +601,11 @@ impl<'a> Graph<'a> {
         self.bonds.get(&id)
     }
 
-    pub(crate) fn neighbors(&self, atom: AtomId) -> Vec<(AtomId, BondId)> {
+    /// The neighbors of `atom` with the bonds that join them, ascending. An indexed graph lends
+    /// the list it stored; [`Graph::new`] scans the bonds and returns an owned list.
+    pub(crate) fn neighbors(&self, atom: AtomId) -> Cow<'_, [(AtomId, BondId)]> {
         if let Some(index) = &self.index {
-            return index.get(&atom).cloned().unwrap_or_default();
+            return Cow::Borrowed(index.get(&atom).map_or(&[], Vec::as_slice));
         }
         let mut found: Vec<(AtomId, BondId)> = self
             .bonds
@@ -618,7 +621,7 @@ impl<'a> Graph<'a> {
             })
             .collect();
         found.sort_unstable();
-        found
+        Cow::Owned(found)
     }
 
     /// The neighbors of `atom` other than `partner`, ascending, for one end of a double bond.
@@ -629,7 +632,8 @@ impl<'a> Graph<'a> {
     ) -> Result<Vec<AtomId>, StereoError> {
         let others: Vec<(AtomId, BondId)> = self
             .neighbors(atom)
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|(neighbor, _)| *neighbor != partner)
             .collect();
         let cumulated = others.iter().any(|(_, bond)| {
