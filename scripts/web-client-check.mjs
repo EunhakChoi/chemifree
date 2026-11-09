@@ -1296,7 +1296,8 @@ for (const [name, change] of [
     }
   }],
   ['a stated hydrogen count above 16', (value) => (value.document.atoms[0].hydrogens = { mode: 'specified', count: 17 })],
-  ['an inferred hydrogen state with a count', (value) => (value.document.atoms[0].hydrogens = { mode: 'inferred', count: 2 })],
+  ['a stated hydrogen count that is not a whole number', (value) => (value.document.atoms[0].hydrogens = { mode: 'specified', count: 1.5 })],
+  ['a hydrogen mode the reader does not know', (value) => (value.document.atoms[0].hydrogens = { mode: 'implicit' })],
   ['a stated hydrogen state without a count', (value) => (value.document.atoms[0].hydrogens = { mode: 'specified' })],
   ['an unknown radical', (value) => (value.document.atoms[0].radical = 'quartet')],
   ['attachment points out of order', (value) => (value.document.atoms[0].attachment_points = [3, 1])],
@@ -1325,6 +1326,12 @@ for (const [name, change] of [
     assert.equal(isDocumentResponse(value), false)
   })
 }
+
+test('a document reply with an inferred hydrogen state that carries a count is accepted, and the count is ignored', () => {
+  const value = recorded()
+  value.document.atoms[0].hydrogens = { mode: 'inferred', count: 2 }
+  assert.equal(isDocumentResponse(value), true)
+})
 
 test("a refused combination's reason is read from the error envelope", async () => {
   service({
@@ -1719,6 +1726,37 @@ test('a typed query list keeps the negation the latest document holds, and the n
   assert.equal(edits.setQueryNegated('a1', true)(editable()), null, 'not a list')
 })
 
+test('a list query negated from a reply is sent with only the fields the client knows, and known fields give the same JSON', () => {
+  const list = { kind: 'list', elements: ['N', 'O'], negated: false }
+  // The reply carries a field the request does not have; the request must not repeat it.
+  const reply = editable({ kind: 'query', element: '[N,O]', query: { ...list, future: 1 } })
+  assert.deepEqual(edits.setQueryNegated('a1', true)(reply), [
+    { op: 'update_atom', atom: 'a1', query: { kind: 'list', elements: ['N', 'O'], negated: true } },
+  ])
+  const known = editable({ kind: 'query', element: '[N,O]', query: list })
+  assert.equal(
+    JSON.stringify(edits.setQueryNegated('a1', true)(known)),
+    JSON.stringify([{ op: 'update_atom', atom: 'a1', query: { ...list, negated: true } }]),
+  )
+})
+
+const { graphicEndpointPoints, graphicPointsCommands } = await import('../apps/web/src/editor/graphic-points.ts')
+
+test('a graphic endpoint moved from a reply is sent with only the coordinates the client knows', () => {
+  const line = (points) => ({ kind: 'graphic', id: 'g1', parent: null, shape: 'line', points })
+  const gestureOf = (graphic) => ({ edit: { documentId: 'doc-1', revision: 1, graphic, points: graphic.points }, endpoint: 1, start: { x: 10, y: 0 } })
+  // The reply carries a field on each point that the request does not have.
+  const reply = line([{ x: 0, y: 0, future: 1 }, { x: 10, y: 0, future: 1 }])
+  const moved = graphicEndpointPoints(gestureOf(reply), { x: 12, y: 3 })
+  assert.deepEqual(moved, [{ x: 0, y: 0 }, { x: 12, y: 3 }])
+  const drawing = { id: 'doc-1', title: 'Lines', revision: 1, atoms: [], bonds: [], scene: { objects: [reply] } }
+  assert.deepEqual(graphicPointsCommands(drawing, { ...gestureOf(reply).edit, points: moved }), [
+    { op: 'update_graphic_points', object: 'g1', points: [{ x: 0, y: 0 }, { x: 12, y: 3 }] },
+  ])
+  const known = line([{ x: 0, y: 0 }, { x: 10, y: 0 }])
+  assert.equal(JSON.stringify(graphicEndpointPoints(gestureOf(known), { x: 12, y: 3 })), JSON.stringify([{ x: 0, y: 0 }, { x: 12, y: 3 }]))
+})
+
 for (const [name, order] of [
   ['a typed list then the negation', [edits.setQueryElements('a1', ['N', 'O', 'S']), edits.setQueryNegated('a1', true)]],
   ['the negation then a typed list', [edits.setQueryNegated('a1', true), edits.setQueryElements('a1', ['N', 'O', 'S'])]],
@@ -1917,7 +1955,7 @@ test('wide bond ink and its selection highlight stay inside the view and placeme
   assert.ok(frame.rect.y <= -reach, 'the placement frame holds the upper highlight')
 })
 
-const { DEFAULT_SETTINGS, isPreferencesResponse, settingsOf } = await import('../apps/web/src/lib/document-contract.ts')
+const { DEFAULT_SETTINGS, isDocumentSettings, isPreferencesResponse, settingsOf } = await import('../apps/web/src/lib/document-contract.ts')
 const settingsEdits = await import('../apps/web/src/editor/settings.ts')
 const { DEFAULT_LABEL_STYLE, labelStyleOf } = await import('../apps/web/src/editor/label.ts')
 const { bondSpacing, freeNeighborPosition, snappedEndpoint } = await import('../apps/web/src/editor/geometry.ts')
@@ -1937,16 +1975,29 @@ test('document settings are checked at the boundary and an older reply has none'
   assert.deepEqual(settingsOf(styled(custom).document), custom)
   for (const bad of [
     { ...DEFAULT_SETTINGS, bond_length_pt: 4.9 },
+    { ...DEFAULT_SETTINGS, bond_length_pt: 'long' },
     { ...DEFAULT_SETTINGS, line_width_pt: 10.5 },
     { ...DEFAULT_SETTINGS, label_size_pt: Number.NaN },
     { ...DEFAULT_SETTINGS, label_font: 'cursive' },
     { ...DEFAULT_SETTINGS, carbon_labels: 'none' },
     { ...DEFAULT_SETTINGS, display_unit: 'px' },
-    { ...DEFAULT_SETTINGS, extra: 1 },
     (({ display_unit: _, ...rest }) => rest)(DEFAULT_SETTINGS),
     null,
   ]) {
     assert.equal(isDocumentResponse(styled(bad)), false, JSON.stringify(bad))
+  }
+  // A setting outside the schema is ignored by a reply reader; the settings it does know are checked above.
+  assert.equal(isDocumentResponse(styled({ ...DEFAULT_SETTINGS, extra: 1 })), true, 'a setting this client does not know')
+})
+
+test('a setting outside the schema is ignored by a reply reader but refused by the closed clipboard reader', () => {
+  const unknown = { ...DEFAULT_SETTINGS, future_setting: 'x' }
+  assert.equal(isDocumentResponse(styled(unknown)), true, 'a reply reader ignores it')
+  assert.equal(isDocumentSettings(unknown), false, 'the closed clipboard reader refuses it')
+  assert.equal(isDocumentSettings(DEFAULT_SETTINGS), true, 'the same settings without it are accepted')
+  for (const bad of [{ ...DEFAULT_SETTINGS, bond_length_pt: 'long' }, { ...DEFAULT_SETTINGS, display_unit: 'px' }]) {
+    assert.equal(isDocumentResponse(styled(bad)), false, JSON.stringify(bad))
+    assert.equal(isDocumentSettings(bad), false, JSON.stringify(bad))
   }
 })
 
@@ -1978,7 +2029,7 @@ test('a preferences reply is checked whole, computation included', () => {
     ['an unknown theme', preferences({ ui: { theme: 'sepia' } })],
     ['a negative revision', preferences({ revision: -1 })],
     ['a stored value out of range', preferences({ new_documents: { label_size_pt: 100 } })],
-    ['an unknown stored field', preferences({ new_documents: { color: 'red' } })],
+    ['a stored value of the wrong type', preferences({ new_documents: { bond_length_pt: 'long' } })],
     ['partial new-document settings', preferences({ new_document_settings: { bond_length_pt: 40 } })],
     ['computation claimed to run', preferences({ computation: { ...preferences().computation, nmr: { ...preferences().computation.nmr, status: 'implemented' } } })],
     ['computation left out', preferences({ computation: undefined })],
@@ -1986,6 +2037,8 @@ test('a preferences reply is checked whole, computation included', () => {
   ]) {
     assert.equal(isPreferencesResponse(bad), false, name)
   }
+  // A stored field this client does not know is ignored; the stored values it does know are checked above.
+  assert.equal(isPreferencesResponse(preferences({ new_documents: { color: 'red' } })), true, 'a stored field this client does not know')
 })
 
 test('the client sends preference writes with their revision and refuses an incompatible reply', async () => {
@@ -2166,6 +2219,31 @@ test('new-document preferences are built from the latest preferences and store w
   assert.deepEqual(preferenceStep(latest, 'bond_length_pt', 1), { ui: { theme: 'dark' }, new_documents: { bond_length_pt: 41 } })
   const atLimit = preferences({ new_document_settings: { ...DEFAULT_SETTINGS, label_size_pt: 4 } })
   assert.equal(preferenceStep(atLimit, 'label_size_pt', -1), null)
+})
+
+test('a preference write sends the theme and the new-document settings it knows, whatever else the reply carried', () => {
+  const { knownSettingsEdit, knownUiPreferences, preferenceChange } = settingsEdits
+  const latest = preferences()
+  // The reply carries a field this client does not know in the theme, the stored settings and the settings in effect.
+  const reply = {
+    ...latest,
+    ui: { ...latest.ui, future: 1 },
+    new_documents: { ...latest.new_documents, future: 1 },
+    new_document_settings: { ...latest.new_document_settings, future: 1 },
+  }
+  assert.deepEqual(knownUiPreferences(reply.ui), { theme: 'dark' })
+  assert.deepEqual(knownSettingsEdit(reply.new_documents), { bond_length_pt: 40 })
+  assert.deepEqual(preferenceChange(reply, { label_font: 'serif' }), {
+    ui: { theme: 'dark' },
+    new_documents: { bond_length_pt: 40, label_font: 'serif' },
+  })
+  // Known fields alone give the same JSON as the reply they come from.
+  assert.equal(JSON.stringify(knownUiPreferences(latest.ui)), JSON.stringify(latest.ui))
+  assert.equal(JSON.stringify(knownSettingsEdit(latest.new_documents)), JSON.stringify(latest.new_documents))
+  assert.equal(
+    JSON.stringify(preferenceChange(latest, { label_font: 'serif' })),
+    JSON.stringify({ ui: latest.ui, new_documents: { bond_length_pt: 40, label_font: 'serif' } }),
+  )
 })
 
 
@@ -2474,7 +2552,7 @@ test('the notes a transaction reply carries are read, and a malformed note is re
   service({ '/transactions': [() => json(200, withNotes)] })
   const reply = await new DocumentClient().transact('doc-stereo', 0, [{ op: 'delete_atoms', atoms: ['a2'] }])
   assert.deepEqual(reply.notes.map((note) => note.source_path), ['atoms[a1]', 'bonds[b4]'])
-  const refused = (change) => {
+  const accepted = (change) => {
     const value = stereoDrawing()
     value.notes = [clearedNote()]
     change(value.notes[0])
@@ -2485,9 +2563,10 @@ test('the notes a transaction reply carries are read, and a malformed note is re
     'a note that is not a drop': (n) => { n.disposition = 'normalized' },
     'a note with another impact': (n) => { n.semantic_impact = 'chemistry' },
     'a note with no reason': (n) => { delete n.reason },
-    'a note with a field the contract does not have': (n) => { n.consent = 'required' },
+    'a note whose reason is not text': (n) => { n.reason = 3 },
   }
-  for (const [why, change] of Object.entries(cases)) assert.equal(refused(change), false, why)
+  for (const [why, change] of Object.entries(cases)) assert.equal(accepted(change), false, why)
+  assert.equal(accepted((n) => { n.consent = 'required' }), true, 'a note field the contract does not have is ignored')
   const notAList = stereoDrawing()
   notAList.notes = clearedNote()
   assert.equal(isDocumentResponse(notAList), false, 'notes is a list')
@@ -2551,7 +2630,8 @@ test('a snapshot whose enhanced stereo groups are inconsistent is refused as a w
   refused('an absolute group that still has a number', mutate((g) => { g[0].kind = 'absolute'; g[0].stored_number = null }))
   refused('a label that is not the derived one', mutate((g) => { g[0].label = 'OR 2' }))
   refused('a missing field', mutate((g) => { delete g[0].label }))
-  refused('a field the contract does not have', mutate((g) => { g[0].ratio = '1:1' }))
+  assert.equal(isDocumentResponse(groupedDrawing(mutate((g) => { g[0].ratio = '1:1' }))), true, 'a group field the contract does not have is ignored')
+  refused('an unknown group field does not excuse a wrong number', mutate((g) => { g[0].ratio = '1:1'; g[0].stored_number = '2' }))
   refused('no members', mutate((g) => { g[0].members = [] }))
   refused('members not ascending', [groupRow('e1', 'or', 1, ['a5', 'a1'])])
   refused('a repeated member', [groupRow('e1', 'or', 1, ['a1', 'a1'])])
@@ -2565,10 +2645,13 @@ test('a snapshot whose enhanced stereo groups are inconsistent is refused as a w
   refused('two absolute groups', [groupRow('e1', 'absolute', null, ['a1']), groupRow('e2', 'absolute', null, ['a5'])])
   refused('one kind and number twice', [groupRow('e1', 'or', 1, ['a1']), groupRow('e2', 'or', 1, ['a5'])])
   refused('an omitted number and a 0 of one kind', [groupRow('e1', 'or', null, ['a1']), groupRow('e2', 'or', 0, ['a5'])])
-  // Other validators keep their strictness: an unknown key beside the lists is still refused.
+  // A reply reader ignores an unknown key beside the lists too, and still checks the values beside them.
   const extra = groupedDrawing(good())
   extra.document.stereo.ratio = 1
-  assert.equal(isDocumentResponse(extra), false)
+  assert.equal(isDocumentResponse(extra), true, 'an unknown key beside the lists is ignored')
+  const malformed = groupedDrawing(good())
+  malformed.document.stereo.bonds = 'none'
+  assert.equal(isDocumentResponse(malformed), false, 'a value beside the lists is still checked')
   const omitted = groupedDrawing(good())
   delete omitted.document.stereo.groups
   assert.equal(isDocumentResponse(omitted), true, 'an older service sends no list')
@@ -2685,8 +2768,8 @@ test('the stereo commands lapse with the bond or atom they name, and words and $
   assert.deepEqual(stillApplicable(created, drawing), created, '$N names what an earlier command created')
 })
 
-test('a malformed mark or stereo table is refused, and so is a kind the client does not know yet', () => {
-  const refused = (change) => {
+test('a malformed mark or stereo table is refused, a kind the client does not know yet is refused, and an unknown field is ignored', () => {
+  const accepted = (change) => {
     const value = stereoDrawing()
     change(value.document)
     return isDocumentResponse(value)
@@ -2695,8 +2778,8 @@ test('a malformed mark or stereo table is refused, and so is a kind the client d
     'a mark kind the client does not know (a later "unknown" or "hollow")': (d) => { d.bonds[0].mark = { kind: 'hollow', narrow: 'end' } },
     'a wedge with no narrow end': (d) => { d.bonds[0].mark = { kind: 'wedge' } },
     'a narrow end that is neither end': (d) => { d.bonds[0].mark = { kind: 'wedge', narrow: 'middle' } },
-    'a wavy mark with a narrow end': (d) => { d.bonds[2].mark = { kind: 'wavy', narrow: 'end' } },
     'a wedge on a double bond': (d) => { d.bonds[3].mark = { kind: 'wedge', narrow: 'end' } },
+    'a wavy mark on a double bond': (d) => { d.bonds[3].mark = { kind: 'wavy' } },
     'a crossed mark on a single bond': (d) => { d.bonds[4].mark = { kind: 'crossed' } },
     'some bonds with a mark field and some without': (d) => { delete d.bonds[5].mark },
     'a record for an atom the drawing lacks': (d) => { d.stereo.atoms[0].atom = 'a9' },
@@ -2706,15 +2789,21 @@ test('a malformed mark or stereo table is refused, and so is a kind the client d
     'a center with a slot word the client does not know': (d) => { d.stereo.atoms[0].configuration.neighbors[3] = 'unspecified' },
     'a center with three neighbors and no fourth slot': (d) => { d.stereo.atoms[0].configuration.neighbors = ['a2', 'a3', 'a4', 'a4'] },
     'a turn that is neither word': (d) => { d.stereo.atoms[0].configuration.turn = 'positive' },
+    'a tetrahedral center that does not say its turn': (d) => { delete d.stereo.atoms[0].configuration.turn },
     'a configuration kind the client does not know': (d) => { d.stereo.atoms[0].configuration.kind = 'square_planar' },
-    'an unknown center that names a turn': (d) => { d.stereo.atoms[0].configuration = { kind: 'unknown', neighbors: ['a2', 'a3', 'a4', 'implicit_hydrogen'], turn: 'clockwise' } },
     'a double-bond record for a single bond': (d) => { d.stereo.bonds[0].bond = 'b5' },
     'a relation that is not a word of the contract (the public spelling)': (d) => { d.stereo.bonds[0].configuration.relation = 'opposite_side' },
     'a reference that is the partner': (d) => { d.stereo.bonds[0].configuration.begin_neighbor = 'a6' },
     'a reference bonded to the other end': (d) => { d.stereo.bonds[0].configuration.begin_neighbor = 'a8' },
+    'a stereo table whose atoms are not a list': (d) => { d.stereo.atoms = {} },
+  }
+  for (const [why, change] of Object.entries(cases)) assert.equal(accepted(change), false, why)
+  const ignored = {
+    'a wavy mark with a narrow end': (d) => { d.bonds[2].mark = { kind: 'wavy', narrow: 'end' } },
+    'an unknown center that names a turn': (d) => { d.stereo.atoms[0].configuration = { kind: 'unknown', neighbors: ['a2', 'a3', 'a4', 'implicit_hydrogen'], turn: 'clockwise' } },
     'a field the contract does not have': (d) => { d.stereo.extra = [] },
   }
-  for (const [why, change] of Object.entries(cases)) assert.equal(refused(change), false, why)
+  for (const [why, change] of Object.entries(ignored)) assert.equal(accepted(change), true, why)
 })
 
 test('a marked bond is named with its mark and the atom at its narrow end', () => {
@@ -2765,7 +2854,7 @@ function stereoIdentityReply() {
     } }
 }
 
-test('an identity answer that ignored stereo is accepted only as partial, with the flags and the loss', async () => {
+test('an identity answer that ignored stereo is accepted only as partial, with the flags and the loss; an unknown flag is ignored', async () => {
   const reply = stereoIdentityReply()
   const mutate = (change) => {
     const copy = structuredClone(reply)
@@ -2782,7 +2871,8 @@ test('an identity answer that ignored stereo is accepted only as partial, with t
     'the loss for the wrong side': mutate((r) => { r.loss_report = [stereoLoss('comparison.snapshot')] }),
     'a second loss nobody asked for': mutate((r) => { r.loss_report.push(stereoLoss('comparison.snapshot')) }),
     'a loss that says dropped': mutate((r) => { r.loss_report[0].disposition = 'dropped' }),
-    'an unknown field in the flags': mutate((r) => { r.result.stereo.target_present = false }),
+    'a flag the reply leaves out': mutate((r) => { delete r.result.stereo.source_present }),
+    'a flag that is not a boolean': mutate((r) => { r.result.stereo.source_present = 'yes' }),
   }
   service({ '/api/v1/operations': [() => json(200, reply), ...Object.values(bad).map((body) => () => json(200, body))] })
   const client = new DocumentClient()
@@ -2792,6 +2882,9 @@ test('an identity answer that ignored stereo is accepted only as partial, with t
   for (const why of Object.keys(bad)) {
     await assert.rejects(client.inspectIdentity('identity-source', 'recorded', 'identity-target'), { code: 'incompatible_response' }, why)
   }
+  // A flag the client does not know is ignored, and the flags it reads stay the same.
+  service({ '/api/v1/operations': [() => json(200, mutate((r) => { r.result.stereo.target_present = false }))] })
+  assert.deepEqual((await new DocumentClient().inspectIdentity('identity-source', 'recorded', 'identity-target')).stereo, { sourcePresent: true, otherPresent: false })
 })
 
 test('an identity answer for drawings without stereo stays ok, with or without the flags', async () => {
@@ -3200,6 +3293,25 @@ test('repeated clicks on a bond cycle plain, narrow end at the begin, narrow end
   assert.deepEqual(cycleMark(document, { instance: null }, { ...plain, mark: { kind: 'wedge', narrow: 'end' } }, 'wedge'), {
     kind: 'send', commands: [{ op: 'set_bond_mark', bond: 'b1', mark: null }], markOnly: null, why: null,
   })
+})
+
+test('a wedge asked of a bond whose mark carries a narrow end it does not read starts at the begin', () => {
+  const document = marksDocument()
+  const wedgeOn = (mark) => {
+    const marked = withMark(document, 'b1', mark)
+    return cycleMark(marked, { instance: null }, marked.bonds[0], 'wedge')
+  }
+  const wedgeAtBegin = {
+    kind: 'send',
+    commands: [{ op: 'set_bond_mark', bond: 'b1', mark: { kind: 'wedge', narrow: 'begin' } }, derive(['a1'])],
+    markOnly: [{ op: 'set_bond_mark', bond: 'b1', mark: { kind: 'wedge', narrow: 'begin' } }],
+    why: null,
+  }
+  assert.deepEqual(wedgeOn({ kind: 'wavy' }), wedgeAtBegin)
+  // A narrow end is kept only from a wedge or a hashed wedge: the end on a wavy mark is not carried over.
+  assert.deepEqual(wedgeOn({ kind: 'wavy', narrow: 'end' }), wedgeAtBegin)
+  // The reader refuses a crossed mark on a single bond; this checks that cycleMark does not carry its end either.
+  assert.deepEqual(wedgeOn({ kind: 'crossed', narrow: 'end' }), wedgeAtBegin)
 })
 
 test('the inspector sets a crossed mark with the bond configuration derived, and none for several placements', () => {
@@ -3738,16 +3850,17 @@ const refused = (mutate, value = agreementDocument(), items = publicItems()) => 
   return readStereoInspection(result, graphOf(value))
 }
 
-test('the reply reader accepts the documented reply and refuses each way it can be made untrue', () => {
+test('the reply reader accepts the documented reply, ignores fields it does not know, and refuses each way it can be made untrue', () => {
   const value = agreementDocument()
   assert.notEqual(refused(() => {}), null)
   const tampers = {
-    'an extra field in the result': (r) => { r.extra = 1 },
-    'an extra field in an atom entry': (r) => { r.atoms[0].extra = 1 },
-    'an extra field in a drawn center': (r) => { r.atoms[0].drawn[0].extra = 1 },
+    'a valence model that is not text': (r) => { r.valence_model = 3 },
+    'an entry whose drawn is not a list': (r) => { r.atoms[0].drawn = 'none' },
+    'a drawn center with no label flag': (r) => { delete r.atoms[0].drawn[0].label_differs },
     'a stored configuration the snapshot does not hold': (r) => { r.atoms[0].stored = tetra(A2, 'anticlockwise') },
     'a stored configuration where the snapshot has none': (r) => { r.atoms.push({ atom: 'a1', stored: tetra(A2, 'clockwise'), drawn: [drawnOf('s1', null, 'neither', { reason: 'stereo_not_derivable_no_marks' })] }) },
     'a stored record of the snapshot that is not an item': (r) => { r.atoms.pop() },
+    'an extra field in a stored center that the snapshot does not hold': (r) => { r.atoms[0].stored = { ...r.atoms[0].stored, extra: 1 } },
     'agrees for different turns': (r) => { r.atoms[0].drawn[0].agreement = 'agrees' },
     'disagrees for the same turn': (r) => { r.atoms[1].drawn[0].agreement = 'disagrees' },
     'agrees for another kind': (r) => { r.atoms[1].drawn[0].configuration = { kind: 'unknown', neighbors: A4 } },
@@ -3767,6 +3880,22 @@ test('the reply reader accepts the documented reply and refuses each way it can 
     'no valence model': (r) => { delete r.valence_model },
   }
   for (const [name, tamper] of Object.entries(tampers)) assert.equal(refused(tamper), null, name)
+  // A field the reader does not know is ignored: the reading is the one the documented reply gives.
+  const baseline = refused(() => {})
+  const ignored = {
+    'an extra field in the result': (r) => { r.extra = 1 },
+    'an extra field in an atom entry': (r) => { r.atoms[0].extra = 1 },
+    'an extra field in a drawn center': (r) => { r.atoms[0].drawn[0].extra = 1 },
+  }
+  for (const [name, tamper] of Object.entries(ignored)) assert.deepEqual(refused(tamper), baseline, name)
+  // The stored record is compared key for key with the snapshot's own: a key only the snapshot holds refuses the reply, and a key both hold agrees.
+  const withKey = (configuration) => ({ ...configuration, extra: 1 })
+  const onlySnapshot = agreementDocument()
+  onlySnapshot.stereo.atoms[0].configuration = withKey(onlySnapshot.stereo.atoms[0].configuration)
+  assert.equal(refused(() => {}, onlySnapshot), null, 'a key only the snapshot holds')
+  const bothHold = agreementDocument()
+  bothHold.stereo.atoms[0].configuration = withKey(bothHold.stereo.atoms[0].configuration)
+  assert.notEqual(refused((r) => { r.atoms[0].stored = withKey(r.atoms[0].stored) }, bothHold), null, 'a key both hold')
   // Two placements: entries come in the order of `instances`, and that is the snapshot's order.
   const two = agreementDocument(['s1', 's2'])
   assert.notEqual(refused(() => {}, two, publicItems(['s1', 's2'])), null)
@@ -3784,20 +3913,27 @@ test('the reply reader accepts the documented reply and refuses each way it can 
   assert.notEqual(value, null)
 })
 
-test('a double bond item must be a double bond of the snapshot with its own stored record, and drawn entries must fit it', () => {
+test('a double bond item must be a double bond of the snapshot with its own stored record, drawn entries must fit it, and a field a double bond lacks is ignored', () => {
   const { value, atoms, bonds } = mixedFixture()
-  const read = (mutate) => {
-    const result = structuredClone(resultOf(value, atoms, bonds))
+  const read = (mutate, shown = value) => {
+    const result = structuredClone(resultOf(shown, atoms, bonds))
     mutate(result)
-    return readStereoInspection(result, graphOf(value))
+    return readStereoInspection(result, graphOf(shown))
   }
   assert.notEqual(read(() => {}), null)
   assert.equal(read((r) => { r.bonds[0].bond = 'b1' }), null, 'a single bond')
   assert.equal(read((r) => { r.bonds.unshift({ bond: 'b1', stored: null, drawn: ['s1', 's2'].map((id) => ({ instance: id, configuration: null, reason: 'stereo_not_derivable_no_reference', agreement: 'neither' })) }) }), null, 'a single bond with nothing stored')
   assert.equal(read((r) => { r.bonds[0].stored = { kind: 'relative', begin_neighbor: 'a1', end_neighbor: 'a2', relation: 'same_side' } }), null)
   assert.equal(read((r) => { r.bonds[0].drawn[0].configuration = { kind: 'unknown' }; r.bonds[0].drawn[0].reason = null }), null, 'agreement not what unknown against unknown decides')
-  assert.equal(read((r) => { r.bonds[0].drawn[0].label_differs = false }), null, 'a field a double bond does not have')
+  assert.deepEqual(read((r) => { r.bonds[0].drawn[0].label_differs = false }), read(() => {}), 'a field a double bond does not have is ignored')
+  assert.equal(read((r) => { r.bonds[0].drawn[0].reason = 'stereo_not_derivable_because' }), null, 'a reason the client does not know')
   assert.equal(read((r) => { r.bonds = [] }), null, 'the stored double-bond record is not an item')
+  assert.equal(read((r) => { r.bonds[0].stored = { ...r.bonds[0].stored, extra: 1 } }), null, 'an extra field in a stored double-bond record the snapshot does not hold')
+  // As for a center, the stored record is compared key for key with the snapshot's own, in both directions.
+  const keyed = structuredClone(value)
+  keyed.stereo.bonds[0].configuration = { kind: 'unknown', extra: 1 }
+  assert.equal(read(() => {}, keyed), null, 'a key only the snapshot holds')
+  assert.notEqual(read((r) => { r.bonds[0].stored = { kind: 'unknown', extra: 1 } }, keyed), null, 'a key both hold')
 })
 
 test('the advisory findings may carry codes the client does not know, but must be findings', () => {
@@ -4841,6 +4977,38 @@ test('a reply with fields the reader does not know, at every level, still shows 
   delete noEnds.result.bonds[0].ends[0].higher
   assert.equal(readCip(bonded, noEnds), null, 'a missing end field')
   assert.equal(readCipFailure({ ...limit, diagnostics: [{ ...limit.diagnostics[0], details: { limit: 1, stage: 'centers', parameter: 'atoms', future: 1 } }] }), null, 'a missing limit detail')
+})
+
+test('a CIP reply is identified end to end: a stored record must be the snapshot\'s own, key for key, and an unknown field outside it is ignored', async () => {
+  const value = agreementDocument()
+  const good = cipReplyOf(value, [assignedA2(), assignedA4()])
+  // The labels come with the snapshot they were computed for: its stereo records survive the rebuild.
+  const { inspection } = await cipInspected(value, good)
+  assert.deepEqual(inspection.snapshot.stereo.atoms, value.stereo.atoms)
+  assert.deepEqual(inspection.atoms.map((item) => [item.atom, item.descriptor]), [['a2', 'S'], ['a4', 'R']])
+  // Outside the stored record, a field the reader does not know is ignored.
+  const outside = structuredClone(good)
+  outside.result.atoms[0].future = 1
+  assert.equal((await cipInspected(value, outside)).inspection.atoms[0].descriptor, 'S')
+  // Inside it the record must be the snapshot's own, key for key. This is deliberate: the stored record is an identity check,
+  // where the rest of the reader ignores an unknown field. One more field, or the other turn, is refused.
+  const inside = structuredClone(good)
+  inside.result.atoms[0].stored.future = 1
+  const turned = structuredClone(good)
+  turned.result.atoms[0].stored = tetra(A2, 'anticlockwise')
+  for (const [name, reply] of Object.entries({ 'a stored record with a field the snapshot lacks': inside, 'a stored record with the other turn': turned })) {
+    service({ '/api/v1/operations': [() => json(200, reply)] })
+    await assert.rejects(new DocumentClient().inspectCip(value.id, { scope: 'stored' }), { code: 'incompatible_response' }, name)
+  }
+  // A snapshot record with a field the reader does not know matches only a stored record that holds the same field.
+  const held = agreementDocument()
+  held.stereo.atoms[0].configuration.future = 1
+  const heldReply = cipReplyOf(held, [cipAtom('a2', 'assigned', { descriptor: 'S', stored: { ...tetra(A2, 'clockwise'), future: 1 }, priority: PRIORITY_A2, decided_by: '1a' }), assignedA4()])
+  assert.equal((await cipInspected(held, heldReply)).inspection.atoms[0].descriptor, 'S')
+  const bare = structuredClone(heldReply)
+  delete bare.result.atoms[0].stored.future
+  service({ '/api/v1/operations': [() => json(200, bare)] })
+  await assert.rejects(new DocumentClient().inspectCip(held.id, { scope: 'stored' }), { code: 'incompatible_response' }, 'the snapshot holds the field and the stored record does not')
 })
 
 // ---------------------------------------------------------------------------------------------

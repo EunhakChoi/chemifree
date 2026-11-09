@@ -132,7 +132,7 @@ export function cycleMark(document: DocumentView, where: Where, bond: BondView, 
   const current = bond.mark
   if (bond.order !== 'single') return refusal(kind, bond)
   if (kind === 'wavy') return setMark(document, where, bond, current?.kind === 'wavy' ? null : { kind: 'wavy' })
-  if (current && 'narrow' in current) {
+  if (current && (current.kind === 'wedge' || current.kind === 'hash')) {
     if (current.kind !== kind) return setMark(document, where, bond, { kind, narrow: current.narrow })
     return setMark(document, where, bond, current.narrow === 'begin' ? { kind, narrow: 'end' } : null)
   }

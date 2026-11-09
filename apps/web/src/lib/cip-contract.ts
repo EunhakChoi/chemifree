@@ -10,7 +10,11 @@
  * `stored` record the snapshot does not hold, or a warning, loss entry or diagnostic that does
  * not fit the items makes the whole reply unusable ("incompatible"), and the page shows no
  * label for it. A field the reader does not know is ignored at every level, as docs/CONTRACT.md
- * (Version transitions) allows within contract 1. Extend a list here in the same change that makes the service send the value.
+ * (Version transitions) allows within contract 1. The one exception is a `stored` record, which
+ * must equal the snapshot's own record key for key: it is the same record, so this is an identity
+ * check rather than a shape check, and both sides come from the same service, so a field added in
+ * contract 1 appears on both sides. Extend a list here in the same change that makes the
+ * service send the value.
  */
 import {
   ascending,
@@ -137,7 +141,11 @@ const RULES: readonly unknown[] = CIP_RULES
 /** Whether a state carries a ranking: the others carry none (and a descriptor only when assigned). */
 const ranked = (state: CipState) => state === 'assigned' || state === 'unknown' || state === 'unspecified'
 
-/** A `stored` field: the snapshot's own record for the item, or null where it holds none. */
+/**
+ * A `stored` field: the snapshot's own record for the item, or null where it holds none. It is an
+ * identity check, not a shape check: `value` must equal `record` key for key, so an unknown field
+ * in `value` fails the check where the rest of this reader ignores one.
+ */
 function storedFits<T>(value: unknown, record: T | null): value is T | null {
   return value === null ? record === null : record !== null && sameValue(value, record)
 }

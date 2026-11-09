@@ -7,6 +7,11 @@ import type { DocumentEditor } from '@/hooks/use-document-editor'
 import { stillApplicable } from '@/editor/commands'
 import { fragmentDisplayRuns, validDisplayLabel, validFragmentDisplayRuns, type Command, type DocumentView, type FragmentDisplayRun, type FragmentDisplayView } from '@/lib/document-contract'
 
+// Copies only the run fields this client knows: a reply may carry others, and requests refuse unknown fields.
+function knownFragmentRun(run: FragmentDisplayRun): FragmentDisplayRun {
+  return { text: run.text, script: run.script }
+}
+
 /** Explicit graph selection and anchor; display text is never parsed as chemistry. */
 export function FragmentDisplayPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
   const [text, setText] = useState('')
@@ -63,15 +68,15 @@ function FragmentTextEditor({ item, busy, submit }: { item: FragmentDisplayView;
 function FragmentRunEditor({ item, busy, submit }: { item: FragmentDisplayView; busy: boolean; submit: (commands: Command[]) => void }) {
   const id = useId()
   const original = fragmentDisplayRuns(item)
-  const [runs, setRuns] = useState<FragmentDisplayRun[]>(() => original.map((run) => ({ ...run })))
+  const [runs, setRuns] = useState<FragmentDisplayRun[]>(() => original.map((run) => knownFragmentRun(run)))
   const [composing, setComposing] = useState(false)
   const valid = validFragmentDisplayRuns(runs)
-  const unchanged = JSON.stringify(runs) === JSON.stringify(original)
+  const unchanged = JSON.stringify(runs) === JSON.stringify(original.map((run) => knownFragmentRun(run)))
   return <form aria-label={`Fragment runs at ${item.anchor}`} className="flex flex-col gap-2" onSubmit={(event) => {
     event.preventDefault()
     if (busy || composing || !valid || unchanged) return
     // Freeze the submitted value before the editor request queue can run.
-    const frozen = runs.map((run) => ({ ...run }))
+    const frozen = runs.map((run) => knownFragmentRun(run))
     submit([{ op: 'set_fragment_display_runs', instance: item.instance, anchor: item.anchor, runs: frozen }])
   }}>
     <p className="text-xs text-muted-foreground">Script changes appearance only. All runs use the drawing label style. Each run must be nonempty; together they must contain nonblank, single-line text within 128 UTF-8 bytes. Run boundaries are preserved and may split shaping; keep combining marks and emoji sequences together.</p>

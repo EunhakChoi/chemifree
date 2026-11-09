@@ -10,10 +10,12 @@
  * the service derives from them (editor/mark-gestures.ts), and shows the comparison
  * (editor/stereo-agreement.ts).
  *
- * The validators are strict on purpose: they accept exactly the values the service sends
- * today. A later mark kind (unknown, hollow, bold) or slot kind makes them refuse the whole
- * reply as incompatible, which is the safe failure: drawing such a bond as a plain line would
- * hide it. Extend the validator in the same change that makes the service send the new value.
+ * The validators fail closed on what they know: an unknown mark, configuration, slot or group
+ * kind, a wrong type or value, a missing field, or a record that does not fit the graph refuses
+ * the whole reply. A field the reader does not know is ignored at every level (docs/CONTRACT.md,
+ * "Version transitions"), even one that belongs to another variant (the editor reads a mark's `narrow` end only for a wedge or a hashed wedge). The exception is a stored record, which `sameValue` compares with the snapshot's own record key for key. An unknown bond style is
+ * refused rather than drawn as a plain line, which would hide it. Extend the validator when the
+ * service sends a new kind.
  */
 
 /** Which end of a bond a mark's narrow side is at. The bond's own `begin` and `end` never swap. */
@@ -111,7 +113,6 @@ export const NO_STEREO: Readonly<StereoView> = Object.freeze({ atoms: [], bonds:
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
-const hasOnly = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).every((key) => keys.includes(key))
 
 const BOND_ENDS: readonly unknown[] = ['begin', 'end']
 const TURNS: readonly unknown[] = ['anticlockwise', 'clockwise']
@@ -123,11 +124,11 @@ export function isStereoMark(value: unknown, order: string): value is StereoMark
   switch (value.kind) {
     case 'wedge':
     case 'hash':
-      return hasOnly(value, ['kind', 'narrow']) && BOND_ENDS.includes(value.narrow) && order === 'single'
+      return BOND_ENDS.includes(value.narrow) && order === 'single'
     case 'wavy':
-      return hasOnly(value, ['kind']) && order === 'single'
+      return order === 'single'
     case 'crossed':
-      return hasOnly(value, ['kind']) && order === 'double'
+      return order === 'double'
     default:
       return false
   }
@@ -147,14 +148,14 @@ export interface GraphBond {
  * bond's references atoms bonded to the right end.
  */
 export function isStereoView(value: unknown, atoms: ReadonlyArray<{ id: string }>, bonds: readonly GraphBond[]): value is StereoView {
-  if (!isRecord(value) || !hasOnly(value, ['atoms', 'bonds', 'groups']) || !Array.isArray(value.atoms) || !Array.isArray(value.bonds)) {
+  if (!isRecord(value) || !Array.isArray(value.atoms) || !Array.isArray(value.bonds)) {
     return false
   }
   const atomIds = new Set(atoms.map((atom) => atom.id))
   const neighbors = bondedAtoms(bonds)
   const centers = new Set<string>()
   for (const record of value.atoms as unknown[]) {
-    if (!isRecord(record) || !hasOnly(record, ['atom', 'configuration']) || typeof record.atom !== 'string' ||
+    if (!isRecord(record) || typeof record.atom !== 'string' ||
         !atomIds.has(record.atom) || centers.has(record.atom) || !isCenterConfiguration(record.configuration, neighbors.get(record.atom) ?? new Set())) {
       return false
     }
@@ -163,7 +164,7 @@ export function isStereoView(value: unknown, atoms: ReadonlyArray<{ id: string }
   const doubles = new Map(bonds.filter((bond) => bond.order === 'double').map((bond) => [bond.id, bond]))
   const configured = new Set<string>()
   for (const record of value.bonds as unknown[]) {
-    if (!isRecord(record) || !hasOnly(record, ['bond', 'configuration']) || typeof record.bond !== 'string' || configured.has(record.bond)) {
+    if (!isRecord(record) || typeof record.bond !== 'string' || configured.has(record.bond)) {
       return false
     }
     const bond = doubles.get(record.bond)
@@ -193,7 +194,7 @@ function isStereoGroups(value: unknown, records: StereoView['atoms']): value is 
   let absolute = false
   let previous = 0
   for (const group of value as unknown[]) {
-    if (!isRecord(group) || !hasOnly(group, ['id', 'kind', 'stored_number', 'number', 'label', 'members']) ||
+    if (!isRecord(group) ||
         typeof group.id !== 'string' || !/^e[1-9]\d*$/.test(group.id) || !GROUP_KINDS.includes(group.kind) ||
         !(group.stored_number === null || isInt32(group.stored_number)) || !Array.isArray(group.members) ||
         group.members.length === 0 || !ascending(group.members as string[])) {
@@ -240,19 +241,18 @@ function isCenterConfiguration(value: unknown, bonded: ReadonlySet<string>): val
   const explicit = named.filter((slot) => slot !== IMPLICIT_HYDROGEN && slot !== LONE_PAIR)
   const exact = bonded.size >= 3 && bonded.size <= 4 && explicit.length === bonded.size && explicit.every((slot) => bonded.has(slot))
   if (!exact) return false
-  if (value.kind === 'tetrahedral') return hasOnly(value, ['kind', 'neighbors', 'turn']) && TURNS.includes(value.turn)
-  return value.kind === 'unknown' && hasOnly(value, ['kind', 'neighbors'])
+  if (value.kind === 'tetrahedral') return TURNS.includes(value.turn)
+  return value.kind === 'unknown'
 }
 
 function isBondConfiguration(value: unknown, bond: GraphBond, neighbors: ReadonlyMap<string, ReadonlySet<string>>): value is BondConfiguration {
   if (!isRecord(value)) return false
-  if (value.kind === 'unknown') return hasOnly(value, ['kind'])
+  if (value.kind === 'unknown') return true
   // A reference is a bonded atom of its own end other than the double bond's partner, or the hydrogen.
   const reference = (slot: unknown, own: string, partner: string) =>
     slot === IMPLICIT_HYDROGEN || (typeof slot === 'string' && slot !== partner && (neighbors.get(own)?.has(slot) ?? false))
   return (
     value.kind === 'relative' &&
-    hasOnly(value, ['kind', 'begin_neighbor', 'end_neighbor', 'relation']) &&
     reference(value.begin_neighbor, bond.begin, bond.end) &&
     reference(value.end_neighbor, bond.end, bond.begin) &&
     RELATIONS.includes(value.relation)
@@ -332,7 +332,6 @@ export function isStereoNotes(value: unknown): value is StereoNote[] {
     value.every(
       (note) =>
         isRecord(note) &&
-        hasOnly(note, ['feature', 'source_path', 'disposition', 'reason', 'semantic_impact']) &&
         isNoteFeature(note.feature) &&
         typeof note.source_path === 'string' &&
         NOTE_SHAPES[note.feature].path.test(note.source_path) &&
@@ -427,7 +426,11 @@ export interface InspectedGraph {
   instances: readonly string[]
 }
 
-/** Same value whatever the order of an object's keys; an absent value equals nothing. */
+/**
+ * Same value whatever the order of an object's keys; an absent value equals nothing. It is an
+ * identity check (the `stored` record must equal the snapshot's own record key for key), not a
+ * shape check, so it is deliberately not relaxed.
+ */
 export function sameValue(a: unknown, b: unknown): boolean {
   const canonical = (value: unknown) =>
     JSON.stringify(value, (_key, item: unknown) =>
@@ -467,13 +470,12 @@ function labelDiffers(a: AtomConfiguration, b: AtomConfiguration): boolean {
 /** The part of a drawn entry both items share, or null when it is not one the service can send. */
 function readDrawn<T>(
   value: unknown,
-  keys: string[],
   instance: string,
   stored: T | null,
   isConfiguration: (candidate: unknown) => candidate is T,
   agree: (a: T, b: T) => boolean,
 ): { instance: string; configuration: T | null; reason: DrawnReason | null; agreement: Agreement } | null {
-  if (!isRecord(value) || !hasOnly(value, keys) || value.instance !== instance) return null
+  if (!isRecord(value) || value.instance !== instance) return null
   const { configuration, reason, agreement } = value
   if (configuration !== null && !isConfiguration(configuration)) return null
   if (reason !== null && !REASONS.includes(reason)) return null
@@ -483,16 +485,16 @@ function readDrawn<T>(
 }
 
 /**
- * Whether the items of a `chem.stereo` reply (`result` minus its snapshot) are exactly what the
- * service sends, and about `graph`: the instances are the snapshot's, atoms and bonds ascend
- * without repeats, each `stored` is the snapshot's own record (and every record of the snapshot
- * is an item), each instance has one entry in order, a drawn configuration fits the graph, a
- * configuration is null exactly when a reason is given, and the agreement and the label flag are
- * the ones the stored and drawn states decide. Any other reply is refused whole.
+ * Whether the items of a `chem.stereo` reply (`result` minus its snapshot) are what the service
+ * sends, apart from fields this reader does not know, and about `graph`: the instances are the
+ * snapshot's, atoms and bonds ascend without repeats, each `stored` is the snapshot's own record
+ * (and every record of the snapshot is an item), each instance has one entry in order, a drawn
+ * configuration fits the graph, a configuration is null exactly when a reason is given, and the
+ * agreement and the label flag are the ones the stored and drawn states decide. Any other reply
+ * is refused whole.
  */
 export function readStereoInspection(result: Record<string, unknown>, graph: InspectedGraph): StereoInspectionBody | null {
-  if (!hasOnly(result, ['snapshot', 'valence_model', 'stereogenicity_assessed', 'instances', 'atoms', 'bonds']) ||
-      typeof result.valence_model !== 'string' || result.stereogenicity_assessed !== false ||
+  if (typeof result.valence_model !== 'string' || result.stereogenicity_assessed !== false ||
       !Array.isArray(result.instances) || !Array.isArray(result.atoms) || !Array.isArray(result.bonds)) {
     return null
   }
@@ -505,7 +507,7 @@ export function readStereoInspection(result: Record<string, unknown>, graph: Ins
 
   const atoms: CenterInspection[] = []
   for (const entry of result.atoms as unknown[]) {
-    if (!isRecord(entry) || !hasOnly(entry, ['atom', 'stored', 'drawn']) || typeof entry.atom !== 'string' || !atomIds.has(entry.atom) ||
+    if (!isRecord(entry) || typeof entry.atom !== 'string' || !atomIds.has(entry.atom) ||
         !Array.isArray(entry.drawn) || entry.drawn.length !== expected.length) {
       return null
     }
@@ -515,7 +517,7 @@ export function readStereoInspection(result: Record<string, unknown>, graph: Ins
     const isCenter = (candidate: unknown): candidate is AtomConfiguration => isCenterConfiguration(candidate, around)
     const drawn: DrawnCenter[] = []
     for (const [i, item] of (entry.drawn as unknown[]).entries()) {
-      const read = readDrawn(item, ['instance', 'configuration', 'reason', 'agreement', 'label_differs'], expected[i], record, isCenter, centersAgree)
+      const read = readDrawn(item, expected[i], record, isCenter, centersAgree)
       const differs = record !== null && read?.configuration != null && labelDiffers(record, read.configuration)
       if (!read || !isRecord(item) || item.label_differs !== differs) return null
       drawn.push({ ...read, label_differs: differs })
@@ -525,7 +527,7 @@ export function readStereoInspection(result: Record<string, unknown>, graph: Ins
 
   const bonds: DoubleInspection[] = []
   for (const entry of result.bonds as unknown[]) {
-    if (!isRecord(entry) || !hasOnly(entry, ['bond', 'stored', 'drawn']) || typeof entry.bond !== 'string' ||
+    if (!isRecord(entry) || typeof entry.bond !== 'string' ||
         !Array.isArray(entry.drawn) || entry.drawn.length !== expected.length) {
       return null
     }
@@ -536,7 +538,7 @@ export function readStereoInspection(result: Record<string, unknown>, graph: Ins
     const isDouble = (candidate: unknown): candidate is BondConfiguration => isBondConfiguration(candidate, bond, bonded)
     const drawn: DrawnDouble[] = []
     for (const [i, item] of (entry.drawn as unknown[]).entries()) {
-      const read = readDrawn(item, ['instance', 'configuration', 'reason', 'agreement'], expected[i], record, isDouble, sameValue)
+      const read = readDrawn(item, expected[i], record, isDouble, sameValue)
       if (!read) return null
       drawn.push(read)
     }

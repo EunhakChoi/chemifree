@@ -132,6 +132,35 @@ export function stepSetting(field: NumericSetting, direction: 1 | -1): Edit {
   }
 }
 
+/** Whether `field` names a document setting; `DEFAULT_SETTINGS` holds one value for each. */
+function isSettingField(field: string): field is keyof DocumentSettings {
+  return Object.hasOwn(DEFAULT_SETTINGS, field)
+}
+
+/** Copies the setting `field` from `source` to `target` when `source` sets it. */
+function copySetting<K extends keyof DocumentSettings>(target: SettingsEdit, source: SettingsEdit, field: K) {
+  const value = source[field]
+  if (value !== undefined) target[field] = value
+}
+
+/**
+ * A copy of `edit` with only the document settings it names, in its own order. The service
+ * refuses unknown fields in a write, so a field this client does not know is dropped here; a
+ * reply with only known fields gives the same JSON.
+ */
+export function knownSettingsEdit(edit: SettingsEdit): SettingsEdit {
+  const known: SettingsEdit = {}
+  for (const field of Object.keys(edit)) {
+    if (isSettingField(field)) copySetting(known, edit, field)
+  }
+  return known
+}
+
+/** The `ui` a write sends: only the fields this client knows (the theme), so no other reply field is sent back. */
+export function knownUiPreferences(ui: PreferencesResponse['ui']): PreferencesChange['ui'] {
+  return { theme: ui.theme }
+}
+
 /**
  * The preferences `latest` becomes with the new-document settings `edit` names, storing only
  * what differs from the built-in defaults; null when nothing changes or a value is out of range.
@@ -139,7 +168,7 @@ export function stepSetting(field: NumericSetting, direction: 1 | -1): Edit {
 export function preferenceChange(latest: PreferencesResponse, edit: SettingsEdit): PreferencesChange | null {
   const fields = changed(latest.new_document_settings, edit)
   if (!fields || Object.keys(fields).length === 0) return null
-  return { ui: latest.ui, new_documents: differencesFromDefaults({ ...latest.new_document_settings, ...fields }) }
+  return { ui: knownUiPreferences(latest.ui), new_documents: differencesFromDefaults({ ...latest.new_document_settings, ...fields }) }
 }
 
 /** The preferences `latest` becomes with a new-document setting one step up or down. */
