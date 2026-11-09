@@ -476,6 +476,41 @@ test("a draft failure's error code and storage reason are read, and an unknown r
   await assert.rejects(client.get('doc-2'), { code: 'incompatible_response' })
 })
 
+/** The document list and the trash list share one `truncated` rule and differ only in the call that reads them. */
+const LISTS = [
+  ['document list', '/api/v1/documents', (client) => client.list()],
+  ['trash list', '/api/v1/trash', (client) => client.trash()],
+]
+/** A list reply with no documents, so that only its `truncated` member decides whether the reply is valid. */
+const listReply = (members) => ({ api_version: 'v1', documents: [], unreadable: [], ...members })
+
+for (const [list, path, read] of LISTS) {
+  test(`a ${list} keeps a truncated flag of true`, async () => {
+    const reply = listReply({ truncated: true })
+    service({ [`GET ${path}`]: [() => json(200, reply)] })
+    assert.deepEqual(await read(new DocumentClient()), reply)
+  })
+
+  test(`a ${list} accepts a truncated flag of false`, async () => {
+    const reply = listReply({ truncated: false })
+    service({ [`GET ${path}`]: [() => json(200, reply)] })
+    assert.deepEqual(await read(new DocumentClient()), reply)
+  })
+
+  test(`a ${list} from a service that predates the truncated flag is read without one`, async () => {
+    const reply = listReply({})
+    service({ [`GET ${path}`]: [() => json(200, reply)] })
+    assert.deepEqual(await read(new DocumentClient()), reply)
+  })
+
+  for (const value of ['yes', null, 1]) {
+    test(`a ${list} with truncated ${JSON.stringify(value)} is refused as an incompatible reply`, async () => {
+      service({ [`GET ${path}`]: [() => json(200, listReply({ truncated: value }))] })
+      await assert.rejects(read(new DocumentClient()), { code: 'incompatible_response' })
+    })
+  }
+}
+
 test('a re-read of a document reports a service that restarted before the read instead of its stored copy', async () => {
   const scripted = service({
     '/autosave': [() => json(200, document('doc-1'))],

@@ -2967,6 +2967,9 @@ pub struct DocumentListResponse {
     pub documents: Vec<DocumentSummary>,
     /// Stored entries that exist but could not be read as documents.
     pub unreadable: Vec<UnreadableDocument>,
+    /// True when the cap of MAX_LISTED_DOCUMENTS left stored documents unread, so the list is
+    /// incomplete and a title search cannot find the unread ones.
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -3040,6 +3043,9 @@ pub struct TrashListResponse {
     pub documents: Vec<TrashedSummary>,
     /// Trashed entries that exist but could not be read as documents.
     pub unreadable: Vec<UnreadableDocument>,
+    /// True when the cap of MAX_LISTED_DOCUMENTS left trashed documents unread, so the list
+    /// is incomplete.
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
