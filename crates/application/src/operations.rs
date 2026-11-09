@@ -2411,6 +2411,38 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         response
     }
 
+    /// Resolves a request's `time_limit_ms` and starts the clock of the computation it bounds.
+    /// A limit above the maximum is refused with the same diagnostic for every operation that
+    /// takes a time limit.
+    fn start_time_limit<'a>(
+        &self,
+        requested: Option<u64>,
+        cancel: &'a dyn Interrupt,
+    ) -> Result<(Budget<'a>, u64), Diagnostic> {
+        let limit_ms = match self.compute_limits.resolve(requested) {
+            Ok(limit_ms) => limit_ms,
+            Err(maximum) => {
+                let mut details = Map::new();
+                details.insert("maximum_ms".into(), maximum.into());
+                return Err(Diagnostic {
+                    code: ErrorCode::InvalidRequest.as_str(),
+                    severity: Severity::Error,
+                    message: format!("time_limit_ms is above the maximum of {maximum} ms."),
+                    path: Some("parameters.time_limit_ms".into()),
+                    details,
+                });
+            }
+        };
+        // Limits are capped far below what an `Instant` can add; a deadline that could not be
+        // formed would still stop the computation at once rather than never.
+        let now = Instant::now();
+        let deadline = Some(
+            now.checked_add(Duration::from_millis(limit_ms))
+                .unwrap_or(now),
+        );
+        Ok((Budget::new(cancel, deadline), limit_ms))
+    }
+
     fn dispatch(
         &self,
         known: &Known,
@@ -2547,27 +2579,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::ChemAromaticityConvert => match parameters::<AromaticityConversionParameters>(parameters_value) {
                 Ok(p) => {
-                    let limit_ms = match self.compute_limits.resolve(p.time_limit_ms) {
-                        Ok(limit_ms) => limit_ms,
-                        Err(maximum) => {
-                            let mut details = Map::new();
-                            details.insert("maximum_ms".into(), maximum.into());
-                            let mut reply = known.invalid(Diagnostic {
-                                code: ErrorCode::InvalidRequest.as_str(),
-                                severity: Severity::Error,
-                                message: format!("time_limit_ms is above the maximum of {maximum} ms."),
-                                path: Some("parameters.time_limit_ms".into()),
-                                details,
-                            });
+                    let (budget, limit_ms) = match self.start_time_limit(p.time_limit_ms, cancel) {
+                        Ok(started) => started,
+                        Err(refusal) => {
+                            let mut reply = known.invalid(refusal);
                             reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
                             return reply;
                         }
                     };
-                    // Limits are capped far below what an `Instant` can add; a deadline that could not be
-                    // formed would still stop the computation at once rather than never.
-                    let now = Instant::now();
-                    let deadline = Some(now.checked_add(Duration::from_millis(limit_ms)).unwrap_or(now));
-                    let budget = Budget::new(cancel, deadline);
                     let outcome = self.documents.convert_aromaticity(&p.document_id, request_id, p.expected_revision, p.to,
                         TransactionSelections { before: p.selection_before, after: p.selection_after },
                         Compute { interrupt: &budget, limit_ms, requested_ms: p.time_limit_ms });

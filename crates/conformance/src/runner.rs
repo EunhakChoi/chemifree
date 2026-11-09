@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use chemifree_application::{
-    Application, ApplicationError, DataRegistry, ProfileRecords, phase4_nist,
+    Application, ApplicationError, ComputeLimits, DataRegistry, ProfileRecords, phase4_nist,
 };
 use chemifree_providers::interchange_codec::LocalInterchangeCodec;
 use chemifree_providers::{
@@ -207,6 +207,12 @@ fn start(directory: &Path, fixture: Option<&DataFixture>) -> Result<LocalApplica
     preferences.prune_stale_temporaries();
     let application = Application::new(LocalCapabilities, repository)
         .with_image_decoder(chemifree_providers::png_image::EmbeddedPngDecoder)
+        // A case checks a deterministic work limit, which must not depend on how fast this build
+        // runs (a debug build is slower than release): the clock is at its cap, as a host setting.
+        .with_compute_limits(ComputeLimits {
+            default_time_ms: ComputeLimits::CAP_MS,
+            max_time_ms: ComputeLimits::CAP_MS,
+        })
         .with_interchange_codec(LocalInterchangeCodec)
         .with_ctfile_codec(V2000Codec)
         .with_smiles_codec(OpenSmilesCodec)
