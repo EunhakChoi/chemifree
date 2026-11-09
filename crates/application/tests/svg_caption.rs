@@ -88,7 +88,7 @@ fn sole_caption(layout: &DrawingLayout) -> &ObjectLayout {
             captions.len()
         );
     };
-    *caption
+    caption
 }
 
 /// One paint-list entry as `kind id`, so that an order test reads as a list of literal names.
