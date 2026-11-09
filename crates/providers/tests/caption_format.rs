@@ -1839,160 +1839,308 @@ fn shadow_is_strict_in_current_and_history_for_documents_and_drafts() {
     }
 }
 
-#[test]
-fn v16_through_v21_maximum_metadata_109_caption_edit_preserves_undo_redo_and_original_bytes() {
-    for version in [16, 17, 18, 19, 20, 21] {
-        for undone in [false, true] {
-            for draft in [false, true] {
-                let root = tempfile::tempdir().unwrap();
-                let repo = FileDocumentRepository::new(root.path());
-                let mut doc =
-                    Document::new(DocumentId::parse("caption-v16-budget").unwrap(), "Budget")
-                        .unwrap();
-                // All v16 metadata fields use their longest encoding, including the
-                // 18-character size float. v16 adds outline=false to these 154-byte runs.
-                let caption = |text: char| Caption {
-                    alignment: chemifree_domain::scene::CaptionAlignment::Center,
-                    anchor: Point::new(0.0, 0.0).unwrap(),
-                    runs: vec![
-                        CaptionRun {
-                            shadow: false,
-                            outline: false,
-                            underline: false,
-                            color: Some("#ABCDEF".into()),
-                            size_pt: Some(4.000_000_000_000_003_6),
-                            font: Some(chemifree_domain::settings::LabelFont::SansSerif),
-                            text: text.to_string().repeat(512),
-                            script: CaptionScript::Superscript,
-                            weight: Default::default(),
-                            style: chemifree_domain::scene::CaptionStyle::Italic,
-                        };
-                        32
-                    ],
-                };
-                let commands: Vec<_> = (0..109)
-                    .map(|_| Command::AddCaption {
-                        caption: caption('"'),
-                        parent: None,
-                        index: None,
-                    })
-                    .collect();
-                doc.apply(&commands).unwrap();
-                let commands: Vec<_> = (2..111)
-                    .map(|serial| Command::UpdateCaption {
-                        object: ObjectId::from_serial(serial).unwrap(),
-                        caption: caption('\\'),
-                    })
-                    .collect();
-                doc.apply(&commands).unwrap();
-                assert_eq!((doc.undo_depth(), doc.redo_depth()), (1, 0));
-                if undone {
-                    doc.undo().unwrap();
-                }
-                repo.save(&doc, None).unwrap();
-                if draft {
-                    repo.write_draft(&Draft {
-                        document: doc.clone(),
-                        base_revision: doc.revision(),
-                        saved_at_ms: 42,
-                    })
-                    .unwrap();
-                    repo.release_draft(doc.id());
-                }
-                let path = root.path().join(if draft {
-                    "drafts/caption-v16-budget.json"
-                } else {
-                    "documents/caption-v16-budget.json"
-                });
-                let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-                if version == 16 {
-                    strip_caption_shadows(&mut stored);
-                }
-                strip_label_weights(&mut stored);
-                // v18 already requires weight; v19 also requires style in every state.
-                restore_settings_fields(&mut stored, version);
-                stored["format_version"] = json!(version);
-                let original = serde_json::to_vec(&stored).unwrap();
-                fs::write(&path, &original).unwrap();
-                let mut loaded = if draft {
-                    let claimed = repo.claim_draft(doc.id()).unwrap().unwrap().unwrap();
-                    repo.prepare_draft_for_recovery(
-                        doc.id(),
-                        chemifree_application::DraftRecoveryTarget::Original {
-                            base_revision: claimed.base_revision,
-                        },
-                    )
-                    .unwrap();
-                    claimed.document
-                } else {
-                    repo.load(doc.id()).unwrap().unwrap()
-                };
-                assert_eq!(
-                    loaded, doc,
-                    "v16 undone={undone} draft={draft}: no history may be trimmed"
-                );
-                assert_eq!(
-                    fs::read(&path).unwrap(),
-                    original,
-                    "migration reads leave exact bytes untouched"
-                );
-                let expected = if undone { (0, 1) } else { (1, 0) };
-                assert_eq!((loaded.undo_depth(), loaded.redo_depth()), expected);
-                if undone {
-                    loaded.redo().unwrap();
-                } else {
-                    loaded.undo().unwrap();
-                }
-                assert_eq!(
-                    loaded.scene_objects()[1].2,
-                    &SceneObject::Caption(caption(if undone { '\\' } else { '"' }))
-                );
-                if undone {
-                    loaded.undo().unwrap();
-                } else {
-                    loaded.redo().unwrap();
-                }
-                assert_eq!(loaded.scene_objects(), doc.scene_objects());
-                // Actual v16 reservation is separate from the legacy admission allowance.
-                // All fixed envelopes and quote/backslash escaping are included in it.
-                let bound = CAPTION_CONTENT_WEIGHT_LIMIT
-                    + 1_024_000
-                    + CAPTION_HISTORY_WEIGHT_LIMIT * 6 / 5
-                    + 12_864;
-                assert!(loaded.persistence_weight() <= bound);
-                assert!(bound < MAX_DOCUMENT_BYTES as usize);
-                if draft {
-                    let next = Draft {
-                        document: loaded.clone(),
-                        base_revision: doc.revision(),
-                        saved_at_ms: 43,
-                    };
-                    repo.write_draft(&next).unwrap();
-                    assert_eq!(
-                        fs::read(repo.migrated_draft_path(doc.id(), version)).unwrap(),
-                        original
-                    );
-                    assert!(
-                        fs::metadata(&path).unwrap().len() <= loaded.persistence_weight() as u64
-                    );
-                    repo.release_draft(doc.id());
-                    assert_eq!(repo.claim_draft(doc.id()).unwrap(), Some(Ok(next)));
-                    repo.release_draft(doc.id());
-                } else {
-                    repo.save(&loaded, Some(doc.revision())).unwrap();
-                    assert_eq!(
-                        fs::read(repo.migrated_path(doc.id(), version)).unwrap(),
-                        original
-                    );
-                    assert!(
-                        fs::metadata(&path).unwrap().len() <= loaded.persistence_weight() as u64
-                    );
-                    assert_eq!(repo.load(doc.id()).unwrap(), Some(loaded));
-                }
-            }
-        }
+/// Runs one case of the maximal 109-caption edit contract at format `version`. `undone` saves
+/// after one undo, and `draft` checks the recovery draft instead of the saved document.
+fn maximal_109_caption_edit_case(version: u32, undone: bool, draft: bool) {
+    let root = tempfile::tempdir().unwrap();
+    let repo = FileDocumentRepository::new(root.path());
+    let mut doc =
+        Document::new(DocumentId::parse("caption-v16-budget").unwrap(), "Budget").unwrap();
+    // All v16 metadata fields use their longest encoding, including the
+    // 18-character size float. v16 adds outline=false to these 154-byte runs.
+    let caption = |text: char| Caption {
+        alignment: chemifree_domain::scene::CaptionAlignment::Center,
+        anchor: Point::new(0.0, 0.0).unwrap(),
+        runs: vec![
+            CaptionRun {
+                shadow: false,
+                outline: false,
+                underline: false,
+                color: Some("#ABCDEF".into()),
+                size_pt: Some(4.000_000_000_000_003_6),
+                font: Some(chemifree_domain::settings::LabelFont::SansSerif),
+                text: text.to_string().repeat(512),
+                script: CaptionScript::Superscript,
+                weight: Default::default(),
+                style: chemifree_domain::scene::CaptionStyle::Italic,
+            };
+            32
+        ],
+    };
+    let commands: Vec<_> = (0..109)
+        .map(|_| Command::AddCaption {
+            caption: caption('"'),
+            parent: None,
+            index: None,
+        })
+        .collect();
+    doc.apply(&commands).unwrap();
+    let commands: Vec<_> = (2..111)
+        .map(|serial| Command::UpdateCaption {
+            object: ObjectId::from_serial(serial).unwrap(),
+            caption: caption('\\'),
+        })
+        .collect();
+    doc.apply(&commands).unwrap();
+    assert_eq!((doc.undo_depth(), doc.redo_depth()), (1, 0));
+    if undone {
+        doc.undo().unwrap();
+    }
+    repo.save(&doc, None).unwrap();
+    if draft {
+        repo.write_draft(&Draft {
+            document: doc.clone(),
+            base_revision: doc.revision(),
+            saved_at_ms: 42,
+        })
+        .unwrap();
+        repo.release_draft(doc.id());
+    }
+    let path = root.path().join(if draft {
+        "drafts/caption-v16-budget.json"
+    } else {
+        "documents/caption-v16-budget.json"
+    });
+    let mut stored: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    if version == 16 {
+        strip_caption_shadows(&mut stored);
+    }
+    strip_label_weights(&mut stored);
+    // v18 already requires weight; v19 also requires style in every state.
+    restore_settings_fields(&mut stored, version);
+    stored["format_version"] = json!(version);
+    let original = serde_json::to_vec(&stored).unwrap();
+    fs::write(&path, &original).unwrap();
+    let mut loaded = if draft {
+        let claimed = repo.claim_draft(doc.id()).unwrap().unwrap().unwrap();
+        repo.prepare_draft_for_recovery(
+            doc.id(),
+            chemifree_application::DraftRecoveryTarget::Original {
+                base_revision: claimed.base_revision,
+            },
+        )
+        .unwrap();
+        claimed.document
+    } else {
+        repo.load(doc.id()).unwrap().unwrap()
+    };
+    assert_eq!(
+        loaded, doc,
+        "v{version} undone={undone} draft={draft}: no history may be trimmed"
+    );
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        original,
+        "migration reads leave exact bytes untouched"
+    );
+    let expected = if undone { (0, 1) } else { (1, 0) };
+    assert_eq!((loaded.undo_depth(), loaded.redo_depth()), expected);
+    if undone {
+        loaded.redo().unwrap();
+    } else {
+        loaded.undo().unwrap();
+    }
+    assert_eq!(
+        loaded.scene_objects()[1].2,
+        &SceneObject::Caption(caption(if undone { '\\' } else { '"' }))
+    );
+    if undone {
+        loaded.undo().unwrap();
+    } else {
+        loaded.redo().unwrap();
+    }
+    assert_eq!(loaded.scene_objects(), doc.scene_objects());
+    // Actual v16 reservation is separate from the legacy admission allowance.
+    // All fixed envelopes and quote/backslash escaping are included in it.
+    let bound =
+        CAPTION_CONTENT_WEIGHT_LIMIT + 1_024_000 + CAPTION_HISTORY_WEIGHT_LIMIT * 6 / 5 + 12_864;
+    assert!(loaded.persistence_weight() <= bound);
+    assert!(bound < MAX_DOCUMENT_BYTES as usize);
+    if draft {
+        let next = Draft {
+            document: loaded.clone(),
+            base_revision: doc.revision(),
+            saved_at_ms: 43,
+        };
+        repo.write_draft(&next).unwrap();
+        assert_eq!(
+            fs::read(repo.migrated_draft_path(doc.id(), version)).unwrap(),
+            original
+        );
+        assert!(fs::metadata(&path).unwrap().len() <= loaded.persistence_weight() as u64);
+        repo.release_draft(doc.id());
+        assert_eq!(repo.claim_draft(doc.id()).unwrap(), Some(Ok(next)));
+        repo.release_draft(doc.id());
+    } else {
+        repo.save(&loaded, Some(doc.revision())).unwrap();
+        assert_eq!(
+            fs::read(repo.migrated_path(doc.id(), version)).unwrap(),
+            original
+        );
+        assert!(fs::metadata(&path).unwrap().len() <= loaded.persistence_weight() as u64);
+        assert_eq!(repo.load(doc.id()).unwrap(), Some(loaded));
     }
 }
+
+/// Generates one `#[test]` per invocation, so each case runs as its own nextest process.
+macro_rules! case {
+    ($name:ident, $version:expr, $undone:expr, $draft:expr) => {
+        #[test]
+        fn $name() {
+            maximal_109_caption_edit_case($version, $undone, $draft);
+        }
+    };
+}
+
+case!(
+    v16_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    16,
+    false,
+    false
+);
+case!(
+    v16_undone_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    16,
+    true,
+    false
+);
+case!(
+    v16_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    16,
+    false,
+    true
+);
+case!(
+    v16_undone_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    16,
+    true,
+    true
+);
+
+case!(
+    v17_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    17,
+    false,
+    false
+);
+case!(
+    v17_undone_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    17,
+    true,
+    false
+);
+case!(
+    v17_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    17,
+    false,
+    true
+);
+case!(
+    v17_undone_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    17,
+    true,
+    true
+);
+
+case!(
+    v18_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    18,
+    false,
+    false
+);
+case!(
+    v18_undone_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    18,
+    true,
+    false
+);
+case!(
+    v18_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    18,
+    false,
+    true
+);
+case!(
+    v18_undone_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    18,
+    true,
+    true
+);
+
+case!(
+    v19_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    19,
+    false,
+    false
+);
+case!(
+    v19_undone_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    19,
+    true,
+    false
+);
+case!(
+    v19_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    19,
+    false,
+    true
+);
+case!(
+    v19_undone_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    19,
+    true,
+    true
+);
+
+case!(
+    v20_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    20,
+    false,
+    false
+);
+case!(
+    v20_undone_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    20,
+    true,
+    false
+);
+case!(
+    v20_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    20,
+    false,
+    true
+);
+case!(
+    v20_undone_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    20,
+    true,
+    true
+);
+
+case!(
+    v21_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    21,
+    false,
+    false
+);
+case!(
+    v21_undone_saved_document_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    21,
+    true,
+    false
+);
+case!(
+    v21_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    21,
+    false,
+    true
+);
+case!(
+    v21_undone_draft_maximal_109_caption_edit_keeps_undo_and_original_bytes,
+    21,
+    true,
+    true
+);
 
 fn strip_label_weights(value: &mut serde_json::Value) {
     match value {
