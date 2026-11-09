@@ -78,11 +78,10 @@ Recorded by the test agent for this change. Not re-run for this record.
 
 ## Not run or not covered
 
-- Browser smoke: not run for this record.
+- Browser checks run in the sandbox after the last edit, each green: `test:browser:stereo-manual`, `test:browser:scene-clipboard`, `web-caption-check`, `web-fragment-display-check`, `web-graphic-points-check`. The abbreviation and the other browser scripts were not run locally; CI runs the full set. A browser check of `web-abbreviation-check` times out locally even on a clean `origin/main`.
 - `remove_reference` (`components/document-workspace.tsx`) has no browser flow and no unit test. The caption and fragment-display builders have browser flows (`scripts/web-caption-check.mjs`, `scripts/web-fragment-display-check.mjs`) that create runs through the production forms. They do not feed a reply that carries an unknown field, so they do not show that such a field is dropped.
 - The known-fields rule is unit-tested for `setQueryNegated` (its list query test), the graphic endpoint move and the preference write. No test added in this change sends an extra field to the live service.
-- No test puts an extra key inside a `chem.stereo` `stored` entry. The value mismatch is tested. The CIP `stored` record is tested with an extra key (the end-to-end CIP test).
-- No test covers the editor's kind check on a mark's `narrow` end; it is a type-level narrowing, checked by the compiler only.
+- An extra key inside a stored `chem.stereo` center or double-bond record that the snapshot does not hold is refused and tested (the identity exception: `an extra field in a stored center that the snapshot does not hold` and the stored double-bond case). A key both hold is accepted. The CIP `stored` record is tested the same way in the end-to-end CIP test.
+- The editor's kind check on a mark's `narrow` end is covered by `a wedge asked of a bond whose mark carries a narrow end it does not read starts at the begin`; the mark-gesture and geometry call sites are checked by the compiler and the stereo browser check, not by a dedicated test.
 - Change-detection guards that compare with `JSON.stringify` (`editor/atom-edits.ts`, `editor/mark-gestures.ts`, and the spline, polygon, image and graphic-point forms) were left as they are. An unknown key in a reply only makes such a guard send one redundant request for an unchanged value.
 - `onlyKeys` (`document-contract.ts`, a subset check used for the clipboard payload ids) differs from `exactKeys` (the full key set), so it is not a duplicate of it.
-- The sandbox cannot run `scripts/web-client-check.mjs` to the end because of the read-only bind (see above).
