@@ -27,7 +27,7 @@
 - 릴리스 빌드에서 이슈 #127의 12–17초 circulant 사례 시간: 측정하지 않았다(디버그 빌드 비용일 수 있다).
 - 웹의 `stereogenic` 요청은 없고, 웹 변경은 주석뿐이다.
 
-**검증: 리드가 게이트 후 기록**
+**검증**
 
 - `npm run check`: 첫 푸시의 마지막 코드 수정 뒤 샌드박스에서 끝까지 실행했다. cargo 테스트 2436개 통과(2개 건너뜀), 클라이언트 테스트 통과, 적합성 118/118(적합성 보고서를 다시 기록했고 `compute-time-limit-refused`의 해시가 새로 바뀌었다), traceability 검사 통과.
 - 리뷰 라운드 변경(체크포인트, 제한 해석 공용 함수, 테스트)은 두 번째 전체 실행으로 검증했다. 그 기록은 리드가 PR 댓글에 남긴다.
@@ -65,7 +65,12 @@
 - 모델 id: 마크업과 기하가 바뀌므로 `chemifree-svg-1`에서 `chemifree-svg-2`로 올렸다. 동의 다이제스트에는 모델 id가 들어가지 않으며, 그래픽과 이미지가 없는 그림의 마크업은 바꾸지 않도록 설계했다.
 - 정정: 앞선 설계 초안은 원자 없이 그래픽이나 이미지만 있는 문서가 손실이 없어 `ok`가 된다고 적었다. 이 주장은 틀렸다. outcome은 손실이 하나라도 있으면 `partial`이다. 제목, 선택, 장면 참조, 장면 그룹은 동의 없이 보고되는 손실이므로, 이들이 있으면 원자가 없어도 `partial`이다. `ok`는 손실이 전혀 없을 때만이다.
 
-**검증: 리드가 게이트 후 기록**
+**검증** (기록 `docs/verification/p38b1-svg-scene-objects.md`)
+
+- PR #232는 병합했다(병합 커밋 `a8804bf3`, main CI 성공). 병합 전 `npm run check`가 끝까지 통과했다: cargo 테스트 2429개 통과(2개 건너뜀), 클라이언트 테스트 762개, 적합성 118/118, 추적 검사 ok. 그래픽·이미지 브라우저 검사 7종도 통과했다.
+- 리뷰: Codex 1건(그래픽 잉크 상자를 서식화된 값 기준으로 계산)과 독립 리뷰 8건을 모두 처리하거나 근거와 함께 기록했다(PR #232 댓글).
+- PR CI의 브라우저 단계가 한 번 실패했으나 이 변경과 무관한 대상 문서 초안 자동 저장 경쟁이었고(이슈 #233), 같은 헤드의 다음 실행은 통과했다.
+- 로컬에서 돌리지 않은 것: 뷰어에서의 픽셀 비교, 이미지 한도 근처의 매우 큰 응답.
 
 ## P38a SVG 도면 export
 
@@ -732,7 +737,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 113개(implemented 64, partial 13, unverified 3, not_implemented 33) · conformance 사례 118개(passed 118: accept 86·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
-이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
+이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, MODEL-03, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-05, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
 ## 다음 구현 단위 제안
 

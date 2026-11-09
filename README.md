@@ -52,7 +52,7 @@ saved as a tool setting. Its checks are written and unrun; see the
 [P34g record](docs/verification/p34g-kekule-ring.md) and
 [P34h record](docs/verification/p34h-attached-kekule-ring.md).
 
-Fusion, spiro, non-terminal replacement, aromatic-bond patterns, other sizes, abbreviation contraction/expansion and
+Fusion, spiro, non-terminal replacement, aromatic-bond patterns, other sizes, general abbreviation handling beyond the bounded terminal Et contraction/expansion (P34i) and
 molecular conformations remain unimplemented. P34 is in progress; the new checks are written
 but have not run in this implementation session. See the
 [ring contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a),
@@ -76,7 +76,7 @@ Documents are stored as `documents/<id>.json` in the data directory (recovery dr
 
 The **MOL and SDF** panel reads UTF-8 V2000 and V3000 files (the dialect is detected; collections become the drawing's stereo groups, with renumbering, merging and chiral-flag losses shown like other import losses) and previews a selected record, including conversion losses, before appending it as one undoable edit. It can preview and download the current drawing as MOL or SDF; a version control (V2000 default, V3000, Auto) is sent as the `ctab` key and is a choice of this page, not saved in the drawing, and the result says which dialect was written. When the export drops something that needs consent (stereo groups in V2000, stored centers in no group in V3000, configurations the marks do not show) the losses are listed with plain sentences and nothing is offered for download until they are accepted; a changed drawing or digest asks again. Refusals (a group member the marks do not derive, query atoms, S-groups, R-groups, 3D, reactions) are worded plainly and leave the drawing unchanged. The subset, safety limits, field handling and operation requests are described in [MOL and SDF](docs/CONTRACT.md#mol-and-sdf-subset); unsupported chemistry is refused rather than silently changed. Through `document.import` and `document.export` (HTTP, CLI, operation contract 1) a V3000 connection table is read (core atoms, bonds 1 to 4 with aromatic, charge, isotope, radical, wedge/hash/either bond marks with the configurations they show) and written (`ctab` `v3000` or `auto`), and a V2000 export writes the bond stereo column, which the V2000 reader now also reads (wedge, hash, either); `accepted_losses` is the consent for stereo a file cannot carry. Since P28b2 the V3000 `COLLECTION` entries `STEABS`, `STERAC<n>` and `STEREL<n>` map to and from the drawing's enhanced stereo groups (any 32-bit number as stated, the chiral flag written as 1 only when there is an absolute group, a stored center in no group asks consent, a member that is not a stored stereocenter refuses the file), and `format` accepts the `mol-v2000` and `mol-v3000` ids. Not implemented: V3000 query atoms and bonds, dative bonds, stereo groups in V2000 (a V2000 export asks consent to drop groups), SGroups, R-groups, 3D and reactions, atom parity on read (status: P28a, P28b1 and P28b2; the web choice is P28c, see the contract).
 
-Through HTTP/CLI `document.export`, `{ format: "cdxml" | "cdx", document_id, accepted_losses? }` exports a captured drawing as one page and fragment and returns its snapshot. It preserves supported wedge/hash/wavy/crossed marks; it invents no marks or CIP labels. Groups require every member to derive from the written drawing; omitted configurations/groups require digest-based consent. Group numbers outside 1–127 are renumbered with an informational loss. Written group members explicitly show enhanced-stereo indicators (`0445=true`), reported once as `enhanced_stereo_display` rendering normalization; the drawing stores no visibility setting, so roundtrip checks of configurations and groups exclude it. The existing rich-tree export and strict opaque-extension rules remain available. The web **CDXML and CDX export** panel now prepares either file, shows losses, and offers a download only after any required losses are explicitly accepted. Download rechecks the exact file and snapshot; changes to the drawing, format, consent or service invalidate the preview. CDX downloads contain binary bytes, not base64 text. P29 remains in progress pending P29g; this does not establish full stereo interchange. See [the bounded drawing profile](docs/CONTRACT.md#cdxml-interchange).
+Through HTTP/CLI `document.export`, `{ format: "cdxml" | "cdx", document_id, accepted_losses? }` exports a captured drawing as one page and fragment and returns its snapshot. It preserves supported wedge/hash/wavy/crossed marks; it invents no marks or CIP labels. Groups require every member to derive from the written drawing; omitted configurations/groups require digest-based consent. Group numbers outside 1–127 are renumbered with an informational loss. Written group members explicitly show enhanced-stereo indicators (`0445=true`), reported once as `enhanced_stereo_display` rendering normalization; the drawing stores no visibility setting, so roundtrip checks of configurations and groups exclude it. The existing rich-tree export and strict opaque-extension rules remain available. The web **CDXML and CDX export** panel now prepares either file, shows losses, and offers a download only after any required losses are explicitly accepted. Download rechecks the exact file and snapshot; changes to the drawing, format, consent or service invalidate the preview. CDX downloads contain binary bytes, not base64 text. P29 is done for this documented bounded profile; this does not establish full stereo interchange. See [the bounded drawing profile](docs/CONTRACT.md#cdxml-interchange).
 
 
 The **SMILES** panel keeps the line breaks of what is pasted, previews the atoms, bonds and losses of a string before appending it as one undoable edit (asking for acceptance only of losses that change the chemistry or drop text), and writes the drawing as recorded or canonical SMILES. Grammar, limits, error codes and what is refused are in [SMILES](docs/CONTRACT.md#smiles).
@@ -333,7 +333,7 @@ own styling. The shared HTTP/CLI edit, preferences, undo/replay, copy and recove
 paths carry it. Native v19 migrates earlier settings/history to normal and archives
 old bytes; bounded external exports report drawing-style loss. SVG measurements
 for italic include effective family, weight, size and viewport. P35 remains in
-progress. [P35k checks](docs/verification/p35k-label-style.md) are authored and
+progress. Historical: that was the status when this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). [P35k checks](docs/verification/p35k-label-style.md) are authored and
 unrun in this implementation session.
 
 
@@ -342,7 +342,7 @@ with measured per-run SVG rectangles and shared trim/pick/selection/fit bounds.
 Radical/attachment marks and caption styling stay independent; graph, stereo and
 coordinates are preserved. Settings and preferences share HTTP/CLI/UI and native
 v20 persistence; v1–19 migrate to false with exact old-byte archival. Existing
-external `drawing_settings` losses remain. P35 is still in progress. The added
+external `drawing_settings` losses remain. P35 is still in progress. Historical: that was the status when this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). The added
 checks (`npm run test:browser:label-underline`, client and Rust suites) are authored
 but were not executed in this implementation session.
 
@@ -359,7 +359,7 @@ P35n implements document `label_shadow` (default false): the P35i +1,+1 pt,
 group before foreground. Actual SVG ink bounds include translated outline and
 underline; state marks/captions and graph/stereo remain independent. Native v22
 strictly checks current/history and migrates v1–21 to false with exact archives.
-P35 remains `in_progress`. New browser/client/native checks are authored and
+P35 remains `in_progress`. Historical: that was the status when this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). New browser/client/native checks are authored and
 registered; tests, builds, cargo check and browser execution were intentionally
 not run in this implementation session. See [P35n record](docs/verification/p35n-label-shadow.md).
 
@@ -371,7 +371,7 @@ bounds; chemical exports retain the full graph and report display loss. Native
 v23 stores current/history metadata and preserves exact v1–22 bytes before
 replacement/recovery. General multistyle atom/abbreviation labels and fragment
 editing remain unsupported. P35 stays `in_progress`; execution and both required
-PR reviews are pending. See [P35o record](docs/verification/p35o-display-label.md).
+PR reviews are pending. Historical: that was the status when this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). See [P35o record](docs/verification/p35o-display-label.md).
 
 P35p adds an unverified bounded candidate for explicit display contraction of an
 existing connected acyclic neutral/default element fragment with one unmarked
@@ -387,7 +387,7 @@ stores current/history fragment maps; v1–23 migrate empty with exact-byte arch
 before replacement, and v25 refuses untouched. General nickname dictionaries,
 text-to-graph parsing and external label roundtrip remain unsupported. P35 stays
 `in_progress`; tests/build/browser execution and both reviews are pending.
-See [P35p record](docs/verification/p35p-fragment-display.md).
+Historical: that was the status when this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). See [P35p record](docs/verification/p35p-fragment-display.md).
 
 P35q is an unverified follow-up candidate for baseline/subscript/superscript runs
 on retained fragment displays. `set_fragment_display_runs` replaces explicit
@@ -398,7 +398,7 @@ the retained graph supplies scientific results. Native v25 strictly stores runs
 in current/history, migrates v24 text to baseline with exact document/draft
 archives before replacement/recovery, and refuses future v26 untouched. Existing
 full-graph export losses and clipboard/Cut/template restrictions remain binding.
-P35 remains `in_progress`; execution and both reviews are pending. See
+P35 remains `in_progress`; execution and both reviews are pending. Historical: that was the status when this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). See
 [P35q record](docs/verification/p35q-fragment-display-runs.md).
 
 P36a adds a bounded candidate for editing an existing line, arrow or rectangle's
