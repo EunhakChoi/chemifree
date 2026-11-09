@@ -5,6 +5,13 @@
 // What a pass establishes: every test(=NAME) in an override table that names package(...) and
 // binary(...) is a listed test of that package and binary. It does not establish that the override
 // is still needed.
+//
+// What is read: override filters of package(NAME), binary(NAME) and test(=NAME) predicates joined by &,
+// with | only inside parentheses; package and binary are plain names, optionally '='-prefixed. Refused,
+// by throwing: any other predicate or matcher form (~substring, /regex/, globs), a top-level |,
+// package() or binary() inside parentheses, unbalanced parentheses, and any test(=) mention the reader
+// does not take, since every mention in the config is counted. Comments are ignored. The listing uses
+// --workspace --locked with default features, as the nextest run in check:rust does.
 
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -20,11 +27,15 @@ const OVERRIDE_TABLE_HEADER = /^\s*\[\[\s*profile\.[^\]]*\.overrides\s*\]\]/
 const TABLE_HEADER = /^\s*\[/
 const FILTER_KEY = /^\s*filter\s*=\s*/
 const NAMES_EXACT_TEST = /\btest\(\s*=/
-const COMMENT_LINE = /^\s*#/
+const EXACT_TEST_MENTION = /\btest\(\s*=/g
 const OVERRIDES_KEY = /overrides"?\s*\]/
-const PACKAGE_PREDICATE = /\bpackage\(\s*=?\s*([^()\s]+)\s*\)/g
-const BINARY_PREDICATE = /\bbinary\(\s*=?\s*([^()\s]+)\s*\)/g
+// A package() or binary() argument is the text up to its closing parenthesis, which plainName
+// checks. A test(=) name is a run of characters that are neither space nor parentheses.
+const PACKAGE_PREDICATE = /\bpackage\(([^()]*)\)/g
+const BINARY_PREDICATE = /\bbinary\(([^()]*)\)/g
 const TEST_PREDICATE = /\btest\(\s*=\s*([^()\s]+)\s*\)/g
+// A plain name, optionally with a leading '=': the only package() and binary() forms that are read.
+const PLAIN_MATCHER = /^=?[A-Za-z0-9_-]+$/
 // A TOML string closes with the delimiter that opened it. A basic string is read only without a
 // backslash: its escapes would need decoding, which this reader does not do.
 const TOML_STRINGS = [
@@ -36,10 +47,12 @@ const TOML_STRINGS = [
 
 /**
  * One entry per override table whose filter names an exact test: the table's line in the config,
- * its package and binary (undefined when the filter has none), and its distinct test names.
- * package and binary are compared exactly, and a leading '=' on either is accepted. Tables whose
- * filter has no test(=) are not entries. Throws on any predicate besides package(), binary() and
- * test(=), on a second package or binary, and on a TOML string form this reader does not take.
+ * its package and binary (undefined when the filter has none), and one test name per test(=)
+ * mention, repeats included. package and binary must be plain names, optionally with a leading '=',
+ * and are compared exactly. Tables whose filter has no test(=) are not entries. Throws on any
+ * predicate besides package(), binary() and test(=), on any other matcher form, on a top-level |,
+ * on a package() or binary() inside parentheses, on unbalanced parentheses, on a second package or
+ * binary, and on a TOML string form this reader does not take.
  */
 export function parseOverrideFilters(tomlText) {
   return readOverrideTables(tomlText.split(/\r?\n/))
@@ -72,6 +85,34 @@ export function missingTests(filters, suites) {
   return [...new Set(problems)]
 }
 
+/**
+ * The number of test(= mentions in the TOML text, not counting comments: full lines, and the text
+ * from a '#' that starts a trailing comment. Every mention counts wherever it stands, so a mention
+ * that parseOverrideFilters does not read makes this number differ from the names it reads.
+ */
+export function countExactTestMentions(tomlText) {
+  return tomlText
+    .split(/\r?\n/)
+    .reduce((total, line) => total + [...withoutComment(line).matchAll(EXACT_TEST_MENTION)].length, 0)
+}
+
+/**
+ * The problems as messages when `filters`, the result of parseOverrideFilters(tomlText), do not
+ * account for the test(=) mentions in the config, or when none were read. Repeats count on both sides.
+ */
+export function unreadMentions(tomlText, filters) {
+  const mentioned = countExactTestMentions(tomlText)
+  const read = filters.reduce((total, filter) => total + filter.tests.length, 0)
+  if (read === 0) {
+    return [`nextest.toml mentions ${mentioned} test(=...) filters but none were read; nothing was checked`]
+  }
+  if (read !== mentioned) {
+    const message = `nextest.toml mentions ${mentioned} test(=...) filters but only ${read} were read`
+    return [`${message} (an override form this check does not read?)`]
+  }
+  return []
+}
+
 /** Each override table of the config lines, with the text of its filter string or null. */
 function readOverrideTables(lines) {
   const tables = []
@@ -92,7 +133,7 @@ function readOverrideTables(lines) {
       const value = readTomlString(lines, index, line.replace(FILTER_KEY, ''))
       table.text = value.text
       index = value.last
-    } else if (table !== null && !COMMENT_LINE.test(line) && NAMES_EXACT_TEST.test(line)) {
+    } else if (table !== null && NAMES_EXACT_TEST.test(withoutComment(line))) {
       throw new Error(`nextest.toml line ${index + 1}: override table names test(=...) outside a filter key`)
     }
   }
@@ -133,12 +174,64 @@ function overrideEntry(line, text) {
   if (!/^[\s&|()]*$/.test(unread)) {
     throw new Error(`nextest.toml line ${line}: filter has text this check does not read: ${JSON.stringify(unread.trim())}`)
   }
-  const packages = matchAll(text, PACKAGE_PREDICATE)
-  const binaries = matchAll(text, BINARY_PREDICATE)
+  refuseUnmodelledStructure(line, text)
+  const packages = matchAll(text, PACKAGE_PREDICATE).map((argument) => plainName(line, 'package', argument))
+  const binaries = matchAll(text, BINARY_PREDICATE).map((argument) => plainName(line, 'binary', argument))
   if (packages.length > 1 || binaries.length > 1) {
     throw new Error(`nextest.toml line ${line}: filter names more than one package() or binary()`)
   }
-  return { line, package: packages[0], binary: binaries[0], tests: [...new Set(matchAll(text, TEST_PREDICATE))] }
+  return { line, package: packages[0], binary: binaries[0], tests: matchAll(text, TEST_PREDICATE) }
+}
+
+/**
+ * Refuses boolean structure this check does not model: a top-level |, a package() or binary()
+ * inside parentheses, and unbalanced parentheses. Each predicate first becomes one letter, so the
+ * parentheses of a predicate do not count toward the depth.
+ */
+function refuseUnmodelledStructure(line, text) {
+  const shape = text.replace(PACKAGE_PREDICATE, 'P').replace(BINARY_PREDICATE, 'B').replace(TEST_PREDICATE, 'T')
+  let depth = 0
+  for (const char of shape) {
+    if (char === '(') {
+      depth += 1
+    } else if (char === ')') {
+      depth -= 1
+    } else if (char === '|' && depth === 0) {
+      throw new Error(`nextest.toml line ${line}: a top-level | in a filter that names test(=...) is not read by this check`)
+    } else if ((char === 'P' || char === 'B') && depth > 0) {
+      const predicate = char === 'P' ? 'package' : 'binary'
+      throw new Error(`nextest.toml line ${line}: ${predicate}(...) inside parentheses is not read by this check`)
+    }
+    if (depth < 0) throw new Error(`nextest.toml line ${line}: filter has unbalanced parentheses`)
+  }
+  if (depth !== 0) throw new Error(`nextest.toml line ${line}: filter has unbalanced parentheses`)
+}
+
+/** The name that a package() or binary() argument matches exactly. Any other matcher form throws. */
+function plainName(line, predicate, argument) {
+  const name = argument.trim()
+  if (!PLAIN_MATCHER.test(name)) {
+    const message = `${predicate}(${name}) is a matcher form this check does not read (plain names only)`
+    throw new Error(`nextest.toml line ${line}: ${message}`)
+  }
+  return name.replace(/^=/, '')
+}
+
+/** The line before the '#' that starts a trailing comment: a '#' outside a quoted string. */
+function withoutComment(line) {
+  let quote = null
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]
+    if (quote === null) {
+      if (char === '#') return line.slice(0, index)
+      if (char === '"' || char === "'") quote = char
+    } else if (char === quote) {
+      quote = null
+    } else if (char === '\\' && quote === '"') {
+      index += 1
+    }
+  }
+  return line
 }
 
 function matchAll(text, pattern) {
@@ -196,8 +289,9 @@ function listSuites() {
 
 function main() {
   try {
-    const filters = parseOverrideFilters(readFileSync(NEXTEST_CONFIG, 'utf8'))
-    const problems = missingTests(filters, listSuites())
+    const tomlText = readFileSync(NEXTEST_CONFIG, 'utf8')
+    const filters = parseOverrideFilters(tomlText)
+    const problems = [...unreadMentions(tomlText, filters), ...missingTests(filters, listSuites())]
     if (problems.length > 0) {
       for (const problem of problems) console.error(`- ${problem}`)
       console.error(`nextest overrides: ${problems.length} problem(s)`)

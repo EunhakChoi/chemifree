@@ -7,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
-import { missingTests, parseOverrideFilters } from './nextest-override-check.mjs'
+import { countExactTestMentions, missingTests, parseOverrideFilters, unreadMentions } from './nextest-override-check.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -57,6 +57,14 @@ function listedSuite(packageName, binaryName, testNames) {
 /** The parsed JSON of `cargo nextest list --message-format json` with the given suites. */
 function nextestList(...suites) {
   return { 'rust-suites': Object.fromEntries(suites.map((item) => [item['binary-id'], item])) }
+}
+
+/** A config with one override table, whose single-line filter is the given string. */
+function overrideConfig(filter) {
+  return `[[profile.default.overrides]]
+filter = "${filter}"
+threads-required = 4
+`
 }
 
 test('single-line and multi-line filters parse to their package, binary and test names', () => {
@@ -120,8 +128,140 @@ test('a test listed under another binary or another package is still a problem',
   ])
 })
 
-test('the real .config/nextest.toml parses to at least 30 exact test names', () => {
+test('test(=) mentions are counted outside full-line and trailing comments', () => {
+  const toml = `# test(=commented_out_on_its_own_line)
+[[profile.default.overrides]]
+filter = "package(chemifree-domain) & binary(substructure) & (test(=x) | test(=y))"
+threads-required = 4 # was test(=old)
+
+[[profile.default.overrides]]
+filter = "package(chemifree-api) & binary(http_disconnect) & test(=z)"
+`
+  assert.equal(countExactTestMentions(toml), 3)
+})
+
+test('an inline-array override is not read, and unreadMentions reports its mention', () => {
+  const toml = `[profile.default]
+overrides = [ { filter = "package(p) & binary(b) & test(=x)", threads-required = 4 } ]
+`
+  assert.deepEqual(parseOverrideFilters(toml), [])
+  assert.deepEqual(unreadMentions(toml, parseOverrideFilters(toml)), [
+    'nextest.toml mentions 1 test(=...) filters but none were read; nothing was checked',
+  ])
+})
+
+test('an override table with a literal-quoted key is not read, and unreadMentions reports its mention', () => {
+  const toml = `[[profile.default.'overrides']]
+filter = "package(p) & binary(b) & test(=x)"
+threads-required = 4
+`
+  assert.deepEqual(parseOverrideFilters(toml), [])
+  assert.deepEqual(unreadMentions(toml, parseOverrideFilters(toml)), [
+    'nextest.toml mentions 1 test(=...) filters but none were read; nothing was checked',
+  ])
+})
+
+test('a fully readable config has no unread mentions', () => {
+  assert.deepEqual(unreadMentions(SINGLE_AND_MULTI, parseOverrideFilters(SINGLE_AND_MULTI)), [])
+})
+
+test('an inline-array override beside a readable one is reported as unread', () => {
+  const toml = `${SINGLE_TABLE}
+[profile.default]
+overrides = [ { filter = "package(p) & binary(b) & test(=x)", threads-required = 4 } ]
+`
+  assert.deepEqual(unreadMentions(toml, parseOverrideFilters(toml)), [
+    'nextest.toml mentions 2 test(=...) filters but only 1 were read (an override form this check does not read?)',
+  ])
+})
+
+test('a config with only comments reports that nothing was checked', () => {
+  const toml = `# Exact test names in overrides go here.
+# [[profile.default.overrides]]
+`
+  assert.deepEqual(unreadMentions(toml, parseOverrideFilters(toml)), [
+    'nextest.toml mentions 0 test(=...) filters but none were read; nothing was checked',
+  ])
+})
+
+// Matcher forms other than plain names are refused, and the message names the predicate.
+const REFUSED_MATCHERS = [
+  {
+    name: 'a glob in package(...)',
+    filter: 'package(chemifree-*) & binary(http_disconnect) & test(=x)',
+    message: /package\(chemifree-\*\) is a matcher form this check does not read/,
+  },
+  {
+    name: 'a substring matcher in package(...)',
+    filter: 'package(~sub) & binary(http_disconnect) & test(=x)',
+    message: /package\(~sub\) is a matcher form this check does not read/,
+  },
+  {
+    name: 'a regex in binary(...)',
+    filter: 'package(chemifree-api) & binary(/re/) & test(=x)',
+    message: /binary\(\/re\/\) is a matcher form this check does not read/,
+  },
+]
+
+for (const { name, filter, message } of REFUSED_MATCHERS) {
+  test(`refuses ${name}`, () => {
+    assert.throws(() => parseOverrideFilters(overrideConfig(filter)), message)
+  })
+}
+
+test('a package name with a leading = is read as the plain name', () => {
+  const toml = overrideConfig(`package(=chemifree-api) & binary(http_disconnect) & test(=${CLOSING_TEST})`)
+  assert.deepEqual(parseOverrideFilters(toml), [
+    { line: 1, package: 'chemifree-api', binary: 'http_disconnect', tests: [CLOSING_TEST] },
+  ])
+})
+
+// Boolean structure this check does not model is refused, and the message names that structure.
+const UNMODELLED_STRUCTURE = [
+  {
+    name: 'a top-level | beside test(=) names',
+    filter: 'package(a) & binary(b) & test(=x) | test(=y)',
+    message: /top-level \|/,
+  },
+  {
+    name: 'package(...) inside parentheses',
+    filter: 'binary(b) & (package(a) & test(=x))',
+    message: /package\(\.\.\.\) inside parentheses/,
+  },
+  {
+    name: 'an unclosed parenthesis',
+    filter: 'package(a) & binary(b) & (test(=x)',
+    message: /unbalanced parentheses/,
+  },
+  {
+    name: 'an extra closing parenthesis',
+    filter: 'package(a) & binary(b) & test(=x))',
+    message: /unbalanced parentheses/,
+  },
+]
+
+for (const { name, filter, message } of UNMODELLED_STRUCTURE) {
+  test(`refuses ${name}`, () => {
+    assert.throws(() => parseOverrideFilters(overrideConfig(filter)), message)
+  })
+}
+
+test('a trailing comment that names test(=) on another key is ignored', () => {
+  const toml = `[[profile.default.overrides]]
+filter = "package(chemifree-api) & binary(http_disconnect) & test(=${CLOSING_TEST})"
+threads-required = 4 # was test(=old)
+`
+  const filters = parseOverrideFilters(toml)
+  assert.deepEqual(filters, [{ line: 1, package: 'chemifree-api', binary: 'http_disconnect', tests: [CLOSING_TEST] }])
+  assert.equal(countExactTestMentions(toml), 1)
+  assert.deepEqual(unreadMentions(toml, filters), [])
+})
+
+test('the real .config/nextest.toml reads every exact test name it mentions', () => {
   const text = readFileSync(path.join(ROOT, '.config', 'nextest.toml'), 'utf8')
-  const count = parseOverrideFilters(text).reduce((total, filter) => total + filter.tests.length, 0)
-  assert.ok(count >= 30, `expected at least 30 exact test names, found ${count}`)
+  const mentioned = countExactTestMentions(text)
+  // Without this, a config with no mentions would pass the equality below for the wrong reason.
+  assert.ok(mentioned > 0, 'the real config mentions at least one test(=) name')
+  const names = parseOverrideFilters(text).flatMap((filter) => filter.tests)
+  assert.equal(names.length, mentioned, 'every test(=) mention in the real config is read')
 })
