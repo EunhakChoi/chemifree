@@ -1717,6 +1717,25 @@ export interface InterchangeExport {
   losses: CtLoss[]
 }
 
+/** The picture's canvas, in pt. */
+export interface SvgViewBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** An SVG picture bound to the exact snapshot the service wrote. It is a picture, not an interchange file. */
+export interface SvgExport {
+  content: string
+  media_type: 'image/svg+xml'
+  view_box: SvgViewBox
+  font_table: string
+  model: string
+  snapshot: DocumentView
+  losses: CtLoss[]
+}
+
 export interface InterchangeInput {
   format: InterchangeFormat
   source: string
@@ -2067,6 +2086,7 @@ function drawingExportReply(value: unknown, request: string): {
   result: Record<string, unknown>
   losses: CtLoss[]
   revision: number
+  model: string | undefined
 } {
   const incompatible = () => new ApiError('incompatible_response', 'The service returned an incompatible drawing export.', 200)
   if (!isRecord(value) || value.contract !== 1 || value.envelope !== 'operation_result' ||
@@ -2099,7 +2119,21 @@ function drawingExportReply(value: unknown, request: string): {
       !Array.isArray(value.loss_report) || !value.loss_report.every(isDrawingExportLoss)) {
     throw incompatible()
   }
-  return { result: value.result, losses: value.loss_report, revision: value.document_revision }
+  return {
+    result: value.result, losses: value.loss_report, revision: value.document_revision,
+    model: typeof value.model_id === 'string' ? value.model_id : undefined,
+  }
+}
+
+/** Returns a fresh `{ x, y, width, height }` copy of a valid view box, or undefined. Unknown fields are not copied. */
+function svgViewBox(value: unknown): SvgViewBox | undefined {
+  if (!isRecord(value)) return undefined
+  const { x, y, width, height } = value
+  if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(width) || !isFiniteNumber(height) ||
+      width < 0 || height < 0) {
+    return undefined
+  }
+  return { x, y, width, height }
 }
 
 function clipboardIncompatible(): ApiError {
@@ -3274,6 +3308,36 @@ export class DocumentClient {
       throw new ApiError('incompatible_response', 'The export used a different drawing or revision.', 200)
     }
     return { content: result.content, format, snapshot, losses: reply.losses }
+  }
+
+  /** Writes the editable drawing as a bounded SVG picture. Its graph is not machine-readable, and it cannot be imported back. */
+  async exportSvg(documentId: string, acceptedLosses?: string): Promise<SvgExport> {
+    if (acceptedLosses !== undefined && !/^[a-f0-9]{64}$/.test(acceptedLosses)) {
+      throw new ApiError('invalid_request', 'The export loss consent digest is invalid.', 0)
+    }
+    const request = requestId()
+    const reply = drawingExportReply(await this.write('/api/v1/operations', {
+      contract: 1, request_id: request, profile: 'preserve-semantics', operation: 'document.export',
+      parameters: {
+        format: 'svg', document_id: documentId,
+        ...(acceptedLosses === undefined ? {} : { accepted_losses: acceptedLosses }),
+      },
+    }, 'reload'), request)
+    const { result, model } = reply
+    const viewBox = svgViewBox(result.view_box)
+    if (typeof result.content !== 'string' || result.content.length === 0 || result.media_type !== 'image/svg+xml' ||
+        viewBox === undefined || typeof result.font_table !== 'string' || result.font_table.length === 0 ||
+        model === undefined || model.length === 0 || !isRecord(result.snapshot)) {
+      throw new ApiError('incompatible_response', 'The service returned an invalid SVG drawing export.', 200)
+    }
+    const snapshot = DocumentClient.document({ api_version: API_VERSION, ...result.snapshot }).document
+    if (snapshot.id !== documentId || snapshot.revision !== reply.revision) {
+      throw new ApiError('incompatible_response', 'The export used a different drawing or revision.', 200)
+    }
+    return {
+      content: result.content, media_type: 'image/svg+xml', view_box: viewBox,
+      font_table: result.font_table, model, snapshot, losses: reply.losses,
+    }
   }
 
   async exportCt(

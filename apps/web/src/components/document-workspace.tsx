@@ -93,6 +93,7 @@ import { DocumentStyleButton, PreferencesButton } from '@/components/style-setti
 import { CdxmlImport, InterchangeCreationNotice } from '@/components/cdxml-import'
 import { CtfilePanel } from '@/components/ctfile-panel'
 import { InterchangeExportPanel } from '@/components/interchange-export-panel'
+import { SvgExportPanel } from '@/components/svg-export-panel'
 import { NativeClipboardPanel } from '@/components/native-clipboard-panel'
 import { UserTemplatePanel } from '@/components/user-template-panel'
 import { CaptionPanel } from '@/components/caption-panel'
@@ -948,6 +949,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <UserTemplatePanel key={`templates-${document.id}-${editor.serviceGeneration}`} document={document} editor={editor} activePlacement={activePlacement} />
           <CtfilePanel key={`ctfile-${document.id}`} document={document} editor={editor} />
           <InterchangeExportPanel key={`interchange-export-${document.id}`} document={document} editor={editor} />
+          <SvgExportPanel key={`svg-export-${document.id}`} document={document} editor={editor} />
           <SmilesPanel key={`smiles-${document.id}`} document={document} editor={editor} />
           <PropertiesPanel document={document} editor={editor} />
           <AromaticityPanel document={document} editor={editor} />

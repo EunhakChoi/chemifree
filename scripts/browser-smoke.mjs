@@ -3574,6 +3574,136 @@ step = 'after short_wide_bond_is_selectable'
   results.interchange_export_service_generation = true
 }
 
+// Drawing export as an SVG picture: a plain drawing is written without consent, stored stereo and
+// groups need acceptance first, and neither a stale consent nor a delayed reply downloads a file.
+{
+  step = 'SVG drawing export consent, stale guards and download'
+  const build = async (key, commands) => {
+    const created = await apiWrite('/api/v1/documents', { request_id: `svg-${key}-create`, title: `SVG ${key}` })
+    const id = created.body.document.id
+    const drawn = await apiWrite(`/api/v1/documents/${id}/transactions`, {
+      request_id: `svg-${key}-draw`, expected_revision: 0, commands,
+    })
+    assert.equal(drawn.status, 200, JSON.stringify(drawn.body))
+    return { id, drawing: drawn.body }
+  }
+  const open = async (id) => {
+    await page.reload()
+    await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+    return page.getByRole('complementary', { name: 'SVG drawing export' })
+  }
+
+  // A plain C-C drawing needs no consent, and its picture reports the chemical graph loss.
+  const plain = await build('plain', [
+    { op: 'add_atom', element: 'C', position: { x: 100, y: 100 } },
+    { op: 'add_atom', element: 'C', position: { x: 126, y: 115 }, bond_to: { atom: '$0', order: 'single' } },
+  ])
+  let panel = await open(plain.id)
+  const note = panel.getByTestId('svg-export-note')
+  assert.match(await note.textContent(), /not machine-readable/)
+  assert.match(await note.textContent(), /not embedded/)
+  const before = (await api(`/api/v1/documents/${plain.id}`)).document
+  await panel.getByRole('button', { name: 'Preview SVG drawing', exact: true }).click()
+  await panel.getByRole('button', { name: 'Download SVG', exact: true }).waitFor()
+  assert.equal(await panel.getByTestId('svg-export-offer').count(), 0, 'a plain drawing needs no loss acceptance')
+  await panel.getByTestId('svg-export-written').locator('[data-feature="chemical_graph"]').waitFor()
+  const downloadReady = page.waitForEvent('download')
+  await panel.getByRole('button', { name: 'Download SVG', exact: true }).click()
+  const svgFile = await downloadReady
+  assert.equal(svgFile.suggestedFilename(), 'chemifree.svg')
+  const svgPath = join(work, 'svg-plain.svg')
+  await svgFile.saveAs(svgPath)
+  const svgText = readFileSync(svgPath, 'utf8')
+  assert.ok(svgText.startsWith('<?xml'), 'the download starts with an XML declaration')
+  assert.ok(svgText.includes('<svg'), 'the download contains an svg element')
+  assert.deepEqual((await api(`/api/v1/documents/${plain.id}`)).document, before, 'export changes no drawing')
+  results.svg_export_download = true
+
+  // Stored stereo and an absolute group are not drawn in SVG, so the offer names them before any download.
+  const stereo = await build('stored-only', [
+    { op: 'add_atom', element: 'C', position: { x: 100, y: 100 } },
+    { op: 'add_atom', element: 'F', position: { x: 100, y: 70 }, bond_to: { atom: '$0', order: 'single' } },
+    { op: 'add_atom', element: 'Cl', position: { x: 126, y: 115 }, bond_to: { atom: '$0', order: 'single' } },
+    { op: 'add_atom', element: 'Br', position: { x: 74, y: 115 }, bond_to: { atom: '$0', order: 'single' } },
+    { op: 'set_bond_mark', bond: '$2', mark: { kind: 'wedge', narrow: 'begin' } },
+    { op: 'set_configuration_from_drawing', atoms: ['$0'] },
+    { op: 'create_stereo_group', kind: 'absolute', atoms: ['$0'], number: null },
+    { op: 'set_bond_mark', bond: '$2', mark: null },
+  ])
+  panel = await open(stereo.id)
+  await panel.getByRole('button', { name: 'Preview SVG drawing', exact: true }).click()
+  const offer = panel.getByTestId('svg-export-offer')
+  await offer.waitFor()
+  await offer.locator('[data-feature="stereo_configuration"]').waitFor()
+  await offer.locator('[data-feature="stereo_group"]').waitFor()
+  assert.equal(await panel.getByRole('button', { name: /^Download / }).count(), 0, 'no download before loss consent')
+  await offer.getByRole('button', { name: 'Accept these losses and preview SVG', exact: true }).click()
+  await panel.getByRole('button', { name: 'Download SVG', exact: true }).waitFor()
+
+  // A recheck with a changed digest offers the losses again and saves nothing.
+  let changedDigest = false
+  const staleDigest = async (route) => {
+    const request = route.request().postDataJSON()
+    if (changedDigest || request?.operation !== 'document.export' || request.parameters.document_id !== stereo.id || request.parameters.accepted_losses === undefined) return route.continue()
+    changedDigest = true
+    await route.continue({ postData: JSON.stringify({ ...request, parameters: { ...request.parameters, accepted_losses: '0'.repeat(64) } }) })
+  }
+  await page.route('**/api/v1/operations', staleDigest)
+  let unexpectedDownloads = 0
+  const countDownload = () => { unexpectedDownloads += 1 }
+  page.on('download', countDownload)
+  // A download that comes before the offer is the failure this case guards, so the two outcomes race.
+  const staleOutcome = Promise.race([
+    page.waitForEvent('download').then(() => 'downloaded'),
+    offer.getByText('The losses changed since you accepted them. Review them again.', { exact: true }).waitFor().then(() => 'offer'),
+  ])
+  await panel.getByRole('button', { name: 'Download SVG', exact: true }).click()
+  assert.equal(await staleOutcome, 'offer', 'stale consent never downloads a file')
+  assert.equal(unexpectedDownloads, 0, 'stale consent never downloads a file')
+  assert.equal(await panel.getByRole('button', { name: 'Download SVG', exact: true }).count(), 0, 'the stale export is not offered for download')
+  await page.unroute('**/api/v1/operations', staleDigest)
+  page.off('download', countDownload)
+
+  // A recheck answered for the drawing before an edit is refused, and no file is saved.
+  panel = await open(plain.id)
+  await panel.getByRole('button', { name: 'Preview SVG drawing', exact: true }).click()
+  await panel.getByRole('button', { name: 'Download SVG', exact: true }).waitFor()
+  let arrive
+  const arrived = new Promise((resolve) => { arrive = resolve })
+  let release
+  const released = new Promise((resolve) => { release = resolve })
+  const holdExport = async (route) => {
+    const request = route.request().postDataJSON()
+    if (request?.operation !== 'document.export' || request.parameters.document_id !== plain.id || request.parameters.format !== 'svg') return route.continue()
+    const response = await route.fetch()
+    arrive()
+    await released
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/v1/operations', holdExport)
+  unexpectedDownloads = 0
+  page.on('download', countDownload)
+  await panel.getByRole('button', { name: 'Download SVG', exact: true }).click()
+  await arrived
+  await tool('Select and move')
+  const point = await atomScreen(plain.drawing, 'a2')
+  await page.mouse.click(point.x, point.y)
+  const edit = page.waitForResponse((response) => response.url().endsWith(`/documents/${plain.id}/transactions`) && response.request().method() === 'POST')
+  await page.getByRole('button', { name: 'Increase charge' }).click()
+  assert.equal((await edit).status(), 200)
+  await page.getByLabel('Revision 2').waitFor()
+  const settled = Promise.race([
+    page.waitForEvent('download').then(() => 'downloaded'),
+    panel.getByRole('alert').filter({ hasText: 'The drawing or service changed. Preview the export again.' }).waitFor().then(() => 'refused'),
+  ])
+  release()
+  assert.equal(await settled, 'refused', 'a delayed pre-edit result is refused, not downloaded')
+  assert.equal(unexpectedDownloads, 0, 'a delayed pre-edit result cannot download')
+  await page.unroute('**/api/v1/operations', holdExport)
+  page.off('download', countDownload)
+  results.svg_export_consent_and_stale_guards = true
+}
+
 // SMILES text keeps its line breaks, previews before anything changes, asks for consent only for
 // losses that need it, and never offers a result for a form or drawing it was not made for.
 {
