@@ -648,6 +648,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     Stage::Scan,
                     Stop::RequestLimit {
                         limit: limits.request_nodes,
+                        used: found.nodes,
                     },
                     revision,
                     checker.size(),
@@ -805,6 +806,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Stage::Centers,
                 Stop::RequestLimit {
                     limit: limits.request_nodes,
+                    used,
                 },
             ));
         }
@@ -828,6 +830,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     Stage::Bonds,
                     Stop::RequestLimit {
                         limit: left.request_nodes,
+                        used: spent,
                     },
                 ));
             }
@@ -849,7 +852,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         limit_ms: u64,
     ) -> OperationResponse {
         match stop {
-            Stop::RequestLimit { limit } => {
+            Stop::RequestLimit { limit, used } => {
                 let (parameter, message) = match stage {
                     Stage::Scan => (
                         "scope",
@@ -873,6 +876,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 };
                 let mut details = Map::new();
                 details.insert("limit".into(), limit.into());
+                details.insert("nodes_used".into(), used.into());
                 details.insert("request_limit".into(), limits.request_nodes.into());
                 details.insert("items".into(), items.into());
                 details.insert("item_limit".into(), limits.item_nodes.into());

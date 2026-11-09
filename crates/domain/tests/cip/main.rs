@@ -592,12 +592,13 @@ fn the_request_cap_stops_the_request_and_does_not_depend_on_the_order() {
         request_nodes: one_item * 2 - 1,
     };
     for order in [[1, 2], [2, 1]] {
-        assert_eq!(
-            run(&built, &order, limits).err(),
-            Some(Stop::RequestLimit {
-                limit: limits.request_nodes
-            }),
-            "order {order:?}"
+        let stop = run(&built, &order, limits).err();
+        assert!(
+            matches!(
+                stop,
+                Some(Stop::RequestLimit { limit, .. }) if limit == limits.request_nodes
+            ),
+            "order {order:?}: {stop:?}"
         );
     }
     let enough = Limits {
@@ -776,12 +777,13 @@ fn many_centers_refused_after_a_large_expansion_still_hit_the_request_cap() {
     };
     for order in [[0, 1, 2, 3], [3, 2, 1, 0]] {
         let atoms: Vec<usize> = order.iter().map(|&i| centers[i]).collect();
-        assert_eq!(
-            run(&built, &atoms, limits).err(),
-            Some(Stop::RequestLimit {
-                limit: limits.request_nodes
-            }),
-            "four refused items of {} nodes each, order {order:?}",
+        let stop = run(&built, &atoms, limits).err();
+        assert!(
+            matches!(
+                stop,
+                Some(Stop::RequestLimit { limit, .. }) if limit == limits.request_nodes
+            ),
+            "four refused items of {} nodes each, order {order:?}: {stop:?}",
             alone.nodes
         );
     }

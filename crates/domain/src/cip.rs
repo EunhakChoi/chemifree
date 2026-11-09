@@ -425,6 +425,8 @@ pub enum Stop {
     /// The items together materialized more nodes than [`Limits::request_nodes`].
     RequestLimit {
         limit: usize,
+        /// The nodes counted when the limit was crossed, so it is greater than `limit`.
+        used: usize,
     },
     Interrupted(Interrupted),
 }
@@ -432,7 +434,7 @@ pub enum Stop {
 impl fmt::Display for Stop {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::RequestLimit { limit } => {
+            Self::RequestLimit { limit, .. } => {
                 write!(
                     formatter,
                     "the request needs more than {limit} digraph nodes"
@@ -480,6 +482,7 @@ fn charge(used: &mut usize, nodes: usize, limits: Limits) -> Result<(), Stop> {
     if *used > limits.request_nodes {
         return Err(Stop::RequestLimit {
             limit: limits.request_nodes,
+            used: *used,
         });
     }
     Ok(())
