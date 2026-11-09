@@ -27,11 +27,13 @@
 - 릴리스 빌드에서 이슈 #127의 12–17초 circulant 사례 시간: 측정하지 않았다(디버그 빌드 비용일 수 있다).
 - 웹의 `stereogenic` 요청은 없고, 웹 변경은 주석뿐이다.
 
-**검증: 리드가 게이트 후 기록**
+**검증**
 
-- `npm run check`: 첫 푸시의 마지막 코드 수정 뒤 샌드박스에서 끝까지 실행했다. cargo 테스트 2436개 통과(2개 건너뜀), 클라이언트 테스트 통과, 적합성 118/118(적합성 보고서를 다시 기록했고 `compute-time-limit-refused`의 해시가 새로 바뀌었다), traceability 검사 통과.
-- 리뷰 라운드 변경(체크포인트, 제한 해석 공용 함수, 테스트)은 두 번째 전체 실행으로 검증했다. 그 기록은 리드가 PR 댓글에 남긴다.
-- 브라우저 스모크 검사는 로컬에서 돌리지 않았고 CI에 맡긴다. 웹 빌드는 `npm run check` 안에서 돌았다.
+- PR #234는 병합했다(병합 커밋 `012b092a`, main CI 성공). PR CI의 check와 browser가 모두 통과했다(head `07abfc00`).
+- `npm run check`: 첫 푸시의 마지막 코드 수정 뒤 샌드박스에서 끝까지 실행했다(cargo 테스트 2436개 통과, 2개 건너뜀). 리뷰 라운드 뒤 두 번째 전체 실행이 종료 코드 0으로 끝났다: cargo 테스트 2439개 통과(2개 건너뜀), 클라이언트 테스트 실패 0, 적합성 118/118(`compute-time-limit-refused`의 해시는 적합성 보고서를 다시 기록해 바뀌었다), traceability 검사 통과. 웹 빌드는 `npm run check` 안에서 돌았다.
+- 리뷰: Codex 2건(모두 P2)은 모두 수정했다. 독립 리뷰 9건 중 5건(#1–#4, #7)은 수정했고, #5와 #6은 수용해 기록했으며, #8과 #9는 바꾸지 않았다. 기록은 PR #234 댓글("Review record")에 있다. 리뷰 라운드 변경(체크포인트, 제한 해석 공용 함수 `Application::start_time_limit`, 테스트)은 두 번째 전체 실행으로 검증했다.
+- 행동 변화(`time_limit_ms`가 없는 요청에 5초 기본 시계)는 병합 전 소유자가 승인했다.
+- 브라우저 스모크 검사는 로컬에서 돌리지 않았고, PR CI의 browser 단계가 실행해 통과했다.
 
 ## P38b1 SVG 장면 그래픽·이미지 export
 
@@ -65,7 +67,12 @@
 - 모델 id: 마크업과 기하가 바뀌므로 `chemifree-svg-1`에서 `chemifree-svg-2`로 올렸다. 동의 다이제스트에는 모델 id가 들어가지 않으며, 그래픽과 이미지가 없는 그림의 마크업은 바꾸지 않도록 설계했다.
 - 정정: 앞선 설계 초안은 원자 없이 그래픽이나 이미지만 있는 문서가 손실이 없어 `ok`가 된다고 적었다. 이 주장은 틀렸다. outcome은 손실이 하나라도 있으면 `partial`이다. 제목, 선택, 장면 참조, 장면 그룹은 동의 없이 보고되는 손실이므로, 이들이 있으면 원자가 없어도 `partial`이다. `ok`는 손실이 전혀 없을 때만이다.
 
-**검증: 리드가 게이트 후 기록**
+**검증** (기록 `docs/verification/p38b1-svg-scene-objects.md`)
+
+- PR #232는 병합했다(병합 커밋 `a8804bf3`, main CI 성공). 병합 전 `npm run check`가 끝까지 통과했다: cargo 테스트 2429개 통과(2개 건너뜀), 클라이언트 테스트 762개, 적합성 118/118, 추적 검사 ok. 그래픽·이미지 브라우저 검사 7종도 통과했다.
+- 리뷰: Codex 1건(그래픽 잉크 상자를 서식화된 값 기준으로 계산)과 독립 리뷰 8건을 모두 처리하거나 근거와 함께 기록했다(PR #232 댓글).
+- PR CI의 브라우저 단계가 한 번 실패했으나 이 변경과 무관한 대상 문서 초안 자동 저장 경쟁이었고(이슈 #233), 같은 헤드의 다음 실행은 통과했다.
+- 로컬에서 돌리지 않은 것: 뷰어에서의 픽셀 비교, 이미지 한도 근처의 매우 큰 응답.
 
 ## P38a SVG 도면 export
 
@@ -252,6 +259,8 @@ P35a–n/Et #185 및 #201/#202에 더해 #203 fragment script runs가 main84ef06
 
 ## P35q retained fragment display script runs 후보
 
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
+
 - 기존 display에 `set_fragment_display_runs`로 전체 `[{text,script}]`를 명시 교체한다. script는 baseline/subscript/superscript만 허용한다. 각 run nonempty·전체 nonblank single line·합계128 UTF-8 bytes이며 별도32-run 제한은 없다(최대128 nonempty runs). control/line separator·빈 run/list·초과 text·잘못된 wire 타입을 거절한다. 입력 run 경계/문자열은 merge/normalize하지 않는다.
 - `contract_fragment`/`set_fragment_display_text`는 정확히 하나의 baseline run으로 설정한다. 같은 concatenated text라도 기존 script/run 경계가 있으면 baseline reset 편집이며 Undo로 복원한다. snapshot은 text=run 정확한 연결과 runs를 모두 제공한다. 이전 snapshot의 runs 생략은 baseline으로 읽되 mismatch/invalid runs는 거절한다.
 - 모든 run은 document label style을 상속하며 small-size/vertical shift와 실제 SVG shared trim/fit/hit/selection bounds를 적용한다. 실제 UI는 run add/remove·script·Apply와 IME gate·plain text baseline reset 경고를 제공한다. run 사이 shaping은 보장하지 않아 결합 문자/emoji sequence를 한 run에 두도록 안내한다. text/script는 화학 추론 없이 retained graph와 모든 과학 계산을 그대로 둔다.
@@ -259,6 +268,8 @@ P35a–n/Et #185 및 #201/#202에 더해 #203 fragment script runs가 main84ef06
 - P35p shape/overlap/reveal/geometry·export rendering loss·native clipboard/Cut/template 교차 거절을 유지한다. 일반 nickname dictionary·text-to-graph·external run roundtrip·per-run font/color/weight/style override는 없다. P35는 `in_progress`; 실행·두 리뷰는 대기이며 이 문서 작업은 성공 증거를 주장하지 않는다. [P35q 기록](verification/p35q-fragment-display-runs.md).
 
 ## P35p 명시 retained-graph fragment display 후보
+
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
 
 - `contract_fragment`는 existing member IDs·instance·anchor·plain text를 명시해 화면만 축약한다. `set_fragment_display_text`로 문자열을 바꾸고 `expand_fragment`로 원래 좌표를 드러낸다. 문자열은 nonempty 한 줄·최대128 UTF-8 bytes이며 null/reset dictionary·화학 해석은 없다. 실제 graph/ID/state/stereo/좌표와 모든 과학 계산을 보존한다.
 - 단일 명시 배치, anchor를 포함한 unique1–2000 member(문서 atom 한도 내), 중성 기본 element·induced connected acyclic single tree·anchor 외부 unmarked single boundary 정확히1개만 지원한다. query/nondefault states·ring·다중 boundary/배치·Et/다른 fragment 겹침·member/외부 이웃의 local mark/stereo/group은 거절한다. 부분 geometry나 관련 chemistry 변경은 같은 Undo 단계에서 자동 펼치며 전체 rigid move/transform은 표시를 유지한다.
@@ -268,6 +279,8 @@ P35a–n/Et #185 및 #201/#202에 더해 #203 fragment script runs가 main84ef06
 - 기존 Et 정책과 같이 외부 boundary 이웃 원자의 좌표만 이동하면 표시를 유지한다. 그 이웃의 atom state·boundary bond·local stereo 변경이나 retained member의 부분 이동은 자동 펼친다.
 
 ## P35o 기존 ethyl 그래프의 plain display label 후보
+
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
 
 - 기존 collapsed ethyl의 표시 문자열만 한 줄 nonempty Unicode·최대128 UTF-8 bytes로 편집한다. `update_abbreviation_label`의 필수 `text`는 문자열 또는 명시 `null`이며 null은 기본 `Et`로 reset한다. 공백만인 문자열·control·줄 구분자는 거절한다.
 - UI는 “Text does not define chemistry”를 명시한다. 임의 텍스트를 화학식·원소·nickname·fragment로 해석하지 않으며 실제 C2 graph/ID/state/좌표/stereo·identity·formula는 그대로다. 문서 label typography와 실제 SVG shared trim/fit/hit/selection bounds를 적용한다.
@@ -291,6 +304,8 @@ P35a–n/Et #185 및 #201/#202에 더해 #203 fragment script runs가 main84ef06
 - Domain/Application/provider/client/HTTP=CLI/실제 production browser 회귀를 작성했다. 독립 fresh-context 리뷰의 covered boundary selection P2를 전체 pair selection 합치기와 browser 회귀로 수정했다. 사용자 지시로 테스트·빌드·브라우저·push는 실행하지 않았다. rustfmt만 실행했으며 CI/실행 검증은 pending이다. [검증 기록](verification/p34i-ethyl-display.md)을 따른다.
 
 ## P35a 독립 Unicode caption 후보
+
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
 
 - PR #184 CI `42201768786`의 미래 버전 거절 회귀는 현재 v8을 미래 버전으로 꾸민 낡은 fixture가 원인이다. provider/header 거절은 유지하고 미래 입력만 v9·지원 목록1–8로 수정했다. HTTP/CLI smoke의 동일 거절 및 migration 저장 결과 세 곳도 v8에 맞췄다. schema를 v9로 올린 변경이 아니다. 사용자 cleanup 중 테스트·빌드·브라우저·push는 실행하지 않았고 재실행 대기다.
 - Codex P1 후속: caption이 현재/이력에 있으면 current48MiB+history8MiB 보수적 persistence weight를 적용한다. 최근 transaction 자체가 한도를 넘으면 `caption_persistence_limit`로 원자 거절하고, 기존 undo부터 trim해 accepted edit의 최근 Undo를 남긴다. native64MiB 상한·escaped UTF-8/run metadata·문서/초안 wrapper 및 bulk save/reopen/Undo 회귀를 작성했으며 실행 대기다.
@@ -513,6 +528,8 @@ P35a–n/Et #185 및 #201/#202에 더해 #203 fragment script runs가 main84ef06
 
 ## P35b 작업 인계 (실행 검증 대기)
 
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
+
 - `feat/p35b-caption-font`는 `ba95baa`에서 분리한 후보다. 독립 caption 각 run의
   `weight: normal|bold`, `style: normal|italic` 명시 편집과 script 조합만 추가한다.
   화학 그래프·원자 라벨·Et 약어 의미는 바꾸지 않는다. P35 전체는 진행 중이다.
@@ -525,6 +542,8 @@ P35a–n/Et #185 및 #201/#202에 더해 #203 fragment script runs가 main84ef06
   부모 세션에서 실행해야 한다. [검증기록](verification/p35b-caption-weight-style.md) 참조.
 
 ## P35c caption 수평 정렬 후보
+
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
 
 - 최신 `origin/main` c685460 기반 `feat/p35c-caption-alignment` 후보다. 독립 single-line
   caption 전체에 left/center/right를 저장하며 alignment-only 편집은 anchor/run/화학 그래프를
@@ -539,6 +558,8 @@ P35a–n/Et #185 및 #201/#202에 더해 #203 fragment script runs가 main84ef06
 
 ## P35d 후보 인계
 
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
+
 독립 caption run의 `font`는 null(문서 label_font 상속) 또는 기존 sans-serif/serif/monospace만 받는다.
 run별 override는 기존 script/weight/style·정렬·고정 anchor와 조합하며 UI에서 Drawing font로 되돌린다.
 원자·Et 레이블·임의 폰트명·size/color·외부 caption roundtrip은 추가하지 않았다.
@@ -548,6 +569,8 @@ P35는 in_progress. 구현과 회귀만 작성했고 테스트·빌드·브라�
 세부 근거: [P35d 기록](verification/p35d-caption-font-family.md).
 
 ## P35j 후보 인계
+
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
 
 문서 label_weight normal/bold(기본 normal)를 기존 settings 경로 전체와 chemical label/Et 렌더링에 연결했다.
 normal 400/500은 유지하고 bold 700은 실제 mounted SVG 자연 advance/overhang/수직 ink를 측정하여 trim/fit/hit/selection 공유 레이아웃을 재구성한다.
@@ -620,6 +643,8 @@ P35는 in_progress다. 구현 에이전트는 테스트·빌드·cargo check·br
 - 이후 문서나 코드가 변경될 수 있으므로 작업 시작 시 git status, git log와 현재 CI를 다시 확인한다. 기존 사용자 변경은 보존한다.
 
 ## P35k 전달
+
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
 
 문서 `label_style: normal|italic`을 추가했다(기본 normal). 기존 400/500 또는 bold 700과 조합하고 화학 라벨 텍스트에만 적용한다. radical/attachment와 독립 caption은 그대로다. API/CLI/설정/환경 설정/복사/undo/replay/저장 복구가 같은 값을 전달한다. native v19는 current/history 필드를 엄격히 검사하고 v1–18을 normal로 읽으며 예전 바이트를 보존한다. SVG italic 실측은 문서와 viewport/font provenance를 따른다. P35는 in_progress이며 `docs/verification/p35k-label-style.md`의 점검은 작성만 했고 실행하지 않았다.
 
@@ -732,7 +757,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 113개(implemented 64, partial 13, unverified 3, not_implemented 33) · conformance 사례 118개(passed 118: accept 86·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
-이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
+이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, MODEL-03, CHEM-01, CODEC-01, CODEC-02, CODEC-03, CODEC-05, CODEC-06, STEREO-01, CHEM-02, OPS-01, OPS-02, STYLE-01, RENDER-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
 ## 다음 구현 단위 제안
 
@@ -767,6 +792,8 @@ PR마다 Codex 리뷰 1회와 독립 subagent 리뷰 1회를 하고 지적을 �
 
 ## P35e caption run 크기 후속
 
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
+
 독립 caption run의 `size_pt`는 null/생략이면 문서 label_size_pt를 동적으로 상속하고,
 명시하면 기존 LABEL_SIZE_RANGE의 유한 4–72 pt를 쓴다. sub/sup 크기와 baseline 이동은
 각 run의 유효 크기를 기준으로 한다. native v13은 current/history의 nullable size_pt가
@@ -777,6 +804,8 @@ P35는 in_progress이며 atom/Et·color·wrapping·clipboard는 이 변경 범�
 세부: [P35e 기록](verification/p35e-caption-run-size.md).
 
 ## P35f caption run 색상 후속
+
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
 
 독립 caption run의 `color`는 null/생략이면 현재 theme foreground를 동적으로 상속한다.
 명시 override는 대문자 ASCII hex의 불투명 sRGB `#RRGGBB`만 받으며 테마 전환에도 고정된다.
@@ -791,6 +820,8 @@ P35는 in_progress다. 회귀는 작성했으며 구현 agent는 포맷/diff만 
 
 ## P35g: 독립 caption run underline
 
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
+
 `underline` boolean을 전체 run 값으로 추가했다. 생략=false, snapshot은 명시적 bool,
 null/다른 타입은 invalid_request다. UI Off/On·CLI 표시·undo/replay·save/recovery를 공유한다.
 Native v15 current/history는 strict bool이며 v8–14는 false로 이동하고 exact-byte archive를 유지한다.
@@ -802,6 +833,8 @@ P35는 in_progress다. 구현 agent는 build/test/cargo check/browser를 실행�
 
 ### P35h 후보: 독립 caption run outline
 
+당시 기록 표지: 이 절(P35i 문단 포함)의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
+
 outline bool(생략 false)과 기존 run 속성/advance/anchor 보존, 효과 색상의 hollow SVG glyph stroke(실효 크기/16, round join)를 구현했다. 이 치수는 Chemifree 독립 정책이며 밑줄은 기존 filled rectangle이다. stroke를 제외하는 getBBox 대신 run별 bbox에 stroke/2를 합친 ink bounds를 fit/selection/hit에서 공유한다. native v16 strict current/history, v8–15 false migration와 exact-byte document/draft archive, metadata170≤176 물리 예약·false160/true192 admission 및8MiB outline106/107 경계를 반영했다. 최대999 caption content<48MiB 및64MiB 저장/초안 회귀를 작성했다. UI/HTTP/CLI/replay/undo/redo/save/draft 및 Unicode/RTL/ligature/emoji/공백/zero advance 실제 브라우저 회귀는 작성했으나 구현 에이전트는 테스트·빌드·cargo check·브라우저·skill gate를 실행하지 않았다. 부모의 격리 검증과 두 리뷰는 대기 중이다. P35는 in_progress, external caption roundtrip은 미지원이다. docs/verification/p35h-caption-run-outline.md 참조.
 
 P35h 리뷰 보완: 물리 encoding 예약176(실제최대170)과 admission(false160/true192)을 분리해 v15 최대109개 업데이트의 최신undo/redo와 기존current-content 허용을 보존한다. 48/8MiB는 admission이며 wrapper·ID·JSON escaping 포함 각 물리 항≤admission×11/10이므로 전체≤61.6MiB<64MiB다. 최악v15메타154의109개 undo/redo×document/draft·원본archive 회귀를 추가했고 중복assert 메시지 컴파일 오류를 수정했다. cargo fmt --all/check와 diff check만 실행하며 실행 검증은 부모 담당이다.
@@ -811,6 +844,8 @@ P35i: 독립 caption run `shadow` bool(생략 false), +1,+1 pt/opacity0.35/blur0
 
 
 ## P35l — 화학 라벨 밑줄 (작성, 검증 미실행)
+
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
 
 문서 `label_underline: bool`(기본 false)을 설정/환경 설정/HTTP/CLI/undo/replay와
 native v20에 연결했다. atom/query/H/count/isotope/charge와 기존 Et 텍스트에만
@@ -833,10 +868,12 @@ native v21은 모든 current/history settings에서 boolean을 요구하며 v1�
 생략→false, 원본 바이트 archive, v22 거절이다. clipboard/template 생략은 false다.
 추가한 strict-format/application/client/browser checks는 CI에 등록했지만 사용자
 지시로 build/test/cargo check/browser는 실행하지 않았다. fmt/diff만 실행한다.
-P35는 계속 in_progress이며 다음 세션에서 정식 검증과 독립 리뷰가 필요하다.
+P35는 계속 in_progress이며 다음 세션에서 정식 검증과 독립 리뷰가 필요하다. 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
 
 
 ## P35n chemical label shadow (in progress)
+
+당시 기록 표지: 이 절의 상태와 미실행·대기 문구는 작성 당시 기록이며 P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](roadmap/implementation-roadmap.json) 참조).
 
 - `feat/p35n-label-shadow` starts from main #198 / `59a1acd` in the separate
   `chemifree-p35n` worktree. `label_shadow` defaults false and follows P35i's

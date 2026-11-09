@@ -24,14 +24,14 @@ adds the specified point offsets, requires matching style and one destination pl
 and uses fresh IDs with one Undo/Redo step. File selection alone changes nothing.
 Crossing-bond selections, scene content and enhanced stereo groups cannot be saved as templates.
 This is file reuse, without a library, automatic attachment, rotation or layout.
-See [the P34d record](docs/verification/p34d-user-template.md); checks are written and unrun.
+See [the P34d record](docs/verification/p34d-user-template.md); checks are written and unrun. Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
 P34e adds **Attach template file…**: validate one connected native file, explicitly choose
 source and destination atoms and a finite nonzero dx/dy direction, preview, then connect by
 one single bond. Geometry is translated without rotation. Source-anchor stored stereo loss
 is refused; unrelated copied stereo is remapped, and destination stereo clearing/group notes
 follow ordinary bond editing. The file is unchanged. Read-only preview reserves no IDs;
 apply uses one atomic, replayable history step with frozen recovery. P34 remains in progress.
-[P34e checks](docs/verification/p34e-template-attachment.md) are authored and unrun.
+[P34e checks](docs/verification/p34e-template-attachment.md) are authored and unrun. Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
 
 
 P34f adds **Replace terminal atom…**: explicitly choose a template anchor and a destination
@@ -39,7 +39,7 @@ atom with one single outside bond, preview, then replace. The anchor keeps the t
 position; its complete atom state is replaced. The outside bond/mark, references and neighboring
 stored stereo stay, while N−1 atoms and M internal bonds receive fresh IDs. Identical one-atom
 replacement is a no-op. See [the P34f record](docs/verification/p34f-template-replacement.md);
-checks are written and unrun in this implementation session.
+checks are written and unrun in this implementation session. Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
 
 The independent six-carbon ring additionally offers an explicit **Kekulé alternating bonds**
 pattern (three double and three single bonds). The existing all-single default and five-carbon
@@ -50,14 +50,14 @@ through the gesture and uncertain-outcome recovery. This states bond orders with
 aromaticity inference. Pattern choice is retained through lost-reply recovery and is not
 saved as a tool setting. Its checks are written and unrun; see the
 [P34g record](docs/verification/p34g-kekule-ring.md) and
-[P34h record](docs/verification/p34h-attached-kekule-ring.md).
+[P34h record](docs/verification/p34h-attached-kekule-ring.md). Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
 
-Fusion, spiro, non-terminal replacement, aromatic-bond patterns, other sizes, abbreviation contraction/expansion and
+Fusion, spiro, non-terminal replacement, aromatic-bond patterns, other sizes, general abbreviation handling beyond the bounded terminal Et contraction/expansion (P34i) and
 molecular conformations remain unimplemented. P34 is in progress; the new checks are written
 but have not run in this implementation session. See the
 [ring contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a),
 [attachment contract](docs/CONTRACT.md#attached-carbon-ring-p34c), and
-[P34c verification record](docs/verification/p34c-attached-ring.md).
+[P34c verification record](docs/verification/p34c-attached-ring.md). Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
 
 ## Run locally
 
@@ -76,7 +76,7 @@ Documents are stored as `documents/<id>.json` in the data directory (recovery dr
 
 The **MOL and SDF** panel reads UTF-8 V2000 and V3000 files (the dialect is detected; collections become the drawing's stereo groups, with renumbering, merging and chiral-flag losses shown like other import losses) and previews a selected record, including conversion losses, before appending it as one undoable edit. It can preview and download the current drawing as MOL or SDF; a version control (V2000 default, V3000, Auto) is sent as the `ctab` key and is a choice of this page, not saved in the drawing, and the result says which dialect was written. When the export drops something that needs consent (stereo groups in V2000, stored centers in no group in V3000, configurations the marks do not show) the losses are listed with plain sentences and nothing is offered for download until they are accepted; a changed drawing or digest asks again. Refusals (a group member the marks do not derive, query atoms, S-groups, R-groups, 3D, reactions) are worded plainly and leave the drawing unchanged. The subset, safety limits, field handling and operation requests are described in [MOL and SDF](docs/CONTRACT.md#mol-and-sdf-subset); unsupported chemistry is refused rather than silently changed. Through `document.import` and `document.export` (HTTP, CLI, operation contract 1) a V3000 connection table is read (core atoms, bonds 1 to 4 with aromatic, charge, isotope, radical, wedge/hash/either bond marks with the configurations they show) and written (`ctab` `v3000` or `auto`), and a V2000 export writes the bond stereo column, which the V2000 reader now also reads (wedge, hash, either); `accepted_losses` is the consent for stereo a file cannot carry. Since P28b2 the V3000 `COLLECTION` entries `STEABS`, `STERAC<n>` and `STEREL<n>` map to and from the drawing's enhanced stereo groups (any 32-bit number as stated, the chiral flag written as 1 only when there is an absolute group, a stored center in no group asks consent, a member that is not a stored stereocenter refuses the file), and `format` accepts the `mol-v2000` and `mol-v3000` ids. Not implemented: V3000 query atoms and bonds, dative bonds, stereo groups in V2000 (a V2000 export asks consent to drop groups), SGroups, R-groups, 3D and reactions, atom parity on read (status: P28a, P28b1 and P28b2; the web choice is P28c, see the contract).
 
-Through HTTP/CLI `document.export`, `{ format: "cdxml" | "cdx", document_id, accepted_losses? }` exports a captured drawing as one page and fragment and returns its snapshot. It preserves supported wedge/hash/wavy/crossed marks; it invents no marks or CIP labels. Groups require every member to derive from the written drawing; omitted configurations/groups require digest-based consent. Group numbers outside 1–127 are renumbered with an informational loss. Written group members explicitly show enhanced-stereo indicators (`0445=true`), reported once as `enhanced_stereo_display` rendering normalization; the drawing stores no visibility setting, so roundtrip checks of configurations and groups exclude it. The existing rich-tree export and strict opaque-extension rules remain available. The web **CDXML and CDX export** panel now prepares either file, shows losses, and offers a download only after any required losses are explicitly accepted. Download rechecks the exact file and snapshot; changes to the drawing, format, consent or service invalidate the preview. CDX downloads contain binary bytes, not base64 text. P29 remains in progress pending P29g; this does not establish full stereo interchange. See [the bounded drawing profile](docs/CONTRACT.md#cdxml-interchange).
+Through HTTP/CLI `document.export`, `{ format: "cdxml" | "cdx", document_id, accepted_losses? }` exports a captured drawing as one page and fragment and returns its snapshot. It preserves supported wedge/hash/wavy/crossed marks; it invents no marks or CIP labels. Groups require every member to derive from the written drawing; omitted configurations/groups require digest-based consent. Group numbers outside 1–127 are renumbered with an informational loss. Written group members explicitly show enhanced-stereo indicators (`0445=true`), reported once as `enhanced_stereo_display` rendering normalization; the drawing stores no visibility setting, so roundtrip checks of configurations and groups exclude it. The existing rich-tree export and strict opaque-extension rules remain available. The web **CDXML and CDX export** panel now prepares either file, shows losses, and offers a download only after any required losses are explicitly accepted. Download rechecks the exact file and snapshot; changes to the drawing, format, consent or service invalidate the preview. CDX downloads contain binary bytes, not base64 text. P29 is done for this documented bounded profile; this does not establish full stereo interchange. See [the bounded drawing profile](docs/CONTRACT.md#cdxml-interchange).
 
 
 The **SMILES** panel keeps the line breaks of what is pasted, previews the atoms, bonds and losses of a string before appending it as one undoable edit (asking for acceptance only of losses that change the chemistry or drop text), and writes the drawing as recorded or canonical SMILES. Grammar, limits, error codes and what is refused are in [SMILES](docs/CONTRACT.md#smiles).
@@ -111,14 +111,14 @@ change chemical graph or abbreviation meaning. Click or use Scene to select them
 move/group/delete are supported, while caption-containing arrangement/transform/graphic
 clipboard requests refuse whole. Chemical exports require consent for caption loss.
 P35d adds a generic font family per caption run: inherit the drawing font or override with sans-serif, serif or monospace. P35e adds a finite 4–72 pt size override per caption run; null/omission dynamically inherits the drawing size. Script scaling and shifts use each run’s effective size. P35f adds nullable per-run color: null/omission dynamically follows the theme foreground; canonical opaque sRGB #RRGGBB overrides stay fixed across themes. Atom/Et labels and arbitrary font names remain outside this slice.
-P35 remains in progress. P35f checks are written and isolated execution is pending; see [scope and pending verification](docs/verification/p35f-caption-run-color.md).
+P35 remains in progress. P35f checks are written and isolated execution is pending; see [scope and pending verification](docs/verification/p35f-caption-run-color.md). Historical: the status, the unrun checks and the pending reviews described here are those at the time this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)).
 
 P34i adds explicit terminal Et contraction/expansion over an existing two-carbon graph.
 Atoms, bonds, IDs, coordinates and calculations remain complete. Only the canvas contracts;
 copying compact members through native clipboard/templates refuses, while chemical exports
 report a rendering loss and write the full graph. Local stereo and multiple placements are
 outside this first contraction slice. New checks are written but unexecuted; see
-[scope and pending verification](docs/verification/p34i-ethyl-display.md).
+[scope and pending verification](docs/verification/p34i-ethyl-display.md). Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
 
 Version 14 documents and drafts require explicit nullable caption run color (null inherits theme foreground; canonical opaque sRGB #RRGGBB overrides it; v8–13 migrate as inherited), nullable caption run size overrides (finite 4–72 pt; null inherits the drawing size; v8–12 migrate as inherited), nullable caption run font overrides (null inherits the drawing font; sans-serif/serif/monospace override it; v8–11 migrate as inherited), whole-caption left/center/right alignment (v8–10 migrate as left) and explicit caption run weight/style; v8–9 captions migrate these to normal. Version 9 added and v10–14 retain per-placement Et display maps and their history. Earlier displays default empty. Documents and drafts retain the scene, selection, style, the storage for stereo marks and stated configurations (shown in every snapshot and set by the stereo commands), and enhanced-stereo groups (eight commands, shown in every snapshot as `stereo.groups` and edited in the web Stereo panel; only MOL V3000 import and export reads and writes them as `COLLECTION` entries); versions 1–4 are read in memory with the default style, version 5 keeps its stored style, versions 1–5 have no stereo, and versions 1–6 have no groups. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.
 
@@ -317,14 +317,14 @@ On Linux, both hosts accept `--inchi-library /absolute/path/libinchi.so --inchi-
 
 Send `{"contract":1,"request_id":"inchi-1","profile":"preserve-semantics","operation":"chem.inchi","parameters":{"document_id":"<open document id>"}}` to CLI `operations` or HTTP `POST /api/v1/operations`. Without a working registration it returns `unsupported` / `inchi_unavailable` and the host remains usable. This bounded profile uses ordinary bonds and stored tetrahedral/double-bond configurations, refuses unsupported chemistry and AND/OR groups, and requires digest-bound consent for omitted marks, absolute group metadata and native warnings. Standard normalization may merge distinctions; identifiers are not Chemifree canonical SMILES or a graph-equality proof. There is no dedicated web panel or InChI import. See [the contract](docs/CONTRACT.md#standard-inchi-and-inchikey) for limits and consent.
 
-Caption runs additionally support independent boolean underline (P35g, native v15), with explicit SVG decoration bounds. P35 remains in progress; external caption roundtrip is unsupported.
+Caption runs additionally support independent boolean underline (P35g, native v15), with explicit SVG decoration bounds. P35 remains in progress; external caption roundtrip is unsupported. Historical: the status, the unrun checks and the pending reviews described here are those at the time this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)).
 
-Caption runs also support independent hollow glyph outlines (P35h, native v16), with run-color strokes and stroke-aware bounds; underlines retain filled decoration. P35 remains in progress.
+Caption runs also support independent hollow glyph outlines (P35h, native v16), with run-color strokes and stroke-aware bounds; underlines retain filled decoration. P35 remains in progress. Historical: the status, the unrun checks and the pending reviews described here are those at the time this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)).
 
 
-P35i: 독립 caption run `shadow` bool(생략 false), +1,+1 pt/opacity0.35/blur0 및 기존 outline·underline·효과색상 조합, actual viewport provenance를 따르는 ink bounds와 native v17 strict/v8–16 false migration을 구현한다. v16 admission은 유지하며 물리 metadata192-byte 예약의 전체 상한은61,421,978 bytes(<64MiB)다. P35는 in_progress이며 외부 caption 호환·legacy rendering equivalence는 주장하지 않는다. 구현 에이전트는 테스트·빌드·cargo check·browser·skill gate를 실행하지 않았고 부모 격리 검증과 리뷰는 대기다. [P35i 기록](docs/verification/p35i-caption-run-shadow.md).
+P35i: 독립 caption run `shadow` bool(생략 false), +1,+1 pt/opacity0.35/blur0 및 기존 outline·underline·효과색상 조합, actual viewport provenance를 따르는 ink bounds와 native v17 strict/v8–16 false migration을 구현한다. v16 admission은 유지하며 물리 metadata192-byte 예약의 전체 상한은61,421,978 bytes(<64MiB)다. P35는 in_progress이며 외부 caption 호환·legacy rendering equivalence는 주장하지 않는다. 구현 에이전트는 테스트·빌드·cargo check·browser·skill gate를 실행하지 않았고 부모 격리 검증과 리뷰는 대기다. [P35i 기록](docs/verification/p35i-caption-run-shadow.md). 역사 기록: 여기 적힌 상태, 미실행 검사와 대기 중인 리뷰는 이 슬라이스를 작성한 시점의 것이다. P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](docs/roadmap/implementation-roadmap.json) 참조).
 
-P35j: document settings `label_weight` normal/bold를 atom/query/H/isotope/charge와 graph-preserving Et의 표시만 제어하도록 추가한다. normal400/500·bold700이며 radical·독립 caption 정책과 chemical graph/inspection/property 결과는 유지한다. 브라우저가 실제700 자연 폭·glyph 돌출·수직 ink를 측정하고 trim/fit/hit/selection이 한 레이아웃을 공유한다. native v18 strict와 v1–17 normal migration/exact-byte archive, 이전 normal template payload 호환 및 exact style 비교, 기존 v16/v17 admission·64MiB 물리 경계를 보존한다. P35는 in_progress다. 회귀는 작성했으나 이 구현 작업에서 테스트·빌드·cargo check·브라우저·skill gate는 실행하지 않았다. 부모 격리 검증과 두 리뷰는 대기다. [P35j 기록](docs/verification/p35j-chemical-label-weight.md).
+P35j: document settings `label_weight` normal/bold를 atom/query/H/isotope/charge와 graph-preserving Et의 표시만 제어하도록 추가한다. normal400/500·bold700이며 radical·독립 caption 정책과 chemical graph/inspection/property 결과는 유지한다. 브라우저가 실제700 자연 폭·glyph 돌출·수직 ink를 측정하고 trim/fit/hit/selection이 한 레이아웃을 공유한다. native v18 strict와 v1–17 normal migration/exact-byte archive, 이전 normal template payload 호환 및 exact style 비교, 기존 v16/v17 admission·64MiB 물리 경계를 보존한다. P35는 in_progress다. 회귀는 작성했으나 이 구현 작업에서 테스트·빌드·cargo check·브라우저·skill gate는 실행하지 않았다. 부모 격리 검증과 두 리뷰는 대기다. [P35j 기록](docs/verification/p35j-chemical-label-weight.md). 역사 기록: 여기 적힌 상태, 미실행 검사와 대기 중인 리뷰는 이 슬라이스를 작성한 시점의 것이다. P35는 이후 bounded 범위에서 `done`이 되었다([로드맵](docs/roadmap/implementation-roadmap.json) 참조).
 
 P35k adds document chemical **Label style** (`normal`/`italic`, default normal),
 combined with normal/bold label weight. Atom/query/H/Et/isotope/charge/count text
@@ -333,7 +333,7 @@ own styling. The shared HTTP/CLI edit, preferences, undo/replay, copy and recove
 paths carry it. Native v19 migrates earlier settings/history to normal and archives
 old bytes; bounded external exports report drawing-style loss. SVG measurements
 for italic include effective family, weight, size and viewport. P35 remains in
-progress. [P35k checks](docs/verification/p35k-label-style.md) are authored and
+progress. Historical: the status, the unrun checks and the pending reviews described here are those at the time this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). [P35k checks](docs/verification/p35k-label-style.md) are authored and
 unrun in this implementation session.
 
 
@@ -342,7 +342,7 @@ with measured per-run SVG rectangles and shared trim/pick/selection/fit bounds.
 Radical/attachment marks and caption styling stay independent; graph, stereo and
 coordinates are preserved. Settings and preferences share HTTP/CLI/UI and native
 v20 persistence; v1–19 migrate to false with exact old-byte archival. Existing
-external `drawing_settings` losses remain. P35 is still in progress. The added
+external `drawing_settings` losses remain. P35 is still in progress. Historical: the status, the unrun checks and the pending reviews described here are those at the time this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). The added
 checks (`npm run test:browser:label-underline`, client and Rust suites) are authored
 but were not executed in this implementation session.
 
@@ -359,7 +359,7 @@ P35n implements document `label_shadow` (default false): the P35i +1,+1 pt,
 group before foreground. Actual SVG ink bounds include translated outline and
 underline; state marks/captions and graph/stereo remain independent. Native v22
 strictly checks current/history and migrates v1–21 to false with exact archives.
-P35 remains `in_progress`. New browser/client/native checks are authored and
+P35 remains `in_progress`. Historical: the status, the unrun checks and the pending reviews described here are those at the time this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). New browser/client/native checks are authored and
 registered; tests, builds, cargo check and browser execution were intentionally
 not run in this implementation session. See [P35n record](docs/verification/p35n-label-shadow.md).
 
@@ -371,7 +371,7 @@ bounds; chemical exports retain the full graph and report display loss. Native
 v23 stores current/history metadata and preserves exact v1–22 bytes before
 replacement/recovery. General multistyle atom/abbreviation labels and fragment
 editing remain unsupported. P35 stays `in_progress`; execution and both required
-PR reviews are pending. See [P35o record](docs/verification/p35o-display-label.md).
+PR reviews are pending. Historical: the status, the unrun checks and the pending reviews described here are those at the time this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). See [P35o record](docs/verification/p35o-display-label.md).
 
 P35p adds an unverified bounded candidate for explicit display contraction of an
 existing connected acyclic neutral/default element fragment with one unmarked
@@ -387,7 +387,7 @@ stores current/history fragment maps; v1–23 migrate empty with exact-byte arch
 before replacement, and v25 refuses untouched. General nickname dictionaries,
 text-to-graph parsing and external label roundtrip remain unsupported. P35 stays
 `in_progress`; tests/build/browser execution and both reviews are pending.
-See [P35p record](docs/verification/p35p-fragment-display.md).
+Historical: the status, the unrun checks and the pending reviews described here are those at the time this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). See [P35p record](docs/verification/p35p-fragment-display.md).
 
 P35q is an unverified follow-up candidate for baseline/subscript/superscript runs
 on retained fragment displays. `set_fragment_display_runs` replaces explicit
@@ -398,7 +398,7 @@ the retained graph supplies scientific results. Native v25 strictly stores runs
 in current/history, migrates v24 text to baseline with exact document/draft
 archives before replacement/recovery, and refuses future v26 untouched. Existing
 full-graph export losses and clipboard/Cut/template restrictions remain binding.
-P35 remains `in_progress`; execution and both reviews are pending. See
+P35 remains `in_progress`; execution and both reviews are pending. Historical: the status, the unrun checks and the pending reviews described here are those at the time this slice was written; P35 has since reached `done` for its bounded scope (see the [roadmap](docs/roadmap/implementation-roadmap.json)). See
 [P35q record](docs/verification/p35q-fragment-display-runs.md).
 
 P36a adds a bounded candidate for editing an existing line, arrow or rectangle's
@@ -409,7 +409,7 @@ shares atomic transactions, replay, Undo/Redo and native v25 history without a
 schema change. The UI guards invalid/IME input and stale queued geometry edits.
 Resize handles, new shapes, images, clipping, layers and graphic styles remain
 outside this slice. P36 is `in_progress`; checks, both reviews and PR CI are
-pending. Historical: that was the status when this slice was written; P36a has since merged as #204 (`26962b6`) with main CI run 42323974348 success (see the [P36 status table](docs/HANDOFF.ko.md)). See [P36a record](docs/verification/p36a-graphic-points.md).
+pending. Historical: the status, the unrun checks and the pending reviews described here are those at the time this slice was written; P36a has since merged as #204 (`26962b6`) with main CI run 42323974348 success (see the [P36 status table](docs/HANDOFF.ko.md)). See [P36a record](docs/verification/p36a-graphic-points.md).
 
 P36b adds candidate canvas endpoint handles for exactly one explicitly selected,
 noncoincident line, arrow or rectangle in Select mode. Actual SVG screen-to-document
