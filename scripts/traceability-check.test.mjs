@@ -441,6 +441,25 @@ test('the handoff partial list names a repeated id as duplicated', () => {
   expectProblem(inputs, /docs\/HANDOFF\.ko\.md: .*\(duplicated: OPS-02\); expected list: /)
 })
 
+test('the handoff partial list names an entry with a trailing character as malformed', () => {
+  const inputs = base()
+  assert.equal(requirement(inputs, 'MODEL-01').status, 'partial')
+  const ids = partialIds(inputs).map((id) => (id === 'MODEL-01' ? 'MODEL-01X' : id))
+  setHandoff(inputs, partialSentence(ids))
+  const message = checkInputs(inputs).find((error) => /malformed entries: "MODEL-01X"/.test(error))
+  assert.ok(message, 'a problem names MODEL-01X as malformed')
+  const pasteLine = `expected list: ${partialIds(inputs).join(', ')}`
+  assert.ok(message.endsWith(pasteLine), `the message gives the list to paste: ${message}`)
+})
+
+test('the handoff partial list names a stray entry as malformed, not as missing', () => {
+  const inputs = base()
+  setHandoff(inputs, partialSentence([...partialIds(inputs), 'BOGUS']))
+  const message = checkInputs(inputs).find((error) => /malformed entries: "BOGUS"/.test(error))
+  assert.ok(message, 'a problem names BOGUS as malformed')
+  assert.doesNotMatch(message, /missing:/)
+})
+
 test('the handoff partial list without its terminator is refused', () => {
   const inputs = base()
   setHandoff(inputs, `${PARTIAL_PHRASE}${partialIds(inputs).join(', ')}이며 나머지는 not_implemented다.`)

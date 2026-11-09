@@ -53,7 +53,6 @@ const SHA256 = /^[0-9a-f]{64}$/
 const SCRIPT_NAME = /^[A-Za-z0-9:_.@/-]+$/
 const REQUIREMENT_FIELDS = ['id', 'domain', 'summary', 'operations', 'status', 'parts']
 const REQUIREMENT_ID = /^[A-Z]+-[0-9]{2}$/
-const REQUIREMENT_IDS_IN_TEXT = new RegExp(REQUIREMENT_ID.source.replace(/^\^|\$$/g, ''), 'g')
 const ROADMAP_ID = /^[A-Z][0-9]{1,3}$/
 
 /** The repository root for a module URL inside scripts/. */
@@ -745,8 +744,9 @@ function checkTotals(inputs, fail) {
 
 /**
  * The handoff's partial list must equal the partial requirements in registry order. The list is
- * the ids between PARTIAL_PHRASE and PARTIAL_LIST_END on the one line that holds the phrase.
- * When that line also says the other requirements are not_implemented, that claim must hold.
+ * the comma-separated entries between PARTIAL_PHRASE and PARTIAL_LIST_END on the one line that
+ * holds the phrase; each entry must be exactly one requirement id. When that line also says the
+ * other requirements are not_implemented, that claim must hold.
  */
 function checkPartialList(text, inputs, fail) {
   const requirements = arrayOr(inputs.requirements.value?.requirements)
@@ -781,7 +781,15 @@ function checkPartialList(text, inputs, fail) {
       )
     }
   }
-  const listed = line.slice(from, to).match(REQUIREMENT_IDS_IN_TEXT) ?? []
+  const listText = line.slice(from, to)
+  // An empty list has no entries: splitting "" would yield one empty, malformed entry.
+  const listed = listText.trim() === '' ? [] : listText.split(',').map((entry) => entry.trim())
+  const malformed = listed.filter((entry) => !REQUIREMENT_ID.test(entry))
+  if (malformed.length > 0) {
+    const quoted = malformed.map((entry) => JSON.stringify(entry)).join(', ')
+    fail(`${HANDOFF_DOC}: malformed entries: ${quoted}; expected list: ${list}`)
+    return
+  }
   // Registry order is required so the expected list in the message can be pasted into the handoff as is.
   if (sameJson(listed, expected)) return
   const missing = expected.filter((id) => !listed.includes(id))
