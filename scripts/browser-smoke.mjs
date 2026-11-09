@@ -3855,7 +3855,9 @@ step = 'after short_wide_bond_is_selectable'
   const after = await api(`/api/v1/documents/${query.id}`)
   assert.deepEqual(after.document, before.document, 'a search leaves the drawing unchanged')
   assert.deepEqual([after.session.undo_depth, after.session.redo_depth], [before.session.undo_depth, before.session.redo_depth], 'a search adds no history')
-  assert.deepEqual(await api(`/api/v1/documents/${ethanol.id}`), targetBefore, 'a search leaves the target unchanged')
+  const targetAfter = await api(`/api/v1/documents/${ethanol.id}`)
+  assert.deepEqual(targetAfter.document, targetBefore.document, 'a search leaves the target unchanged')
+  assert.deepEqual([targetAfter.document.revision, targetAfter.session.undo_depth, targetAfter.session.redo_depth], [targetBefore.document.revision, targetBefore.session.undo_depth, targetBefore.session.redo_depth], 'a search leaves the target revision and history unchanged')
   await page.screenshot({ path: join(outDir, 'editor-substructure.png') })
 
   // A refresh of state that is not the graph keeps the result: the document list, and a save,
