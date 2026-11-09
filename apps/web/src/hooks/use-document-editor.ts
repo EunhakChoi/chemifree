@@ -633,6 +633,29 @@ export function useDocumentEditor() {
     }
   }, [clipboardTask, show, setInterchangeCreation, refreshList, report])
 
+  // A drawing export (CDXML/CDX or SVG) is valid only while the drawing and service it was requested
+  // for stay on screen. The check runs before the request and again when its reply arrives.
+  const guardedDrawingExport = useCallback(async <R extends { snapshot: DocumentView }>(
+    id: string,
+    call: () => Promise<R>,
+  ): Promise<R> => {
+    const drawing = currentRef.current?.document
+    const generation = serviceGenerationRef.current
+    const stillShown = () => drawing !== undefined && currentRef.current !== null &&
+      serviceGenerationRef.current === generation && sameConversionSnapshot(currentRef.current.document, drawing)
+    const stale = () => new ApiError('preview_changed', 'The drawing or service changed. Write the export again.', 200)
+    if (drawing?.id !== id || !stillShown()) throw stale()
+    try {
+      const reply = await call()
+      if (!stillShown() || !sameConversionSnapshot(drawing, reply.snapshot)) throw stale()
+      return reply
+    } catch (failure) {
+      // Consent for a drawing that is no longer shown must not become an active offer.
+      if (!stillShown()) throw stale()
+      throw failure
+    }
+  }, [])
+
   return {
     list,
     listQuery,
@@ -949,23 +972,10 @@ export function useDocumentEditor() {
       client.previewCt(id, revision, format, source, record), []),
     exportCt: useCallback((id: string, format: CtImport['format'], ctab: CtabChoice, acceptedLosses?: string) =>
       client.exportCt(id, format, ctab, acceptedLosses), []),
-    exportInterchange: useCallback(async (id: string, format: InterchangeFormat, acceptedLosses?: string) => {
-      const drawing = currentRef.current?.document
-      const generation = serviceGenerationRef.current
-      const stillShown = () => drawing !== undefined && currentRef.current !== null &&
-        serviceGenerationRef.current === generation && sameConversionSnapshot(currentRef.current.document, drawing)
-      const stale = () => new ApiError('preview_changed', 'The drawing or service changed. Write the export again.', 200)
-      if (drawing?.id !== id || !stillShown()) throw stale()
-      try {
-        const reply = await client.exportInterchange(id, format, acceptedLosses)
-        if (!stillShown() || !sameConversionSnapshot(drawing, reply.snapshot)) throw stale()
-        return reply
-      } catch (failure) {
-        // Consent for a drawing that is no longer shown must not become an active offer.
-        if (!stillShown()) throw stale()
-        throw failure
-      }
-    }, []),
+    exportInterchange: useCallback((id: string, format: InterchangeFormat, acceptedLosses?: string) =>
+      guardedDrawingExport(id, () => client.exportInterchange(id, format, acceptedLosses)), [guardedDrawingExport]),
+    exportSvg: useCallback((id: string, acceptedLosses?: string) =>
+      guardedDrawingExport(id, () => client.exportSvg(id, acceptedLosses)), [guardedDrawingExport]),
     importCt: useCallback((input: CtImport, snapshot: DocumentView, generation: number) =>
       importDocument(input, snapshot, generation, () => client.importCt(input)), [importDocument]),
     previewSmiles: useCallback((id: string, revision: number, source: string) =>

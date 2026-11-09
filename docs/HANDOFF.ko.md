@@ -65,6 +65,22 @@
 - 행동 변화(`time_limit_ms`가 없는 요청에 5초 기본 시계)는 병합 전 소유자가 승인했다.
 - 브라우저 스모크 검사는 로컬에서 돌리지 않았고, PR CI의 browser 단계가 실행해 통과했다.
 
+## 웹 SVG 다운로드 패널
+
+상태는 `partial`이다. 서버 변경 없이 웹 편집기에 'SVG drawing export' 패널을 더했다. 일반 SVG 출력이라는 주장은 없고, P38은 `in_progress`, RENDER-01은 partial이다.
+
+**범위**
+
+- 패널은 CDXML·CDX 패널 옆에 놓인다. 'Preview SVG drawing'이 `document.export`(`format: "svg"`)로 파일을 준비하고 손실을 보인다. 동의가 필요하면 손실 목록과 'Accept these losses and preview SVG'를 보이고, 'Download SVG'가 `chemifree.svg`(`image/svg+xml`)를 내려받는다.
+- 클라이언트 `DocumentClient.exportSvg`가 닫힌 결과 모양(`content`, `media_type`, 유한하고 음수 아닌 `view_box`, `font_table`, `model`, 스냅샷 id·revision)을 엄격히 읽고 알 수 없는 필드는 무시한다. 모델 id와 글자 너비 표 id는 고정하지 않는다.
+- 동의·낡은 문서·다운로드 재확인 논리는 새 훅 `useConsentedExport`로 옮겨 CDXML·CDX 패널과 SVG 패널이 함께 쓴다. 편집기의 낡은 문서 보호는 `exportInterchange`와 `exportSvg`가 한 도우미를 쓴다.
+
+**그리지 않는 것·하지 않는 것**: SVG 미리보기 그림, 클립보드 복사, 데스크톱 제어. 패널 문구는 그림이며 상호 교환 파일이 아니고 글꼴을 포함하지 않는다고 밝힌다.
+
+**결정**: 패널 문구에 `stereo_mark`·`query_label_truncated` 동의 손실을 따로 적지 않았다(목록은 전부가 아니며 동의 화면이 실제 손실을 보인다).
+
+**검증** (기록 `docs/verification/web-svg-export.md`)
+
 ## P38b2 SVG 캡션 export
 
 상태는 `partial`이다. P38b2는 bounded SVG drawing export에 캡션을 더한다. 일반 SVG 출력이라는 주장은 없다. P38은 `in_progress`이고 RENDER-01은 partial이며, 둘 다 완료가 아니다.
@@ -79,7 +95,7 @@
 
 **그리지 않는 것**
 
-- 밑줄, 집합 밖 문자(이모지, CJK, 결합 문자, 오른쪽에서 왼쪽 문자 등)가 든 캡션, 글꼴 임베딩과 글리프 외곽선(P38b3, 열린 미배정 제안), 클리핑, 레이어, 웹 다운로드 UI, `render.scene`.
+- 밑줄, 집합 밖 문자(이모지, CJK, 결합 문자, 오른쪽에서 왼쪽 문자 등)가 든 캡션, 글꼴 임베딩과 글리프 외곽선(P38b3, 열린 미배정 제안), 클리핑, 레이어, `render.scene`. (웹 다운로드 UI는 아래 절에서 더했다.)
 
 **결정**
 
@@ -107,7 +123,7 @@
 **그리지 않는 것**
 
 - 캡션: P38b2에서 그릴 수 있는 문자의 캡션을 그린다(위 P38b2 절 참조).
-- 클리핑, 레이어, 이미지 회전, 웹 다운로드 UI, `render.scene`.
+- 클리핑, 레이어, 이미지 회전, `render.scene`. 웹 다운로드 UI는 P38b2 뒤 절에서 더했다.
 - P38a 절의 '그리지 않거나 다르게 그리는 것' 목록에서 '캡션, 그래픽, 이미지' 항목은 이제 캡션만 해당한다.
 
 **결정**
@@ -138,7 +154,7 @@
 - 요청 `{ format: "svg", document_id, accepted_losses? }`(`accepted_losses`는 손실 다이제스트 문자열)는 캡처한 스냅샷을 SVG 텍스트로 돌려준다. 결과는 `content`, `media_type`(`image/svg+xml`), `view_box`, `font_table`, `snapshot`이다. 문서, 이력, dirty 상태는 바뀌지 않는다.
 - 원자, 결합, 라벨(원소 또는 질의 기호, H 개수, 전하, 동위원소), 7개 결합 차수 전부, 쐐기·해시·물결 결합을 그린다. 모든 인스턴스를 그린다. 검은색 고정, 투명 배경, pt 단위다.
 - 원자가 있으면 outcome은 `partial`이다. 화학 그래프는 ID와 상태를 포함해 그림으로만 나가므로 `chemical_graph` 손실이 생긴다. 빈 문서는 0×0 SVG와 `ok`다.
-- SVG 가져오기는 `unsupported_format`으로 거절한다. 웹 패널은 없고 `render.scene`은 여전히 `operation_not_implemented`다.
+- SVG 가져오기는 `unsupported_format`으로 거절한다. 웹 패널은 아래 절의 'SVG drawing export' 하나이고 `render.scene`은 여전히 `operation_not_implemented`다.
 
 **그리지 않거나 다르게 그리는 것**
 
