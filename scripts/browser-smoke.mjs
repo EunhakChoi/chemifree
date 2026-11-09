@@ -447,6 +447,7 @@ await properties.getByTestId('properties-result').getByText('C4H10', { exact: fa
 const afterFormula = await openDoc()
 assert.deepEqual(afterFormula.document, beforeFormula.document, 'calculation does not change the document')
 assert.deepEqual([afterFormula.session.undo_depth, afterFormula.session.redo_depth], [beforeFormula.session.undo_depth, beforeFormula.session.redo_depth], 'calculation adds no history')
+assert.deepEqual([afterFormula.session.saved_revision, afterFormula.session.unsaved_changes], [beforeFormula.session.saved_revision, beforeFormula.session.unsaved_changes], 'calculation does not save the document')
 await properties.getByText('Method and data', { exact: true }).click()
 assert.equal(await properties.getByText(/display: .* decimal places/).count(), 0, 'formula does not claim a mass precision')
 await page.getByRole('button', { name: 'Preferences', exact: true }).click()
@@ -3860,6 +3861,7 @@ step = 'after short_wide_bond_is_selectable'
   const targetAfter = await api(`/api/v1/documents/${ethanol.id}`)
   assert.deepEqual(targetAfter.document, targetBefore.document, 'a search leaves the target unchanged')
   assert.deepEqual([targetAfter.session.undo_depth, targetAfter.session.redo_depth], [targetBefore.session.undo_depth, targetBefore.session.redo_depth], 'a search adds no history to the target')
+  assert.deepEqual([targetAfter.session.saved_revision, targetAfter.session.unsaved_changes], [targetBefore.session.saved_revision, targetBefore.session.unsaved_changes], 'a search does not save the target')
   await page.screenshot({ path: join(outDir, 'editor-substructure.png') })
 
   // A refresh of state that is not the graph keeps the result: the document list, and a save,
