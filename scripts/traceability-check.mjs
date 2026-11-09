@@ -20,7 +20,11 @@ export const STATUSES = [
   'intentionally_rejected',
 ]
 export const TOTALS_PREFIX = '현재 집계:'
-export const TOTALS_DOCS = ['docs/TRACEABILITY.ko.md', 'docs/HANDOFF.ko.md']
+const HANDOFF_DOC = 'docs/HANDOFF.ko.md'
+export const TOTALS_DOCS = ['docs/TRACEABILITY.ko.md', HANDOFF_DOC]
+const PARTIAL_PHRASE = '이 커밋 기준 partial 요구사항은 '
+const PARTIAL_LIST_END = '이고'
+const PARTIAL_REST_CLAIM = '나머지는 not_implemented'
 const ROUTE_STATUSES = ['implemented', 'partial', 'unverified', 'not_implemented']
 const OUTCOMES = ['passed', 'failed', 'not_run']
 const KINDS = ['accept', 'reject']
@@ -734,7 +738,73 @@ function checkTotals(inputs, fail) {
     if (lines.length !== 1 || lines[0] !== expected) {
       fail(`${doc}: needs exactly one line starting ${TOTALS_PREFIX} (found ${lines.length}); paste:\n${expected}`)
     }
+    if (doc === HANDOFF_DOC) checkPartialList(input.text, inputs, fail)
   }
+}
+
+/**
+ * The handoff's partial list must equal the partial requirements in registry order. The list is
+ * the comma-separated entries between PARTIAL_PHRASE and PARTIAL_LIST_END on the one line that
+ * holds the phrase; each entry must be exactly one requirement id. When that line also says the
+ * other requirements are not_implemented, that claim must hold.
+ */
+function checkPartialList(text, inputs, fail) {
+  const requirements = arrayOr(inputs.requirements.value?.requirements)
+  const expected = requirements
+    .filter((requirement) => requirement?.status === 'partial')
+    .map((requirement) => requirement?.id)
+  const list = expected.join(', ')
+  const lines = text.split(/\r?\n/).filter((line) => line.includes(PARTIAL_PHRASE))
+  if (lines.length !== 1) {
+    fail(
+      `${HANDOFF_DOC}: needs exactly one line containing ${JSON.stringify(PARTIAL_PHRASE)} ` +
+        `(found ${lines.length}); expected list: ${list}`,
+    )
+    return
+  }
+  const [line] = lines
+  const from = line.indexOf(PARTIAL_PHRASE) + PARTIAL_PHRASE.length
+  const to = line.indexOf(PARTIAL_LIST_END, from)
+  if (to === -1) {
+    fail(`${HANDOFF_DOC}: the partial list must end with ${JSON.stringify(PARTIAL_LIST_END)}; expected list: ${list}`)
+    return
+  }
+  if (line.includes(PARTIAL_REST_CLAIM)) {
+    const contradicting = requirements.filter(
+      (requirement) => requirement?.status !== 'partial' && requirement?.status !== 'not_implemented',
+    )
+    if (contradicting.length > 0) {
+      const names = contradicting.map((requirement) => `${requirement?.id} (${requirement?.status})`).join(', ')
+      fail(
+        `${HANDOFF_DOC}: the sentence says ${JSON.stringify(PARTIAL_REST_CLAIM)}, which is untrue; ` +
+          `requirements that are not partial must be not_implemented: ${names}`,
+      )
+    }
+  }
+  const listText = line.slice(from, to)
+  // An empty list has no entries: splitting "" would yield one empty, malformed entry.
+  const listed = listText.trim() === '' ? [] : listText.split(',').map((entry) => entry.trim())
+  const malformed = listed.filter((entry) => !REQUIREMENT_ID.test(entry))
+  if (malformed.length > 0) {
+    const quoted = malformed.map((entry) => JSON.stringify(entry)).join(', ')
+    fail(`${HANDOFF_DOC}: malformed entries: ${quoted}; expected list: ${list}`)
+    return
+  }
+  // Registry order is required so the expected list in the message can be pasted into the handoff as is.
+  if (sameJson(listed, expected)) return
+  const missing = expected.filter((id) => !listed.includes(id))
+  const extra = listed.filter((id) => !expected.includes(id))
+  const duplicated = [...new Set(listed.filter((id, index) => listed.indexOf(id) !== index))]
+  const differences = []
+  if (missing.length > 0 || extra.length > 0) {
+    differences.push(`missing: ${missing.join(', ') || 'none'}; extra: ${extra.join(', ') || 'none'}`)
+  }
+  if (duplicated.length > 0) differences.push(`duplicated: ${duplicated.join(', ')}`)
+  if (differences.length === 0) differences.push('order differs from the registry')
+  fail(
+    `${HANDOFF_DOC}: the partial list must equal the partial requirements in registry order ` +
+      `(${differences.join('; ')}); expected list: ${list}`,
+  )
 }
 
 function checkSpec(inputs, fail) {

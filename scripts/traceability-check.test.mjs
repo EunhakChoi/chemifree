@@ -21,6 +21,10 @@ import {
 
 const loaded = loadInputs(ROOT, {})
 
+const HANDOFF = 'docs/HANDOFF.ko.md'
+// The wording of the handoff sentence, written out here so that the fixture pins the document's text.
+const PARTIAL_PHRASE = '이 커밋 기준 partial 요구사항은 '
+
 /** The real inputs, made independent of a fresh run and of the documents' current text. */
 function base() {
   const inputs = structuredClone(loaded)
@@ -31,6 +35,23 @@ function base() {
 
 function syncDocs(inputs) {
   for (const doc of TOTALS_DOCS) inputs.docs[doc] = { text: `intro\n${totalsLine(inputs)}\n` }
+  setHandoff(inputs, partialSentence(partialIds(inputs)))
+}
+
+/** Sets the handoff to its totals line followed by the given lines. */
+function setHandoff(inputs, ...lines) {
+  const body = lines.map((line) => `${line}\n`).join('')
+  inputs.docs[HANDOFF] = { text: `intro\n${totalsLine(inputs)}\n${body}` }
+}
+
+/** The ids of the partial requirements, in registry order. */
+function partialIds(inputs) {
+  return inputs.requirements.value.requirements.filter((item) => item.status === 'partial').map((item) => item.id)
+}
+
+/** A handoff sentence whose partial list is the given ids, as docs/HANDOFF.ko.md writes it. */
+function partialSentence(ids) {
+  return `${PARTIAL_PHRASE}${ids.join(', ')}이고 나머지는 not_implemented다.`
 }
 
 function requirement(inputs, id) {
@@ -379,6 +400,91 @@ test('the totals line must be present once and current', () => {
   const line = totalsLine(twice)
   twice.docs['docs/TRACEABILITY.ko.md'] = { text: `${line}\n${line}\n` }
   expectProblem(twice, /docs\/TRACEABILITY.ko.md: needs exactly one line .*found 2/)
+})
+
+test('the handoff partial list names a partial requirement it leaves out', () => {
+  const inputs = base()
+  assert.equal(requirement(inputs, 'OPS-02').status, 'partial')
+  setHandoff(inputs, partialSentence(partialIds(inputs).filter((id) => id !== 'OPS-02')))
+  expectProblem(inputs, /docs\/HANDOFF\.ko\.md: .*\(missing: OPS-02; extra: none\)/)
+})
+
+test('the handoff partial list names an id that is not partial', () => {
+  const inputs = base()
+  assert.notEqual(requirement(inputs, 'LAYOUT-01').status, 'partial')
+  setHandoff(inputs, partialSentence([...partialIds(inputs), 'LAYOUT-01']))
+  expectProblem(inputs, /docs\/HANDOFF\.ko\.md: .*\(missing: none; extra: LAYOUT-01\)/)
+})
+
+test('the handoff has exactly one partial list sentence', () => {
+  const none = base()
+  setHandoff(none)
+  expectProblem(none, /docs\/HANDOFF\.ko\.md: needs exactly one line containing .* \(found 0\)/)
+  const two = base()
+  const sentence = partialSentence(partialIds(two))
+  setHandoff(two, sentence, sentence)
+  expectProblem(two, /docs\/HANDOFF\.ko\.md: needs exactly one line containing .* \(found 2\)/)
+})
+
+test('the handoff partial list in another order names the order and the expected list', () => {
+  const inputs = base()
+  const [first, second, ...rest] = partialIds(inputs)
+  assert.ok(second, 'two partial requirements to swap')
+  setHandoff(inputs, partialSentence([second, first, ...rest]))
+  expectProblem(inputs, /docs\/HANDOFF\.ko\.md: .*\(order differs from the registry\); expected list: /)
+})
+
+test('the handoff partial list names a repeated id as duplicated', () => {
+  const inputs = base()
+  assert.equal(requirement(inputs, 'OPS-02').status, 'partial')
+  setHandoff(inputs, partialSentence([...partialIds(inputs), 'OPS-02']))
+  expectProblem(inputs, /docs\/HANDOFF\.ko\.md: .*\(duplicated: OPS-02\); expected list: /)
+})
+
+test('the handoff partial list names an entry with a trailing character as malformed', () => {
+  const inputs = base()
+  assert.equal(requirement(inputs, 'MODEL-01').status, 'partial')
+  const ids = partialIds(inputs).map((id) => (id === 'MODEL-01' ? 'MODEL-01X' : id))
+  setHandoff(inputs, partialSentence(ids))
+  const message = checkInputs(inputs).find((error) => /malformed entries: "MODEL-01X"/.test(error))
+  assert.ok(message, 'a problem names MODEL-01X as malformed')
+  const pasteLine = `expected list: ${partialIds(inputs).join(', ')}`
+  assert.ok(message.endsWith(pasteLine), `the message gives the list to paste: ${message}`)
+})
+
+test('the handoff partial list names a stray entry as malformed, not as missing', () => {
+  const inputs = base()
+  setHandoff(inputs, partialSentence([...partialIds(inputs), 'BOGUS']))
+  const message = checkInputs(inputs).find((error) => /malformed entries: "BOGUS"/.test(error))
+  assert.ok(message, 'a problem names BOGUS as malformed')
+  assert.doesNotMatch(message, /missing:/)
+})
+
+test('the handoff partial list without its terminator is refused', () => {
+  const inputs = base()
+  setHandoff(inputs, `${PARTIAL_PHRASE}${partialIds(inputs).join(', ')}이며 나머지는 not_implemented다.`)
+  expectProblem(inputs, /docs\/HANDOFF\.ko\.md: the partial list must end with "이고"; expected list: /)
+})
+
+test('the handoff partial list claim that the rest are not_implemented must hold', () => {
+  const inputs = base()
+  assert.equal(requirement(inputs, 'REACTION-01').status, 'not_implemented')
+  requirement(inputs, 'REACTION-01').status = 'unverified'
+  part(inputs, 'REACTION-01.rest').status = 'unverified'
+  inputs.roadmap.value.requirement_mapping.find((entry) => entry.id === 'REACTION-01').current_status = 'unverified'
+  syncDocs(inputs)
+  expectProblem(inputs, /나머지는 not_implemented", which is untrue; .*: REACTION-01 \(unverified\)$/)
+})
+
+test('the handoff partial list checks the rest claim only when the sentence makes it', () => {
+  const inputs = base()
+  assert.equal(requirement(inputs, 'REACTION-01').status, 'not_implemented')
+  requirement(inputs, 'REACTION-01').status = 'unverified'
+  part(inputs, 'REACTION-01.rest').status = 'unverified'
+  inputs.roadmap.value.requirement_mapping.find((entry) => entry.id === 'REACTION-01').current_status = 'unverified'
+  syncDocs(inputs)
+  setHandoff(inputs, `${PARTIAL_PHRASE}${partialIds(inputs).join(', ')}이고 나머지 상태는 이 문장에 없다.`)
+  assert.deepEqual(checkInputs(inputs), [])
 })
 
 test('npm run check must run the conformance and traceability steps in order', () => {
