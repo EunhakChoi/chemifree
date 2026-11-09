@@ -465,7 +465,7 @@ impl<'a> Drawing<'a> {
         let mut own_mark = false;
         let mut wavy = false;
         let mut wavy_to_non_center = false;
-        for &(neighbor, bond_id) in &neighbors {
+        for &(neighbor, bond_id) in neighbors.iter() {
             let bond = self
                 .graph
                 .bond(bond_id)
