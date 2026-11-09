@@ -2,6 +2,12 @@
 # The pinned download in .github/workflows/ci.yml must use the version below.
 nextest-version = { required = "0.9.149" }
 
+# The 28 maximal-metadata caption cases of caption_format (about 5-7 s each, each builds and writes
+# documents of several MiB) are separate tests so they run in parallel; at most four run at once so
+# a burst of them does not starve the timing-sensitive tests below.
+[test-groups]
+caption-format-maximal = { max-threads = 4 }
+
 [profile.default]
 # A test running past 120 s is reported as slow, and is terminated after five such periods (10 min).
 slow-timeout = { period = "120s", terminate-after = 5 }
@@ -80,3 +86,7 @@ threads-required = 4
 [[profile.default.overrides]]
 filter = "package(chemifree-application) & binary(compute_budget) & test(=a_stop_after_the_last_checkpoint_of_the_computation_still_prevents_the_edit)"
 threads-required = 4
+
+[[profile.default.overrides]]
+filter = "package(chemifree-providers) & binary(caption_format) & test(~maximum_metadata_109_caption_edit)"
+test-group = "caption-format-maximal"
