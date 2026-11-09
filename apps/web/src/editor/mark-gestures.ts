@@ -118,7 +118,7 @@ export function setMark(document: DocumentView, where: Where, bond: BondView, ma
     const derive: Command = { op: 'set_configuration_from_drawing', bonds: [bond.id], ...(where.instance === null ? {} : { instance: where.instance }) }
     return { kind: 'send', commands: [...commands, derive], markOnly: commands, why: null }
   }
-  const ends = 'narrow' in mark ? [mark.narrow === 'begin' ? bond.begin : bond.end] : [bond.begin, bond.end]
+  const ends = mark.kind === 'wedge' || mark.kind === 'hash' ? [mark.narrow === 'begin' ? bond.begin : bond.end] : [bond.begin, bond.end]
   return assemble(document, where, [], bond.id, mark, ends.map((atom) => ({ atom, extra: 0 })))
 }
 
@@ -132,7 +132,7 @@ export function cycleMark(document: DocumentView, where: Where, bond: BondView, 
   const current = bond.mark
   if (bond.order !== 'single') return refusal(kind, bond)
   if (kind === 'wavy') return setMark(document, where, bond, current?.kind === 'wavy' ? null : { kind: 'wavy' })
-  if (current && 'narrow' in current) {
+  if (current && (current.kind === 'wedge' || current.kind === 'hash')) {
     if (current.kind !== kind) return setMark(document, where, bond, { kind, narrow: current.narrow })
     return setMark(document, where, bond, current.narrow === 'begin' ? { kind, narrow: 'end' } : null)
   }

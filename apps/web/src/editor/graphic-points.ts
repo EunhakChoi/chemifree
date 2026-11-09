@@ -66,9 +66,14 @@ export function translatedGraphicObject(object: GraphicObject, delta: Position):
     : { ...object, points: translatedGraphicPoints(object.points, delta) }
 }
 
+// Copies the coordinates alone: a reply position may carry fields that requests refuse.
+function positionOf(point: Position): Position {
+  return { x: point.x, y: point.y }
+}
+
 /** Preserve the press offset inside the handle and move only the chosen endpoint. */
 export function graphicEndpointPoints(gesture: GraphicEndpointGesture, at: Position): [Position, Position] | null {
-  const points: [Position, Position] = [{ ...gesture.edit.graphic.points[0] }, { ...gesture.edit.graphic.points[1] }]
+  const points: [Position, Position] = [positionOf(gesture.edit.graphic.points[0]), positionOf(gesture.edit.graphic.points[1])]
   const original = points[gesture.endpoint]
   points[gesture.endpoint] = { x: original.x + at.x - gesture.start.x, y: original.y + at.y - gesture.start.y }
   return points.every((point) => graphicPointValid(point)) ? points : null

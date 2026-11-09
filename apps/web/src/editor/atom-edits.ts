@@ -75,7 +75,9 @@ export function setQueryNegated(atom: string, negated: boolean): Edit {
   return (latest) => {
     const current = atomIn(latest, atom)
     if (current?.query?.kind !== 'list') return null
-    return setQuery(atom, { ...current.query, negated })(latest)
+    // Replies may carry fields this client does not know, and the service refuses unknown request fields.
+    const query: QueryAtom = { kind: 'list', elements: [...current.query.elements], negated }
+    return setQuery(atom, query)(latest)
   }
 }
 

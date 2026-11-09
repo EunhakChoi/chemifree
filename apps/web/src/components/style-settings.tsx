@@ -23,6 +23,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import {
   UNITS,
   formatLength,
+  knownSettingsEdit,
+  knownUiPreferences,
   preferenceChange,
   preferenceStep,
   setSettings,
@@ -462,7 +464,7 @@ export function PreferencesButton({
               names={THEME_NAMES}
               onChange={(theme) =>
                 void preferences.set((latest) =>
-                  latest.ui.theme === theme ? null : { ui: { theme }, new_documents: latest.new_documents },
+                  latest.ui.theme === theme ? null : { ui: { theme }, new_documents: knownSettingsEdit(latest.new_documents) },
                 )
               }
             />
@@ -507,8 +509,8 @@ export function PreferencesButton({
                       if (next === null || !/^[0-5]$/.test(next)) return
                       const decimals = Number(next)
                       void preferences.set((latest) => latest.computation.mass_precision?.decimals === decimals ? null : {
-                        ui: latest.ui,
-                        new_documents: latest.new_documents,
+                        ui: knownUiPreferences(latest.ui),
+                        new_documents: knownSettingsEdit(latest.new_documents),
                         computation: { mass_precision: { decimals } },
                       })
                     }}

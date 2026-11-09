@@ -597,7 +597,7 @@ export function markStrokes(
     return [{ shape: 'wave', from: { x: round(a.x), y: round(a.y) }, to: { x: round(b.x), y: round(b.y) }, halfWaves, amplitude: MARK_STYLE.waveAmplitude }]
   }
   // The taper is measured from the narrow end of the whole bond, so cutting it keeps its slope.
-  const narrowAtBegin = 'narrow' in mark && mark.narrow === 'begin'
+  const narrowAtBegin = (mark.kind === 'wedge' || mark.kind === 'hash') && mark.narrow === 'begin'
   const fromNarrow = (at: number) => (narrowAtBegin ? at : length - at)
   const half = (at: number) => (Math.max(MARK_STYLE.wedgeWidth, lineWidth) / 2) * (fromNarrow(at) / length)
   if (mark.kind === 'wedge') {

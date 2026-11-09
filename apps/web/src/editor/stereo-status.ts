@@ -13,7 +13,7 @@ import { MARK_NAMES, stereoOf, type AtomConfiguration, type BondConfiguration, t
 const capital = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
 const markWords = (mark: StereoMark) => `${capital(MARK_NAMES[mark.kind])} mark`
 const narrowAtom = (mark: StereoMark | null, bond: BondView) =>
-  mark && 'narrow' in mark ? (mark.narrow === 'begin' ? bond.begin : bond.end) : null
+  mark && (mark.kind === 'wedge' || mark.kind === 'hash') ? (mark.narrow === 'begin' ? bond.begin : bond.end) : null
 
 export const turnWords = (configuration: AtomConfiguration | BondConfiguration) => {
   switch (configuration.kind) {

@@ -11,6 +11,15 @@ import { isCaptionColor, validCaptionRuns, type CaptionAlignment, type CaptionRu
 
 type Caption = Extract<SceneObject, { kind: 'caption' }>
 
+// Copies only the run fields this client knows: a reply may carry others, and requests refuse unknown fields.
+// The satisfies clause makes a CaptionRun field missing from this literal a compile error, optional ones included.
+function knownCaptionRun(run: CaptionRun): CaptionRun {
+  return {
+    text: run.text, script: run.script, weight: run.weight, style: run.style, font: run.font, color: run.color,
+    shadow: run.shadow, outline: run.outline, underline: run.underline, size_pt: run.size_pt,
+  } satisfies Required<{ [K in keyof CaptionRun]: unknown }>
+}
+
 /** A whole-run editor keeps native text selection and IME behavior inside ordinary inputs. */
 export function CaptionPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
   const [draft, setDraft] = useState<{ original: Caption | null } | null>(null)
@@ -35,7 +44,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
   close: () => void
 }) {
   const id = useId()
-  const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => ({ ...run })) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null, color: null, shadow: false, outline: false, underline: false }])
+  const [runs, setRuns] = useState<CaptionRun[]>(original?.runs.map((run) => knownCaptionRun(run)) ?? [{ text: '', script: 'baseline', weight: 'normal', style: 'normal', font: null, color: null, shadow: false, outline: false, underline: false }])
   const [sizes, setSizes] = useState<string[]>(original?.runs.map((run) => run.size_pt == null ? '' : String(run.size_pt)) ?? [''])
   const parsedSizes = sizes.map((size) => parseCaptionSize(size))
   const validSizes = parsedSizes.map((size) => size !== undefined)
@@ -51,7 +60,7 @@ function CaptionDialog({ documentId, original, editor, close }: {
     for (const [index, run] of runs.entries()) {
       const size = parsedSizes[index]
       if (size === undefined) return
-      frozen.push({ ...run, size_pt: size })
+      frozen.push({ ...knownCaptionRun(run), size_pt: size })
     }
     void editor.apply((latest) => {
       if (latest.id !== documentId) return null

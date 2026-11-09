@@ -1430,7 +1430,7 @@ function SceneControls({ document, editor, activePlacement }: { document: Docume
             <li key={`${reference.source}:${reference.target.kind}:${reference.target.id}`} className="flex items-center gap-1">
               <span className="text-xs">{reference.source} → {reference.target.kind} {reference.target.id}</span>
               <Button size="icon-xs" variant="ghost" aria-label={`Remove reference from ${reference.source} to ${reference.target.kind} ${reference.target.id}`}
-                onClick={() => void editor.apply((latest) => stillApplicable([{ op: 'remove_reference', ...reference }], latest))}>
+                onClick={() => void editor.apply((latest) => stillApplicable([{ op: 'remove_reference', source: reference.source, target: { kind: reference.target.kind, id: reference.target.id } }], latest))}>
                 <XIcon aria-hidden="true" />
               </Button>
             </li>
