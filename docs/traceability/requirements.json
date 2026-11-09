@@ -1742,10 +1742,11 @@
         },
         {
           "id": "RENDER-01.svg-export",
-          "summary": "Bounded SVG drawing export (P38a, P38b1) through document.export with format svg, export only: the SVG is a picture of atoms, bonds, scene graphics (line, rectangle, ellipse, arrow, polygon, cubic spline) and PNG images in fixed black ink on a transparent background, sized in pt with a tight view box and no machine-readable graph, IDs or states. Each feature it does not draw (for example typography, radical and attachment marks, stereo configurations, captions and scene groups) is reported as a loss, and consent-gated losses are refused until accepted_losses matches the reported digest. SVG import is refused with unsupported_format, and the export changes no document, revision or history. render.scene stays unsupported. This is not general vector output, clipping, layers, shaping or bounds, or the shared web renderer.",
+          "summary": "Bounded SVG drawing export (P38a, P38b1, P38b2) through document.export with format svg, export only: the SVG is a picture of atoms, bonds, scene graphics (line, rectangle, ellipse, arrow, polygon, cubic spline), PNG images and captions in a bounded character set (as text with generic fonts; stored caption colours are drawn, all other ink is fixed black) on a transparent background, sized in pt with a tight view box and no machine-readable graph, IDs or states. Each feature it does not draw (for example typography, radical and attachment marks, stereo configurations, caption underlines, captions outside the drawn character set and scene groups) is reported as a loss, and consent-gated losses are refused until accepted_losses matches the reported digest. SVG import is refused with unsupported_format, and the export changes no document, revision or history. render.scene stays unsupported. This is not general vector output, clipping, layers, shaping or bounds, or the shared web renderer.",
           "status": "implemented",
           "implementation": [
             "crates/application/src/svg.rs",
+            "crates/application/src/svg/caption.rs",
             "crates/application/src/svg/font.rs",
             "crates/application/src/svg/geometry.rs",
             "crates/application/src/svg/label.rs",
@@ -1754,6 +1755,7 @@
             "crates/application/src/operations/svg.rs"
           ],
           "evidence": [
+            "case:svg-export-caption",
             "case:svg-export-drawing",
             "case:svg-export-needs-consent",
             "case:svg-export-scene-objects",

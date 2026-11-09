@@ -1,0 +1,73 @@
+{
+  "id": "svg-export-caption",
+  "title": "A caption of drawable characters exports as SVG text with run styles under chemifree-svg-3 and an empty loss report",
+  "requirements": [
+    "RENDER-01"
+  ],
+  "axis": "scene",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "transact",
+      "document": "d",
+      "expected_revision": 0,
+      "commands": [
+        {
+          "op": "add_caption",
+          "anchor": {
+            "x": 0,
+            "y": 60
+          },
+          "alignment": "center",
+          "runs": [
+            {
+              "text": "H",
+              "script": "baseline"
+            },
+            {
+              "text": "2",
+              "script": "subscript",
+              "color": "#1A2B3C"
+            },
+            {
+              "text": "O",
+              "script": "baseline",
+              "weight": "bold"
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "document": {
+          "revision": 1
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "document": "d",
+      "request": {
+        "contract": 1,
+        "request_id": "svg-caption",
+        "profile": "preserve-semantics",
+        "operation": "document.export",
+        "parameters": {
+          "format": "svg"
+        }
+      },
+      "expect": {
+        "loss_report": [],
+        "model_id": "chemifree-svg-3",
+        "outcome": "ok",
+        "result": {
+          "media_type": "image/svg+xml",
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" width=\"28.64pt\" height=\"23.2pt\" viewBox=\"-14.32 46 28.64 23.2\">\n<g>\n</g>\n<g>\n<text x=\"0\" y=\"60\" text-anchor=\"middle\" xml:space=\"preserve\"><tspan font-family=\"sans-serif\" font-size=\"12\" font-weight=\"normal\" font-style=\"normal\" fill=\"#000000\">H</tspan><tspan dy=\"4\" font-family=\"sans-serif\" font-size=\"8\" font-weight=\"normal\" font-style=\"normal\" fill=\"#1A2B3C\">2</tspan><tspan dy=\"-4\" font-family=\"sans-serif\" font-size=\"12\" font-weight=\"bold\" font-style=\"normal\" fill=\"#000000\">O</tspan></text>\n</g>\n</svg>\n"
+        }
+      }
+    }
+  ]
+}

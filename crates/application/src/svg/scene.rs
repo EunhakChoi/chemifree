@@ -33,7 +33,7 @@ pub enum GraphicMark {
 }
 
 /// One object of a drawing, in paint order (`structure-canvas.tsx:1056-1088`). A group draws
-/// nothing and the export draws no caption, so neither has an entry.
+/// nothing, and a caption outside the drawn character set has no entry.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ObjectLayout {
@@ -53,6 +53,8 @@ pub enum ObjectLayout {
         width: f64,
         height: f64,
     },
+    /// A caption in the drawn character set: its runs and the box it reserves (`caption.rs`).
+    Caption(super::caption::CaptionLayout),
 }
 
 /// The length of a graphic arrow's head, measured back along the shaft from the tip, in pt. It is
@@ -227,6 +229,52 @@ pub(super) fn ink(marks: &[GraphicMark], width: f64) -> Option<(f64, f64, f64, f
     let (left, top, right, bottom) = edges?;
     let half = width / 2.0;
     Some((left - half, top - half, right + half, bottom + half))
+}
+
+/// The box `object` covers in the view box, as `(min x, min y, max x, max y)` in pt, or `None`
+/// when it covers no ink of its own. A graphic's and an image's numbers are the rounded ones the
+/// writer writes, so the view box holds what is drawn, not the layout's unrounded numbers. A
+/// caption's box is a reservation the writer does not write, so the layout's numbers are used.
+#[must_use]
+pub(super) fn object_ink(object: &ObjectLayout) -> Option<(f64, f64, f64, f64)> {
+    match object {
+        // An instance's atoms and labels are counted in `view_box_of`, from `layout.instances`.
+        ObjectLayout::Instance { .. } => None,
+        // `graphic_block` and `mark_element` write each number rounded to the hundredth, so the
+        // view box must hold the ink of the rounded marks, at the rounded width.
+        ObjectLayout::Graphic { width, marks, .. } => {
+            ink(&rounded(marks), geometry::round2(*width))
+        }
+        // `image_element` writes each of these rounded to the hundredth, so the view box must
+        // hold the rounded rectangle, not the unrounded one.
+        ObjectLayout::Image {
+            x,
+            y,
+            width,
+            height,
+            ..
+        } => {
+            let left = geometry::round2(*x);
+            let top = geometry::round2(*y);
+            Some((
+                left,
+                top,
+                left + geometry::round2(*width),
+                top + geometry::round2(*height),
+            ))
+        }
+        // The reserved box is not written, so it is not rounded. `view_box_of` moves the union's
+        // edges outward to the hundredth, so the view box holds the box as the layout gives it.
+        ObjectLayout::Caption(caption) => {
+            let bounds = caption.bounds;
+            Some((
+                bounds.x,
+                bounds.y,
+                bounds.x + bounds.width,
+                bounds.y + bounds.height,
+            ))
+        }
+    }
 }
 
 /// The stroke width of a graphic: its own override, or else the document's line width. A missing or

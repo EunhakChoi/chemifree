@@ -1,8 +1,9 @@
 //! SVG drawing export through `document.export` (P38a2): the consent round trip, a digest that an
 //! edit has made stale, the request and document errors, the import refusal, the read-only rule,
 //! the drawing of an atom-less document, and the export of a graphic and an image, which needs no
-//! consent. The expected text is the committed P38a1 golden under `tests/fixtures/svg`, never the
-//! output of the renderer under test.
+//! consent. A caption is drawn without consent when every one of its characters is in the drawn set,
+//! and needs consent otherwise (P38b2). The expected text is the committed P38a1 golden under
+//! `tests/fixtures/svg`, never the output of the renderer under test.
 
 use std::fs;
 use std::path::Path;
@@ -17,13 +18,16 @@ use tempfile::TempDir;
 type App = Application<LocalCapabilities, FileDocumentRepository>;
 
 /// The model an SVG export names.
-const SVG_MODEL: &str = "chemifree-svg-2";
+const SVG_MODEL: &str = "chemifree-svg-3";
 /// A document id that no document in these tests has.
 const MISSING_DOCUMENT: &str = "doc-ffffffffffffffff";
 /// A small SVG text. Its format alone makes `document.import` refuse it.
 const SVG_SOURCE: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="10pt" height="10pt" viewBox="0 0 10 10"><g/></svg>"#;
 /// The 1 x 1 pixel PNG that `svg_loss_drift.rs` embeds.
 const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DQAAAEgQGALFXOsAAAAABJRU5ErkJggg==";
+/// The caption `H` at (0, 60), as the export writes it: left-aligned, in the default sans-serif
+/// label font at 12 pt, filled black, with no shadow or outline.
+const H_CAPTION: &str = r##"<text x="0" y="60" text-anchor="start" xml:space="preserve"><tspan font-family="sans-serif" font-size="12" font-weight="normal" font-style="normal" fill="#000000">H</tspan></text>"##;
 
 /// An application with the format codecs and the PNG decoder that `svg_loss_drift.rs` attaches.
 /// Without one of the codecs, `document.export` and `document.import` are not executable and every
@@ -442,12 +446,13 @@ fn a_graphic_and_image_drawing_exports_without_consent() {
     assert_eq!(reply["model_id"], SVG_MODEL, "{reply}");
     assert_graphic_and_image_drawn(content(&reply));
 
-    // A caption is the one loss here that needs consent. Without its consent the export is refused,
-    // and the refusal names the caption alone: the graphic and the image need no consent.
+    // A caption with a character outside the drawn set is the one loss here that needs consent. The
+    // character is 漢 (U+6F22), so the caption is not drawn. Without its consent the export is
+    // refused, and the refusal names the caption alone: the graphic and the image need no consent.
     let (application, _directory, id) = setup();
     draw(&application, "draw", &id, 0, &graphic_and_image());
     let caption = json!({"op":"add_caption","anchor":{"x":0,"y":60},
-        "runs":[{"text":"H","script":"baseline"}]});
+        "runs":[{"text":"漢","script":"baseline"}]});
     draw(&application, "caption", &id, 1, &[caption]);
     let refused = export(&application, "refused", &id, None);
     assert_eq!(refused["outcome"], "error", "{refused}");
@@ -466,4 +471,54 @@ fn a_graphic_and_image_drawing_exports_without_consent() {
     assert_eq!(accepted["outcome"], "partial", "{accepted}");
     assert_eq!(loss_features(&accepted), ["caption"], "{accepted}");
     assert_graphic_and_image_drawn(content(&accepted));
+}
+
+#[test]
+fn a_drawable_caption_exports_without_consent_or_a_caption_loss() {
+    // Every character of the caption is in the drawn set, so the caption is drawn and needs no
+    // consent. The two atoms state the chemical graph, which is drawn as a picture and needs no
+    // consent either, so the export is partial with that one loss.
+    let (application, _directory, id) = setup();
+    let commands = [
+        json!({"op":"add_atom","element":"C","position":{"x":0,"y":0}}),
+        json!({"op":"add_atom","element":"O","position":{"x":30,"y":0},
+            "bond_to":{"atom":"a1","order":"single"}}),
+        json!({"op":"add_caption","anchor":{"x":0,"y":60},
+            "runs":[{"text":"H","script":"baseline"}]}),
+    ];
+    draw(&application, "draw", &id, 0, &commands);
+    let reply = export(&application, "drawable", &id, None);
+    assert_eq!(reply["outcome"], "partial", "{reply}");
+    assert_eq!(
+        reply["diagnostics"],
+        json!([]),
+        "no consent is asked: {reply}"
+    );
+    assert_eq!(loss_features(&reply), ["chemical_graph"], "{reply}");
+    assert_eq!(reply["model_id"], SVG_MODEL, "{reply}");
+    assert!(
+        content(&reply).contains(H_CAPTION),
+        "the caption is drawn as its text element: {}",
+        content(&reply)
+    );
+}
+
+#[test]
+fn a_caption_only_document_with_a_drawable_caption_exports_ok_with_no_losses() {
+    // With no atom and the default title, a drawable caption is the whole drawing. It is drawn and
+    // lists no loss, so the export is `ok` rather than `partial`.
+    let (application, _directory, id) = setup();
+    let caption = json!({"op":"add_caption","anchor":{"x":0,"y":60},
+        "runs":[{"text":"H","script":"baseline"}]});
+    draw(&application, "draw", &id, 0, &[caption]);
+    let reply = export(&application, "caption-only", &id, None);
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    assert_eq!(reply["diagnostics"], json!([]), "{reply}");
+    assert_eq!(reply["loss_report"], json!([]), "{reply}");
+    assert_eq!(reply["model_id"], SVG_MODEL, "{reply}");
+    assert!(
+        content(&reply).contains(H_CAPTION),
+        "the caption is drawn as its text element: {}",
+        content(&reply)
+    );
 }

@@ -222,26 +222,40 @@ fn table() -> Vec<Row> {
             &["chemical_graph", "attachment_point_mark"],
             &["attachment_point_mark"],
         ),
+        // A caption with a character outside the drawn set is not drawn, so the content is
+        // byte-identical and only the caption loss appears. The character is 漢 (U+6F22).
         dropped_row(
             "caption",
             json!([{"op": "add_caption", "anchor": {"x": 0, "y": 60},
-                "runs": [{"text": "H", "script": "baseline"}]}]),
+                "runs": [{"text": "漢", "script": "baseline"}]}]),
             &["chemical_graph", "caption"],
             &["caption"],
         ),
+        // A drawable caption with an underline is drawn, so the content changes. The underline is
+        // not drawn, so it is the only loss the caption adds, and it needs consent.
+        Row {
+            name: "caption-underline",
+            transaction: json!({"commands": [
+                {"op": "add_caption", "anchor": {"x": 0, "y": 60},
+                    "runs": [{"text": "H", "script": "baseline", "underline": true}]}
+            ]}),
+            drawn: true,
+            features: &["chemical_graph", "caption_underline"],
+            consent: &["caption_underline"],
+        },
         // A group needs at least two distinct objects sharing a parent, and the base has only the
-        // instance, so two captions are added first. A group draws nothing and a caption draws
-        // nothing, so the content is byte-identical. The captions are the loss that needs consent;
-        // the group adds only scene_group, which needs none. Graphics are not used here: a drawn
-        // graphic changes the content by itself, so a group of graphics could not show that the
-        // group adds no ink.
+        // instance, so two captions are added first. Both use characters outside the drawn set (漢
+        // and 字), so neither is drawn. A drawn caption would change the content by itself, which
+        // would hide whether the group changes it. The captions are the loss that needs consent;
+        // the group adds only scene_group, which needs none. Graphics are not used here, for the
+        // same reason: a drawn graphic changes the content by itself.
         dropped_row(
             "group",
             json!([
                 {"op": "add_caption", "anchor": {"x": 0, "y": 70},
-                    "runs": [{"text": "A", "script": "baseline"}]},
+                    "runs": [{"text": "漢", "script": "baseline"}]},
                 {"op": "add_caption", "anchor": {"x": 0, "y": 80},
-                    "runs": [{"text": "B", "script": "baseline"}]},
+                    "runs": [{"text": "字", "script": "baseline"}]},
                 {"op": "group", "objects": ["s2", "s3"]}
             ]),
             &["chemical_graph", "caption", "scene_group"],
@@ -601,5 +615,124 @@ fn each_mutation_changes_the_drawing_or_adds_exactly_its_losses() {
         "{} row(s) disagree with the table:\n{}",
         failures.len(),
         failures.join("\n")
+    );
+}
+
+/// Removing only the underline flag leaves the drawn bytes unchanged: the underline is not drawn,
+/// so a caption with the flag exports the same content as the same caption without it.
+#[test]
+fn the_underline_flag_alone_changes_no_drawn_byte() {
+    let base = read_drawing(None).expect("the base drawing reads");
+    let underlined_row = Row {
+        name: "caption-underlined",
+        transaction: json!({"commands": [
+            {"op": "add_caption", "anchor": {"x": 0, "y": 60},
+                "runs": [{"text": "H", "script": "baseline", "underline": true}]}
+        ]}),
+        drawn: true,
+        features: &["chemical_graph", "caption_underline"],
+        consent: &["caption_underline"],
+    };
+    let plain_row = Row {
+        name: "caption-plain",
+        transaction: json!({"commands": [
+            {"op": "add_caption", "anchor": {"x": 0, "y": 60},
+                "runs": [{"text": "H", "script": "baseline", "underline": false}]}
+        ]}),
+        drawn: true,
+        features: PLAIN,
+        consent: NONE,
+    };
+    let underlined =
+        read_drawing(Some(&underlined_row)).expect("the underlined caption is accepted");
+    let plain = read_drawing(Some(&plain_row)).expect("the plain caption is accepted");
+    assert_ne!(
+        plain.content, base.content,
+        "the plain caption is drawn, so the content changes"
+    );
+    assert_eq!(
+        underlined.content, plain.content,
+        "removing only the underline flag leaves the drawn bytes equal"
+    );
+}
+
+/// The loss report lists features in the order `svg_losses` gives them. This document states
+/// sixteen of the table's seventeen features. The seventeenth, `stereo_mark`, sits between
+/// `zero_length_bond` and `stereo_configuration` and is absent: no transaction can state a mark
+/// that its bond's order does not draw, so no document built from transactions reaches it (see
+/// `table`).
+#[test]
+fn the_loss_report_lists_the_reachable_features_in_the_documented_order() {
+    let every = Row {
+        name: "every-reachable-feature",
+        transaction: json!({
+            "commands": [
+                {"op": "add_caption", "anchor": {"x": 0, "y": 70},
+                    "runs": [{"text": "漢", "script": "baseline"}]},
+                {"op": "add_caption", "anchor": {"x": 0, "y": 80},
+                    "runs": [{"text": "字", "script": "baseline"}]},
+                {"op": "add_caption", "anchor": {"x": 0, "y": 90},
+                    "runs": [{"text": "H", "script": "baseline", "underline": true}]},
+                {"op": "group", "objects": ["s2", "s3"]},
+                {"op": "rename", "title": "Drift fixture"},
+                {"op": "update_settings", "label_weight": "bold"},
+                {"op": "update_atom", "atom": "a4", "radical": "doublet"},
+                {"op": "update_atom", "atom": "a7", "attachment_points": [1]},
+                {"op": "add_atom", "query": {"kind": "list", "elements": ["N", "O", "S", "P"]},
+                    "position": {"x": 0, "y": 120}},
+                {"op": "set_atom_configuration", "atom": "a2",
+                    "configuration": {"kind": "tetrahedral",
+                        "neighbors": ["a1", "a3", "a4", "implicit_hydrogen"],
+                        "turn": "clockwise"}},
+                {"op": "create_stereo_group", "kind": "absolute", "atoms": ["a2"],
+                    "number": null},
+                {"op": "collapse_ethyl", "instance": "s1", "anchor": "a5", "terminal": "a6"},
+                {"op": "add_reference", "source": "s1", "target": {"kind": "atom", "id": "a1"}},
+                {"op": "update_bond", "bond": "b1", "order": "query",
+                    "query": {"kind": "list", "orders": ["single", "double"]}},
+                {"op": "move_atoms", "atoms": ["a1"], "delta": {"x": 26, "y": -15}}
+            ],
+            "selection_after": {"objects": [], "atoms": ["a1"], "bonds": []}
+        }),
+        drawn: true,
+        features: &[
+            "chemical_graph",
+            "title",
+            "selection",
+            "scene_references",
+            "scene_group",
+            "label_typography",
+            "radical_mark",
+            "attachment_point_mark",
+            "query_label_truncated",
+            "query_bond_expression",
+            "zero_length_bond",
+            "stereo_configuration",
+            "stereo_group",
+            "abbreviation_display",
+            "caption",
+            "caption_underline",
+        ],
+        consent: &[
+            "abbreviation_display",
+            "attachment_point_mark",
+            "caption",
+            "caption_underline",
+            "label_typography",
+            "query_label_truncated",
+            "radical_mark",
+            "stereo_configuration",
+            "stereo_group",
+        ],
+    };
+    let after = read_drawing(Some(&every)).expect("the combined transaction is accepted");
+    assert_eq!(
+        after.features, every.features,
+        "the loss report lists the features in the svg_losses order"
+    );
+    assert_eq!(
+        sorted(after.consent.iter().map(String::as_str)),
+        sorted(every.consent.iter().copied()),
+        "the features that need consent"
     );
 }
