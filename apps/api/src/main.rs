@@ -86,12 +86,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     eprintln!("Documents: {}", documents.display());
     let state = Arc::new(state);
     let drafts = chemifree_api::DraftWriter::start(Arc::clone(&state));
+    let stopping = Arc::clone(&state);
     let mut router = chemifree_api::router(state);
     if args.log_requests {
         router = chemifree_api::log_requests(router);
     }
+    // Cancel computations as the stop begins, so graceful shutdown does not wait for them.
     let served = axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            stopping.cancel_computations();
+        })
         .await;
     // Unsaved work survives a stop in its recovery draft, also when serving ended in an error.
     for (id, error) in drafts.finish() {

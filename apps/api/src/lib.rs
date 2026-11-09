@@ -82,6 +82,14 @@ impl ApiState {
             allowed_origins,
         })
     }
+
+    /// Ends every running and waiting computation with `cancelled`, leaving its document
+    /// unchanged, and refuses new computations the same way; other requests keep working. Call
+    /// it once the process starts to stop, so that graceful shutdown does not wait for them and
+    /// their clients still receive `cancelled`.
+    pub fn cancel_computations(&self) {
+        self.application.cancel_computations();
+    }
 }
 
 fn loopback_authority(origin: &str) -> Option<&str> {

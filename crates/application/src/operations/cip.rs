@@ -601,6 +601,23 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 }
             }
         }
+        // Takes a compute slot before the scan and keeps it until this function returns, so the
+        // permit is bound to a name: `_` alone would give it back at once. A wait that outlasts
+        // the limit stops here with the same reply as the checkpoint below.
+        let _permit = match self.compute_gate.enter(&budget) {
+            Ok(permit) => permit,
+            Err(interrupted) => {
+                return with_model(Self::stopped(
+                    known,
+                    Stage::Scan,
+                    Stop::Interrupted(interrupted),
+                    revision,
+                    checker.size(),
+                    limits,
+                    limit_ms,
+                ));
+            }
+        };
         // The budget is asked once before the scan and the labeling, so an expired limit or a
         // cancel stops the request even when it has nothing to label.
         if let Err(interrupted) = budget.check() {
