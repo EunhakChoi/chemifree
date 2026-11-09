@@ -860,8 +860,13 @@ const NAMED_QUERIES: readonly unknown[] = ['any', 'any_heavy', 'heteroatom', 'ha
 const ATOM_STATE_FIELDS = ['kind', 'query', 'hydrogens', 'radical', 'attachment_points'] as const
 
 const distinct = (items: unknown[]) => new Set(items).size === items.length
-/** Closed native clipboard format (CONTRACT.md P33a/P33e): any key outside the list refuses. */
-const exactKeys = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).every((key) => keys.includes(key))
+/**
+ * Closed native clipboard format (CONTRACT.md P33a/P33e): any key outside the list refuses. A
+ * listed key may be absent, so a caller that requires it must check its presence.
+ */
+export function onlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).every((key) => keys.includes(key))
+}
 
 function isQueryAtom(value: unknown): value is QueryAtom {
   if (!isRecord(value)) return false
@@ -1011,10 +1016,13 @@ function withDocumentStates(document: DocumentView): DocumentView {
 
 const isCountOrNull = (value: unknown) => value === null || isCount(value)
 
-const SETTING_FIELDS = ['bond_length_pt', 'line_width_pt', 'label_font', 'label_weight', 'label_style', 'label_underline', 'label_outline', 'label_shadow', 'label_size_pt', 'carbon_labels', 'display_unit']
+export const SETTING_FIELDS: readonly (keyof DocumentSettings)[] = ['bond_length_pt', 'line_width_pt', 'label_font', 'label_weight', 'label_style', 'label_underline', 'label_outline', 'label_shadow', 'label_size_pt', 'carbon_labels', 'display_unit']
 
-/** Whether `value` is a valid value of the setting `field`; a field outside the schema is accepted unless `closed`. */
-function isSettingValue(field: string, value: unknown, closed: boolean): boolean {
+/** How a settings reader treats a field outside the schema: `closed` refuses it (the native clipboard format), `open` ignores it (readers of server replies). */
+type SettingsReading = 'closed' | 'open'
+
+/** Whether `value` is a valid value of the setting `field`; a field outside the schema is accepted only when `reading` is `open`. */
+function isSettingValue(field: string, value: unknown, reading: SettingsReading): boolean {
   const range = Object.entries(SETTING_RANGES).find(([name]) => name === field)?.[1]
   if (range) return isFiniteNumber(value) && value >= range[0] && value <= range[1]
   switch (field) {
@@ -1033,27 +1041,28 @@ function isSettingValue(field: string, value: unknown, closed: boolean): boolean
     case 'display_unit':
       return (DISPLAY_UNITS as readonly unknown[]).includes(value)
     default:
-      return !closed
+      return reading === 'open'
   }
 }
 
 /**
  * Settings fields, each valid; `complete` requires every field. A field outside the schema is
- * refused when `closed` (a closed format) and ignored otherwise (readers of server replies).
+ * refused when `reading` is `closed` (a closed format) and ignored when it is `open` (readers of
+ * server replies).
  */
-function isSettings(value: unknown, complete: true, closed: boolean): value is DocumentSettings
-function isSettings(value: unknown, complete: false, closed: boolean): value is SettingsEdit
-function isSettings(value: unknown, complete: boolean, closed: boolean) {
+function isSettings(value: unknown, complete: true, reading: SettingsReading): value is DocumentSettings
+function isSettings(value: unknown, complete: false, reading: SettingsReading): value is SettingsEdit
+function isSettings(value: unknown, complete: boolean, reading: SettingsReading) {
   return (
     isRecord(value) &&
-    Object.entries(value).every(([field, item]) => isSettingValue(field, item, closed)) &&
+    Object.entries(value).every(([field, item]) => isSettingValue(field, item, reading)) &&
     (!complete || SETTING_FIELDS.every((field) => field in value))
   )
 }
 
 /** Complete document settings with only supported fields and bounded values. */
 export function isDocumentSettings(value: unknown): value is DocumentSettings {
-  return isSettings(value, true, true)
+  return isSettings(value, true, 'closed')
 }
 
 function isRecovery(value: unknown): value is RecoveryView | null {
@@ -1399,7 +1408,7 @@ export function isDocumentResponse(value: unknown): value is DocumentResponse {
     isAbbreviations(document, document.atoms, document.bonds) &&
     isFragmentDisplays(document, document.atoms, document.bonds) &&
     isSceneTree(document, document.atoms, document.bonds) &&
-    (document.settings === undefined || isSettings(document.settings, true, false)) &&
+    (document.settings === undefined || isSettings(document.settings, true, 'open')) &&
     isRecord(session) &&
     isCount(session.saved_revision) &&
     typeof session.unsaved_changes === 'boolean' &&
@@ -1562,8 +1571,8 @@ export function isPreferencesResponse(value: unknown): value is PreferencesRespo
     isCount(value.revision) &&
     isRecord(value.ui) &&
     (THEMES as readonly unknown[]).includes(value.ui.theme) &&
-    isSettings(value.new_documents, false, false) &&
-    isSettings(value.new_document_settings, true, false) &&
+    isSettings(value.new_documents, false, 'open') &&
+    isSettings(value.new_document_settings, true, 'open') &&
     isRecord(value.computation) &&
     isComputationSetting(value.computation.nmr) &&
     isComputationSetting(value.computation.numeric_precision) &&
@@ -2148,7 +2157,7 @@ function clipboardPayloadIds(text: string): ClipboardPayloadIds {
     throw clipboardIncompatible()
   }
   if (!isRecord(value) || value.format !== 'chemifree.clipboard' || value.version !== 1 ||
-      !exactKeys(value, ['format', 'version', 'settings', 'atoms', 'bonds', 'stereo']) || !isRecord(value.settings) ||
+      !onlyKeys(value, ['format', 'version', 'settings', 'atoms', 'bonds', 'stereo']) || !isRecord(value.settings) ||
       !Array.isArray(value.atoms) || !Array.isArray(value.bonds) || !Array.isArray(value.stereo)) throw clipboardIncompatible()
   const atoms: string[] = []
   for (const atom of value.atoms) {

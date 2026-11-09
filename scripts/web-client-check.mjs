@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict'
 import { register } from 'node:module'
 import { test } from 'node:test'
+import { sceneCutAfter, sceneCutCopy } from './lib/scene-cut-fixture.mjs'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
 await import('./web-scene-cut-client-check.mjs')
@@ -3936,6 +3937,36 @@ test('a double bond item must be a double bond of the snapshot with its own stor
   assert.notEqual(read((r) => { r.bonds[0].stored = { kind: 'unknown', extra: 1 } }, keyed), null, 'a key both hold')
 })
 
+test('a double bond agreement ignores a key the drawn record lacks, and the reply echoes the snapshot key as stored', () => {
+  const { value, atoms } = mixedFixture()
+  // The snapshot's record holds a key this reader does not know; the reply echoes that key, and the drawn records lack it.
+  const keyed = structuredClone(value)
+  keyed.stereo.bonds[0].configuration = { kind: 'unknown', extra: 1 }
+  const bonds = [{ bond: 'b10', stored: { kind: 'unknown', extra: 1 }, drawn: ['s1', 's2'].map((instance) => ({ instance, configuration: { kind: 'unknown' }, reason: null, agreement: 'agrees' })) }]
+  const inspection = readStereoInspection(structuredClone(resultOf(keyed, atoms, bonds)), graphOf(keyed))
+  assert.notEqual(inspection, null)
+  assert.deepEqual(inspection.bonds, [{ bond: 'b10', stored: { kind: 'unknown', extra: 1 }, drawn: [
+    { instance: 's1', configuration: { kind: 'unknown' }, reason: null, agreement: 'agrees' },
+    { instance: 's2', configuration: { kind: 'unknown' }, reason: null, agreement: 'agrees' },
+  ] }])
+})
+
+test('a double bond agreement is refused when a known field of the drawn record differs yet the reply reports agreement', () => {
+  const { value, atoms } = mixedFixture()
+  // Neither end of b10 has another neighbor, so a relative record can name only the hydrogen at each end.
+  const stored = { kind: 'relative', begin_neighbor: 'implicit_hydrogen', end_neighbor: 'implicit_hydrogen', relation: 'same_side' }
+  const keyed = structuredClone(value)
+  keyed.stereo.bonds[0].configuration = stored
+  const reading = (configuration, agreement) => {
+    const drawn = ['s1', 's2'].map((instance) => ({ instance, configuration, reason: null, agreement }))
+    return readStereoInspection(structuredClone(resultOf(keyed, atoms, [{ bond: 'b10', stored, drawn }])), graphOf(keyed))
+  }
+  assert.notEqual(reading({ ...stored }, 'agrees'), null, 'the same configuration agrees')
+  assert.notEqual(reading({ ...stored, relation: 'opposite_sides' }, 'disagrees'), null, 'a different relation is a disagreement')
+  assert.equal(reading({ ...stored, relation: 'opposite_sides' }, 'agrees'), null, 'a different relation is refused as agreement')
+  assert.equal(reading({ kind: 'unknown' }, 'agrees'), null, 'a drawn configuration of another kind is refused as agreement')
+})
+
 test('the advisory findings may carry codes the client does not know, but must be findings', () => {
   assert.deepEqual(readStereoDiagnostics([{ code: 'a_new_code', severity: 'info', message: 'm', details: { x: 1 } }]), [{ code: 'a_new_code', severity: 'info', message: 'm' }])
   for (const bad of [null, [{ code: 'x', severity: 'error', message: 'm' }], [{ code: 'x', severity: 'info' }], [{ severity: 'info', message: 'm' }], 'none']) {
@@ -6238,6 +6269,27 @@ test('scene copy keeps outermost paint order, nested children and internal refer
   assert.deepEqual(fixture.source, sourceBefore)
 })
 
+test('scene copy accepts keys the snapshot adds to a copied point, to the settings and to a reference, and the payload stays closed', async () => {
+  const fixture = sceneClipboardFixture()
+  // The snapshot holds keys this client does not know; the payload the service sends states none of them.
+  // objects[3] is the rectangle s5 and references[3] is its own reference; both are copied.
+  fixture.source.document.settings = { ...DEFAULT_SETTINGS, future_setting: 'x' }
+  fixture.source.document.scene.objects[3].points[0] = { x: 0, y: 0, extra: 1 }
+  fixture.source.document.scene.references[3] = { source: 's5', target: { kind: 'object', id: 's5' }, extra: 1 }
+  const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_copy', fixture.copied, 2))] })
+  const copied = await new DocumentClient().clipboardSceneCopy('doc-1', fixture.selection)
+  assert.deepEqual(copied.roots, ['s8', 's4'])
+  assert.deepEqual(copied.copied, { objects: ['s8', 's5', 's7', 's6', 's3', 's4'], atoms: [], bonds: [] })
+  assert.equal(copied.payload, fixture.payload, 'the payload holds no key the snapshot added')
+})
+
+test('scene copy refuses a reply whose copied point differs in a known value, even when the point also carries an extra key', async () => {
+  const fixture = sceneClipboardFixture()
+  fixture.source.document.scene.objects[3].points[0] = { x: 1, y: 0, extra: 1 }
+  const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_copy', fixture.copied, 2))] })
+  await assert.rejects(new DocumentClient().clipboardSceneCopy('doc-1', fixture.selection), { code: 'incompatible_response' })
+})
+
 for (const [name, change] of [
   ['foreign document', (reply) => { reply.snapshot.document.id = 'another-document' }],
   ['missing descendant', (reply) => { reply.copied.objects.splice(3, 1) }],
@@ -6429,6 +6481,46 @@ test('scene paste reconciles terminal revision conflict after unknown outcome wi
   await assert.rejects(attempt.send(), { code: 'clipboard_scene_paste_reconcile' })
   assert.equal(scripted.writes.length, 3)
   assert.equal(scripted.writes[0].requestId, scripted.writes[2].requestId)
+})
+
+test('scene paste accepts keys the reply adds to a pasted graphic, its point, the mapping and its items', async () => {
+  const fixture = sceneClipboardFixture()
+  // objects[9] is the pasted rectangle s16, whose translated points still match the copied ones.
+  fixture.pasted.snapshot.document.scene.objects[9].extra = 1
+  fixture.pasted.snapshot.document.scene.objects[9].points[0].extra = 1
+  fixture.pasted.mapping = { extra: 1, objects: fixture.pasted.mapping.objects.map((item) => ({ ...item, extra: 1 })) }
+  const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_paste', fixture.pasted))] })
+  const confirmed = await scenePasteAttempt(new DocumentClient(), fixture).send()
+  assert.deepEqual(confirmed.mapping, { objects: [
+    { source: 's8', target: 's20' }, { source: 's5', target: 's16' },
+    { source: 's7', target: 's19' }, { source: 's6', target: 's17' },
+    { source: 's3', target: 's15' }, { source: 's4', target: 's18' },
+  ] })
+})
+
+test('scene paste refuses a reply whose translated point differs in a known value, even when the point also carries an extra key', async () => {
+  const fixture = sceneClipboardFixture()
+  // The copied point (0, 0) translated by the offset (10, 20) is (10, 20); x is 11 here.
+  fixture.pasted.snapshot.document.scene.objects[9].points[0] = { x: 11, y: 20, extra: 1 }
+  const scripted = service({ '/api/v1/operations': [() => json(200, nativeClipboardReply(scripted, 'document.clipboard_scene_paste', fixture.pasted))] })
+  await assert.rejects(scenePasteAttempt(new DocumentClient(), fixture).send(), { code: 'clipboard_scene_paste_unconfirmed' })
+})
+
+test('scene cut accepts keys the reply adds to its selection when the emptied sets are as expected', async () => {
+  const after = sceneCutAfter()
+  after.document.selection = { objects: [], atoms: [], bonds: [], extra: 1 }
+  service({ '/api/v1/documents/drawing/transactions': [() => json(200, after)] })
+  const result = await new DocumentClient().createSceneClipboardCut(sceneCutCopy(), { objects: ['s4', 's5'], atoms: [], bonds: [] }).send()
+  assert.deepEqual(result.document.scene.objects.map((object) => object.id), ['s1', 's2', 's3', 's7'])
+  assert.equal(result.document.revision, 4)
+})
+
+test('scene cut refuses a reply whose selection keeps an object, even when the selection also carries an extra key', async () => {
+  const after = sceneCutAfter()
+  after.document.selection = { objects: ['s7'], atoms: [], bonds: [], extra: 1 }
+  service({ '/api/v1/documents/drawing/transactions': [() => json(200, after)] })
+  const attempt = new DocumentClient().createSceneClipboardCut(sceneCutCopy(), { objects: ['s4', 's5'], atoms: [], bonds: [] })
+  await assert.rejects(attempt.send(), { code: 'clipboard_scene_cut_unconfirmed' })
 })
 
 function clipboardSmilesInput() {

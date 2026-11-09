@@ -12,11 +12,12 @@ import { isCaptionColor, validCaptionRuns, type CaptionAlignment, type CaptionRu
 type Caption = Extract<SceneObject, { kind: 'caption' }>
 
 // Copies only the run fields this client knows: a reply may carry others, and requests refuse unknown fields.
+// The satisfies clause makes a CaptionRun field missing from this literal a compile error, optional ones included.
 function knownCaptionRun(run: CaptionRun): CaptionRun {
   return {
     text: run.text, script: run.script, weight: run.weight, style: run.style, font: run.font, color: run.color,
     shadow: run.shadow, outline: run.outline, underline: run.underline, size_pt: run.size_pt,
-  }
+  } satisfies Required<{ [K in keyof CaptionRun]: unknown }>
 }
 
 /** A whole-run editor keeps native text selection and IME behavior inside ordinary inputs. */

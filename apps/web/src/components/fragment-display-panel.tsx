@@ -8,8 +8,9 @@ import { stillApplicable } from '@/editor/commands'
 import { fragmentDisplayRuns, validDisplayLabel, validFragmentDisplayRuns, type Command, type DocumentView, type FragmentDisplayRun, type FragmentDisplayView } from '@/lib/document-contract'
 
 // Copies only the run fields this client knows: a reply may carry others, and requests refuse unknown fields.
+// The satisfies clause makes a FragmentDisplayRun field missing from this literal a compile error, optional ones included.
 function knownFragmentRun(run: FragmentDisplayRun): FragmentDisplayRun {
-  return { text: run.text, script: run.script }
+  return { text: run.text, script: run.script } satisfies Required<{ [K in keyof FragmentDisplayRun]: unknown }>
 }
 
 /** Explicit graph selection and anchor; display text is never parsed as chemistry. */

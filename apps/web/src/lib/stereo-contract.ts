@@ -460,6 +460,29 @@ function centersAgree(a: AtomConfiguration, b: AtomConfiguration): boolean {
   return a.kind !== 'tetrahedral' || (b.kind === 'tetrahedral' && a.turn === b.turn)
 }
 
+/**
+ * The service's rule for a double bond: the same kind and, for a relative configuration, the same
+ * two references and relation. Any other field is ignored, so a field this reader does not know
+ * cannot make the client disagree with an agreement the service reports.
+ */
+function bondsAgree(a: BondConfiguration, b: BondConfiguration): boolean {
+  switch (a.kind) {
+    case 'unknown':
+      return b.kind === 'unknown'
+    case 'relative':
+      return (
+        b.kind === 'relative' &&
+        a.begin_neighbor === b.begin_neighbor &&
+        a.end_neighbor === b.end_neighbor &&
+        a.relation === b.relation
+      )
+    default: {
+      const unhandled: never = a
+      return unhandled
+    }
+  }
+}
+
 const nonAtomSlot = (center: AtomConfiguration) => center.neighbors.find((slot) => slot === IMPLICIT_HYDROGEN || slot === LONE_PAIR)
 
 function labelDiffers(a: AtomConfiguration, b: AtomConfiguration): boolean {
@@ -538,7 +561,7 @@ export function readStereoInspection(result: Record<string, unknown>, graph: Ins
     const isDouble = (candidate: unknown): candidate is BondConfiguration => isBondConfiguration(candidate, bond, bonded)
     const drawn: DrawnDouble[] = []
     for (const [i, item] of (entry.drawn as unknown[]).entries()) {
-      const read = readDrawn(item, expected[i], record, isDouble, sameValue)
+      const read = readDrawn(item, expected[i], record, isDouble, bondsAgree)
       if (!read) return null
       drawn.push(read)
     }

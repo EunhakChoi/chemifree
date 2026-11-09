@@ -1,4 +1,4 @@
-import { graphicPointCountValid, isDocumentSettings, MAX_NATIVE_CLIPBOARD_BYTES, SETTING_RANGES, type DocumentSettings, type DocumentView, type SceneGraphicShape, type NativeClipboardIdMapping, type Position, type SceneObject, type SceneReference, type SelectionView } from '@/lib/document-contract'
+import { graphicPointCountValid, isDocumentSettings, MAX_NATIVE_CLIPBOARD_BYTES, SETTING_FIELDS, SETTING_RANGES, type DocumentSettings, type DocumentView, type SceneGraphicShape, type NativeClipboardIdMapping, type Position, type SceneObject, type SceneReference, type SelectionView } from '@/lib/document-contract'
 import { parseStrictJson } from '@/lib/strict-json'
 
 type GraphicObject = Extract<SceneObject, { kind: 'graphic' | 'group' }>
@@ -31,6 +31,22 @@ function ids(value: unknown): value is string[] {
 function point(value: unknown): value is Position {
   return record(value) && exactKeys(value, ['x', 'y']) && typeof value.x === 'number' && typeof value.y === 'number' &&
     Number.isFinite(value.x) && Number.isFinite(value.y) && Math.abs(value.x) <= 100_000 && Math.abs(value.y) <= 100_000
+}
+
+/** A reply's settings reduced to the fields a closed payload carries; replies may add others. */
+function expectedSettings(settings: unknown): unknown {
+  if (!record(settings)) return settings
+  return Object.fromEntries(SETTING_FIELDS.map((field): [string, unknown] => [field, settings[field]]))
+}
+
+/** A reply object reduced to the fields the closed payload states, with null for an absent parent or line width; replies may add others. */
+function closedObject(object: SceneObject | undefined): unknown {
+  if (object?.kind === 'group') return { kind: object.kind, id: object.id, children: object.children, parent: object.parent ?? null }
+  if (object?.kind === 'graphic') {
+    return { kind: object.kind, id: object.id, shape: object.shape, points: object.points.map((point) => ({ x: point.x, y: point.y })),
+      line_width_pt: object.line_width_pt ?? null, parent: object.parent ?? null }
+  }
+  return object
 }
 
 function equal(first: unknown, second: unknown, exactNumbers = false): boolean {
@@ -122,7 +138,7 @@ export function sceneClipboardCopyMatches(
   const payload = payloadOf(text)
   const scene = source.scene
   if (!payload || !scene?.objects || !scene.roots || requested.atoms.length || requested.bonds.length ||
-      requested.objects.length === 0 || copied.atoms.length || copied.bonds.length || !equal(payload.settings, settings)) return false
+      requested.objects.length === 0 || copied.atoms.length || copied.bonds.length || !equal(payload.settings, expectedSettings(settings))) return false
   const byId = new Map(scene.objects.map((object) => [object.id, object]))
   const wanted = new Set(requested.objects)
   if (wanted.size !== requested.objects.length || requested.objects.some((id) => !byId.has(id))) return false
@@ -133,10 +149,11 @@ export function sceneClipboardCopyMatches(
     if (!object) return false
     const selected = included || wanted.has(id)
     if (!included && selected) expectedRoots.push(id)
+    // Expected objects carry only the fields payloadOf reads; a reply may hold others.
     if (selected) {
       if (object.kind === 'instance' || object.kind === 'caption' || object.kind === 'image') return false
       if (object.kind === 'group') objects.push({ kind: object.kind, id, children: object.children })
-      else objects.push({ kind: object.kind, id, shape: object.shape, points: object.points, line_width_pt: object.line_width_pt ?? null })
+      else objects.push({ kind: object.kind, id, shape: object.shape, points: object.points.map((point) => ({ x: point.x, y: point.y })), line_width_pt: object.line_width_pt ?? null })
     }
     return object.kind !== 'group' || object.children.every((child) => visit(child, selected))
   }
@@ -163,8 +180,10 @@ export function sceneClipboardCutMatches(before: DocumentView, after: DocumentVi
   const source = before.scene
   const target = after.scene
   const removed = new Set(copied)
+  // Reply selections may carry fields beyond these three; only the emptied sets are compared.
   if (!source?.objects || !source.roots || !target || removed.size === 0 ||
-      sceneClipboardCutHasIncoming(before, copied) || !equal(after.selection, { objects: [], atoms: [], bonds: [] })) return false
+      sceneClipboardCutHasIncoming(before, copied) ||
+      !equal({ objects: after.selection?.objects, atoms: after.selection?.atoms, bonds: after.selection?.bonds }, { objects: [], atoms: [], bonds: [] })) return false
   const objects = source.objects.filter((object) => !removed.has(object.id)).map((object) => object.kind === 'group'
     ? { ...object, children: object.children.filter((child) => !removed.has(child)) } : object)
   if (!equal(target, { ...source, roots: source.roots.filter((id) => !removed.has(id)), objects,
@@ -184,12 +203,12 @@ export function sceneClipboardPasteMapping(
   const targetScene = after.scene
   const selection = after.selection
   if (!payload || !sourceScene?.objects || !sourceScene.roots || !targetScene?.objects || !targetScene.roots || !selection ||
-      selection.atoms.length || selection.bonds.length || !equal(payload.settings, settings) || !record(mapping) ||
-      !exactKeys(mapping, ['objects']) || !Array.isArray(mapping.objects) || mapping.objects.length !== payload.objects.length) return null
+      selection.atoms.length || selection.bonds.length || !equal(payload.settings, expectedSettings(settings)) || !record(mapping) ||
+      !Array.isArray(mapping.objects) || mapping.objects.length !== payload.objects.length) return null
   const mapped: NativeClipboardIdMapping[] = []
   const previous = new Map(sourceScene.objects.map((object) => [object.id, object]))
   for (const [index, item] of mapping.objects.entries()) {
-    if (!record(item) || !exactKeys(item, ['source', 'target']) || item.source !== payload.objects[index]?.id ||
+    if (!record(item) || item.source !== payload.objects[index]?.id ||
         !objectId(item.source) || !objectId(item.target) || previous.has(item.target) || mapped.some((prior) => prior.target === item.target)) return null
     mapped.push({ source: item.source, target: item.target })
   }
@@ -213,7 +232,7 @@ export function sceneClipboardPasteMapping(
       : { ...object, id: targets.get(object.id), parent: targets.get(parent.get(object.id) ?? '') ?? null,
         points: object.points.map((point) => ({ x: point.x + offset.x, y: point.y + offset.y })) }
     const target = targets.get(object.id)
-    if (!target || !equal(actual.get(target), expected)) return null
+    if (!target || !equal(closedObject(actual.get(target)), expected)) return null
   }
   const references: SceneReference[] = []
   for (const reference of payload.references) {
@@ -222,7 +241,8 @@ export function sceneClipboardPasteMapping(
     if (!source || !target) return null
     references.push({ source, target: { kind: 'object', id: target } })
   }
-  if (!sameReferences(targetScene.references ?? [], [...(sourceScene.references ?? []), ...references])) return null
+  const expectedReferences = [...(sourceScene.references ?? []), ...references]
+  if (!sameReferences(targetScene.references ?? [], expectedReferences)) return null
   // Revision and root selection are the only non-scene changes permitted by this profile.
   for (const key of ['id', 'title', 'atoms', 'bonds', 'molecule', 'settings', 'stereo'] as const) {
     if (!equal(before[key], after[key])) return null
