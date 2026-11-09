@@ -718,7 +718,7 @@ fn print_list(response: &DocumentListResponse) {
     }
     if response.truncated {
         eprintln!(
-            "incomplete: only the first {MAX_LISTED_DOCUMENTS} stored documents are listed; the rest were not read, so a title search cannot find them"
+            "incomplete: only the first {MAX_LISTED_DOCUMENTS} stored documents are listed; the rest were not read"
         );
     }
 }
