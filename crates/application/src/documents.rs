@@ -2917,7 +2917,7 @@ pub(crate) struct Compute<'a> {
 
 /// A computation stopped before it finished: `limit_ms` is the time limit that was in force.
 /// Nothing was changed.
-fn interruption(interrupted: Interrupted, limit_ms: u64) -> ApplicationError {
+pub(crate) fn interruption(interrupted: Interrupted, limit_ms: u64) -> ApplicationError {
     match interrupted {
         Interrupted::TimeLimit => ApplicationError {
             limit_ms: Some(limit_ms),

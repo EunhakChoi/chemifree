@@ -69,14 +69,19 @@ A new feature is a new operation or a new transaction command, not a new adapter
   a per-document turn. The lock order is the document turn, then `sessions`.
 - The rule for heavy computation is: outside the lock on a copy of the graph, with a request
   time limit, a host cancel signal and a cap on concurrent computations, and a result that
-  is applied only if the revision is unchanged. Today only `chem.aromaticity_convert` and
-  `chem.cip` follow it (CONTRACT.md, "Computation time limit and cancel"). The other
-  read-only operations (`chem.aromaticity`, `chem.identity`, `chem.substructure`,
-  `chem.properties`, SMILES export) compute outside the lock and keep their work limits,
+  is applied only if the revision is unchanged. Today `chem.aromaticity_convert` and
+  `chem.cip` follow all of it, and `chem.aromaticity`, `chem.identity`,
+  `chem.substructure` and `chem.properties` follow it except the cap on concurrent
+  computations (CONTRACT.md, "Computation time limit and cancel"); those four commit
+  nothing, so the revision rule does not apply to them. In the domain
+  an interruptible computation is a `_with(…, interrupt)` function returning
+  `Result<Result<T, ModelError>, Interrupted>`, and the existing function is its wrapper
+  over `NEVER`; a stop is never a model error. The remaining read-only operations (SMILES
+  export, `chem.stereo`, `chem.inchi`) compute outside the lock and keep their work limits,
   but have no time limit or cancel, and `chem.validate` computes under the lock (its work
   is linear in the document). Separately, creates, closes, copies and the file checks most
   requests make do storage I/O while holding `sessions`; draft writes do not (CONTRACT.md,
-  "Slow storage"). Closing these is the P41 remainder in track T0 (issue #106). A new
+  "Slow storage"). Closing these is the P41 remainder in track T0 (issue #106): SMILES export next, then the lock placement. A new
   operation does not inherit the protection; it has to be wired in.
 - This fits a local single-user server. Per-document locks instead of one table lock are
   needed only for a multi-user service (roadmap S rows, not scheduled).

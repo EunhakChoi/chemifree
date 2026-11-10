@@ -1060,6 +1060,33 @@ try {
     assert.equal(tooLong.diagnostics[0].code, 'invalid_request')
     assert.equal(tooLong.diagnostics[0].path, 'parameters.time_limit_ms')
     assert.deepEqual(tooLong.diagnostics[0].details, { maximum_ms: 8000 })
+    // The four inspections take the same time_limit_ms and bounds as the conversion above, through both adapters with no CLI flag.
+    const timedInspections = [
+      ['chem.aromaticity', (id) => ({ document_id: id }), 'chemifree-aromaticity-2'],
+      ['chem.identity', (id) => ({ document_id: id, other_document_id: id, mode: 'recorded' }), 'chemifree-recorded-graph-1'],
+      ['chem.substructure', (id) => ({ query_document_id: id, target_document_id: id }), 'chemifree-substructure-1'],
+      ['chem.properties', (id) => ({ document_id: id, scope: 'molecule', property: 'formula' }), 'chemifree-properties-1'],
+    ]
+    for (const [operation, inspection, modelId] of timedInspections) {
+      const name = operation.replace('chem.', '')
+      const atZero = await both((id) => request(`op-limit-${name}`, operation, { ...inspection(id), time_limit_ms: 0 }))
+      assert.deepEqual(
+        [atZero.outcome, atZero.model_id, atZero.result, atZero.diagnostics[0].code, atZero.diagnostics[0].details],
+        ['error', modelId, null, 'time_limit', { limit_ms: 0 }],
+        `${operation} stops at time_limit_ms 0`,
+      )
+      const aboveMaximum = await both((id) => request(`op-limit-max-${name}`, operation, { ...inspection(id), time_limit_ms: 8001 }))
+      assert.deepEqual(
+        [aboveMaximum.outcome, aboveMaximum.model_id, aboveMaximum.diagnostics[0].code, aboveMaximum.diagnostics[0].path, aboveMaximum.diagnostics[0].details],
+        ['error', modelId, 'invalid_request', 'parameters.time_limit_ms', { maximum_ms: 8000 }],
+        `${operation} refuses time_limit_ms 8001`,
+      )
+      // The maximum is accepted, and a limit the inspection does not reach leaves its result unchanged.
+      const atMaximum = await both((id) => request(`op-limit-ok-${name}`, operation, { ...inspection(id), time_limit_ms: 8000 }))
+      assert.equal(atMaximum.outcome, 'ok', `${operation} completes at time_limit_ms 8000: ${JSON.stringify(atMaximum)}`)
+      const withoutLimit = await both((id) => request(`op-limit-unset-${name}`, operation, inspection(id)))
+      assert.deepEqual(atMaximum.result, withoutLimit.result, `${operation} returns the same result at time_limit_ms 8000 as without it`)
+    }
     const identity = await both((id) => request('op-identity', 'chem.identity', { document_id: id, other_document_id: id, mode: 'recorded' }))
     assert.equal(identity.model_id, 'chemifree-recorded-graph-1')
     assert.equal(identity.result.comparison.equivalent, true)

@@ -1,8 +1,10 @@
 //! `chem.substructure`: every mapping of a query drawing in a target drawing.
 //!
 //! Read-only. Both graphs are copied under one lock, so the reply names the exact snapshots
-//! the answer is about; the search then runs outside the lock. A refusal or limit carries both
-//! snapshots too and never a partial list.
+//! the answer is about; the search then runs outside the lock. A refusal or search limit carries
+//! both snapshots too and never a partial list. The search runs under the request's time limit
+//! and the host cancel; a stop reports `time_limit` or `cancelled` with no snapshots, not a row
+//! of the code table.
 
 use chemifree_domain::aromaticity;
 use chemifree_domain::substructure::{
@@ -17,6 +19,10 @@ use super::*;
 pub(super) struct SubstructureParameters {
     query_document_id: String,
     target_document_id: String,
+    /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
+    /// (so it may be above the server's default); above the maximum it is refused.
+    #[serde(default)]
+    time_limit_ms: Option<u64>,
 }
 
 /// One row of the table of refusals and limits `chem.substructure` reports.
@@ -27,8 +33,9 @@ pub struct MatchCodeRow {
     pub message: &'static str,
 }
 
-/// Every diagnostic code that `chem.substructure` adds to the document errors of the v1
-/// envelope, in documentation order. docs/CONTRACT.md lists the same rows.
+/// Every refusal and search-limit code that `chem.substructure` adds to the document errors of the
+/// v1 envelope, in documentation order. The shared `time_limit` and `cancelled` stops are not
+/// rows here. docs/CONTRACT.md lists the same rows.
 pub const MATCH_CODES: [MatchCodeRow; 5] = [
     MatchCodeRow {
         code: "empty_query",
@@ -231,7 +238,17 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         &self,
         known: &Known,
         p: SubstructureParameters,
+        cancel: &dyn Interrupt,
     ) -> OperationResponse {
+        let (budget, limit_ms) = match self.start_time_limit_or_refuse(
+            known,
+            p.time_limit_ms,
+            cancel,
+            substructure::MODEL_ID,
+        ) {
+            Ok(started) => started,
+            Err(reply) => return *reply,
+        };
         let ((query_snapshot, query), (target_snapshot, target)) = match self
             .documents
             .graph_pair(&p.query_document_id, &p.target_document_id)
@@ -240,7 +257,23 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Err(error) => return lookup_failure_reply(known, &error),
         };
         let revision = query_snapshot.document.revision;
-        match substructure::find(&query, &target) {
+        // The search runs under the request's budget and takes no compute slot. A stop replies with the
+        // time limit or the cancel, and with neither a result nor snapshots.
+        let search = match self.compute_read_only(&budget, |interrupt| {
+            substructure::find_with(&query, &target, interrupt)
+        }) {
+            Ok(search) => search,
+            Err(interrupted) => {
+                return stopped_read_only(
+                    known,
+                    revision,
+                    interrupted,
+                    limit_ms,
+                    substructure::MODEL_ID,
+                );
+            }
+        };
+        match search {
             Ok(matches) => {
                 let stereo = SubstructureStereo {
                     compared: false,

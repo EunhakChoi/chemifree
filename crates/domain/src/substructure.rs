@@ -25,6 +25,7 @@
 use std::collections::BTreeMap;
 
 use crate::aromaticity::{self, Classification};
+use crate::budget::{Interrupt, Interrupted, NEVER};
 use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use crate::graph::MoleculeGraph;
 use crate::states::{AtomKind, BondQuery, QueryAtom, QueryBondOrder};
@@ -284,11 +285,20 @@ impl BondTest {
 /// leaves its bonds unclassified, unless it has no double or aromatic bond: then no spelling
 /// of it can be aromatic and the drawn kinds stand.
 fn effective_kinds(graph: &MoleculeGraph) -> Vec<Effective> {
+    effective_kinds_with(graph, &NEVER).expect("the never-interrupt cannot interrupt")
+}
+
+/// [`effective_kinds`] that asks `interrupt` while the ring systems of `graph` are read. It
+/// returns exactly what [`effective_kinds`] returns, or `Interrupted` and nothing else.
+fn effective_kinds_with(
+    graph: &MoleculeGraph,
+    interrupt: &dyn Interrupt,
+) -> Result<Vec<Effective>, Interrupted> {
     // Without bonds there is nothing to read; the model's perception is not run for it.
     if graph.bonds().len() == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    let interpretation = aromaticity::perceive(graph);
+    let interpretation = aromaticity::perceive_with(graph, interrupt)?;
     let mut system_of: BTreeMap<BondId, usize> = BTreeMap::new();
     for (index, system) in interpretation.systems.iter().enumerate() {
         for &bond in &system.bonds {
@@ -307,7 +317,7 @@ fn effective_kinds(graph: &MoleculeGraph) -> Vec<Effective> {
                 .any(|bond| matches!(orders[bond], BondOrder::Double | BondOrder::Aromatic))
         })
         .collect();
-    graph
+    let effective: Vec<Effective> = graph
         .bonds()
         .map(|(id, bond)| {
             let system = system_of
@@ -336,7 +346,8 @@ fn effective_kinds(graph: &MoleculeGraph) -> Vec<Effective> {
                 BondOrder::Aromatic => Effective::Unclassified(reason),
             }
         })
-        .collect()
+        .collect();
+    Ok(effective)
 }
 
 fn compile_bond(id: BondId, bond: &Bond, effective: Effective) -> Result<BondTest, MatchError> {
@@ -568,12 +579,35 @@ impl Offence {
     }
 }
 
+/// Why a search produced no result: it ended with a [`MatchError`], which a search reaches only
+/// through one of its limits, or the caller's interrupt stopped it.
+enum Halt {
+    /// A limit of the search ended it; this does not depend on the machine.
+    Refused(MatchError),
+    /// The search was stopped before it finished; the target may well be supported.
+    Interrupted(Interrupted),
+}
+
+impl From<MatchError> for Halt {
+    fn from(error: MatchError) -> Self {
+        Self::Refused(error)
+    }
+}
+
+impl From<Interrupted> for Halt {
+    fn from(interrupted: Interrupted) -> Self {
+        Self::Interrupted(interrupted)
+    }
+}
+
 struct Search<'a> {
     query: &'a Query,
     target: &'a Target<'a>,
     plan: &'a [Step],
     /// Per query atom, the target atoms it may be assigned, in index order.
     candidates: &'a [Vec<usize>],
+    /// Asked once per [`CHECK_STRIDE`] candidate entries examined.
+    interrupt: &'a dyn Interrupt,
     assigned: Vec<usize>,
     used: Vec<bool>,
     steps: usize,
@@ -587,10 +621,13 @@ struct Search<'a> {
 
 const UNASSIGNED: usize = usize::MAX;
 
+/// The candidate entries examined between two asks of the interrupt.
+const CHECK_STRIDE: usize = 1_024;
+
 impl Search<'_> {
-    fn extend(&mut self, depth: usize) -> Result<(), MatchError> {
+    fn extend(&mut self, depth: usize) -> Result<(), Halt> {
         let Some(step) = self.plan.get(depth) else {
-            return self.record();
+            return Ok(self.record()?);
         };
         let (query, target) = (self.query, self.target);
         let atom = step.atom;
@@ -606,7 +643,12 @@ impl Search<'_> {
             let t = anchor.map_or_else(|| self.candidates[atom][at], |a| target.adjacency[a][at].0);
             self.scanned += 1;
             if self.scanned > MAX_SCANNED_CANDIDATES {
-                return Err(MatchError::ScanLimit);
+                return Err(Halt::Refused(MatchError::ScanLimit));
+            }
+            // The interrupt is asked once per CHECK_STRIDE entries, not at each one, because a
+            // deadline check reads the clock.
+            if self.scanned.is_multiple_of(CHECK_STRIDE) {
+                self.interrupt.check()?;
             }
             if self.used[t] || self.candidates[atom].binary_search(&t).is_err() {
                 continue;
@@ -615,7 +657,7 @@ impl Search<'_> {
             // free, checked against the bonds to the atoms assigned before.
             self.steps += 1;
             if self.steps > MAX_SEARCH_STEPS {
-                return Err(MatchError::StepLimit);
+                return Err(Halt::Refused(MatchError::StepLimit));
             }
             let fits = step.back.iter().all(|&(earlier, query_bond)| {
                 target
@@ -719,7 +761,27 @@ impl Search<'_> {
 /// it does not mean the target was read: the search ends before the target's rings are read
 /// when a query atom has no candidate. No error comes with a partial list.
 pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, MatchError> {
-    let query = Query::read(query)?;
+    find_with(query, target, &NEVER).expect("the never-interrupt cannot interrupt")
+}
+
+/// [`find`] that asks `interrupt` at its checkpoints: once the query is read, while the target's
+/// aromaticity is read, and once per 1,024 candidate entries examined. It returns exactly what
+/// [`find`] returns, or `Interrupted` and nothing else, never a partial list.
+///
+/// # Errors
+///
+/// `Interrupted` when `interrupt` stops the computation. Otherwise the inner `Result` holds what
+/// [`find`] returns, refusals and limits included.
+pub fn find_with(
+    query: &MoleculeGraph,
+    target: &MoleculeGraph,
+    interrupt: &dyn Interrupt,
+) -> Result<Result<Matches, MatchError>, Interrupted> {
+    let query = match Query::read(query) {
+        Ok(query) => query,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
+    interrupt.check()?;
     let mut read = Target::read(target);
     let candidates: Vec<Vec<usize>> = query
         .atoms
@@ -728,20 +790,21 @@ pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, Ma
         .map(|(q, (_, test))| read.candidates(test, query.adjacency[q].len()))
         .collect();
     if candidates.iter().any(Vec::is_empty) {
-        return Ok(Matches {
+        return Ok(Ok(Matches {
             mappings: Vec::new(),
             steps: 0,
-        });
+        }));
     }
     // Perceiving aromaticity reads the whole target, so it waits until every query atom has a
     // candidate. It is not counted in the step and scan limits; the model's caps bound it.
-    read.effective = effective_kinds(target);
+    read.effective = effective_kinds_with(target, interrupt)?;
     let plan = plan(&query, &candidates);
     let mut search = Search {
         query: &query,
         target: &read,
         plan: &plan,
         candidates: &candidates,
+        interrupt,
         assigned: vec![UNASSIGNED; query.atoms.len()],
         used: vec![false; read.atoms.len()],
         steps: 0,
@@ -757,23 +820,31 @@ pub fn find(query: &MoleculeGraph, target: &MoleculeGraph) -> Result<Matches, Ma
         offence,
         ..
     } = search;
+    // An interrupt ends the search at once: no refusal or limit that it reached is reported.
+    let ended = match ended {
+        Err(Halt::Interrupted(interrupted)) => return Err(interrupted),
+        Err(Halt::Refused(error)) => Err(error),
+        Ok(()) => Ok(()),
+    };
     if let Some(Offence { reason, at, query }) = offence {
-        return Err(MatchError::Unsupported {
+        return Ok(Err(MatchError::Unsupported {
             side: Side::Target,
             reason,
             at: Some(at),
             query: Some(query),
-        });
+        }));
     }
     // Only a limit ends the search early, and a refusal that is known has been returned above.
-    ended?;
+    if let Err(limit) = ended {
+        return Ok(Err(limit));
+    }
     mappings.sort_unstable_by(|a, b| {
         a.atoms
             .iter()
             .map(|pair| pair.1)
             .cmp(b.atoms.iter().map(|pair| pair.1))
     });
-    Ok(Matches { mappings, steps })
+    Ok(Ok(Matches { mappings, steps }))
 }
 
 #[cfg(test)]
