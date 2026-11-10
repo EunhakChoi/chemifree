@@ -866,15 +866,17 @@ impl<R: DocumentRepository> Documents<R> {
         Ok((self.respond(session), plan))
     }
 
-    /// The view and graph are taken under the same lock, so later computation can be checked
-    /// against the exact analyzed snapshot even after a service restart or concurrent edit.
+    /// The view and a history-free copy of the document are taken under the same lock, so later
+    /// computation can be checked against the exact analyzed snapshot even after a service restart
+    /// or concurrent edit. The copy leaves out undo and redo history, which no analysis reads; the
+    /// view still reports the session's history.
     pub(crate) fn analysis_snapshot(
         &self,
         id: &str,
     ) -> Result<(DocumentResponse, Document), ApplicationError> {
         let mut sessions = self.lock();
         let session = self.session(&mut sessions, id)?;
-        Ok((self.respond(session), session.document.clone()))
+        Ok((self.respond(session), session.document.without_history()))
     }
 
     /// Captures graph and document view under the same lock; the read-only interpretation
@@ -1813,9 +1815,13 @@ impl<R: DocumentRepository> Documents<R> {
     /// it, moves the service's own schedule: a success leaves it only the changes made while
     /// the write ran, and a failure is retried on its backoff, not sooner.
     ///
-    /// The session table is held only to take a snapshot and to record the outcome, never
-    /// across the storage I/O, so a stalled disk holds up this document's drafting and other
-    /// writers waiting for its turn, not other documents or edits to this one. Edits made
+    /// The recovery lookup and the write run with the turn held but without the session table,
+    /// so a stalled disk there holds up this document's drafting and other writers waiting for
+    /// its turn, not other documents or edits to this one. The table is still held for the
+    /// session's load or refresh and to record the outcome, and a reply recorded there reads the
+    /// draft's status under it. Responses for this document are not isolated from the lookup:
+    /// while it holds the draft's ownership, a response waits for it with the table held. While
+    /// the write runs, responses show the lookup's result without reading the draft. Edits made
     /// meanwhile stay unsaved and undrafted: the outcome names the revision written.
     fn write_draft(
         &self,
@@ -1825,6 +1831,13 @@ impl<R: DocumentRepository> Documents<R> {
         now: Instant,
         drafter: Drafter,
     ) -> Result<DocumentResponse, ApplicationError> {
+        // Looked up with this document's turn held but not the table: the lookup can read a
+        // whole abandoned draft or wait for the draft's ownership. Changes this process makes to
+        // the draft take the turn, except settling an interrupted save, which the store
+        // serializes and makes idempotent. This lookup may settle one; nothing else in this
+        // method changes the draft before the snapshot below. Another process could change it at
+        // any time, with or without the table.
+        let recovery = self.recovery(document_id);
         let task = {
             let mut sessions = self.lock();
             if drafter != Drafter::Client && !sessions.open.contains_key(document_id) {
@@ -1838,7 +1851,7 @@ impl<R: DocumentRepository> Documents<R> {
             }
             match DraftTask::for_session(session) {
                 Some(task) => {
-                    session.recovery_at_write = self.recovery(document_id);
+                    session.recovery_at_write = recovery;
                     session.drafting.writing();
                     task
                 }
@@ -2514,7 +2527,9 @@ impl<R: DocumentRepository> Documents<R> {
         }
         let session = self.session(&mut sessions, id)?;
         session.expect_revision(expected_revision)?;
-        let source = session.document.clone();
+        // The copy starts with no history (copy_as), so the source's history is not copied
+        // under the table.
+        let source = session.document.without_history();
         let discarded_changes = session.is_dirty();
         let title = title.map_or_else(|| suffixed(source.title(), " (copy)"), str::to_owned);
         let copy = self.copy(&mut sessions, &source, &title, CopySlot::Source)?;

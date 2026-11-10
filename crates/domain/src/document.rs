@@ -3218,6 +3218,25 @@ impl Document {
         })
     }
 
+    /// This document's current state, at the same identifier and revision, without its undo
+    /// and redo history: what a read-only analysis or a copy needs. It is a snapshot, not a
+    /// working copy, and is never saved or edited in a session's place.
+    #[must_use]
+    pub fn without_history(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            revision: self.revision,
+            content: self.content.clone(),
+            selection: self.selection.clone(),
+            next_atom: self.next_atom,
+            next_bond: self.next_bond,
+            next_object: self.next_object,
+            next_group: self.next_group,
+            undo: VecDeque::new(),
+            redo: Vec::new(),
+        }
+    }
+
     /// Rebuilds a stored document, rejecting any state commands could not have produced,
     /// including history entries that do not replay cleanly from the current state, and a
     /// selection that is not where the history ends: the newest undo entry's `after` (left by
