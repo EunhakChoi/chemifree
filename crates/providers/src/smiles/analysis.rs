@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use chemifree_domain::aromaticity::{self, Classification, Interpretation};
+use chemifree_domain::budget::{Interrupt, Interrupted, NEVER};
 use chemifree_domain::chemistry::{self, AtomAssessment, Finding};
 use chemifree_domain::document::{Atom, AtomId, BondId, BondOrder};
 use chemifree_domain::graph::MoleculeGraph;
@@ -25,7 +26,21 @@ pub(super) fn interpret(
     graph: &MoleculeGraph,
     aromatic: &BTreeSet<BondId>,
 ) -> Result<Interpretation, AromaticFailure> {
-    let interpretation = aromaticity::perceive(graph);
+    interpret_with(graph, aromatic, &NEVER).expect("the never-interrupt cannot interrupt")
+}
+
+/// [`interpret`] that asks `interrupt` while the aromaticity model reads the graph. It returns
+/// exactly what [`interpret`] returns, or `Interrupted` and nothing else.
+///
+/// # Errors
+///
+/// Returns the reason `interrupt` gave for stopping.
+pub(super) fn interpret_with(
+    graph: &MoleculeGraph,
+    aromatic: &BTreeSet<BondId>,
+    interrupt: &dyn Interrupt,
+) -> Result<Result<Interpretation, AromaticFailure>, Interrupted> {
+    let interpretation = aromaticity::perceive_with(graph, interrupt)?;
     let mut covered = BTreeSet::new();
     for system in &interpretation.systems {
         covered.extend(system.bonds.iter().copied());
@@ -38,10 +53,10 @@ pub(super) fn interpret(
                 .copied()
                 .min()
                 .expect("a ring system has atoms");
-            return Err(AromaticFailure {
+            return Ok(Err(AromaticFailure {
                 atom,
                 reason: system.reason.unwrap_or("not_aromatic"),
-            });
+            }));
         }
     }
     if let Some(bond) = aromatic.iter().find(|bond| !covered.contains(bond)) {
@@ -50,12 +65,12 @@ pub(super) fn interpret(
             .find(|(id, _)| id == bond)
             .map(|(_, bond)| bond.begin)
             .expect("an aromatic bond belongs to the graph");
-        return Err(AromaticFailure {
+        return Ok(Err(AromaticFailure {
             atom,
             reason: "aromatic_bond_outside_ring",
-        });
+        }));
     }
-    Ok(interpretation)
+    Ok(Ok(interpretation))
 }
 
 /// Every atom's assessment under the Kekulé assignment of the aromatic bonds, with the bond

@@ -1087,6 +1087,34 @@ try {
       const withoutLimit = await both((id) => request(`op-limit-unset-${name}`, operation, inspection(id)))
       assert.deepEqual(atMaximum.result, withoutLimit.result, `${operation} returns the same result at time_limit_ms 8000 as without it`)
     }
+    // SMILES export takes the same time_limit_ms and bounds in both styles, through both adapters with no CLI flag.
+    // A drawing export is `partial`, so the maximum is compared with the unset request instead of being asserted `ok`.
+    const smilesStyles = [
+      ['recorded', 'chemifree-smiles-1'],
+      ['canonical', 'chemifree-smiles-canonical-1'],
+    ]
+    for (const [style, modelId] of smilesStyles) {
+      const smilesExport = (name, timing) => both((id) => request(`op-limit-smiles-${style}-${name}`, 'document.export', { format: 'smiles', document_id: id, style, ...timing }))
+      const atZero = await smilesExport('zero', { time_limit_ms: 0 })
+      assert.deepEqual(
+        [atZero.outcome, atZero.model_id, atZero.result, atZero.diagnostics[0].code, atZero.diagnostics[0].details],
+        ['error', modelId, null, 'time_limit', { limit_ms: 0 }],
+        `SMILES export ${style} stops at time_limit_ms 0`,
+      )
+      const aboveMaximum = await smilesExport('above', { time_limit_ms: 8001 })
+      assert.deepEqual(
+        [aboveMaximum.outcome, aboveMaximum.model_id, aboveMaximum.diagnostics[0].code, aboveMaximum.diagnostics[0].path, aboveMaximum.diagnostics[0].details],
+        ['error', modelId, 'invalid_request', 'parameters.time_limit_ms', { maximum_ms: 8000 }],
+        `SMILES export ${style} refuses time_limit_ms 8001`,
+      )
+      const atMaximum = await smilesExport('maximum', { time_limit_ms: 8000 })
+      const withoutLimit = await smilesExport('unset', {})
+      assert.deepEqual(
+        [atMaximum.outcome, atMaximum.model_id, atMaximum.result],
+        [withoutLimit.outcome, withoutLimit.model_id, withoutLimit.result],
+        `SMILES export ${style} at time_limit_ms 8000 matches the unset request`,
+      )
+    }
     const identity = await both((id) => request('op-identity', 'chem.identity', { document_id: id, other_document_id: id, mode: 'recorded' }))
     assert.equal(identity.model_id, 'chemifree-recorded-graph-1')
     assert.equal(identity.result.comparison.equivalent, true)

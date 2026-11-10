@@ -76,12 +76,16 @@ A new feature is a new operation or a new transaction command, not a new adapter
   nothing, so the revision rule does not apply to them. In the domain
   an interruptible computation is a `_with(…, interrupt)` function returning
   `Result<Result<T, ModelError>, Interrupted>`, and the existing function is its wrapper
-  over `NEVER`; a stop is never a model error. The remaining read-only operations (SMILES
-  export, `chem.stereo`, `chem.inchi`) compute outside the lock and keep their work limits,
+  over `NEVER`; a stop is never a model error. SMILES export follows the same rule: the
+  `SmilesCodec` port has a required `write_interruptible` method (no default, so an
+  implementor cannot silently ignore the limit), the provider writer carries a private
+  `Halt` like the domain modules, and the reader stays uninterrupted because import has no
+  time limit; that includes the read-back parses the writer makes, so a write's stop can
+  wait for them (CONTRACT.md lists them as unchecked). The remaining read-only operations (`chem.stereo`, `chem.inchi`) compute outside the lock and keep their work limits,
   but have no time limit or cancel, and `chem.validate` computes under the lock (its work
   is linear in the document). Separately, creates, closes, copies and the file checks most
   requests make do storage I/O while holding `sessions`; draft writes do not (CONTRACT.md,
-  "Slow storage"). Closing these is the P41 remainder in track T0 (issue #106): SMILES export next, then the lock placement. A new
+  "Slow storage"). Closing these is the P41 remainder in track T0 (issue #106): the lock placement is next. A new
   operation does not inherit the protection; it has to be wired in.
 - This fits a local single-user server. Per-document locks instead of one table lock are
   needed only for a multi-user service (roadmap S rows, not scheduled).

@@ -8,6 +8,7 @@ use chemifree_application::smiles::{
     SmilesCode, SmilesError, SmilesSlot, SmilesStyle, SmilesWrite, Span,
 };
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
+use chemifree_domain::budget::{Interrupt, Interrupted, NEVER};
 use chemifree_domain::chemistry::{self, Finding};
 use chemifree_domain::document::{
     Atom, AtomId, BondId, BondOrder, MAX_CHARGE, MAX_COMMANDS, MAX_ISOTOPE_MASS_NUMBER, MIN_CHARGE,
@@ -77,6 +78,49 @@ impl Plan {
 
 fn fail(code: SmilesCode) -> Fail {
     SmilesError::new(code)
+}
+
+/// Why a write produced no text: the writer refused the drawing, or `interrupt` stopped it.
+#[derive(Debug)]
+enum Halt {
+    /// The writer refused the drawing; this does not depend on the machine.
+    Refused(Fail),
+    /// The write was stopped before it finished; the drawing may well be writable.
+    Interrupted(Interrupted),
+}
+
+impl From<Fail> for Halt {
+    fn from(error: Fail) -> Self {
+        Self::Refused(error)
+    }
+}
+
+impl From<Interrupted> for Halt {
+    fn from(interrupted: Interrupted) -> Self {
+        Self::Interrupted(interrupted)
+    }
+}
+
+/// Keeps a refusal inside the result and reports a stop outside it, so a stop is never read as a
+/// refusal.
+fn interruptible<T>(result: Result<T, Halt>) -> Result<Result<T, Fail>, Interrupted> {
+    match result {
+        Ok(value) => Ok(Ok(value)),
+        Err(Halt::Refused(error)) => Ok(Err(error)),
+        Err(Halt::Interrupted(interrupted)) => Err(interrupted),
+    }
+}
+
+/// Maps the result of a write given [`NEVER`], which cannot stop it. A stop would be a bug, so
+/// it panics rather than being read as a refusal.
+fn uninterrupted<T>(result: Result<T, Halt>) -> Result<T, Fail> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(Halt::Refused(error)) => Err(error),
+        Err(Halt::Interrupted(interrupted)) => {
+            unreachable!("the never-interrupt cannot interrupt: {interrupted:?}")
+        }
+    }
 }
 
 fn check_ranges(atom: &Atom) -> Result<(), Fail> {
@@ -158,8 +202,13 @@ fn items(plans: &[Plan], bracket: &[bool], turns: &[Option<Turn>]) -> Vec<Item> 
 
 /// Emits the plans, reads the text back, and brackets every bare atom that read back with other
 /// hydrogens or another radical, until the text reads back exactly.
-fn render(plans: &[Plan], links: &[Link], max_bytes: usize) -> Result<Rendered, Fail> {
-    render_with_turns(plans, links, max_bytes, &vec![None; plans.len()])
+fn render(
+    plans: &[Plan],
+    links: &[Link],
+    max_bytes: usize,
+    interrupt: &dyn Interrupt,
+) -> Result<Rendered, Halt> {
+    render_with_turns(plans, links, max_bytes, &vec![None; plans.len()], interrupt)
 }
 
 fn render_with_turns(
@@ -167,7 +216,8 @@ fn render_with_turns(
     links: &[Link],
     max_bytes: usize,
     turns: &[Option<Turn>],
-) -> Result<Rendered, Fail> {
+    interrupt: &dyn Interrupt,
+) -> Result<Rendered, Halt> {
     let mut bracket: Vec<bool> = plans
         .iter()
         .zip(turns)
@@ -176,20 +226,25 @@ fn render_with_turns(
     // The first pass finds every bare atom that reads back differently; the second, with those
     // bracketed, must read back exactly.
     for repaired in [false, true] {
+        // Emission and read-back parse are unchecked: the 500-command and 16 KiB limits bound them.
+        interrupt.check()?;
         if let Some(plan) = plans
             .iter()
             .zip(&bracket)
             .find_map(|(plan, &bracketed)| (bracketed && plan.guessed_hydrogens).then_some(plan))
         {
-            return Err(fail(SmilesCode::HydrogensNotWritable).because(format!(
-                "{}: the valence model gives no hydrogen count for this atom, so a bracket would state a guess",
-                plan.id
-            )));
+            return Err(fail(SmilesCode::HydrogensNotWritable)
+                .because(format!(
+                    "{}: the valence model gives no hydrogen count for this atom, so a bracket would state a guess",
+                    plan.id
+                ))
+                .into());
         }
         let emitted = emit::emit(&items(plans, &bracket, turns), links)?;
         if emitted.text.len() > max_bytes {
-            return Err(fail(SmilesCode::OutputTooLong));
+            return Err(fail(SmilesCode::OutputTooLong).into());
         }
+        interrupt.check()?;
         let parsed = reader::parse(&emitted.text).map_err(|error| {
             fail(SmilesCode::ReadbackMismatch)
                 .because(format!("the text is not read: {}", error.code.as_str()))
@@ -207,16 +262,16 @@ fn render_with_turns(
             });
         }
         if repaired {
-            return Err(fail(SmilesCode::ReadbackMismatch).because(
-                "bracketing the atoms that read back differently did not settle the text",
-            ));
+            return Err(fail(SmilesCode::ReadbackMismatch)
+                .because("bracketing the atoms that read back differently did not settle the text")
+                .into());
         }
         for index in mismatched {
             bracket[index] = true;
         }
     }
     // The second pass always returns above; this keeps the function total.
-    Err(fail(SmilesCode::ReadbackMismatch))
+    Err(fail(SmilesCode::ReadbackMismatch).into())
 }
 
 /// The bare atoms that must be bracketed, or the first fault no bracket can repair.
@@ -308,19 +363,41 @@ pub(super) fn write(
     style: SmilesStyle,
     groups: &StereoGroupTable,
 ) -> Result<SmilesWrite, Fail> {
+    uninterrupted(write_in(graph, style, groups, &NEVER))
+}
+
+/// Writes like [`write`], asking `interrupt` at the writer's checkpoints. A stop is
+/// `Err(Interrupted)`, never a refusal or a partial text.
+pub(super) fn write_with(
+    graph: &MoleculeGraph,
+    style: SmilesStyle,
+    groups: &StereoGroupTable,
+    interrupt: &dyn Interrupt,
+) -> Result<Result<SmilesWrite, Fail>, Interrupted> {
+    interruptible(write_in(graph, style, groups, interrupt))
+}
+
+/// The writer, asking `interrupt` in the searches it runs. A stop is `Halt::Interrupted`, never a
+/// refusal.
+fn write_in(
+    graph: &MoleculeGraph,
+    style: SmilesStyle,
+    groups: &StereoGroupTable,
+    interrupt: &dyn Interrupt,
+) -> Result<SmilesWrite, Halt> {
     if graph.atoms().len() == 0 {
-        return Err(fail(SmilesCode::EmptyGraph));
+        return Err(fail(SmilesCode::EmptyGraph).into());
     }
     // A graph assembled from parts can break what a document guarantees.
     let known: HashSet<AtomId> = graph.atoms().map(|(id, _)| id).collect();
     if graph.bonds().any(|(_, bond)| {
         bond.begin == bond.end || !known.contains(&bond.begin) || !known.contains(&bond.end)
     }) {
-        return Err(fail(SmilesCode::BondEndpointsInvalid));
+        return Err(fail(SmilesCode::BondEndpointsInvalid).into());
     }
     match style {
-        SmilesStyle::Recorded => recorded(graph, groups, double_bond_write::place),
-        SmilesStyle::Canonical => canonical(graph),
+        SmilesStyle::Recorded => recorded(graph, groups, double_bond_write::place, interrupt),
+        SmilesStyle::Canonical => canonical(graph, interrupt),
     }
 }
 
@@ -330,26 +407,29 @@ fn recorded(
     graph: &MoleculeGraph,
     groups: &StereoGroupTable,
     place: impl Fn(&Marking<'_>) -> Placement,
-) -> Result<SmilesWrite, Fail> {
+    interrupt: &dyn Interrupt,
+) -> Result<SmilesWrite, Halt> {
     if graph.atoms().len() + graph.bonds().len() > MAX_COMMANDS {
-        return Err(fail(SmilesCode::CommandLimit));
+        return Err(fail(SmilesCode::CommandLimit).into());
     }
     for (_, atom) in graph.atoms() {
         if atom.kind.element().is_none() {
-            return Err(fail(SmilesCode::QueryAtomNotWritable));
+            return Err(fail(SmilesCode::QueryAtomNotWritable).into());
         }
         check_ranges(atom)?;
         if !atom.attachment_points.is_empty() {
-            return Err(fail(SmilesCode::AttachmentPointsNotWritable));
+            return Err(fail(SmilesCode::AttachmentPointsNotWritable).into());
         }
         if atom.hydrogens == Hydrogens::Unknown {
-            return Err(fail(SmilesCode::HydrogensNotWritable).because("unknown_hydrogens"));
+            return Err(fail(SmilesCode::HydrogensNotWritable)
+                .because("unknown_hydrogens")
+                .into());
         }
     }
     let mut aromatic = BTreeSet::new();
     for (id, bond) in graph.bonds() {
         if !is_writable_order(&bond.order) {
-            return Err(fail(SmilesCode::BondKindNotWritable));
+            return Err(fail(SmilesCode::BondKindNotWritable).into());
         }
         if bond.order == BondOrder::Aromatic {
             aromatic.insert(id);
@@ -360,7 +440,7 @@ fn recorded(
         None
     } else {
         Some(
-            analysis::interpret(graph, &aromatic)
+            analysis::interpret_with(graph, &aromatic, interrupt)?
                 .map_err(|failure| fail(SmilesCode::AromaticNotWritable).because(failure.reason))?,
         )
     };
@@ -407,7 +487,7 @@ fn recorded(
                     let assumed_radical = match atom.radical {
                         Radical::None => true,
                         Radical::Unknown => false,
-                        _ => return Err(fail(SmilesCode::RadicalNotWritable)),
+                        _ => return Err(fail(SmilesCode::RadicalNotWritable).into()),
                     };
                     match atom.hydrogens {
                         Hydrogens::Specified(count) => {
@@ -421,12 +501,13 @@ fn recorded(
                         (Radical::Unknown, Hydrogens::Specified(count)) => {
                             (u16::from(count), Radical::Unknown, false, false)
                         }
-                        _ => return Err(fail(SmilesCode::RadicalNotWritable)),
+                        _ => return Err(fail(SmilesCode::RadicalNotWritable).into()),
                     }
                 }
                 (_, reason) => {
                     return Err(fail(SmilesCode::HydrogensNotWritable)
-                        .because(reason.unwrap_or("unsupported")));
+                        .because(reason.unwrap_or("unsupported"))
+                        .into());
                 }
             };
         check_hydrogens(element, hydrogens)?;
@@ -455,8 +536,9 @@ fn recorded(
             mark: None,
         })
         .collect();
-    let initial = render(&plans, &links, MAX_INPUT_BYTES)?;
-    let (rendered, mut losses) = recorded_stereo(graph, groups, &plans, &links, initial, place)?;
+    let initial = render(&plans, &links, MAX_INPUT_BYTES, interrupt)?;
+    let (rendered, mut losses) =
+        recorded_stereo(graph, groups, &plans, &links, initial, place, interrupt)?;
     let source: HashMap<AtomId, &Atom> = graph.atoms().collect();
     let name = |ids: Vec<AtomId>| ids.iter().map(ToString::to_string).collect::<Vec<_>>();
     losses.extend(aggregate(
@@ -513,7 +595,8 @@ fn recorded_stereo(
     links: &[Link],
     initial: Rendered,
     place: impl Fn(&Marking<'_>) -> Placement,
-) -> Result<(Rendered, Vec<Loss>), Fail> {
+    interrupt: &dyn Interrupt,
+) -> Result<(Rendered, Vec<Loss>), Halt> {
     let index: HashMap<AtomId, usize> = plans
         .iter()
         .enumerate()
@@ -529,6 +612,7 @@ fn recorded_stereo(
     let mut retained = BTreeMap::new();
     let mut losses = Vec::new();
     for (key, state) in graph.stereo().iter() {
+        interrupt.check()?;
         if let (StereoKey::DoubleBond(_), StereoState::DoubleBond(_)) = (key, state) {
             continue;
         }
@@ -587,13 +671,14 @@ fn recorded_stereo(
     let (requests, double_bond_losses) = double_bond_requests(graph.stereo().iter(), &link_of_bond);
     losses.extend(double_bond_losses);
     if plans.len() + links.len() + retained.len() > MAX_COMMANDS {
-        return Err(fail(SmilesCode::CommandLimit));
+        return Err(fail(SmilesCode::CommandLimit).into());
     }
     let mut rendered = if retained.is_empty() {
         initial
     } else {
-        render_with_turns(plans, links, MAX_INPUT_BYTES, &turns)?
+        render_with_turns(plans, links, MAX_INPUT_BYTES, &turns, interrupt)?
     };
+    interrupt.check()?;
     // The directional bonds are placed on the text as the tetrahedral marks leave it.
     let placement = place_double_bonds(graph, plans, links, &rendered, &requests, &place);
     for (index, reason) in &placement.omitted {
@@ -625,7 +710,7 @@ fn recorded_stereo(
                 ..link.clone()
             })
             .collect();
-        rendered = render_with_turns(plans, &marked_links, MAX_INPUT_BYTES, &turns)?;
+        rendered = render_with_turns(plans, &marked_links, MAX_INPUT_BYTES, &turns, interrupt)?;
     }
     let position: HashMap<AtomId, usize> = rendered
         .order
@@ -701,14 +786,15 @@ fn recorded_stereo(
         LossDisposition::Dropped, SemanticImpact::Stereo, LossConsent::NotRequired,
     ));
     if plans.len() + links.len() + retained.len() + written.len() + fields.len() > MAX_COMMANDS {
-        return Err(fail(SmilesCode::CommandLimit));
+        return Err(fail(SmilesCode::CommandLimit).into());
     }
     if !fields.is_empty() {
         rendered.text.push_str(&format!(" |{}|", fields.join(",")));
     }
     if rendered.text.len() > MAX_INPUT_BYTES {
-        return Err(fail(SmilesCode::OutputTooLong));
+        return Err(fail(SmilesCode::OutputTooLong).into());
     }
+    interrupt.check()?;
     let parsed = reader::parse(&rendered.text).map_err(|error| {
         fail(SmilesCode::ReadbackMismatch)
             .because(format!("stereo readback: {}", error.code.as_str()))
@@ -732,7 +818,8 @@ fn recorded_stereo(
         .collect();
     if actual != retained || actual_groups != expected_groups {
         return Err(fail(SmilesCode::ReadbackMismatch)
-            .because("a tetrahedral configuration or enhanced group differs"));
+            .because("a tetrahedral configuration or enhanced group differs")
+            .into());
     }
     if !double_bond_write::read_back_matches(
         &parsed.read.stereo.double_bonds,
@@ -743,7 +830,8 @@ fn recorded_stereo(
         &written,
     ) {
         return Err(fail(SmilesCode::ReadbackMismatch)
-            .because("a double-bond configuration differs from the one written"));
+            .because("a double-bond configuration differs from the one written")
+            .into());
     }
     rendered.parsed = parsed;
     Ok((rendered, losses))
@@ -900,17 +988,21 @@ fn hydrogen_state_losses(
     losses
 }
 
-fn canonical(graph: &MoleculeGraph) -> Result<SmilesWrite, Fail> {
-    canonical_with(graph, identity::chemical_form)
+fn canonical(graph: &MoleculeGraph, interrupt: &dyn Interrupt) -> Result<SmilesWrite, Halt> {
+    canonical_with(graph, interrupt, identity::chemical_form_with)
 }
 
 /// The canonical writer, with the search for a graph's chemical form given: it is run on the
-/// drawing and again on the text read back.
+/// drawing and again on the text read back, and `interrupt` is passed to each run.
 fn canonical_with(
     graph: &MoleculeGraph,
-    chemical_form: impl Fn(&MoleculeGraph) -> Result<ChemicalForm, IdentityError>,
-) -> Result<SmilesWrite, Fail> {
-    let form = chemical_form(graph).map_err(|error| match error {
+    interrupt: &dyn Interrupt,
+    chemical_form: impl Fn(
+        &MoleculeGraph,
+        &dyn Interrupt,
+    ) -> Result<Result<ChemicalForm, IdentityError>, Interrupted>,
+) -> Result<SmilesWrite, Halt> {
+    let form = chemical_form(graph, interrupt)?.map_err(|error| match error {
         IdentityError::AtomLimit | IdentityError::SearchLimit => {
             fail(SmilesCode::CanonicalLimit).because(error.code())
         }
@@ -919,13 +1011,13 @@ fn canonical_with(
         }
     })?;
     if form.atoms.len() + form.bonds.len() > MAX_COMMANDS {
-        return Err(fail(SmilesCode::CommandLimit));
+        return Err(fail(SmilesCode::CommandLimit).into());
     }
     let mut aromatic_atoms = vec![false; form.atoms.len()];
     let mut links = Vec::with_capacity(form.bonds.len());
     for (begin, end, order) in &form.bonds {
         if !is_writable_order(order) {
-            return Err(fail(SmilesCode::BondKindNotWritable));
+            return Err(fail(SmilesCode::BondKindNotWritable).into());
         }
         if *order == BondOrder::Aromatic {
             aromatic_atoms[*begin] = true;
@@ -954,7 +1046,7 @@ fn canonical_with(
             element
         };
         let Hydrogens::Specified(count) = atom.hydrogens else {
-            return Err(fail(SmilesCode::HydrogensNotWritable));
+            return Err(fail(SmilesCode::HydrogensNotWritable).into());
         };
         check_hydrogens(element, u16::from(count))?;
         plans.push(Plan {
@@ -972,18 +1064,20 @@ fn canonical_with(
             invalid_valence: false,
         });
     }
-    let rendered = render(&plans, &links, MAX_INPUT_BYTES)?;
+    let rendered = render(&plans, &links, MAX_INPUT_BYTES, interrupt)?;
     // The text must name the very graph it was written from.
     // Running out of work on the text is the limit again, whatever the drawing's own search
     // did; only a text that reads as another kind of graph is a mismatch.
-    let again = chemical_form(&rendered.parsed.graph).map_err(|error| match error {
+    let again = chemical_form(&rendered.parsed.graph, interrupt)?.map_err(|error| match error {
         IdentityError::AtomLimit | IdentityError::SearchLimit => {
             fail(SmilesCode::CanonicalLimit).because(error.code())
         }
         IdentityError::Unsupported(reason) => fail(SmilesCode::ReadbackMismatch).because(reason),
     })?;
     if again.canonical.code != form.canonical.code {
-        return Err(fail(SmilesCode::ReadbackMismatch).because("canonical_not_fixpoint"));
+        return Err(fail(SmilesCode::ReadbackMismatch)
+            .because("canonical_not_fixpoint")
+            .into());
     }
     let source: HashMap<AtomId, &Atom> = graph.atoms().collect();
     let mut losses = Vec::new();
@@ -1074,14 +1168,14 @@ mod tests {
             ),
         ] {
             let calls = std::cell::Cell::new(0);
-            let error = canonical_with(&graph, |input| {
+            let error = uninterrupted(canonical_with(&graph, &NEVER, |input, interrupt| {
                 calls.set(calls.get() + 1);
                 if calls.get() == 1 {
-                    identity::chemical_form(input)
+                    identity::chemical_form_with(input, interrupt)
                 } else {
-                    Err(second)
+                    Ok(Err(second))
                 }
-            })
+            }))
             .expect_err("the second search fails");
             assert_eq!(calls.get(), 2, "{second:?}");
             assert_eq!(
@@ -1140,18 +1234,24 @@ mod tests {
     }
 
     fn refused_reason(place: impl Fn(&Marking<'_>) -> Placement) -> (SmilesCode, String) {
-        let error = recorded(&one_configured_bond(), &StereoGroupTable::default(), place)
-            .expect_err("the read-back check refuses the text");
+        let error = uninterrupted(recorded(
+            &one_configured_bond(),
+            &StereoGroupTable::default(),
+            place,
+            &NEVER,
+        ))
+        .expect_err("the read-back check refuses the text");
         (error.code, error.reason.unwrap_or_default())
     }
 
     #[test]
     fn the_unaltered_placement_writes_the_stored_configuration() {
-        let written = recorded(
+        let written = uninterrupted(recorded(
             &one_configured_bond(),
             &StereoGroupTable::default(),
             double_bond_write::place,
-        )
+            &NEVER,
+        ))
         .unwrap();
         assert_eq!(written.text, "C/C=C/C=CC");
     }
@@ -1203,11 +1303,12 @@ mod tests {
                 data.order = BondOrder::Single;
             }
         }
-        let written = recorded(
+        let written = uninterrupted(recorded(
             &graph,
             &StereoGroupTable::default(),
             double_bond_write::place,
-        )
+            &NEVER,
+        ))
         .expect("a configuration on a bond that is not double is left out, not refused");
         assert_eq!(written.text, "CCCC=CC");
         let consent: Vec<(&str, &str)> = written
@@ -1282,7 +1383,9 @@ mod tests {
                 mark: (i == 7).then_some(super::super::double_bonds::Mark::Slash),
             })
             .collect();
-        let error = render(&plans, &links, MAX_INPUT_BYTES).err().unwrap();
+        let error = uninterrupted(render(&plans, &links, MAX_INPUT_BYTES, &NEVER))
+            .err()
+            .unwrap();
         assert_eq!(error.code, SmilesCode::ReadbackMismatch);
         assert!(
             error
@@ -1321,14 +1424,16 @@ mod tests {
             .collect();
         // Four carbons chained: CCCC. The same plans fit in 4 bytes and not in 3.
         assert_eq!(
-            render(&plans, &links, 4)
+            uninterrupted(render(&plans, &links, 4, &NEVER))
                 .map(|rendered| rendered.text)
                 .ok()
                 .as_deref(),
             Some("CCCC")
         );
         assert_eq!(
-            render(&plans, &links, 3).err().map(|e| e.code),
+            uninterrupted(render(&plans, &links, 3, &NEVER))
+                .err()
+                .map(|e| e.code),
             Some(SmilesCode::OutputTooLong)
         );
     }

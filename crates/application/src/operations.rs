@@ -2955,7 +2955,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::DocumentExport => match self.format_backend(&parameters_value) {
                 Backend::Smiles => match parameters::<SmilesExportParameters>(parameters_value) {
-                    Ok(p) => self.smiles_export(known, p),
+                    Ok(p) => self.smiles_export(known, p, cancel),
                     Err(invalid) => known.invalid(invalid),
                 },
                 Backend::Interchange => self.dispatch_interchange_export(known, parameters_value),
