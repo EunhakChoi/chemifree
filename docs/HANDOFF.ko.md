@@ -1,8 +1,67 @@
 # Chemifree 새 세션 인계
 
+## 2026-11-10 트랙·아키텍처 재검토 (계획 기록, 코드 변경 없음)
+
+이 절은 계획과 문서만 바꾼 기록이다. 기능, 계약, 코드 동작은 그대로다. 아래의 실행 순서와 렌더러 방향은 **계획 기준**이며 어느 것도 시작하지 않았다. 트랙을 시작하는 것은 사용자의 요청이다.
+
+**어디에 적혀 있는가**
+
+- 실행 순서(트랙 T0–T9, 행, 대략의 PR 수): `roadmap/implementation-roadmap.json`의 `tracks`. 로드맵 HTML의 "실행 순서(트랙)" 표가 같은 내용을 보인다.
+- 구조 결정과 근거: [ARCHITECTURE.md](ARCHITECTURE.md). 현재 코드 구조를 설명하는 문서는 이것이며 `architecture.html`은 scaffold 시점의 스냅숏이다.
+- 남은 작업 묶음: 이슈 #106(P41과 런타임), #249(화학·코덱, P17–P24), #250(입체, P25–P28).
+
+**트랙 순서**
+
+14개 phase와 103개 행은 그대로다. 순서와 대략의 PR 수만 정했다. PR 수는 지금까지의 속도로 어림한 값이며 트랙을 시작할 때와 진행 중에 다시 나눈다.
+
+| 순서 | 트랙 | 행 | PR(대략) |
+| --- | --- | --- | --- |
+| T0 | P41 마감과 구조 정리 | P41 | 12–15 |
+| T1 | M1 닫기 | P87, P42, P48, P17, P19, P34 | 14–26 |
+| T2 | 로컬 MCP | P82 | 4–7 |
+| T3 | 편집기 출력 | P38, P39, P40, P36, P37 | 22–38 |
+| T4 | 배치 전체 | P43–P47 | 20–35 |
+| T5 | 반응 | P49–P52 | 15–25 |
+| T6 | 명명 | P53–P57 | 25–40 |
+| T7 | 물성·NMR | P58–P67 | 37–62 |
+| T8 | 고급 문서·형식 | P68–P81 | 42–70 |
+| T9 | 자동화·출시 | P83–P86, P88, P89 | 20–35 |
+
+- T0의 내용: P41 잔여(읽기 연산 identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소, 잠금 안 저장소 I/O 이동, 웹 표시)와 구조 정리(조립 코드 통합 1, 큰 파일 분할 5, 로드맵 HTML 생성기와 일치 검사 1). 구조 정리는 동작을 바꾸지 않는다.
+- T1에서는 제품 서버(P87)와 배치 준비·사슬·단순 고리(P42)를 먼저 한다. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38의 마감은 T3 맨 앞으로 옮겼다.
+- T2의 MCP는 실행 중인 로컬 서버의 클라이언트로 붙는다. 그래서 P87이 먼저다.
+- 화학·입체 심화(P18, P20–P28의 남은 범위)는 별도 트랙이 아니다. 뒤 트랙이 필요로 할 때 해당 행을 다시 연다(예: 명명은 P18·P26, 반응 코덱은 P21·P28).
+- W01–W05(조건부 호환)와 S01–S07(선택 확장)은 일정에 넣지 않았다.
+
+**구조 재검토의 결론**(근거와 수치는 ARCHITECTURE.md)
+
+- 유지: 레이어와 포트(domain → application → providers, 진입 어댑터가 조립), 단일 연산 표면(`Application::execute`, HTTP `POST /api/v1/operations`, CLI `chemifree operations`), 세션·잠금 모델, 버전이 있는 파일 형식과 메모리 내 이전.
+- 문서 모델: 그래프 하나와 페이지 하나는 상수(`MOLECULE_ID`, `PAGE_ID`)다. 다중 페이지(P40)와 반응 역할(P49)은 각각 파일 형식 이전을 포함한 모델 확장 PR로 시작한다.
+- 렌더러(계획 기준, T3 시작 전까지 바꿀 수 있다): 지금은 웹 TypeScript 기하와 그 Rust 포트(SVG export) 두 구현이 있고 parity fixture(골든 문서 9개)로 묶여 있다. 계획 기준은 Rust 배치를 단일 원본으로 삼는 것이다. `render.scene`이 배치(`DrawingLayout`)를 돌려주고 웹이 그것을 칠하며, 새 객체 종류는 Rust에만 구현하고, 기존 TS 원자·결합·라벨 기하는 글꼴 엔진(P38b3)까지 현재 범위로 동결한다. 비용은 T3 맨 앞의 PR 3–4개다. 두 구현을 유지하는 대안에서는 새 객체 종류마다 두 번 구현하고 대조해야 해서 T8의 어림이 42–70이 아니라 50–80이다.
+- T0에서 할 구조 정리: 거의 모든 기능이 고치는 큰 파일 5개(`apps/web/src/lib/document-contract.ts`, `crates/application/src/contract.rs`, `operations.rs`, `crates/domain/src/document.rs`, `crates/providers/src/file_format.rs`)를 관심사별로 나눈다. 세 곳(api, cli, conformance)에 반복된 조립 코드를 함수 하나로 모은다. 로드맵 HTML을 JSON에서 생성하고 둘의 일치를 검사한다.
+- 미룬 것과 다시 여는 시점: 아직 엔진이 없는 DATA 로더(application 소스의 약 1/3)는 처음 읽는 엔진을 만들 때 별도 크레이트로 옮긴다(계획상 T7 시작). Rust DTO와 TS 검증기의 이중 정의는 P82에서 스키마 생성으로 다룬다. 통합 테스트 바이너리 수와 빌드 캐시는 P86에서 다룬다.
+
+**확정한 결정**(PR #248의 세 항목, 2026-11-10, 이슈 #106에 기록)
+
+- 동시 계산 슬롯을 시간 안에 얻지 못하면 `resource_limit`이 아니라 기존 `time_limit`으로 답한다.
+- 서버 종료는 돌거나 기다리던 계산에 `cancelled`를 HTTP 200으로 전달한다.
+- 동시 계산 수를 정하는 CLI 플래그나 환경 변수는 두지 않는다. 설정은 P87의 서버 설정에 속한다.
+
+**이슈 정리**
+
+- #249(화학·코덱 backlog)가 #92, #93, #97, #99와 #104의 화학 항목을 대신한다. #104의 목록·잠금 항목은 #106에 있다.
+- #250(입체 backlog)이 #108, #110, #113, #125, #127을 대신한다. 이 문서와 CONTRACT.md의 열린 항목 포인터는 #250으로 바꿨다. 과거 절에 남은 이전 번호는 당시 기록이다.
+- #143(contract-smoke의 sleep 기반 동기화)은 계획 없음으로 닫았다.
+- 열린 이슈는 #106, #249, #250 셋이다.
+
+**바로잡은 기록**
+
+- SMILES 이중결합 방향 `/`·`\`는 이미 읽고(#221) 쓴다(#224). 고리 닫기 숫자나 방향족 결합에 붙은 표시만 `directional_bond_unsupported`로 거절한다. 로드맵 P21 메모와 아래 "다음 구현 단위 제안"이 이를 남은 작업으로 적고 있어 고쳤고, 그래서 T1의 PR 어림을 16–29에서 14–26으로 줄였다.
+- 로드맵 P38 메모의 P38b1 PR 번호를 #230에서 #232로 고쳤다.
+
 ## 웹 리더의 알 수 없는 필드 처리 (#129)
 
-상태는 `in_progress`다. 변경은 PR #237(브랜치 `fix/i129-readers-ignore-unknown`)에 있고, 이 절을 쓸 때 리뷰와 머지는 끝나지 않았다.
+PR #237(브랜치 `fix/i129-readers-ignore-unknown`)로 2026-11-09에 병합됐다. 아래는 그 PR을 쓸 때의 기록이다.
 
 **범위**
 
@@ -32,7 +91,7 @@
 
 ## chem.cip 시간 제한 (검증 기록 `docs/verification/p26-cip-time-limit.md`)
 
-상태는 `in_progress`다. P26 전체는 완료가 아니며 규칙 4a–5, 의사비대칭 r/s, 헤테로방향족은 그대로 남아 있다. 이 절은 `chem.cip`의 시간 제한과 취소만 다룬다. 이슈 #127은 열어 둔다: 시간 제한과 사용 노드 수 보고(`resource_limit`의 `details.nodes_used`)는 해결되었고 조밀한 그래프의 하한 노드 상한이 남았다.
+상태는 `in_progress`다. P26 전체는 완료가 아니며 규칙 4a–5, 의사비대칭 r/s, 헤테로방향족은 그대로 남아 있다. 이 절은 `chem.cip`의 시간 제한과 취소만 다룬다. 이슈 #127은 #250으로 통합해 닫았다: 시간 제한과 사용 노드 수 보고(`resource_limit`의 `details.nodes_used`)는 해결되었고 조밀한 그래프의 하한 노드 상한이 남았다(#250).
 
 **범위**
 
@@ -51,10 +110,10 @@
 
 **보류와 미측정**
 
-- 조밀한 그래프의 하한 노드 상한: 모델 개정이 필요해 보류(이슈 #127).
+- 조밀한 그래프의 하한 노드 상한: 모델 개정이 필요해 보류(이슈 #250, 이전 #127).
 - `resource_limit`의 사용 노드 수 보고: 해결되었다. 도메인 `Stop::RequestLimit`이 `used`를 싣고 응답이 `details.nodes_used`를 보고한다(단계별 값이며 요청 전체 합이 아니다. CONTRACT 참조).
 - 체크포인트 사이의 가장 긴 간격: 측정하지 않았다.
-- 릴리스 빌드에서 이슈 #127의 12–17초 circulant 사례 시간: 측정하지 않았다(디버그 빌드 비용일 수 있다).
+- 릴리스 빌드에서 12–17초 circulant 사례(이슈 #250, 이전 #127)의 시간: 측정하지 않았다(디버그 빌드 비용일 수 있다).
 - 웹의 `stereogenic` 요청은 없고, 웹 변경은 주석뿐이다.
 
 **검증**
@@ -688,7 +747,7 @@ P35는 in_progress다. 구현 에이전트는 테스트·빌드·cargo check·br
 - 로드맵 P13으로 연산 계약 1(CONTRACT.md "Operation contract 1")을 더했다. 연산별 요청·응답(계약 버전, 호환 프로필, 결과·진단·손실 보고·model_id), HTTP `POST /api/v1/operations`와 CLI `chemifree operations`(줄마다 JSON)가 같은 `Application::execute`를 쓰며 v1 오류 코드를 그대로 진단으로 낸다. 카탈로그(capabilities의 `operation_catalog`, 웹 capability 카드의 Operations 표)는 연산과 트랜잭션 하위 연산마다 표현 가능 여부와 실행 여부를 따로 적는다. 문서 연산과 카탈로그, P16의 제한된 `chem.validate`, P17의 방향족 검사·변환, P18의 `chem.identity`, P19의 `chem.properties`, P20·P22의 제한된 `document.import`·`document.export`가 실행된다. 다른 미구현 연산은 후속 항목과 함께 unsupported로 답하며, 검사 결과는 사용한 model_id를 담는다.
 - 로드맵 P09로 화학 그래프와 문서·장면을 분리했다(CONTRACT.md "Documents", "Edits", "Document file format"). 문서는 그래프 하나(분자 `m1`: 위치 없는 원자·결합)와 페이지 하나(`p1`), 그 위의 순서 있는 분자 장면 인스턴스(`s1`, `s2`…, 별도 ID 공간·재사용 없음, 최대 20개)를 가지며 인스턴스마다 모든 원자의 위치를 정확히 하나씩 둔다. 명령은 v1에 추가했다: 인스턴스가 여럿이면 `add_atom`은 인스턴스별 `positions`, `move_atoms`는 `instance`가 필요하고(빠지거나 남으면 명령 번호와 함께 invalid_command, 변경 없음; `positions`에 같은 키가 두 번 오면 본문 자체가 잘못된 것이라 다른 잘못된 본문처럼 명령 번호 없는 invalid_request이며 HTTP·CLI 모두 contract smoke로 확인), 500개 add_atom × 인스턴스 20개처럼 큰 트랜잭션은 HTTP 256 KiB 한도를 넘을 수 있어 나누거나 CLI(1 MiB)로 보내야 한다(CONTRACT.md "Edits"), `add_instance`·`move_instance`·`delete_instance`(마지막 인스턴스 삭제 거절)가 생겼다. 원자 삭제는 모든 인스턴스의 위치를 같은 변경 집합에서 지우고, 이력 항목은 그래프·인스턴스·위치 변경을 따로 기록하되 Undo/Redo는 한 번에 되돌린다. v1 응답은 기존 필드를 그대로 두고 `atoms[].position`을 첫 인스턴스 위치로 정했으며 `molecule`·`scene`을 더했다. 저장 형식은 document·draft 모두 version 2이고, version 1 파일·초안은 읽을 때 메모리에서 `s1` 하나로 옮긴다(ID·revision·제목·undo/redo 유지, 이동만 한 항목은 위치 변경만). v2는 원자 추가·삭제를 원자+위치 두 변경으로 세므로 v1 이력이 v2 한도(100 000 변경)를 넘을 수 있고, 그때는 편집과 같이 오래된 undo부터 잘라낸다(잘린 항목은 되돌릴 수 없고 원래 바이트는 첫 저장 때 migrated/에 남음, providers 테스트로 고정). 읽기는 쓰지 않으며, version 1 파일을 처음 덮어쓰는 저장은 그 바이트를 `migrated/<id>.v1.json`에 먼저 flush해 둔다. 사본은 덮어쓰지 않는다: 같은 ID로 다른 바이트의 version 1 파일이 다시 저장되면 다음 빈 이름(`<id>.v1.2.json`, `.v1.3.json`…)에 두고, 이미 같은 바이트가 남아 있으면 새로 쓰지 않는다. 다른 버전은 이유와 함께 unreadable로 거절하고 건드리지 않는다. 웹은 인스턴스마다 그림을 그리고 Duplicate placement(마지막 인스턴스를 복사해 그만큼 비켜 놓으므로 반복해도 겹치지 않음)·이동 버튼·삭제를 두며, 원자 끌기는 시작한 인스턴스에서만 옮긴다. 인스턴스가 여럿일 때 새 원자의 다른 인스턴스 위치는 결합 상대 기준이다: 기존 원자에 `bond_to`하면 그 원자가 각 인스턴스에서 옮겨진 만큼, 같은 트랜잭션의 앞선 새 원자(`$N`)에 결합하면 그 원자에 고른 위치에서 같은 간격만큼, 결합 없는 첫 원자만 클릭 지점에서 가장 가까운 원자의 차이만큼 옮긴다. 그래서 결합 길이·방향이 모든 인스턴스에서 같다(UI 정책, core 규칙 아님, web-client-check로 확인). 연산 카탈로그의 하위 연산은 명령 행과 기능 행으로 나뉘며, 기능 행은 그것을 수행하는 명령을 `commands`로 적는다(`scene_placement` → add_instance·move_instance·delete_instance; P09 당시 P10 행들은 `[]`였고 P10에서 executable(표현만)이 되어 수행 명령을 적는다; contract 1 안에서 추가된 선택 필드). 당시에는 화학 계산이 없었고 문서당 그래프는 하나였으며, 여러 그래프·그룹·페이지→인스턴스 밖의 포함 트리·다른 장면 객체·외부 참조는 후속(P11 등)이다.
 - 로드맵 P10으로 원자·결합의 기록 상태를 더했다(CONTRACT.md "Documents", "Edits", "Errors", "Document file format"). 원자는 원소 또는 query 원자(`*` any, `A` any_heavy, `Q` heteroatom, `X` halogen, 서로 다른 원소 1–10개 목록과 `negated`)이고, 수소 상태(`inferred` 기본값·개수 없음, `unknown`, `specified` 0–16), 라디칼(none·singlet·doublet·triplet·unknown), attachment point(오름차순·중복 없는 1–4)를 가진다. query 원자는 전하 0·동위원소 없음이며 v1 보기의 `element`에는 기호 대신 라벨(`*`, `![N,O]` 등)이 들어가므로 `kind`를 먼저 읽는다. 결합 차수에 aromatic·dative(begin이 공여체)·query(any 또는 single/double/triple/aromatic 중복 없는 목록)·unknown을 더했다. 모두 v1 안에서 추가한 선택 필드이며 add_atom·update_atom·add_bond·update_bond가 설정하고 Undo/Redo가 전부 되돌린다. 편집·불러온 파일·이력에 같은 규칙을 적용하고, 거절되는 조합은 명령 번호와 고정 `reason` 코드(hydrogen_count_out_of_range, query_atom_charge, query_atom_isotope, query_list_invalid, bond_query_invalid, bond_query_missing, bond_query_unexpected, attachment_points_invalid, atom_kind_conflict)를 가진 invalid_command로 v1 envelope와 연산 진단 `details`에 같이 실린다(HTTP·CLI 같은 reason·메시지, contract smoke로 확인). 형식이 틀린 값은 그대로 reason 없는 invalid_request다. 저장 형식은 version 3(압축 JSON: providers 테스트가 이력 100개 항목 × 명령 500개로 원자를 가장 넓은 원소↔query 상태 사이에서 뒤집은 50 000개 변경(트랜잭션으로 도달 가능한 최대)을 써서 문서·초안 모두 약 23 MB로 읽기 한도 64 MiB 안임을 확인, 들여쓰기 JSON은 68 MB로 실패. 100 000개 변경을 그런 상태로 채운 경우는 약 46 MB로 추정할 뿐 검사하지 않음)이고 version 1·2 파일·초안은 기본 상태로 이력과 함께 옮기며, 첫 덮어쓰기 저장 전에 `migrated/<id>.v2.json`(번호 사본, 같은 바이트 중복 없음)에 원래 바이트를 남긴다. 알 수 없는 버전은 거절하고 건드리지 않는다. 연산 카탈로그의 P10 기능 행 다섯 개는 `commands`를 가진 executable(표현만)이 되었고 `chem.validate`는 not_implemented 그대로다. CLI 텍스트 출력도 상태를 보여 준다. 웹은 원자마다 라벨 배치 하나(기호·query 라벨(목록은 캔버스에서 원소 3개 뒤 "…"), 명시·미상 수소와 개수, 동위원소·전하, 위 라디칼 점, 아래 `ap1,3`)를 계산하고 그 상자 하나로 결합 자르기(상자 밖 2pt에서 멈춤, 공간이 3pt보다 작으면 가운데 3pt 획, 뒤집히거나 사라지지 않음)·보기 상자·적중 판정(원자 중심 9pt 안 또는 라벨 상자 안)을 한다. 글자는 늘이거나 줄이지 않고 원래 폭으로 그린다: 기호와 그 앞뒤 글자는 이어 그리는 텍스트 하나이고, 기호의 예약 폭이 원자 중심에 오도록 놓으며(기호는 앞뒤 글자의 예약 폭과 실제 폭 차이의 절반, 1pt 미만만큼 어긋남), 예약 폭은 번들 글꼴(Geist)과 sans-serif 대체 글꼴의 글자별 advance를 Chromium에서 잰 상한이다(다른 글꼴은 더 넓을 수 있음). 같은 상태·결합 여부·쪽의 원자는 라벨 배치 객체 하나를 공유하고, 결합 획은 배치마다 문서가 바뀔 때만 계산하며 호버·선택은 결합·라벨 층을 다시 그리지 않는다. 배치가 여럿이면 테두리와 ID가 보기 상자 안에 들고 접근성 이름에 배치(`… in s2`)가 붙는다. 결합이 오른쪽으로 기울면 명시 수소는 기호 왼쪽(`H3C`)에 둔다. 상태를 기록한 결합 탄소는 라벨을 보이고 inferred 수소는 아무것도 더하지 않는다. 결합 종류는 모양(aromatic 실선+점선(8원자 이하 고리에 든 결합은 그 결합을 지나는 가장 작은 고리의 중심 쪽(융합 결합은 어느 고리든), 그래서 결합을 그린 방향·치환기와 상관없이 고리 안쪽, 고리 밖 결합은 양 끝 원자의 다른 이웃이 더 많은 쪽; 고리 탐색은 문서마다 한 번 하고 배치들이 공유; 맨 꼭짓점에서 줄임), dative 끝 쪽 화살표, query 점선, unknown 지그재그)과 접근성 이름으로 구별한다. 결합 도구는 언제나 끌기 시작점에서 결합을 시작하므로 dative의 공여체는 시작한 원자·점이다(빈 곳에서 원자로 끌면 원자를 추가한 뒤 그 원자에서 결합, 반대 방향의 기존 결합 위로 그리면 같은 트랜잭션에서 지우고 다시 추가해 결합 ID가 바뀜). 인스펙터 편집은 요청이 실행될 때의 최신 문서로 만들어(query 설정 시 전하·동위원소를 함께 지움, query 원자에는 전하·동위원소를 보내지 않음, 입력한 query 목록과 not은 서로의 최신 값을 유지) 빠른 연속 입력이 거절되지 않는다. 웹 클라이언트는 상태가 있는 응답과 이전 응답을 모두 받고(이전 응답은 기본값으로 채움) 일부만 있거나 섞인 응답은 거절한다. 당시에는 표현만 했으며 계산은 후속 단계로 남았다(MODEL-02.rest, P16 등).
-- HTML 설계(architecture.html)는 scaffold 코드 기준 119f477의 스냅숏이며, 상단에 이후 변경 안내를 추가했다. 현재 계약은 CONTRACT.md가 기준이다.
+- HTML 설계(architecture.html)는 scaffold 코드 기준 119f477의 스냅숏이며, 상단에 이후 변경 안내를 추가했다. 현재 계약은 CONTRACT.md가, 현재 코드 구조와 구조 결정은 ARCHITECTURE.md가 기준이다.
 - P11 장면 핵심은 #34로 병합됐고 포함 트리(그룹·선·사각형·화살표), 객체·원자·결합에 대한 독립적인 방향 참조, 선택 snapshot과 이력을 연결한다. 참조 소유자가 살아 있으면 대상 삭제는 거절되며 참조 해제와 삭제를 한 트랜잭션으로 묶을 수 있다. version 4 문서·초안으로 저장하고 version 1–3은 이력과 함께 메모리에서 이전하며, 첫 덮어쓰기 전에 원본 문서 바이트를 `migrated/`에 보관한다. 이전 초안을 복구할 때도 원본 초안 바이트를 별도로 보관하며 명시적인 폐기는 사본을 만들지 않는다. P09·P10 설명의 저장 형식과 미구현 항목은 해당 작업 당시의 기록이며 현재 계약은 CONTRACT.md를 따른다. 이 항목의 PR·리뷰·병합 상태는 GitHub와 review-history-batch2.md를 확인한다. P11 당시에는 화학 계산과 반응 의미를 구현하지 않았다.
 - P28b2(향상된 입체 그룹 ↔ V3000 COLLECTION, chiral 플래그 규칙, 형식 id 별칭, 진행 중이며 P28 완료가 아니다; 연산 수 27 그대로, 웹은 P28c): 내보내기(V3000만)는 그룹마다 `COLLECTION` 항목 하나를 쓴다 — `absolute`는 `MDLV30/STEABS`, `and`는 `STERAC<n>`, `or`는 `STEREL<n>`이고 `ATOMS=(개수 i1 i2 ...)`는 파일 원자 번호의 오름차순이다. `n`은 그룹의 해석된 번호를 있는 그대로 쓴다(번호 없음은 0, 0·음수·int32 아무 값 그대로; P27 불변식이 종류별로 번호를 유일하게 하므로 이름이 겹치지 않는다). 순서는 absolute, `and` 번호순, `or` 번호순이고 80열을 넘으면 P28a의 이어쓰기를 쓴다. **chiral 쓰기 규칙(보수적 제품 규칙)**: COUNTS chiral은 도면에 absolute 그룹이 있을 때만 1이고 아니면 0이다. 저장된 사면체 배치가 있으나 어떤 그룹에도 속하지 않은 중심은 파일에 향상된 입체 진술이 없다 — Chemifree는 진술을 지어내지 않으며, 동의가 필요한 손실 `stereo_ungrouped_centers`(`unknown`, `stereo`, `records[N].atoms[a1, ...]`)로 알린다. 공개 ChemDraw 쓰기 프로그램은 그런 중심을 STEABS에 넣고 플래그를 세는 것으로 관찰되지만 이는 의도적인 제품 선택이며 다른 읽기 프로그램의 해석에 대한 주장이 아니다. 그룹 없이 쐐기와 저장 배치만 있는 도면도 V3000 내보내기에 `accepted_losses`가 필요해졌다(b1에서는 필요 없었다 — 리뷰어가 볼 점). 그룹 식별자 `e1..`은 파일에 없으므로 동의 불필요 정보 손실 `stereo_group_identity`(`dropped`)가 알린다. V2000은 `stereo_group` 동의 손실과 `chiral_flag` `unknown` 손실이 그대로다(V3000에서는 `stereo_group`과 `chiral_flag` 손실이 사라졌다). 가져오기는 같은 트랜잭션에서 배치 유도 다음에 collection마다 `create_stereo_group`을 만든다(STEABS는 번호 없음, STERAC/STEREL은 적힌 번호 그대로, int32 아무 값; int32를 넘으면 `v3000_invalid_collection`). 멤버는 이번 가져오기에서 표시로 사면체 배치가 유도된 원자여야 하며 아니면(일반 원자, 유도 안 되는 중심, 물결 중심=`unknown`) 파일 전체를 `v3000_collection_member_not_stereocenter`로 거절한다(보수적 선택: 멤버를 버리면 어떤 중심이 같은 집합인지가 바뀐다). 닫힌 거절 이유: `v3000_empty_collection`, `v3000_duplicate_collection`(STEABS 둘, 또는 같은 종류·번호 둘 — 병합이 아니라 중복으로 본다), `v3000_collection_atom_shared`, `v3000_duplicate_index`, `v3000_unknown_atom_index`(전방 참조 포함); 전부 `ct_reason_family`에 가족이 대응되며 CONTRACT에 표가 있다. 이미 그룹이 있는 문서에 덧붙이면 absolute는 문서의 absolute 그룹에 합쳐지고(`stereo_group_merged`, `normalized`) `and`/`or` 번호가 이미 쓰이면 쓰이는 모든 번호 위의 1부터 세어 가장 작은 빈 양수 번호(문서의 번호와 파일이 적은 번호를 모두 센다; 양수가 다 차면 `resource_limit`로 거절)로 바꾸고 `stereo_group_number`(`normalized`)로 알리며 그룹은 따로 둔다; 조용한 병합도 멤버 손실도 없다. 실패하면 문서와 revision은 그대로다(테스트). 형식 id `mol-v2000`·`mol-v3000`은 `mol`의 별칭이다: 내보내기에서는 방언을 정하고 다른 `ctab`(또는 `auto`)와 충돌하면 `format_ctab_conflict`로 거절하며, 가져오기에서는 선택한 레코드가 그 방언이 아니면 같은 이유로 거절한다. 검사: `crates/application/tests/ctfile_v3000_groups.rs`(12개: 종류·번호 왕복(-128, 생략=0, 258, ±int32 끝), 바이트, chiral 규칙, 동의, 닫힌 거절과 불변, 덧붙이기 충돌·합침, 분할·병합 뒤 partition, V2000 동의, 화학 응답 불변, 별칭), 공급자 테스트(검증·쓰기), 적합성 사례 3개 추가 + 2개 수정(suite_version 22), 계약 스모크, 손으로 돌리는 `scripts/verify-v3000-rdkit.py`(RDKit 2022.03.2로 partition만 양방향 비교; RDKit은 음수 STERAC 번호 collection을 건너뛰므로 번호의 기준으로 쓰지 않는다), 변이 확인 20개(application 12·공급자 8, 손으로 고쳐 돌렸고 `--cache` 없이 각각 실패) + 적합성 3개 + RDKit 스크립트 1개. 리뷰 후속: 형식 id 별칭은 요청 지문(재생 판정)에 방언을 포함하고, 잘못된 `ctab` 값은 충돌이 아니라 매개변수 오류이며, `ctab: auto`는 그룹이 있으면 V3000을 고르고, 배치를 전혀 읽지 못한 레코드의 collection은 원자 탓이 아니라 `v3000_collection_drawing_unreadable`로 거절하며, 번호 바꿈은 1부터의 가장 작은 빈 양수다(음수 번호는 그대로 쓰되 RDKit 2022.03.2 등 일부 읽기 프로그램은 음수 collection을 건너뛴다). 아직 없다: V3000 query 원자·결합과 dative 투영, V2000·CDX·CXSMILES의 그룹 매핑(P29), SGroup·R-group. 라운드 3: V3000 내보내기는 그룹 구성원이 쓰이는 쐐기/해시 그림에서 사면체 배치를 유도하지 못하면(마크 없는 저장 배치, 물결 마크) `v3000_group_member_not_drawn`(계열 `unsupported_feature`, 구성원 원자 나열)으로 거절한다; 동의로 풀 수 없고 문서는 그대로이며, 가져오기의 구성원 검사와 같은 유도를 쓴다. V2000은 그대로.
 - P28c(웹만, Rust·계약 의미 변경 없음, 진행 중이며 P28 완료가 아니다; 연산 수 27 그대로): MOL·SDF 패널에 버전 선택(V2000 기본·V3000·Auto)을 더해 `ctab` 키로 보낸다(클라이언트 정책, 문서에 저장하지 않음). 결과에 `result.ctab`로 기록된 방언을 보인다. 동의가 필요한 손실(V2000의 그룹, V3000의 그룹 밖 중심, 표시가 보여 주지 않는 배치)은 평이한 문장으로 나열하고 명시적 수락 뒤에야 `accepted_losses`(다이제스트)로 다시 보내며, 다이제스트가 바뀌면(`loss_consent_changed`) 이전 수락을 버리고 새 손실을 다시 보인다. 동의 전에는 내려받기가 없다. V3000 거절 이유는 계약의 이유 표마다 문장이나 일반 대체 문장이 있다(`apps/web/src/lib/ct-conversion.ts`, 표와 대조하는 `test:client`). V3000 파일 가져오기는 기존 파일·미리보기 경로이며 collection은 Stereo 패널에 그룹으로 나타난다. Stereo 패널 그룹 문장은 V3000(또는 Auto) 내보내기가 그룹을 쓰고 V2000·SMILES는 쓰지 않는다고 말한다. query·SGroup·R-group은 지원하지 않고 거절된다. 근거는 `test:client`와 변이 확인이며 브라우저 스모크 시나리오(`ctfile_v3000_version_consent_roundtrip`)는 보조다.
@@ -727,10 +786,11 @@ P35는 in_progress다. 구현 에이전트는 테스트·빌드·cargo check·br
 4. SHADCN_REVIEW.ko.md: UI 도구 선택, 현재 연결 상태와 정책 제안.
 5. TRACEABILITY.ko.md: 요구사항·공개 선언 추적, conformance runner와 추적 검사가 확인하는 것과 확인하지 않는 것.
 6. testing-practice.md: 테스트 방법(실패 확인, 결정성, 독립 oracle, 격리 실행)과 검증 명령 목록.
-6. roadmap/implementation-roadmap.json(.html): PR 계획과 행별 상태. 후속 계획 ID는 이 행들이다.
-7. verification/review-history.md, verification/review-history-batch2.md: PR별 리뷰 회차·CI 이력과 정정. 닫힌 PR의 지적은 이후 설계 요건이다.
-8. architecture.html: scaffold 기준의 레이어·소스 링크를 담은 대화형 설계안(스냅숏). 브라우저로 열 수 있다.
-9. 같은 PC에서 존재한다면 private/SESSION_CONTEXT.ko.md: 승인된 공개 기능 명세의 로컬 경로와 기존 사용자 결정만 담은 보조 인계. Git에 포함하지 않는다.
+7. roadmap/implementation-roadmap.json(.html): PR 계획과 행별 상태, 그리고 실행 순서(`tracks`). 후속 계획 ID는 이 행들이다.
+8. ARCHITECTURE.md: 현재 코드 구조(크레이트·포트·연산 표면·잠금·문서 모델·렌더링)와 2026-11-10 구조 재검토의 결정·계획·미룬 항목.
+9. verification/review-history.md, verification/review-history-batch2.md: PR별 리뷰 회차·CI 이력과 정정. 닫힌 PR의 지적은 이후 설계 요건이다.
+10. architecture.html: scaffold 기준의 레이어·소스 링크를 담은 대화형 설계안(스냅숏). 브라우저로 열 수 있다. 현재 구조는 ARCHITECTURE.md를 본다.
+11. 같은 PC에서 존재한다면 private/SESSION_CONTEXT.ko.md: 승인된 공개 기능 명세의 로컬 경로와 기존 사용자 결정만 담은 보조 인계. Git에 포함하지 않는다.
 
 ## 완료한 기반
 
@@ -832,10 +892,12 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 다음 구현 단위 제안
 
-사용자 요청이 범위를 정한다. P11은 #34와 이전 초안 보관을 다룬 #35로, P12는 #36으로 병합됐다. P14의 마지막 구현은 #69로, P15의 수치 기반 구현은 #75로 병합됐고 각각 병합 후 main CI도 통과했다. PR·리뷰·병합 상태는 GitHub와 `docs/verification/review-history-batch2.md`에서 확인한다. 그 밖의 후보:
+사용자 요청이 범위를 정한다. P11은 #34와 이전 초안 보관을 다룬 #35로, P12는 #36으로 병합됐다. P14의 마지막 구현은 #69로, P15의 수치 기반 구현은 #75로 병합됐고 각각 병합 후 main CI도 통과했다. PR·리뷰·병합 상태는 GitHub와 `docs/verification/review-history-batch2.md`에서 확인한다.
+
+2026-11-10부터 실행 순서의 기준은 로드맵의 `tracks`(T0–T9, 이 문서 맨 위 절)다. 다음 단위는 T0(P41 잔여와 구조 정리)이며 사용자가 시작을 요청하면 진행한다. 아래 목록은 그 순서에 넣지 않은 후보와 범위 메모다:
 
 1. 저장·복구 후속(필요 시): 휴지통 영구 삭제·비우기, 초안 만료 정책(현재는 만료 없음), 읽기 전용 모드.
-2. 형식 입출력: 구현된 MOL/SDF V2000·V3000, CDXML, CDX와 SMILES 부분을 유지하고 SMILES 이중결합 방향 `/`·`\` 읽기와 쓰기, InChI import 및 고급 필드는 별도 작업으로 진행한다(`@`·`@@`와 CXSMILES 그룹 읽기는 P29c). 외부 형식의 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
+2. 형식 입출력: 구현된 MOL/SDF V2000·V3000, CDXML, CDX와 SMILES 부분을 유지한다. SMILES 이중결합 방향 `/`·`\`는 읽기(#221)와 쓰기(#224)가 병합됐고 고리 닫기 숫자나 방향족 결합의 표시만 거절한다. query·반응 SMILES, InChI import 및 고급 필드는 별도 작업이다(이슈 #249). 외부 형식의 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.
 3. 화학 그래프 진단: 제한된 원자가·물성·방향족·그래프 동등성 검사와 부분구조 검색을 유지하고 더 넓은 모델을 검증한다. 고리·차수·수소 개수 같은 질의 조건은 먼저 기록 상태가 필요하다.
 4. 편집기 확장: 고리 템플릿과 추가 장면 객체는 후속 범위다. P36 그래픽은 PNG 이미지(#216)까지 병합된 `in_progress`이며, 사용자가 2026-11-07 세션에서 PNG 이미지 이후 P36을 중단시켰다. 다음 범위는 사용자의 다음 요청이 정한다. P31의 로컬 viewport와 bounded P32 선택·정렬·문서 변환은 완료했으며 뷰 상태와 저장되는 문서 geometry는 구분한다.
 5. 사용자 인증·원격 배포는 별도 접근 제어 설계 후 진행.

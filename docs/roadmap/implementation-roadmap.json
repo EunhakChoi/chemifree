@@ -831,7 +831,11 @@
     "merge_commit": "c4a8e44eafeb5f560743559d4797d0791c463eb2",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41225052724",
     "note": "제한된 방향족 모델과 원자적 변환의 부분 납품이다. 더 넓은 융합계와 상태는 후속 범위다."
-   }
+   },
+   "issues": [
+    249
+   ],
+   "note": "`chem.aromaticity`(읽기 전용: 고리 블록과 `chemifree-aromaticity-2`의 한정된 해석)와 `chem.aromaticity_convert`(지원되는 방향족·Kekulé 표현의 원자적 변환, 실패하면 입력과 이력 유지)를 납품했다(#82, 모델 보완 P21a는 #91). 포화 원자가 섞인 융합 블록과 인접 donor 고리는 unsupported로 알린다. 더 넓은 융합계·상태와 코드 후속은 이슈 #249에 있다. M1 게이트 행이며 제한된 범위로 닫는 기준은 트랙 T1에서 정한다."
   },
   {
    "phase": "chemistry",
@@ -857,7 +861,11 @@
    ],
    "depends_on": [
     "P17"
-   ]
+   ],
+   "issues": [
+    249
+   ],
+   "note": "`chem.identity`를 납품했다(#84): 기록 그래프 또는 제한된 화학 모델로 canonical 코드·번호·대칭군을 계산하고 다른 문서와 비교하며, 탐색 한도나 미지원 상태는 부분 결과 없이 진단한다. automorphism 가지치기가 없어 대칭이 큰 분자는 작업 한도(`identity_limit`)에 걸릴 수 있다(이슈 #249)."
   },
   {
    "phase": "chemistry",
@@ -894,7 +902,8 @@
     "merge_commit": "3aa8686cc30c0c717bfbe02e94ffd2cc1a3c786d",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41223458088",
     "note": "분자식·질량 첫 범위의 부분 납품이다. 개인 질량 프로필 호환성과 일반 정밀도는 미완료다."
-   }
+   },
+   "note": "`chem.properties`가 분자·현재 선택·단절 성분의 분자식을 계산하고, 평균·정확 프로필 질량과 동위원소 분포는 검증된 외부 질량 자료가 등록됐을 때만 낸다. 별도 승인된 개인 질량 등록은 로컬 실행에서 `content_invalid`로 거절돼 그 호환성은 검증하지 못했다. 일반 정밀도 설정은 후속이다. M1 게이트 행이며 제한된 범위로 닫는 기준은 트랙 T1에서 정한다."
   },
   {
    "phase": "chemistry",
@@ -929,7 +938,8 @@
     "merge_commit": "fe443007193bfef7af16f3771cb1dde3431646a0",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41227984583",
     "note": "V2000 MOL/SDF의 제한된 입출력 부분 납품이다. 고급 객체와 입체 해석은 후속 범위다."
-   }
+   },
+   "note": "제한된 V2000 MOL/SDF 읽기·쓰기, 선택 레코드 미리보기, 손실 동의, 원자적 가져오기와 손실이 명시된 내보내기를 납품했다. 미지원 지시자는 조용히 버리지 않고 거절한다. V3000은 P28이다. 범위와 제한은 docs/CONTRACT.md가 기준이다."
   },
   {
    "phase": "chemistry",
@@ -960,7 +970,10 @@
     "P18",
     "P13"
    ],
-   "note": "SMILES 읽기, 기록 순서·canonical 쓰기, 가져오기 미리보기·동의와 내보내기를 구현했다(#96으로 병합). 입체, query/반응 SMILES, InChI는 후속이다. canonical 형식은 Chemifree 자체 형식이며 선행 보완 P21a는 #91로 병합됐다. P29의 bounded 프로필 완료와 별도로 SMILES 방향 결합 읽기·쓰기 후속 P29c2는 이 열린 행에 남는다. 현재 /와 역슬래시는 directional_bond_unsupported로 거절하며 고립 전자쌍 중심과 다른 stereo class/CX 필드는 계속 미지원이다."
+   "note": "SMILES 읽기, 기록 순서·canonical 쓰기, 가져오기 미리보기·동의와 내보내기를 구현했다(#96으로 병합). canonical 형식은 Chemifree 자체 형식이며 선행 보완 P21a는 #91로 병합됐다. 입체는 P29에서 납품했다: `@`·`@@`와 CXSMILES 그룹 읽기(P29c)·쓰기(P29d), 방향 결합 `/`·`\\` 읽기(P29c2a, #221)·쓰기(P29c2b, #224). 고리 닫기 숫자나 방향족 결합에 붙은 방향 표시는 계속 directional_bond_unsupported로 거절하며, 고립 전자쌍 중심과 다른 stereo class/CX 필드, query/반응 SMILES, InChI import는 미지원이다. 코드 후속은 이슈 #249에 있다.",
+   "issues": [
+    249
+   ]
   },
   {
    "phase": "chemistry",
@@ -990,7 +1003,8 @@
     "P11",
     "P12",
     "P13"
-   ]
+   ],
+   "note": "CDXML rich 읽기·쓰기, 손실 미리보기와 새 문서 생성을 납품했다(`crates/providers/src/cdxml.rs`). unknown 속성·객체는 opaque로 보존하고 참조 안전성을 추정하지 않으며, 선택한 화학 객체의 미해석 내용·위치 누락·불확실한 dative 방향은 거절한다. 편집기 투영의 입체 가져오기와 제한된 도면 내보내기는 P29(P29b·P29e·P29f)에서 납품했다. 일반 장면 렌더링과 고급 객체는 후속이다. 범위와 제한은 docs/CONTRACT.md와 docs/INTERCHANGE.md가 기준이다."
   },
   {
    "phase": "chemistry",
@@ -1015,7 +1029,11 @@
    ],
    "depends_on": [
     "P22"
-   ]
+   ],
+   "issues": [
+    249
+   ],
+   "note": "CDX 헤더·태그 객체·속성·확장 길이·중첩·문자열과 스타일 런·글꼴·색상 표·Represents를 공개 명세만으로 읽고 쓰며 CDXML과 같은 문서 트리와 `document.import`/`document.export`(format `cdx`)에 연결했다. 문자 인코딩은 코드 페이지 1252만 받고, 쓰기의 손실은 `loss_digest` 동의를 요구한다. 파일 끝 표지를 필수로 요구하는 동작은 공개 문서로 검증되지 않았다. 반응·괄호·곡선 등 나머지 CDX 객체와 다른 문자 집합은 후속이다(이슈 #249, docs/INTERCHANGE.md)."
   },
   {
    "phase": "chemistry",
@@ -1047,7 +1065,10 @@
     "P17",
     "P18"
    ],
-   "note": "부분구조 검색 `chem.substructure`, 원자·결합 대응, 질의 원자·결합과 명시한 전하·동위원소 비교, 방향족 모델 2에 따른 Kekulé·방향족 동등 처리, 읽을 수 없는 계와 탐색 한도의 거절을 구현했다(독립 브랜치 feat/p24b-query-batch3). 고리·차수·수소 개수·입체 조건은 도면이 기록하지 못해 제공하지 않는다."
+   "note": "부분구조 검색 `chem.substructure`, 원자·결합 대응, 질의 원자·결합과 명시한 전하·동위원소 비교, 방향족 모델 2에 따른 Kekulé·방향족 동등 처리, 읽을 수 없는 계와 탐색 한도의 거절을 구현했다(#98로 병합). 고리·차수·수소 개수·입체 조건은 도면이 기록하지 못해 제공하지 않는다. 남은 조건과 코드 후속은 이슈 #249에 있다.",
+   "issues": [
+    249
+   ]
   },
   {
    "phase": "stereo",
@@ -1075,7 +1096,10 @@
     "P11",
     "P10"
    ],
-   "note": "입체 표시와 명시된 입체 배치의 표현·쓰기(a1·a2a·a2b)와 도면에서 배치를 읽는 부분(a3a-1·a3a-2)과 저장 배치와 도면의 일관성 검사(a3b)를 납품했다: 도메인 저장 모델, 파일 형식 6, 명령 `set_bond_mark`·`set_atom_configuration`·`set_bond_configuration`(HTTP·CLI·연산 계약 1), 닫힌 `reason` 목록의 거절, 이웃 변경 시 자동 해제와 응답 `notes`(해제는 `partial`로 알리고 Undo가 되살림), Undo/Redo·저장·재개방 유지, 스냅샷 표시와 웹 문구 안내. 마크와 한 장면 인스턴스의 위치에서 배치를 읽는 순수 함수(`stereo_drawing`)와, 요청이 있을 때만 그 배치를 저장하는 명령 `set_configuration_from_drawing`(`chemifree-stereo-1`, 여섯 `stereo_not_derivable_*` 이유, 멱등, 한 번의 Undo)이 있다. 거울상·뒤집기 규칙은 순수 함수로만 정의했고 명령은 없다. 읽기 전용 연산 `chem.stereo`(`chemifree-stereo-1`, `chem.validate`와 별개)가 저장 배치와 장면 인스턴스별 도면을 비교해 agrees·disagrees·only_stored·only_drawn·neither와 권고 진단을 알리지만 아무것도 저장하거나 다시 도출하지 않고 입체성이나 CIP를 판단하지 않는다(a3 완료). 웹 편집기의 그리기(P25b-1)를 납품했다: 쐐기·해시 쐐기·물결을 결합 도구 변형으로 그리고 crossed는 인스펙터로 설정하며, 한 제스처가 결합·표시·도면에서 읽은 배치를 한 번의 Undo로 저장하고 서비스가 도출을 거절하면 표시를 유지한다(상수는 공개 명세의 BoldWidth·HashSpacing 값을 대리로 쓴 `MARK_STYLE`, 문서 형식 변경 없음). 웹 편집기의 일치 표시(P25b-2)를 납품했다: 입체가 있는 도면에서 웹이 `chem.stereo`를 스스로 부르고(300 ms 지연, 요청 하나, 드래그 중 없음), 화면의 도면과 정확히 같은 응답만 쓰며, 요약 줄·Stereo 패널·캔버스 링으로 보이고, 한 번의 클릭으로 갱신·저장·제거한다(한 번의 Undo, 상태 줄이 대체된 값을 말함). 입체성 판단과 CIP 라벨은 없다. P25b를 납품했다. 미구현: 거울상·뒤집기 명령, crossed 캔버스 도구, CIP(P26), 그룹(P27), 형식별 입출력(P29)."
+   "note": "입체 표시와 명시된 입체 배치의 표현·쓰기(a1·a2a·a2b)와 도면에서 배치를 읽는 부분(a3a-1·a3a-2)과 저장 배치와 도면의 일관성 검사(a3b)를 납품했다: 도메인 저장 모델, 파일 형식 6, 명령 `set_bond_mark`·`set_atom_configuration`·`set_bond_configuration`(HTTP·CLI·연산 계약 1), 닫힌 `reason` 목록의 거절, 이웃 변경 시 자동 해제와 응답 `notes`(해제는 `partial`로 알리고 Undo가 되살림), Undo/Redo·저장·재개방 유지, 스냅샷 표시와 웹 문구 안내. 마크와 한 장면 인스턴스의 위치에서 배치를 읽는 순수 함수(`stereo_drawing`)와, 요청이 있을 때만 그 배치를 저장하는 명령 `set_configuration_from_drawing`(`chemifree-stereo-1`, 여섯 `stereo_not_derivable_*` 이유, 멱등, 한 번의 Undo)이 있다. 거울상·뒤집기 규칙은 순수 함수로만 정의했고 명령은 없다. 읽기 전용 연산 `chem.stereo`(`chemifree-stereo-1`, `chem.validate`와 별개)가 저장 배치와 장면 인스턴스별 도면을 비교해 agrees·disagrees·only_stored·only_drawn·neither와 권고 진단을 알리지만 아무것도 저장하거나 다시 도출하지 않고 입체성이나 CIP를 판단하지 않는다(a3 완료). 웹 편집기의 그리기(P25b-1)를 납품했다: 쐐기·해시 쐐기·물결을 결합 도구 변형으로 그리고 crossed는 인스펙터로 설정하며, 한 제스처가 결합·표시·도면에서 읽은 배치를 한 번의 Undo로 저장하고 서비스가 도출을 거절하면 표시를 유지한다(상수는 공개 명세의 BoldWidth·HashSpacing 값을 대리로 쓴 `MARK_STYLE`, 문서 형식 변경 없음). 웹 편집기의 일치 표시(P25b-2)를 납품했다: 입체가 있는 도면에서 웹이 `chem.stereo`를 스스로 부르고(300 ms 지연, 요청 하나, 드래그 중 없음), 화면의 도면과 정확히 같은 응답만 쓰며, 요약 줄·Stereo 패널·캔버스 링으로 보이고, 한 번의 클릭으로 갱신·저장·제거한다(한 번의 Undo, 상태 줄이 대체된 값을 말함). 입체성 판단과 CIP 라벨은 없다. P25b를 납품했다. 미구현: 거울상·뒤집기 명령, crossed 캔버스 도구, CIP(P26), 그룹(P27), 형식별 입출력(P29).",
+   "issues": [
+    250
+   ]
   },
   {
    "phase": "stereo",
@@ -1103,7 +1127,10 @@
     "P25",
     "P18"
    ],
-   "note": "첫 납품 P26a-1은 도메인 내부만이다: `crates/domain/src/cip.rs`가 저장된 사면체 중심의 R/S 레이블을 규칙 1a·1b·2와 계층 digraph(중복·팬텀 원자, 전부 탄소인 방향족계의 mancude 처리)로 계산한다. 공개 연산·HTTP·CLI·웹은 없고(연산 수 26 그대로) 응답 계약도 바꾸지 않았다. 두 번째 납품 P26a-2도 도메인 내부만이다: 규칙 3(Z가 E보다 위)과 이중결합 E/Z 레이블(`label_double_bonds`)과 후보 탐색(`candidates`)을 더했고 임시 사유 cip_rule_3_pending을 없앴다. 리간드 이중결합에 기록이 없거나 unknown이면 ambiguous(cip_ligand_stereo_unspecified)이며 RDKit과 다르다(RDKit은 E 아래로 두고 레이블을 낸다). 기술자 순환은 cip_stereo_cycle, 한도는 cip_digraph_limit이다. 세 번째 납품 P26a-3도 도메인 내부만이다: 이슈 #120(리간드 이중결합의 기술자를 전체 분자에서 읽을지 RDKit처럼 레이블 단위의 다이어그래프에서 읽을지에 따라 레이블이 달라지는 경우)을 새 사유 cip_rule3_nested_descriptor로 거절해 정리했다. 두 읽기가 달라질 수 있는 곳만 거절하고, 어느 읽기가 맞는지는 사용자 결정 사항으로 남는다. 고리와 비고리 무작위 분자 대조에서 거절한 것을 뺀 레이블은 RDKit과 같았고(4원 고리 둘이 융합한 작은 다고리의 중심 몇 개는 P26a-4에서 정리했다) 거절 비율은 이중결합 약 1.9%, 중심 약 2.7%다. 또 동률 분류가 기술자 비용을 한 번만 세고 한 원자의 위치쌍을 모두 비교해 작업량이 번호 매김과 무관하게 했다. 네 번째 납품 P26a-4도 도메인 내부만이다: 이슈 #122(요청 순서에 따라 중첩 한도 `MAX_RULE_3_NESTING`를 우회해 E/Z를 내던 일)는 저장한 기술자에 계산 깊이를 같이 저장하고 쓸 때마다 한도를 적용해 고쳤고(레이블·사유·작업량이 요청 순서와 무관), 이슈 #123(4원 고리 둘이 융합한 작은 다고리에서 중심 R/S가 RDKit과 달랐던 일)은 규칙 1b가 이중결합이 더하는 부모의 복제 노드까지의 거리를 어떻게 재는지(이 모델은 부모까지, RDKit은 자기 구)가 공개 문서로 정해지지 않아 두 읽기가 순서를 다르게 매기는 쌍을 만나면 새 사유 cip_rule_1b_duplicate_distance로 거절해 정리했다(틀린 레이블은 없고 거절은 생성한 중심의 약 0.1%). 어느 읽기를 따를지는 사용자 결정 사항으로 남는다. 다섯 번째 납품 P26b는 공개 연산 `chem.cip`(`chemifree-cip-1`, 읽기 전용, HTTP·CLI 공통, 연산 수 27)이다: 저장된 중심의 R/S와 이중결합의 E/Z를 현재 그래프에서 그때그때 계산하며 레이블은 저장되거나 그려진 마크를 덮지 않는다. 규칙 1a·1b·2·3만 적용하고 항목마다 assigned·none·unspecified·unknown·ambiguous·unsupported(닫힌 사유 17개)를 알리며 ambiguous·unsupported가 있으면 outcome이 partial이다. `CipLabeler` 포트와 기본 구현, 항목당 20,000·요청당 2,000,000 노드 한도와 시간 제한(`time_limit_ms`, 기본 5초·최대 8초, 요청당 한 시한; 이 변경에서 더함), 적합성 사례 14개(스위트 19). 규칙 4·5와 의사비대칭 r/s, 헤테로방향족은 P26d(별도 후속)다. 여섯 번째 납품 P26c는 웹 표시만이다(서비스·계약·Rust 변경 없음): 원자·결합 입체 레이블 스위치 둘(기본 꺼짐, 저장하지 않음)이 켜져 있는 동안에만 웹이 `chem.cip`을 `scope: \"stored\"`로 부르고(`stereogenic`은 조밀한 그래프의 하한 노드 상한이 아직 없어 요청하지 않는다, 이슈 #127), 응답은 엄격한 검증기(`cip-contract.ts`)를 통과하고 화면의 스냅샷과 같을 때만 쓴다. `assigned` 항목에만 캔버스 오버레이 글자 `(S)`·`(E)`가 붙고(문서·내보내기에 속하지 않으며 글자 형식과 위치는 제품 선택이다) Stereo 패널 행에는 `chem.stereo`의 일치 값과 함께 CIP 칸이 붙는다. 병합 전이라 P26의 상태는 in_progress이며 병합 뒤 done 전환과 delivered 기록이 남아 있다."
+   "note": "첫 납품 P26a-1은 도메인 내부만이다: `crates/domain/src/cip.rs`가 저장된 사면체 중심의 R/S 레이블을 규칙 1a·1b·2와 계층 digraph(중복·팬텀 원자, 전부 탄소인 방향족계의 mancude 처리)로 계산한다. 공개 연산·HTTP·CLI·웹은 없고(연산 수 26 그대로) 응답 계약도 바꾸지 않았다. 두 번째 납품 P26a-2도 도메인 내부만이다: 규칙 3(Z가 E보다 위)과 이중결합 E/Z 레이블(`label_double_bonds`)과 후보 탐색(`candidates`)을 더했고 임시 사유 cip_rule_3_pending을 없앴다. 리간드 이중결합에 기록이 없거나 unknown이면 ambiguous(cip_ligand_stereo_unspecified)이며 RDKit과 다르다(RDKit은 E 아래로 두고 레이블을 낸다). 기술자 순환은 cip_stereo_cycle, 한도는 cip_digraph_limit이다. 세 번째 납품 P26a-3도 도메인 내부만이다: 이슈 #120(리간드 이중결합의 기술자를 전체 분자에서 읽을지 RDKit처럼 레이블 단위의 다이어그래프에서 읽을지에 따라 레이블이 달라지는 경우)을 새 사유 cip_rule3_nested_descriptor로 거절해 정리했다. 두 읽기가 달라질 수 있는 곳만 거절하고, 어느 읽기가 맞는지는 사용자 결정 사항으로 남는다. 고리와 비고리 무작위 분자 대조에서 거절한 것을 뺀 레이블은 RDKit과 같았고(4원 고리 둘이 융합한 작은 다고리의 중심 몇 개는 P26a-4에서 정리했다) 거절 비율은 이중결합 약 1.9%, 중심 약 2.7%다. 또 동률 분류가 기술자 비용을 한 번만 세고 한 원자의 위치쌍을 모두 비교해 작업량이 번호 매김과 무관하게 했다. 네 번째 납품 P26a-4도 도메인 내부만이다: 이슈 #122(요청 순서에 따라 중첩 한도 `MAX_RULE_3_NESTING`를 우회해 E/Z를 내던 일)는 저장한 기술자에 계산 깊이를 같이 저장하고 쓸 때마다 한도를 적용해 고쳤고(레이블·사유·작업량이 요청 순서와 무관), 이슈 #123(4원 고리 둘이 융합한 작은 다고리에서 중심 R/S가 RDKit과 달랐던 일)은 규칙 1b가 이중결합이 더하는 부모의 복제 노드까지의 거리를 어떻게 재는지(이 모델은 부모까지, RDKit은 자기 구)가 공개 문서로 정해지지 않아 두 읽기가 순서를 다르게 매기는 쌍을 만나면 새 사유 cip_rule_1b_duplicate_distance로 거절해 정리했다(틀린 레이블은 없고 거절은 생성한 중심의 약 0.1%). 어느 읽기를 따를지는 사용자 결정 사항으로 남는다. 다섯 번째 납품 P26b는 공개 연산 `chem.cip`(`chemifree-cip-1`, 읽기 전용, HTTP·CLI 공통, 연산 수 27)이다: 저장된 중심의 R/S와 이중결합의 E/Z를 현재 그래프에서 그때그때 계산하며 레이블은 저장되거나 그려진 마크를 덮지 않는다. 규칙 1a·1b·2·3만 적용하고 항목마다 assigned·none·unspecified·unknown·ambiguous·unsupported(닫힌 사유 17개)를 알리며 ambiguous·unsupported가 있으면 outcome이 partial이다. `CipLabeler` 포트와 기본 구현, 항목당 20,000·요청당 2,000,000 노드 한도와 시간 제한(`time_limit_ms`, 기본 5초·최대 8초, 요청당 한 시한; 이 변경에서 더함), 적합성 사례 14개(스위트 19). 규칙 4·5와 의사비대칭 r/s, 헤테로방향족은 P26d(별도 후속)다. 여섯 번째 납품 P26c는 웹 표시만이다(서비스·계약·Rust 변경 없음): 원자·결합 입체 레이블 스위치 둘(기본 꺼짐, 저장하지 않음)이 켜져 있는 동안에만 웹이 `chem.cip`을 `scope: \"stored\"`로 부르고(`stereogenic`은 조밀한 그래프의 하한 노드 상한이 아직 없어 요청하지 않는다, 이슈 #250), 응답은 엄격한 검증기(`cip-contract.ts`)를 통과하고 화면의 스냅샷과 같을 때만 쓴다. `assigned` 항목에만 캔버스 오버레이 글자 `(S)`·`(E)`가 붙고(문서·내보내기에 속하지 않으며 글자 형식과 위치는 제품 선택이다) Stereo 패널 행에는 `chem.stereo`의 일치 값과 함께 CIP 칸이 붙는다. P26c는 #128로 병합됐다. 규칙 4·5, 의사비대칭 r/s, 헤테로방향족(P26d)과 규칙 1b 해석 결정이 남아 있어 P26의 상태는 in_progress다(이슈 #250).",
+   "issues": [
+    250
+   ]
   },
   {
    "phase": "stereo",
@@ -1131,7 +1158,10 @@
     "P25",
     "P13"
    ],
-   "note": "첫 납품 P27a는 도메인·명령·이력·파일 형식 v7만이다: `crates/domain/src/stereo_group.rs`가 향상된 입체 그룹(ID `e1`.., 종류 `absolute`·`and`·`or`, 진술된 대로 저장한 번호 `Option<i32>`, 멤버 원자)을 `StereoTable` 옆에 두고 해석 번호(번호가 없으면 0)와 표시 문구는 계산만 한다. `partition()`은 종류와 멤버 집합만 비교하고 `canonical_numbers`는 멤버만으로 와이어 번호를 정한다. 불변식(멤버는 저장된 사면체 중심, 비어 있지 않음, 원자당 한 그룹, `absolute`는 번호 없음·문서당 하나, 종류별 해석 번호 유일)은 복원·로드·이력 재생마다 검사한다. 명령 8개(생성·삭제·종류·번호·멤버 추가/제거·병합·분할)는 P27a에서 도메인 `Command`였고 P27b에서 와이어가 되었다. 멤버가 저장된 사면체 중심이 아니게 되면 트랜잭션 끝에서 그룹을 떠나고 빈 그룹은 삭제된다. notes는 하나의 규칙이다: 트랜잭션 전 같은 그룹의 멤버 둘 이상 사이의 관계가 끝에서 더는 성립하지 않거나 뜻이 바뀌면 통지(자동 탈퇴·그룹 삭제·분할·병합·멤버 제거·종류 변경)이고 번호만 바꾸기와 멤버 추가는 통지가 아니다. 같은 종류에 같은 번호(또는 둘 다 번호 없음)는 거절하고 병합을 가리킨다. 파일 형식 v7(v6은 빈 그룹으로 읽고 `migrated/<id>.v6.json` 보관). `chem.cip`·`chem.identity`·`chem.substructure`·`chem.validate`는 그룹을 읽지 않고 `chem.stereo`는 그룹이 있을 때 읽지 않는다는 정보 진단만 더한다. P27b(와이어): `document.transaction`의 JSON 명령 8개(모든 키 필수·`null` 포함, `eN`·`$N` 참조, `stereo_group_*` 이유 11개와 int32 범위 이유 `stereo_group_number_range`를 `command_index`와 함께), 스냅샷 `stereo.groups`(`stored_number`·`number`·`label`·`members`, 항상 있음), 통지(`stereo_group_member`·`stereo_group`·`stereo_group_relation`, 통지가 있으면 `partial`), SMILES 내보내기 동의 손실 `stereo_group`, 카탈로그 행(명령 8개와 능력 `stereo_group`, 연산 수 27 그대로), CONTRACT `Stereo groups` 절, 적합성 사례 12개(`suite_version` 20), 웹은 스냅샷의 `groups` 읽기·검증만이었다. P27c(웹만, 서비스·계약 변경 없음): Stereo 패널에 중심 행마다 `Group` 칸(`no group` 또는 스냅샷의 `e1: or2 (OR)`)과 표 아래 그룹 목록(ID·문구·종류·진술된 번호와 해석 번호(`number omitted (reads as 0)`)·멤버 수·멤버 칩, 스냅샷 `stereo.groups`에서만 만든다)이 생겼고, 선택한 원자에 대한 한 번 클릭 동작 `Make absolute`·`Group as AND`·`Group as OR`·`Add to group`·`Remove from group`·`Merge groups`·`Split selected out`과 그룹별 번호 입력·`Delete group`이 기존 트랜잭션 경로(한 명령 묶음·`expected_revision`·undo/redo)로 간다. 동작은 계약의 전제조건이 맞을 때만 켜지고 꺼진 동작은 이유를 글로 말하며(같은 함수 `planGroupRequest`가 켜짐과 명령을 정한다), 서비스 거절 `stereo_group_*` 12개는 평이한 문장(`stereo_group_number_taken`은 병합 안내 포함)으로 보이고 아무것도 바뀌지 않는다. 캔버스 `Group labels` 스위치(기본 꺼짐, 저장 안 함, `data-editor-overlay`, CIP 라벨 위·아래로 쌓음)가 `abs`·`OR 2`·`AND 0` 문구를 멤버 곁에 그린다. 웹 페이지 자신의 내보내기(SMILES·V2000)는 그룹을 쓰지 못하고 손실로 알리며(V3000 내보내기는 그룹을 COLLECTION으로 쓰며 웹 MOL 패널이 P28c부터 그 방언을 제공한다) 도면과 비교하지 않으며 CIP·동일성을 바꾸지 않는다고 패널이 말한다. 형식 입출력(P28·P29)이 남아 있어 P27의 상태는 in_progress다."
+   "note": "첫 납품 P27a는 도메인·명령·이력·파일 형식 v7만이다: `crates/domain/src/stereo_group.rs`가 향상된 입체 그룹(ID `e1`.., 종류 `absolute`·`and`·`or`, 진술된 대로 저장한 번호 `Option<i32>`, 멤버 원자)을 `StereoTable` 옆에 두고 해석 번호(번호가 없으면 0)와 표시 문구는 계산만 한다. `partition()`은 종류와 멤버 집합만 비교하고 `canonical_numbers`는 멤버만으로 와이어 번호를 정한다. 불변식(멤버는 저장된 사면체 중심, 비어 있지 않음, 원자당 한 그룹, `absolute`는 번호 없음·문서당 하나, 종류별 해석 번호 유일)은 복원·로드·이력 재생마다 검사한다. 명령 8개(생성·삭제·종류·번호·멤버 추가/제거·병합·분할)는 P27a에서 도메인 `Command`였고 P27b에서 와이어가 되었다. 멤버가 저장된 사면체 중심이 아니게 되면 트랜잭션 끝에서 그룹을 떠나고 빈 그룹은 삭제된다. notes는 하나의 규칙이다: 트랜잭션 전 같은 그룹의 멤버 둘 이상 사이의 관계가 끝에서 더는 성립하지 않거나 뜻이 바뀌면 통지(자동 탈퇴·그룹 삭제·분할·병합·멤버 제거·종류 변경)이고 번호만 바꾸기와 멤버 추가는 통지가 아니다. 같은 종류에 같은 번호(또는 둘 다 번호 없음)는 거절하고 병합을 가리킨다. 파일 형식 v7(v6은 빈 그룹으로 읽고 `migrated/<id>.v6.json` 보관). `chem.cip`·`chem.identity`·`chem.substructure`·`chem.validate`는 그룹을 읽지 않고 `chem.stereo`는 그룹이 있을 때 읽지 않는다는 정보 진단만 더한다. P27b(와이어): `document.transaction`의 JSON 명령 8개(모든 키 필수·`null` 포함, `eN`·`$N` 참조, `stereo_group_*` 이유 11개와 int32 범위 이유 `stereo_group_number_range`를 `command_index`와 함께), 스냅샷 `stereo.groups`(`stored_number`·`number`·`label`·`members`, 항상 있음), 통지(`stereo_group_member`·`stereo_group`·`stereo_group_relation`, 통지가 있으면 `partial`), SMILES 내보내기 동의 손실 `stereo_group`, 카탈로그 행(명령 8개와 능력 `stereo_group`, 연산 수 27 그대로), CONTRACT `Stereo groups` 절, 적합성 사례 12개(`suite_version` 20), 웹은 스냅샷의 `groups` 읽기·검증만이었다. P27c(웹만, 서비스·계약 변경 없음): Stereo 패널에 중심 행마다 `Group` 칸(`no group` 또는 스냅샷의 `e1: or2 (OR)`)과 표 아래 그룹 목록(ID·문구·종류·진술된 번호와 해석 번호(`number omitted (reads as 0)`)·멤버 수·멤버 칩, 스냅샷 `stereo.groups`에서만 만든다)이 생겼고, 선택한 원자에 대한 한 번 클릭 동작 `Make absolute`·`Group as AND`·`Group as OR`·`Add to group`·`Remove from group`·`Merge groups`·`Split selected out`과 그룹별 번호 입력·`Delete group`이 기존 트랜잭션 경로(한 명령 묶음·`expected_revision`·undo/redo)로 간다. 동작은 계약의 전제조건이 맞을 때만 켜지고 꺼진 동작은 이유를 글로 말하며(같은 함수 `planGroupRequest`가 켜짐과 명령을 정한다), 서비스 거절 `stereo_group_*` 12개는 평이한 문장(`stereo_group_number_taken`은 병합 안내 포함)으로 보이고 아무것도 바뀌지 않는다. 캔버스 `Group labels` 스위치(기본 꺼짐, 저장 안 함, `data-editor-overlay`, CIP 라벨 위·아래로 쌓음)가 `abs`·`OR 2`·`AND 0` 문구를 멤버 곁에 그린다. 웹 페이지 자신의 내보내기(SMILES·V2000)는 그룹을 쓰지 못하고 손실로 알리며(V3000 내보내기는 그룹을 COLLECTION으로 쓰며 웹 MOL 패널이 P28c부터 그 방언을 제공한다) 도면과 비교하지 않으며 CIP·동일성을 바꾸지 않는다고 패널이 말한다. 형식 입출력(P28·P29)이 남아 있어 P27의 상태는 in_progress다.",
+   "issues": [
+    250
+   ]
   },
   {
    "phase": "stereo",
@@ -1160,7 +1190,10 @@
     "P20",
     "P27"
    ],
-   "note": "첫 납품 P28a는 제공자 계층의 MOL V3000 코덱 핵심뿐이다(와이어·연산·요청·응답·HTTP·CLI·웹·연산 수 27 변경 없음, 첫 납품 시점에는 `document.import`·`document.export`가 V3000을 거절했다): `crates/providers/src/ctfile/v3000.rs`가 `M  V30 ` 접두·`-` 이어쓰기·CRLF를 읽는 논리 줄 읽기와 블록 파서, 핵심 부분집합(원소 원자와 좌표, 차수 1~4 결합, 전하·동위원소·라디칼)의 쓰기, COUNTS chiral 플래그 읽기(해석하지 않음, 쓰기는 0), STEABS·STERAC·STEREL collection을 매핑 없이 레코드에 싣는 읽기를 담고, 포트에는 `ctab` 선택자(`read_ctab`·`write_ctab`)만 더했다. SGroup·R-group·query·원자 parity·3D·반응은 닫힌 `v3000_*` 이유로 거절하며 이유는 진단 가족에 대응한다. 남은 범위(P28b 이후): 레코드↔도면 투영과 결합 표시·배치·그룹 매핑, 동의 손실과 `ctab` 요청 필드, V2000으로 내릴 때의 한계, 웹, query·SGroup 모델. 두 번째 납품 P28b1은 와이어와 투영이다(연산 수 27 그대로, 웹 변경 없음): `document.import`가 레코드마다 V2000/V3000을 가르고 결합 `CFG` 1·3·2를 표시로, 쐐기·해시 중심마다 도메인 유도로 저장 배치를 만들며(유도 불가는 `stereo_unreadable` 손실), 방향족 결합을 받고, `COLLECTION`·query 원자·결합·dative는 거절한다. `document.export`는 선택 키 `ctab`(`v2000` 기본·`v3000`·`auto`)와 `accepted_losses`(SMILES·CDX와 같은 `loss_consent_required` 흐름)를 받고 두 형식 모두 표시를 쓰며, 표시가 보여 주지 않는 저장 배치와 모든 입체 그룹은 동의 손실이다(예전 `unsupported_stereo` 전체 거절과 적합성 사례 `stereo-molfile-export-refused`는 `stereo-molfile-export-consent`로 바뀌었다). 적합성 사례 3개(`suite_version` 21), 변이 확인 9개, RDKit 대조 스크립트 확장(손 실행). 남은 범위: query 원자·결합과 dative 투영, 웹(P28c에서 구현), SGroup·R-group. 리뷰 후속으로 V2000 읽기가 결합 입체 열(1·6·4·3)을 읽는다. 세 번째 납품 P28b2는 입체 collection↔그룹 매핑과 chiral 규칙, 형식 id 별칭이다(연산 수 27 그대로, 웹 변경 없음): V3000 내보내기가 그룹마다 STEABS·STERAC<n>·STEREL<n>을 해석된 번호 그대로 쓰고(번호 없음은 0) COUNTS chiral은 absolute 그룹이 있을 때만 1이며(보수적 제품 규칙), 그룹에 속하지 않은 저장 사면체 중심은 동의 손실 `stereo_ungrouped_centers`다. 가져오기는 같은 트랜잭션에서 collection을 그룹으로 만들고(번호 int32 아무 값 그대로), 사면체 배치가 유도되지 않은 멤버·빈·중복·공유 원자 collection은 닫힌 이유로 거절하며, 덧붙일 때 absolute는 합치고 충돌하는 번호는 빈 번호로 바꿔 손실로 알린다. `mol-v2000`·`mol-v3000`은 `mol`의 별칭이다. 적합성 사례 3개 추가(`suite_version` 22). 네 번째 납품 P28c는 웹만이다(Rust·계약 의미 변경 없음, 연산 수 27 그대로): MOL·SDF 패널에 버전 선택(V2000 기본·V3000·Auto, `ctab` 키로 보내며 문서에 저장하지 않는 클라이언트 정책)과 기록된 방언 표시, 내보내기 손실 동의 단계(평이한 문장, `accepted_losses`와 다이제스트, 다이제스트가 바뀌면 다시 묻기), V3000 거절 이유별 평이한 문장(계약의 이유 표와 대조하는 검사)을 더했고 Stereo 패널의 그룹 문장을 이 빌드에 맞게 고쳤다(근거: `test:client`, CODEC-03.v3000-web). 남은 범위: query·dative 투영, V2000·CDX·CXSMILES 그룹 매핑(P29), SGroup·R-group. 상태는 in_progress다."
+   "note": "첫 납품 P28a는 제공자 계층의 MOL V3000 코덱 핵심뿐이다(와이어·연산·요청·응답·HTTP·CLI·웹·연산 수 27 변경 없음, 첫 납품 시점에는 `document.import`·`document.export`가 V3000을 거절했다): `crates/providers/src/ctfile/v3000.rs`가 `M  V30 ` 접두·`-` 이어쓰기·CRLF를 읽는 논리 줄 읽기와 블록 파서, 핵심 부분집합(원소 원자와 좌표, 차수 1~4 결합, 전하·동위원소·라디칼)의 쓰기, COUNTS chiral 플래그 읽기(해석하지 않음, 쓰기는 0), STEABS·STERAC·STEREL collection을 매핑 없이 레코드에 싣는 읽기를 담고, 포트에는 `ctab` 선택자(`read_ctab`·`write_ctab`)만 더했다. SGroup·R-group·query·원자 parity·3D·반응은 닫힌 `v3000_*` 이유로 거절하며 이유는 진단 가족에 대응한다. 남은 범위(P28b 이후): 레코드↔도면 투영과 결합 표시·배치·그룹 매핑, 동의 손실과 `ctab` 요청 필드, V2000으로 내릴 때의 한계, 웹, query·SGroup 모델. 두 번째 납품 P28b1은 와이어와 투영이다(연산 수 27 그대로, 웹 변경 없음): `document.import`가 레코드마다 V2000/V3000을 가르고 결합 `CFG` 1·3·2를 표시로, 쐐기·해시 중심마다 도메인 유도로 저장 배치를 만들며(유도 불가는 `stereo_unreadable` 손실), 방향족 결합을 받고, `COLLECTION`·query 원자·결합·dative는 거절한다. `document.export`는 선택 키 `ctab`(`v2000` 기본·`v3000`·`auto`)와 `accepted_losses`(SMILES·CDX와 같은 `loss_consent_required` 흐름)를 받고 두 형식 모두 표시를 쓰며, 표시가 보여 주지 않는 저장 배치와 모든 입체 그룹은 동의 손실이다(예전 `unsupported_stereo` 전체 거절과 적합성 사례 `stereo-molfile-export-refused`는 `stereo-molfile-export-consent`로 바뀌었다). 적합성 사례 3개(`suite_version` 21), 변이 확인 9개, RDKit 대조 스크립트 확장(손 실행). 남은 범위: query 원자·결합과 dative 투영, 웹(P28c에서 구현), SGroup·R-group. 리뷰 후속으로 V2000 읽기가 결합 입체 열(1·6·4·3)을 읽는다. 세 번째 납품 P28b2는 입체 collection↔그룹 매핑과 chiral 규칙, 형식 id 별칭이다(연산 수 27 그대로, 웹 변경 없음): V3000 내보내기가 그룹마다 STEABS·STERAC<n>·STEREL<n>을 해석된 번호 그대로 쓰고(번호 없음은 0) COUNTS chiral은 absolute 그룹이 있을 때만 1이며(보수적 제품 규칙), 그룹에 속하지 않은 저장 사면체 중심은 동의 손실 `stereo_ungrouped_centers`다. 가져오기는 같은 트랜잭션에서 collection을 그룹으로 만들고(번호 int32 아무 값 그대로), 사면체 배치가 유도되지 않은 멤버·빈·중복·공유 원자 collection은 닫힌 이유로 거절하며, 덧붙일 때 absolute는 합치고 충돌하는 번호는 빈 번호로 바꿔 손실로 알린다. `mol-v2000`·`mol-v3000`은 `mol`의 별칭이다. 적합성 사례 3개 추가(`suite_version` 22). 네 번째 납품 P28c는 웹만이다(Rust·계약 의미 변경 없음, 연산 수 27 그대로): MOL·SDF 패널에 버전 선택(V2000 기본·V3000·Auto, `ctab` 키로 보내며 문서에 저장하지 않는 클라이언트 정책)과 기록된 방언 표시, 내보내기 손실 동의 단계(평이한 문장, `accepted_losses`와 다이제스트, 다이제스트가 바뀌면 다시 묻기), V3000 거절 이유별 평이한 문장(계약의 이유 표와 대조하는 검사)을 더했고 Stereo 패널의 그룹 문장을 이 빌드에 맞게 고쳤다(근거: `test:client`, CODEC-03.v3000-web). 남은 범위: query·dative 투영, V2000·CDX·CXSMILES 그룹 매핑(P29), SGroup·R-group. 상태는 in_progress다.",
+   "issues": [
+    250
+   ]
   },
   {
    "phase": "stereo",
@@ -1530,7 +1563,7 @@
    "kind": "core",
    "id": "P38",
    "status": "in_progress",
-   "note": "P38 scope so far: P38a1 renderer core (PR #225, merged) and P38a2 bounded SVG drawing export through document.export (format svg, export only, consent-gated losses, svg import refused; PR #226, merged). P38b1 (SVG export of scene graphics: line, rectangle, ellipse, arrow, polygon and cubic spline, each with its own line width, plus PNG images as their stored bytes, in scene order, model chemifree-svg-2) is merged (PR #230). P38b2 (SVG export of captions whose characters are all in a bounded drawn set, as text with generic font families, runs, alignment, colour, outline and shadow; underline is a consent loss; model chemifree-svg-3) is implemented on a branch with PR and CI pending when written. Captions outside the drawn set remain a consent loss. A web SVG download panel (preview, consent, chemifree.svg) is implemented on a branch with PR and CI pending when written. Open items: text shaping/bounds engine, embedded font and glyph outlines (P38b3, open and unscheduled), clipping, layers, web shared renderer, render.scene, image rotation. General vector output beyond the bounded export is not implemented.",
+   "note": "P38 scope so far: P38a1 renderer core (PR #225, merged) and P38a2 bounded SVG drawing export through document.export (format svg, export only, consent-gated losses, svg import refused; PR #226, merged). P38b1 (SVG export of scene graphics: line, rectangle, ellipse, arrow, polygon and cubic spline, each with its own line width, plus PNG images as their stored bytes, in scene order, model chemifree-svg-2) is merged (PR #232). P38b2 (SVG export of captions whose characters are all in a bounded drawn set, as text with generic font families, runs, alignment, colour, outline and shadow; underline is a consent loss; model chemifree-svg-3) is merged (PR #244). Captions outside the drawn set remain a consent loss. A web SVG download panel (preview, consent, chemifree.svg) is merged (PR #247). Open items: text shaping/bounds engine, embedded font and glyph outlines (P38b3, open and unscheduled), clipping, layers, web shared renderer, render.scene, image rotation. General vector output beyond the bounded export is not implemented. Renderer direction (2026-11-10 architecture review; a planning basis, not started): the row asks for a common renderer, but today there are two implementations, the web TypeScript geometry and its Rust port (crates/application/src/svg*), tied by a parity fixture of nine golden documents. The plan makes the Rust layout the single source: render.scene returns the layout, the web paints it, new object kinds are laid out only in Rust, and the existing TypeScript atom, bond and label geometry is frozen at its current scope until the font engine (P38b3) lands and it can be moved too. This work heads track T3; milestone M1 judges this row by the current bounded SVG export. See docs/ARCHITECTURE.md.",
    "layers": [
     "presentation",
     "logic",
@@ -1595,7 +1628,8 @@
     "P38",
     "P39",
     "P12"
-   ]
+   ],
+   "note": "문서 모델이 페이지 하나로 고정돼 있어 첫 PR은 모델 확장(파일 형식 migration 포함)이다. 렌더러 단일화(P38) 뒤에 둔다(docs/ARCHITECTURE.md)."
   },
   {
    "phase": "layout",
@@ -1624,7 +1658,10 @@
     "P13",
     "P11"
    ],
-   "note": "첫 납품은 chem.aromaticity_convert 하나다. 계산을 세션 잠금 밖의 그래프 복사본에서 하고, 요청별 time_limit_ms(기본 5초·최대 8초, 시계 기반이라 기계에 따라 다름)와 HTTP 연결 끊김으로 중단하며(time_limit·cancelled 진단, 부분 결과 없음), 계산 중 revision이 바뀐 결과는 revision_conflict로 거절한다. 중단은 다음 점검 지점에서 반영되고(점검 없는 구간은 CONTRACT에 적음), 결과를 잠금 아래에서 커밋하기 직전에도 한 번 확인한다. 명시적 취소 연산·작업(job) 자원은 만들지 않았다. 읽기 전용 연산(identity·substructure·aromaticity·properties·SMILES 내보내기)의 시간 상한·취소, 동시 계산 수 제한, chem.validate와 draft 쓰기의 잠금 안 저장소 I/O는 후속이다."
+   "note": "첫 납품은 chem.aromaticity_convert 하나다. 계산을 세션 잠금 밖의 그래프 복사본에서 하고, 요청별 time_limit_ms(기본 5초·최대 8초, 시계 기반이라 기계에 따라 다름)와 HTTP 연결 끊김으로 중단하며(time_limit·cancelled 진단, 부분 결과 없음), 계산 중 revision이 바뀐 결과는 revision_conflict로 거절한다. 중단은 다음 점검 지점에서 반영되고(점검 없는 구간은 CONTRACT에 적음), 결과를 잠금 아래에서 커밋하기 직전에도 한 번 확인한다. 명시적 취소 연산·작업(job) 자원은 만들지 않았다. 두 번째 납품(#234)은 chem.cip에 같은 시간 제한을 더했다. 세 번째 납품(#248)은 동시 계산 수 제한이다: chem.aromaticity_convert와 chem.cip의 계산은 동시에 min(코어 수, 4)개(호스트 설정 1–64)만 돌고, 자리가 없으면 요청의 시간 제한 안에서 기다린 뒤 기존 time_limit로 답하며(새 코드·필드 없음), 호스트 종료는 돌거나 기다리는 계산을 cancelled로 끝내고 HTTP는 그 응답을 200으로 전달한다. 상한을 정하는 CLI 플래그·환경 변수는 없으며 P87의 서버 설정에서 정한다. 이 세 가지는 2026-11-10에 현행 유지로 확정했다(이슈 #106). 읽기 전용 연산(identity·substructure·properties·SMILES 내보내기)의 시간 상한·취소, chem.validate와 draft 쓰기의 잠금 안 저장소 I/O, 웹의 time_limit·cancelled 표시는 후속이며 트랙 T0에서 한다(이슈 #106).",
+   "issues": [
+    106
+   ]
   },
   {
    "phase": "layout",
@@ -1863,7 +1900,8 @@
     "P11",
     "P36",
     "P24"
-   ]
+   ],
+   "note": "문서 모델이 그래프 하나로 고정돼 있어 첫 PR은 반응 역할을 담는 모델 확장(파일 형식 migration 포함)이다. 반응 객체의 그리기는 Rust 배치만 구현한다(P38의 렌더러 방향, docs/ARCHITECTURE.md)."
   },
   {
    "phase": "reaction",
@@ -2129,7 +2167,8 @@
     "P19",
     "P15",
     "P14"
-   ]
+   ],
+   "note": "아직 엔진이 없는 DATA 로더(application의 `phase4_*`·`phase6_profiles`·`naming_*`·`prediction_*`·`nmr_profile` 등 약 18,600줄)는 그것을 읽는 첫 엔진을 만들 때 별도 크레이트로 옮기고 이름을 정리한다. 계획상 트랙 T7의 첫 작업이며 명명(T6)이 먼저 필요로 하면 그때 한다. 외부 DATA(계수·모델)를 구할 수 있는지는 트랙 시작 전에 확인한다."
   },
   {
    "phase": "prediction",
@@ -2832,7 +2871,8 @@
     "P13",
     "P11",
     "P08"
-   ]
+   ],
+   "note": "실행 중인 로컬 서버(P87)의 클라이언트로 붙는다. 별도 프로세스가 Application을 품으면 에이전트의 미저장 편집이 열린 웹 편집기에 보이지 않기 때문이다. 도구 스키마는 Rust DTO에서 생성하고 같은 스키마를 TS 검증기 불일치 검사에 쓴다(2026-11-10 아키텍처 재검토, docs/ARCHITECTURE.md)."
   },
   {
    "phase": "agent",
@@ -2958,7 +2998,8 @@
     "P41",
     "P08",
     "P07"
-   ]
+   ],
+   "note": "통합 테스트 바이너리 수(2026-11-10 기준 약 190개)와 그에 따른 빌드 캐시 크기도 여기서 다룬다."
   },
   {
    "phase": "release",
@@ -2988,7 +3029,8 @@
     "P13",
     "P04",
     "P05"
-   ]
+   ],
+   "note": "트랙 T1의 첫 행이며 P42와 병행할 수 있다. 로컬 MCP(P82)는 실행 중인 이 서버의 클라이언트로 붙으므로 P87이 먼저다. 동시 계산 상한(#248) 같은 서버 설정을 노출하는 방법도 여기서 정한다."
   },
   {
    "phase": "release",
@@ -3471,7 +3513,7 @@
  ],
  "schema_version": 1,
  "title": "Chemifree 구현 완료까지의 PR 계획",
- "date": "2026-10-31",
+ "date": "2026-11-10",
  "language": "ko",
  "basis": {
   "repository": "https://github.com/EunhakChoi/chemifree",
@@ -4488,6 +4530,151 @@
    "P14",
    "P15"
   ],
-  "note": "P번호는 계획 ID이며 실행 순서와 다르다. P13(버전 계약·capability)은 모델 변경(P09 이후) 전에 둔다. P16 이후 화학 엔진은 이 묶음에 포함하지 않는다."
+  "note": "P번호는 계획 ID이며 실행 순서와 다르다. P13(버전 계약·capability)은 모델 변경(P09 이후) 전에 둔다. P16 이후 화학 엔진은 이 묶음에 포함하지 않는다. 그 뒤의 순서는 tracks가 정한다."
+ },
+ "tracks": {
+  "decided": "2026-11-10",
+  "note": "P16 이후의 실행 순서다. 2026-11-10의 트랙·아키텍처 재검토 결과를 사용자 지시로 기록했다. 14개 phase 구조와 행은 그대로이며 여기서는 순서와 대략의 PR 수만 정한다. PR 수는 지금까지의 속도로 어림한 값이고 각 트랙을 시작할 때와 진행 중에 다시 나눈다. 트랙을 시작하는 것은 사용자의 요청이다. 구조 결정과 근거는 docs/ARCHITECTURE.md에 있다.",
+  "order": [
+   {
+    "id": "T0",
+    "title": "P41 마감과 구조 정리",
+    "rows": [
+     "P41"
+    ],
+    "pr_estimate": "12–15",
+    "work": "P41 잔여(이슈 #106): 읽기 연산(identity·substructure·properties·SMILES 내보내기)의 시간 제한·취소, 잠금 안 저장소 I/O 이동, 웹 표시. 구조 정리: 조립 코드 통합 1, 큰 파일 분할 5(동작 변경 없음), 로드맵 HTML 생성기와 일치 검사 1."
+   },
+   {
+    "id": "T1",
+    "title": "M1 닫기",
+    "rows": [
+     "P87",
+     "P42",
+     "P48",
+     "P17",
+     "P19",
+     "P34"
+    ],
+    "pr_estimate": "14–26",
+    "work": "제품 서버(P87)와 배치 준비·사슬·단순 고리(P42)를 먼저 하고 병행할 수 있다. 가져오기/내보내기 UX(P48), 진행 중인 M1 게이트 행(P17·P19·P34)의 제한된 범위 마감. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38 마감은 T3 맨 앞으로 옮겼다."
+   },
+   {
+    "id": "T2",
+    "title": "로컬 MCP",
+    "rows": [
+     "P82"
+    ],
+    "pr_estimate": "4–7",
+    "work": "실행 중인 로컬 서버의 클라이언트로 붙는다(P87 선행). Rust DTO에서 스키마를 생성해 도구 스키마와 TS 검증기 불일치 검사에 쓴다."
+   },
+   {
+    "id": "T3",
+    "title": "편집기 출력",
+    "rows": [
+     "P38",
+     "P39",
+     "P40",
+     "P36",
+     "P37"
+    ],
+    "pr_estimate": "22–38",
+    "work": "렌더러 단일화(render.scene이 Rust 배치를 돌려주고 웹이 그것을 칠한다)를 맨 앞에 두고 PNG, 다중 페이지·PDF(문서 모델 확장 PR로 시작), 나머지 그래픽 순이다."
+   },
+   {
+    "id": "T4",
+    "title": "배치 전체",
+    "rows": [
+     "P43",
+     "P44",
+     "P45",
+     "P46",
+     "P47"
+    ],
+    "pr_estimate": "20–35",
+    "work": "융합·spiro·브리지·대형 고리 배치와 웹 Clean Up."
+   },
+   {
+    "id": "T5",
+    "title": "반응",
+    "rows": [
+     "P49",
+     "P50",
+     "P51",
+     "P52"
+    ],
+    "pr_estimate": "15–25",
+    "work": "문서 모델 확장 PR로 시작한다. 반응 객체의 그리기는 Rust 배치만 구현한다."
+   },
+   {
+    "id": "T6",
+    "title": "명명",
+    "rows": [
+     "P53",
+     "P54",
+     "P55",
+     "P56",
+     "P57"
+    ],
+    "pr_estimate": "25–40",
+    "work": "이름 생성과 이름 해석. P18·P26의 남은 범위가 필요하면 그때 다시 연다."
+   },
+   {
+    "id": "T7",
+    "title": "물성·NMR",
+    "rows": [
+     "P58",
+     "P59",
+     "P60",
+     "P61",
+     "P62",
+     "P63",
+     "P64",
+     "P65",
+     "P66",
+     "P67"
+    ],
+    "pr_estimate": "37–62",
+    "work": "시작할 때 DATA 로더를 별도 크레이트로 분리한다. 외부 DATA(계수·모델)를 구할 수 있는지 시작 전에 확인한다."
+   },
+   {
+    "id": "T8",
+    "title": "고급 문서·형식",
+    "rows": [
+     "P68",
+     "P69",
+     "P70",
+     "P71",
+     "P72",
+     "P73",
+     "P74",
+     "P75",
+     "P76",
+     "P77",
+     "P78",
+     "P79",
+     "P80",
+     "P81"
+    ],
+    "pr_estimate": "42–70",
+    "work": "새 객체 종류는 Rust 배치만 구현한다(TS 기하와 대조하지 않는다)."
+   },
+   {
+    "id": "T9",
+    "title": "자동화·출시",
+    "rows": [
+     "P83",
+     "P84",
+     "P85",
+     "P86",
+     "P88",
+     "P89"
+    ],
+    "pr_estimate": "20–35",
+    "work": "CLI workflow, scripting, 접근성, 성능·fuzz(통합 테스트 바이너리 수와 빌드 캐시 포함), 패키지, 출시 판정."
+   }
+  ],
+  "on_demand": "화학·입체 심화(P17–P28의 남은 범위, 이슈 #249·#250)는 별도 트랙이 아니다. 뒤 트랙이 필요로 할 때 해당 행을 다시 연다(예: 명명은 P18·P26, 반응 코덱은 P21·P28).",
+  "unscheduled": "W01–W05(조건부 호환)와 S01–S07(선택 확장)은 일정에 넣지 않았다."
  }
 }
