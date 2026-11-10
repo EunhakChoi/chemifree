@@ -4,10 +4,10 @@
 
 2026-11-10에 사용자가 T0 시작을 요청해 첫 PR을 만들었다. 범위는 `chem.aromaticity`, `chem.identity`, `chem.substructure`, `chem.properties` 네 연산이다. SMILES 내보내기는 포트 변경이 필요해 다음 PR이다.
 
-- 네 연산이 선택 매개변수 `time_limit_ms`(기본 5초, 최대 8초, `chem.cip`과 같은 `ComputeLimits`)를 받는다. 최대값 검사는 문서를 읽기 전에 하고, 거절 응답은 연산의 `model_id`(identity는 `mode`에 따른 모델)를 적는다. 순서는 한도 해석, 잠금 아래 스냅숏, 잠금 해제, 동시 계산 슬롯 대기(대기도 한도에 포함), 점검 한 번, 잠금 밖 계산이다.
+- 네 연산이 선택 매개변수 `time_limit_ms`(기본 5초, 최대 8초, `chem.cip`과 같은 `ComputeLimits`)를 받는다. 최대값 검사는 문서를 읽기 전에 하고, 거절 응답은 연산의 `model_id`(identity는 `mode`에 따른 모델)를 적는다. 순서는 한도 해석, 잠금 아래 스냅숏, 잠금 해제, 점검 한 번, 잠금 밖 계산이다. 동시 계산 슬롯은 쓰지 않는다.
 - 중단은 `outcome: "error"`, `result: null`, 분석한 스냅숏의 revision(identity는 source, substructure는 query), `time_limit`(`details.limit_ms`) 또는 `cancelled` 진단 하나다. 한도 아래에서는 응답이 이전과 같다(점검 지점은 작업량을 세지 않는다). 재생 기록이 없고 문서를 바꾸지 않는다.
 - 도메인: `identity::canonicalize_with`·`canonicalize_chemical_with`, `substructure::find_with`, `Composition::distribution_with`가 `Result<Result<T, ModelError>, Interrupted>`를 돌려주고 기존 함수는 `NEVER` 래퍼다. `IdentityError`·`MatchError`·`MassError`·`PropertiesError`에 새 변형은 없다. `chem.aromaticity`는 이미 있던 `perceive_with`를 쓴다.
-- **결정(내가 정함)**: 네 연산도 `chem.cip`처럼 동시 계산 슬롯을 쓴다. 이슈 #106의 설계 방향이고, 20,000,000 후보 검색이나 10,000,000 작업 단위의 정체성 계산이 상한이 막으려는 CPU 부하이기 때문이다. 부작용: 코어가 1–2개이고 긴 계산이 많은 환경에서는 빠른 검사도 슬롯을 기다리다 기본 한도에서 `time_limit`을 받을 수 있다(CONTRACT에 적었다).
+- **결정(내가 정함, 2026-11-11 리뷰 뒤 바꿈)**: 네 연산은 동시 계산 슬롯을 쓰지 않는다. 처음 계획(Opus 권고)은 `chem.cip`처럼 슬롯을 쓰는 것이었으나, 코어가 1–2개이고 긴 변환이 슬롯을 잡은 환경에서는 빠른 검사가 `time_limit`을 받을 수 있고 웹이 아직 그 코드를 보여 주지 않는다. Codex와 code-review 둘 다 이를 지적했다. 시간 제한과 취소(호스트 종료 포함)만 두고 동시성은 이전과 같다. 나중에 슬롯을 주는 것은 조이는 변경이며 웹 표시가 먼저다. 이 선택은 사용자 확인 대상으로 남긴다.
 - 점검 없는 구간(그래프 복사, 대상 전체의 고리 인식, 정체성 그래프 구성, 부분구조 후보 사전 필터, 원자가 검사, 1,024 후보·작업 단위 사이)은 측정하지 않았고 지연을 약속하지 않는다.
 - 웹은 이 요청들에 `time_limit_ms`를 보내지 않는다(기본 한도). 두 코드의 웹 표시는 T0의 남은 항목이다.
 - 이 PR 뒤에 남은 P41 항목: SMILES 내보내기(`identity::chemical_form_with`, SMILES 포트와 `OpenSmilesCodec`에 중단 인자, 쓰기 경로의 점검), `chem.validate`와 draft 쓰기의 잠금 안 저장소 I/O, 웹 표시, 이슈 #106의 작은 항목들.

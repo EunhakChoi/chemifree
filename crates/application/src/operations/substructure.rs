@@ -240,13 +240,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         p: SubstructureParameters,
         cancel: &dyn Interrupt,
     ) -> OperationResponse {
-        let (budget, limit_ms) = match self.start_time_limit(p.time_limit_ms, cancel) {
+        let (budget, limit_ms) = match self.start_time_limit_or_refuse(
+            known,
+            p.time_limit_ms,
+            cancel,
+            substructure::MODEL_ID,
+        ) {
             Ok(started) => started,
-            Err(refusal) => {
-                let mut reply = known.invalid(refusal);
-                reply.model_id = Some(substructure::MODEL_ID.into());
-                return reply;
-            }
+            Err(reply) => return *reply,
         };
         let ((query_snapshot, query), (target_snapshot, target)) = match self
             .documents
@@ -256,7 +257,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Err(error) => return lookup_failure_reply(known, &error),
         };
         let revision = query_snapshot.document.revision;
-        // The search takes a compute slot under the request's budget. A stop replies with the
+        // The search runs under the request's budget and takes no compute slot. A stop replies with the
         // time limit or the cancel, and with neither a result nor snapshots.
         let search = match self.compute_read_only(&budget, |interrupt| {
             substructure::find_with(&query, &target, interrupt)

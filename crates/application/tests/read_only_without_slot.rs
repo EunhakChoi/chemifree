@@ -1,14 +1,16 @@
-//! The compute gate of the four read-only operations that run under a time limit: `chem.aromaticity`,
-//! `chem.identity`, `chem.substructure` and `chem.properties`. Each takes a slot of
-//! `Application::with_compute_concurrency` before its computation runs, as `chem.aromaticity_convert`
-//! and `chem.cip` do, even when it has nothing to compute. It waits for a free slot within its own
-//! time limit, and a host cancel or `Application::cancel_computations` ends the wait.
+//! The four read-only operations that run under a time limit take no compute slot:
+//! `chem.aromaticity`, `chem.identity` (recorded and chemical), `chem.substructure` and
+//! `chem.properties`. Unlike `chem.aromaticity_convert` and `chem.cip`, they never wait for a
+//! slot of `Application::with_compute_concurrency`, even when every slot is taken. Each runs
+//! under its request's time limit and the host's cancel, and `Application::cancel_computations`
+//! refuses it.
 //!
-//! Every test sets one slot. A holder conversion is latched at its first checkpoint, which it
-//! reaches only after it has taken the slot, so it keeps the only slot until the test releases it.
-//! Each outcome is decided by the latch, a limit, a cancel or the closed gate, never by how long
-//! anything takes. `WAIT` bounds every wait.
+//! Every test sets one slot and holds it with a conversion that is latched at its first
+//! checkpoint. It reaches that checkpoint only after it has taken the slot, so it keeps the only
+//! slot until the test releases it. Each outcome is decided by the latch, a cancel or the closed
+//! gate, never by how long anything takes. `WAIT` bounds every wait.
 
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -24,11 +26,8 @@ type App = Application<LocalCapabilities, FileDocumentRepository>;
 /// Long enough for any request that is not blocked; short enough to end a failing run.
 const WAIT: Duration = Duration::from_secs(30);
 
-/// The limit that a waiting request sets, in milliseconds.
-const WAITER_LIMIT_MS: u64 = 1_000;
-
-/// The largest limit a request may set, in milliseconds. A holder takes it, because a waiter's
-/// limit runs while the holder is latched, and the holder's own limit must not expire first.
+/// The largest limit a request may set, in milliseconds. A holder takes it, so that its own limit
+/// cannot run out while a test keeps it latched.
 const HOLDER_LIMIT_MS: u64 = 8_000;
 
 fn new_app(directory: &tempfile::TempDir) -> App {
@@ -137,7 +136,7 @@ impl Interrupt for Gate {
 }
 
 /// Runs `work` on its own thread and fails if it does not finish within `WAIT`. A stopped holder
-/// is released first, so that a failing run ends instead of waiting for the slot for good.
+/// is released first, so that a failing run ends instead of keeping the slot for good.
 fn finishes<T: Send>(label: &str, release: &Release, work: impl FnOnce() -> T + Send) -> T {
     thread::scope(|scope| {
         let (done, result) = mpsc::channel();
@@ -209,23 +208,12 @@ impl Documents {
     }
 }
 
-/// One operation of the table: the model its replies name, and its parameters without a time
-/// limit for a subject document and an other document.
+/// One operation of the table: the model its replies name, and the parameters of its request for
+/// a subject document and an other document. None of them sets a time limit.
 struct Row {
     operation: &'static str,
     model_id: &'static str,
-    without_limit: fn(&str, &str) -> Value,
-}
-
-impl Row {
-    /// The request's parameters, with `time_limit_ms` set to `limit` when one is given.
-    fn parameters(&self, subject: &str, other: &str, limit: Option<Value>) -> Value {
-        let mut parameters = (self.without_limit)(subject, other);
-        if let Some(limit) = limit {
-            parameters["time_limit_ms"] = limit;
-        }
-        parameters
-    }
+    parameters: fn(&str, &str) -> Value,
 }
 
 /// The four operations, with the identity operation in both of its modes.
@@ -234,27 +222,27 @@ fn rows() -> Vec<Row> {
         Row {
             operation: "chem.aromaticity",
             model_id: "chemifree-aromaticity-2",
-            without_limit: |subject, _| json!({"document_id": subject}),
+            parameters: |subject, _| json!({"document_id": subject}),
         },
         Row {
             operation: "chem.identity",
             model_id: "chemifree-recorded-graph-1",
-            without_limit: |subject, _| json!({"document_id": subject, "mode": "recorded"}),
+            parameters: |subject, _| json!({"document_id": subject, "mode": "recorded"}),
         },
         Row {
             operation: "chem.identity",
             model_id: "chemifree-chemical-graph-2",
-            without_limit: |subject, other| json!({"document_id": subject, "mode": "chemical", "other_document_id": other}),
+            parameters: |subject, other| json!({"document_id": subject, "mode": "chemical", "other_document_id": other}),
         },
         Row {
             operation: "chem.substructure",
             model_id: "chemifree-substructure-1",
-            without_limit: |subject, other| json!({"query_document_id": subject, "target_document_id": other}),
+            parameters: |subject, other| json!({"query_document_id": subject, "target_document_id": other}),
         },
         Row {
             operation: "chem.properties",
             model_id: "chemifree-properties-1",
-            without_limit: |subject, _| json!({"document_id": subject, "scope": "molecule", "property": "formula"}),
+            parameters: |subject, _| json!({"document_id": subject, "scope": "molecule", "property": "formula"}),
         },
     ]
 }
@@ -270,7 +258,7 @@ impl RequestIds {
     }
 }
 
-/// The reply fields that a request must give the same way whether or not it waited.
+/// The reply fields that a request gives the same way whether or not the only slot is held.
 fn observed(reply: &Value) -> Value {
     json!({
         "outcome": reply["outcome"],
@@ -309,7 +297,7 @@ fn assert_every_row_is_cancelled(
             let before = document(app, subject);
             let revision = before["document"]["revision"].as_u64().unwrap();
             let id = ids.fresh();
-            let parameters = row.parameters(subject, &documents.other, None);
+            let parameters = (row.parameters)(subject, &documents.other);
             let reply = finishes(&label, release, || {
                 call(app, &id, row.operation, parameters)
             });
@@ -328,135 +316,129 @@ fn assert_every_row_is_cancelled(
     }
 }
 
-#[test]
-fn each_operation_waits_for_the_only_slot_until_its_own_limit_and_is_answered_time_limit() {
-    let directory = tempfile::tempdir().unwrap();
-    let app = new_app(&directory).with_compute_concurrency(1);
-    let documents = Documents::new(&app);
-    let mut ids = RequestIds::default();
-    for (index, row) in rows().into_iter().enumerate() {
+/// Asks every row, on every subject, with a host that cancels at its first question. Each request
+/// must be stopped with `cancelled` and no details, and must change nothing. `phase` names the
+/// moment in a failure's label.
+fn assert_host_cancels_every_row(
+    app: &App,
+    ids: &mut RequestIds,
+    documents: &Documents,
+    release: &Release,
+    phase: &str,
+) {
+    for row in rows() {
         for (name, subject) in documents.subjects() {
-            let label = format!("{} on {name} while the only slot is held", row.operation);
-            let holding = benzene_document(&app, &format!("holding-{index}-{name}"));
-            let before = document(&app, subject);
+            let label = format!("{} on {name} {phase}, host cancel", row.operation);
+            let before = document(app, subject);
             let revision = before["document"]["revision"].as_u64().unwrap();
-            let holder_id = ids.fresh();
-            let waiter_id = ids.fresh();
-            let parameters =
-                row.parameters(subject, &documents.other, Some(json!(WAITER_LIMIT_MS)));
-            let (gate, reached, release) = gate();
-            thread::scope(|scope| {
-                // Owned by this closure, so a failed assertion below releases the computation.
-                let release = release;
-                let holder = scope
-                    .spawn(|| app.execute_with(&holder_request(&holding, &holder_id, 1), &gate));
-                reached
-                    .recv_timeout(WAIT)
-                    .expect("the holder started computing");
-                // The holder keeps the only slot until it is released, so the request can end only
-                // at its own limit, whether or not it has anything to compute.
-                let reply = finishes(&label, &release, || {
-                    call(&app, &waiter_id, row.operation, parameters)
-                });
-                assert_stopped(&reply, &row, "time_limit", revision, &label);
-                assert_eq!(
-                    reply["diagnostics"][0]["details"],
-                    json!({"limit_ms": WAITER_LIMIT_MS}),
-                    "{label}: only the limit is reported, never an elapsed time: {reply}"
-                );
-                assert_eq!(
-                    document(&app, subject),
-                    before,
-                    "{label}: the waiter changed the document: {reply}"
-                );
-                release.now();
-                let holder_reply = serde_json::to_value(holder.join().unwrap()).unwrap();
-                assert_eq!(
-                    holder_reply["outcome"], "ok",
-                    "{label}: the holder finishes once released: {holder_reply}"
-                );
+            let id = ids.fresh();
+            let parameters = (row.parameters)(subject, &documents.other);
+            let host = CancelAt::new(1, Interrupted::Cancelled);
+            let reply = finishes(&label, release, || {
+                call_with(app, &id, row.operation, parameters, &host)
             });
+            assert_stopped(&reply, &row, "cancelled", revision, &label);
+            assert_eq!(
+                reply["diagnostics"][0]["details"],
+                json!({}),
+                "{label}: {reply}"
+            );
+            assert_eq!(
+                document(app, subject),
+                before,
+                "{label}: the cancelled request changed the document: {reply}"
+            );
         }
     }
 }
 
 #[test]
-fn a_host_cancel_while_waiting_stops_the_request_and_takes_no_slot() {
+fn each_operation_runs_while_the_only_slot_is_held() {
     let directory = tempfile::tempdir().unwrap();
     let app = new_app(&directory).with_compute_concurrency(1);
     let documents = Documents::new(&app);
     let mut ids = RequestIds::default();
-    for (index, row) in rows().into_iter().enumerate() {
+    // The reply of each request on the idle app, taken before anything holds the slot.
+    let mut idle = BTreeMap::new();
+    for row in rows() {
         for (name, subject) in documents.subjects() {
-            let label = format!(
-                "{} on {name} whose host cancels while it waits",
-                row.operation
-            );
-            // The reply of the same request when nothing holds the slot.
-            let reference = call(
-                &app,
-                &ids.fresh(),
-                row.operation,
-                row.parameters(subject, &documents.other, None),
-            );
-            let holding = benzene_document(&app, &format!("holding-{index}-{name}"));
-            let before = document(&app, subject);
-            let revision = before["document"]["revision"].as_u64().unwrap();
-            let holder_id = ids.fresh();
-            let waiter_id = ids.fresh();
-            let next_id = ids.fresh();
-            let (gate, reached, release) = gate();
-            thread::scope(|scope| {
-                // Owned by this closure, so a failed assertion below releases the computation.
-                let release = release;
-                let holder = scope
-                    .spawn(|| app.execute_with(&holder_request(&holding, &holder_id, 1), &gate));
-                reached
-                    .recv_timeout(WAIT)
-                    .expect("the holder started computing");
-                // No checkpoint comes before the slot, so the host's first question is asked
-                // while the request waits for the slot that the holder keeps.
-                let host = CancelAt::new(1, Interrupted::Cancelled);
-                let parameters = row.parameters(subject, &documents.other, None);
-                let stopped = finishes(&label, &release, || {
-                    call_with(&app, &waiter_id, row.operation, parameters, &host)
-                });
-                assert_stopped(&stopped, &row, "cancelled", revision, &label);
-                assert_eq!(
-                    stopped["diagnostics"][0]["details"],
-                    json!({}),
-                    "{label}: {stopped}"
-                );
-                assert_eq!(
-                    document(&app, subject),
-                    before,
-                    "{label}: the cancelled request changed the document: {stopped}"
-                );
-                release.now();
-                let holder_reply = serde_json::to_value(holder.join().unwrap()).unwrap();
-                assert_eq!(
-                    holder_reply["outcome"], "ok",
-                    "{label}: the holder finishes once released: {holder_reply}"
-                );
-                // The cancelled request took no slot, so the same request runs as it does when
-                // nothing waits for the slot.
-                let next = call(
-                    &app,
-                    &next_id,
-                    row.operation,
-                    row.parameters(subject, &documents.other, None),
-                );
-                assert_eq!(
-                    observed(&next),
-                    observed(&reference),
-                    "{label}: the request after the cancel differs from the request with nothing waiting: {next}"
-                );
-                if name == "benzene" {
-                    assert_eq!(next["outcome"], "ok", "{label}: {next}");
-                }
-            });
+            let parameters = (row.parameters)(subject, &documents.other);
+            let reply = call(&app, &ids.fresh(), row.operation, parameters);
+            idle.insert((row.model_id, name), observed(&reply));
         }
     }
+    let holding = benzene_document(&app, "holding");
+    let holder_id = ids.fresh();
+    let (gate, reached, release) = gate();
+    thread::scope(|scope| {
+        // Owned by this closure, so a failed assertion below releases the computation.
+        let release = release;
+        let holder =
+            scope.spawn(|| app.execute_with(&holder_request(&holding, &holder_id, 1), &gate));
+        reached
+            .recv_timeout(WAIT)
+            .expect("the holder started computing");
+        // The holder keeps the only slot until it is released. Each request still completes, with
+        // no limit and no wait, and gives the reply that it gives on the idle app. The empty
+        // subject is not asserted to be ok: the substructure row refuses an empty query on the
+        // idle app too, so its reply is compared with the idle reply only.
+        for row in rows() {
+            for (name, subject) in documents.subjects() {
+                let label = format!("{} on {name} while the only slot is held", row.operation);
+                let id = ids.fresh();
+                let parameters = (row.parameters)(subject, &documents.other);
+                let reply = finishes(&label, &release, || {
+                    call(&app, &id, row.operation, parameters)
+                });
+                if name == "benzene" {
+                    assert_eq!(reply["outcome"], "ok", "{label}: {reply}");
+                    assert_eq!(reply["model_id"], row.model_id, "{label}: {reply}");
+                }
+                let key = (row.model_id, name);
+                assert_eq!(observed(&reply), idle[&key], "{label}: {reply}");
+            }
+        }
+        release.now();
+        let holder_reply = serde_json::to_value(holder.join().unwrap()).unwrap();
+        assert_eq!(holder_reply["outcome"], "ok", "holder: {holder_reply}");
+    });
+}
+
+#[test]
+fn a_host_cancel_stops_each_operation_while_the_slot_is_held_and_while_it_is_free() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = new_app(&directory).with_compute_concurrency(1);
+    let documents = Documents::new(&app);
+    let mut ids = RequestIds::default();
+    let holding = benzene_document(&app, "holding");
+    let holder_id = ids.fresh();
+    let (gate, reached, release) = gate();
+    thread::scope(|scope| {
+        // Owned by this closure, so a failed assertion below releases the computation.
+        let release = release;
+        let holder =
+            scope.spawn(|| app.execute_with(&holder_request(&holding, &holder_id, 1), &gate));
+        reached
+            .recv_timeout(WAIT)
+            .expect("the holder started computing");
+        assert_host_cancels_every_row(
+            &app,
+            &mut ids,
+            &documents,
+            &release,
+            "while the only slot is held",
+        );
+        release.now();
+        let holder_reply = serde_json::to_value(holder.join().unwrap()).unwrap();
+        assert_eq!(holder_reply["outcome"], "ok", "holder: {holder_reply}");
+        assert_host_cancels_every_row(
+            &app,
+            &mut ids,
+            &documents,
+            &release,
+            "after the slot is given back",
+        );
+    });
 }
 
 #[test]
@@ -478,7 +460,8 @@ fn cancel_computations_refuses_every_operation_while_the_slot_is_held_and_after_
             .recv_timeout(WAIT)
             .expect("the holder started computing");
         app.cancel_computations();
-        // The holder still keeps the only slot, so a request that waited for it would wait here.
+        // The holder still keeps the only slot. No read-only request takes one, so the closed
+        // gate refuses each of them at once.
         assert_every_row_is_cancelled(
             &app,
             &mut ids,
@@ -517,41 +500,4 @@ fn cancel_computations_refuses_every_operation_while_the_slot_is_held_and_after_
             "after the slot is given back",
         );
     });
-}
-
-#[test]
-fn with_a_free_slot_each_operation_runs_under_its_default_limit() {
-    let directory = tempfile::tempdir().unwrap();
-    let app = new_app(&directory).with_compute_concurrency(1);
-    let documents = Documents::new(&app);
-    let mut ids = RequestIds::default();
-    for row in rows() {
-        for (name, subject) in documents.subjects() {
-            let label = format!("{} on {name} with a free slot", row.operation);
-            let reply = call(
-                &app,
-                &ids.fresh(),
-                row.operation,
-                row.parameters(subject, &documents.other, None),
-            );
-            if name == "benzene" {
-                assert_eq!(reply["outcome"], "ok", "{label}: {reply}");
-                assert_eq!(reply["model_id"], row.model_id, "{label}: {reply}");
-                assert_eq!(reply["document_revision"], 1, "{label}: {reply}");
-            } else {
-                // The empty document is answered by the operation itself, never by the gate or by
-                // the limit.
-                let codes: Vec<&str> = reply["diagnostics"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|diagnostic| diagnostic["code"].as_str().unwrap())
-                    .collect();
-                assert!(
-                    !codes.contains(&"time_limit") && !codes.contains(&"cancelled"),
-                    "{label}: a free slot must not stop the request: {reply}"
-                );
-            }
-        }
-    }
 }

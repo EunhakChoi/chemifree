@@ -2309,13 +2309,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         parameters: PropertiesParameters,
         cancel: &dyn Interrupt,
     ) -> OperationResponse {
-        let (budget, limit_ms) = match self.start_time_limit(parameters.time_limit_ms, cancel) {
+        let (budget, limit_ms) = match self.start_time_limit_or_refuse(
+            known,
+            parameters.time_limit_ms,
+            cancel,
+            properties::MODEL_ID,
+        ) {
             Ok(started) => started,
-            Err(refusal) => {
-                let mut reply = known.invalid(refusal);
-                reply.model_id = Some(properties::MODEL_ID.into());
-                return reply;
-            }
+            Err(reply) => return *reply,
         };
         if (parameters.scope == PropertiesScope::Selection) != parameters.selection.is_some() {
             return known.invalid(diagnostic(
@@ -2370,7 +2371,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 }
             }
         };
-        // Valence inspection and the calculation share one compute slot and one time limit.
+        // Valence inspection and the calculation share one time limit.
         let (assessments, calculated) = match self.compute_read_only(&budget, |interrupt| {
             let assessments = chemifree_domain::chemistry::inspect_valence(&document);
             let inferred = assessments
@@ -2477,6 +2478,79 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         response
     }
 
+    fn aromaticity(
+        &self,
+        known: &Known,
+        p: AromaticityParameters,
+        cancel: &dyn Interrupt,
+    ) -> OperationResponse {
+        let (budget, limit_ms) = match self.start_time_limit_or_refuse(
+            known,
+            p.time_limit_ms,
+            cancel,
+            chemifree_domain::aromaticity::MODEL_ID,
+        ) {
+            Ok(started) => started,
+            Err(reply) => return *reply,
+        };
+        let (snapshot, graph) = match self.documents.graph_snapshot(&p.document_id) {
+            Ok(pair) => pair,
+            Err(error) => {
+                return known.reply(
+                    Outcome::Error,
+                    error.current_revision,
+                    None,
+                    vec![failure(&error)],
+                );
+            }
+        };
+        let revision = snapshot.document.revision;
+        let interpretation = match self.compute_read_only(&budget, |interrupt| {
+            chemifree_domain::aromaticity::perceive_with(&graph, interrupt)
+        }) {
+            Ok(interpretation) => interpretation,
+            Err(interrupted) => {
+                return stopped_read_only(
+                    known,
+                    revision,
+                    interrupted,
+                    limit_ms,
+                    chemifree_domain::aromaticity::MODEL_ID,
+                );
+            }
+        };
+        let systems = interpretation
+            .systems
+            .into_iter()
+            .map(|system| {
+                let classification = match system.classification {
+                    chemifree_domain::aromaticity::Classification::Aromatic => "aromatic",
+                    chemifree_domain::aromaticity::Classification::NonAromatic => "non_aromatic",
+                    chemifree_domain::aromaticity::Classification::Unsupported => "unsupported",
+                };
+                AromaticitySystem {
+                    atoms: system.atoms.into_iter().map(|id| id.to_string()).collect(),
+                    bonds: system.bonds.into_iter().map(|id| id.to_string()).collect(),
+                    cycle_rank: system.cycle_rank,
+                    classification,
+                    electrons: system.electrons,
+                    reason: system.reason,
+                }
+            })
+            .collect();
+        let mut reply = known.reply(
+            Outcome::Ok,
+            Some(revision),
+            Some(OperationResult::Aromaticity(Box::new(AromaticityResult {
+                snapshot: snapshot.into(),
+                systems,
+            }))),
+            Vec::new(),
+        );
+        reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
+        reply
+    }
+
     /// Resolves a request's `time_limit_ms` and starts the clock of the computation it bounds.
     /// A limit above the maximum is refused with the same diagnostic for every operation that
     /// takes a time limit. The clock starts before any wait for a computation slot, and the
@@ -2511,16 +2585,36 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         Ok((budget, limit_ms))
     }
 
-    /// Runs a read-only computation in a compute slot under the request's budget. It waits for a
-    /// slot within the time limit, asks the budget once so that a limit of 0 or a cancel stops the
-    /// request even when there is nothing to compute, and holds the slot until `compute` returns.
+    /// Starts the time limit of a computation, as `start_time_limit` does. A refused limit is the
+    /// operation's reply instead: an error that carries the refusal, no document revision, and
+    /// `model_id` naming the operation's model.
+    fn start_time_limit_or_refuse<'a>(
+        &'a self,
+        known: &Known,
+        requested: Option<u64>,
+        cancel: &'a dyn Interrupt,
+        model_id: &'static str,
+    ) -> Result<(Budget<'a>, u64), Box<OperationResponse>> {
+        self.start_time_limit(requested, cancel).map_err(|refusal| {
+            let mut reply = known.invalid(refusal);
+            reply.model_id = Some(model_id.into());
+            // Boxed to keep the `Result` small: an `OperationResponse` is large, and a refusal is
+            // the rare path.
+            Box::new(reply)
+        })
+    }
+
+    /// Runs a read-only computation under the request's budget. It asks the budget once, so that a
+    /// limit of 0, a host cancel or a closed gate (`cancel_computations`) stops the request even
+    /// when there is nothing to compute. It takes no compute slot: these inspections are not
+    /// counted against `with_compute_concurrency` and never wait for it (CONTRACT.md, "Computation
+    /// time limit and cancel"). A slot would let a quick inspection be answered `time_limit` while
+    /// long conversions hold the slots, and the web does not show that code yet.
     fn compute_read_only<T>(
         &self,
         budget: &Budget<'_>,
         compute: impl FnOnce(&dyn Interrupt) -> Result<T, Interrupted>,
     ) -> Result<T, Interrupted> {
-        // Bound to a name: `_` alone would give the slot back at once.
-        let _permit = self.compute_gate.enter(budget)?;
         budget.check()?;
         compute(budget)
     }
@@ -2631,68 +2725,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Err(invalid) => known.invalid(invalid),
             },
             Op::ChemAromaticity => match parameters::<AromaticityParameters>(parameters_value) {
-                Ok(p) => {
-                    let (budget, limit_ms) = match self.start_time_limit(p.time_limit_ms, cancel) {
-                        Ok(started) => started,
-                        Err(refusal) => {
-                            let mut reply = known.invalid(refusal);
-                            reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
-                            return reply;
-                        }
-                    };
-                    match self.documents.graph_snapshot(&p.document_id) {
-                        Ok((snapshot, graph)) => {
-                            let revision = snapshot.document.revision;
-                            let interpretation =
-                                match self.compute_read_only(&budget, |interrupt| {
-                                    chemifree_domain::aromaticity::perceive_with(&graph, interrupt)
-                                }) {
-                                    Ok(interpretation) => interpretation,
-                                    Err(interrupted) => {
-                                        return stopped_read_only(
-                                            known,
-                                            revision,
-                                            interrupted,
-                                            limit_ms,
-                                            chemifree_domain::aromaticity::MODEL_ID,
-                                        );
-                                    }
-                                };
-                            let systems = interpretation.systems.into_iter().map(|system| {
-                                let classification = match system.classification {
-                                    chemifree_domain::aromaticity::Classification::Aromatic => "aromatic",
-                                    chemifree_domain::aromaticity::Classification::NonAromatic => "non_aromatic",
-                                    chemifree_domain::aromaticity::Classification::Unsupported => "unsupported",
-                                };
-                                AromaticitySystem {
-                                    atoms: system.atoms.into_iter().map(|id| id.to_string()).collect(),
-                                    bonds: system.bonds.into_iter().map(|id| id.to_string()).collect(),
-                                    cycle_rank: system.cycle_rank,
-                                    classification,
-                                    electrons: system.electrons,
-                                    reason: system.reason,
-                                }
-                            }).collect();
-                            let mut reply = known.reply(
-                                Outcome::Ok,
-                                Some(revision),
-                                Some(OperationResult::Aromaticity(Box::new(AromaticityResult {
-                                    snapshot: snapshot.into(),
-                                    systems,
-                                }))),
-                                Vec::new(),
-                            );
-                            reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
-                            reply
-                        }
-                        Err(error) => known.reply(
-                            Outcome::Error,
-                            error.current_revision,
-                            None,
-                            vec![failure(&error)],
-                        ),
-                    }
-                }
+                Ok(p) => self.aromaticity(known, p, cancel),
                 Err(invalid) => known.invalid(invalid),
             },
             Op::ChemAromaticityConvert => match parameters::<AromaticityConversionParameters>(parameters_value) {
@@ -2721,13 +2754,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::ChemIdentity => match parameters::<IdentityParameters>(parameters_value) {
                 Ok(p) => {
-                    let (budget, limit_ms) = match self.start_time_limit(p.time_limit_ms, cancel) {
+                    let (budget, limit_ms) = match self.start_time_limit_or_refuse(
+                        known,
+                        p.time_limit_ms,
+                        cancel,
+                        p.mode.model_id(),
+                    ) {
                         Ok(started) => started,
-                        Err(refusal) => {
-                            let mut reply = known.invalid(refusal);
-                            reply.model_id = Some(p.mode.model_id().into());
-                            return reply;
-                        }
+                        Err(reply) => return *reply,
                     };
                     let ((snapshot, graph), other) = match self.documents.graph_pair_snapshot(
                         &p.document_id,

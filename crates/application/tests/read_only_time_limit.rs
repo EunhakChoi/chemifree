@@ -1,6 +1,6 @@
 //! `chem.aromaticity`, `chem.identity`, `chem.substructure` and `chem.properties` run under a
-//! time limit and a cancel, in a compute slot, as `chem.cip` does. The limit is read before the
-//! document is. A stop replies with no result, the analyzed snapshot's revision and the
+//! time limit and a cancel, as `chem.cip` does, but take no compute slot. The limit is read before
+//! the document is. A stop replies with no result, the analyzed snapshot's revision and the
 //! operation's model, and it changes nothing.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -392,7 +392,7 @@ fn a_stop_inside_the_computation_names_the_limit_or_the_cancel() {
         let label = format!("{} on benzene", row.operation);
         let parameters = || row.parameters(&documents.benzene, &documents.other, None);
 
-        // Question 1 is the check made once the compute slot is taken, before any work.
+        // Question 1 is the check made before any work.
         let first = CancelAt::new(1, Interrupted::TimeLimit);
         let reply = call_with(&app, &ids.fresh(), row.operation, parameters(), &first);
         let label_first = format!("{label}, stopped at question 1");
