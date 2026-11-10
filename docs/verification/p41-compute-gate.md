@@ -23,8 +23,10 @@ Scope: at most N computations run at the same time in one `Application`; N defau
 
 Limits of the proof: a full gate is made in tests by holding permits, so the wait is exercised with the 10 ms slice, not under real load; no fairness is claimed or tested.
 
-## Decisions awaiting the user's confirmation
+## Decisions (kept as built)
+
+These three were listed as awaiting the user's confirmation when PR #248 merged. On 2026-11-10 the user left them to the lead, who kept all three; the decision is recorded on issue #106 and in the roadmap note of P41.
 
 - A full gate replies `time_limit`, not `resource_limit`, so no wire shape is added; the reply does not say whether waiting or computing used the time.
 - Server shutdown now delivers `cancelled` as 200 (before, a `cancelled` reply never reached an HTTP client).
-- No CLI flag or environment variable sets N; only the host API (`with_compute_concurrency`) does.
+- No CLI flag or environment variable sets N; only the host API (`with_compute_concurrency`) does. A user-facing setting belongs to the product server's settings (P87).

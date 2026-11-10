@@ -5,7 +5,7 @@
  *
  * Cost policy (docs/CONTRACT.md: the service bounds each `chem.cip` request with its time limit,
  * 5 seconds by default, and the web client gives up after 10 seconds; a dense graph's scan has no
- * lower node cap yet, issue #127): the page asks ONLY while at least one of the two label
+ * lower node cap yet, issue #250): the page asks ONLY while at least one of the two label
  * switches is on and something is stored that the switch covers, and then always with
  * `scope: "stored"`, never `stereogenic`.
  * With both switches off (the default) it sends no `chem.cip` request at all.

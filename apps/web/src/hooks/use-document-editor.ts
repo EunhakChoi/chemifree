@@ -965,7 +965,7 @@ export function useDocumentEditor() {
     inspectValence: useCallback((id: string) => client.inspectValence(id), []),
     inspectStereo: useCallback((id: string) => client.inspectStereo(id), []),
     // The editor asks for the stored configurations only: `stereogenic` would scan every candidate,
-    // and a dense graph's scan has no lower node cap yet (issue #127). The service bounds each
+    // and a dense graph's scan has no lower node cap yet (issue #250). The service bounds each
     // request (5 seconds by default), and the client gives up after 10 seconds.
     inspectCip: useCallback((id: string) => client.inspectCip(id, { scope: 'stored' }), []),
     previewCt: useCallback((id: string, revision: number, format: CtImport['format'], source: string, record: number) =>
