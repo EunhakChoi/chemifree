@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::budget::{Interrupt, Interrupted, NEVER};
 use crate::document::{AtomId, Document};
 use crate::element::Element;
 use crate::scene::{SceneObject, Selection};
@@ -12,6 +13,8 @@ use crate::states::Hydrogens;
 
 pub const MAX_PEAKS: usize = 4096;
 pub const MAX_DISTRIBUTION_WORK: usize = 1_000_000;
+/// Work units between two questions to the interrupt, which may read a clock.
+const DISTRIBUTION_CHECK_STRIDE: usize = 1_024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MassError {
@@ -304,6 +307,27 @@ fn validate(row: &ElementMass) -> Result<(), MassError> {
     Ok(())
 }
 
+/// How the enumeration ends without a distribution. A stop is kept apart from the refusals, so
+/// it is never reported as one.
+enum Halt {
+    /// A refusal of the data or of a limit; this does not depend on the machine.
+    Refused(MassError),
+    /// The enumeration was stopped before it finished; the distribution may well exist.
+    Interrupted(Interrupted),
+}
+
+impl From<MassError> for Halt {
+    fn from(error: MassError) -> Self {
+        Self::Refused(error)
+    }
+}
+
+impl From<Interrupted> for Halt {
+    fn from(interrupted: Interrupted) -> Self {
+        Self::Interrupted(interrupted)
+    }
+}
+
 impl Composition {
     /// Hill ordering: carbon, hydrogen, then other symbols if carbon is present; otherwise all
     /// symbols alphabetically. Explicit isotope mass numbers are printed in brackets.
@@ -438,8 +462,38 @@ impl Composition {
     /// input fractions within 0.1% of one are normalized; raw sums are returned explicitly.
     /// Missing abundance is not treated as zero, and underflow yields no partial distribution.
     pub fn distribution(&self, table: &MassTable) -> Result<Distribution, MassError> {
+        self.distribution_with(table, &NEVER)
+            .expect("the never-interrupt cannot interrupt")
+    }
+
+    /// Like [`Composition::distribution`], but asks `interrupt` once for every 1,024 work units.
+    /// It returns exactly what [`Composition::distribution`] returns, or [`Interrupted`] and
+    /// nothing else.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Interrupted`] when `interrupt` stops the enumeration.
+    pub fn distribution_with(
+        &self,
+        table: &MassTable,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Result<Distribution, MassError>, Interrupted> {
+        match self.enumerate_distribution(table, interrupt) {
+            Ok(distribution) => Ok(Ok(distribution)),
+            Err(Halt::Refused(error)) => Ok(Err(error)),
+            Err(Halt::Interrupted(interrupted)) => Err(interrupted),
+        }
+    }
+
+    /// The enumeration behind [`Composition::distribution_with`]. A stop stays a `Halt` until the
+    /// public boundary maps it, so it cannot be read as a refusal.
+    fn enumerate_distribution(
+        &self,
+        table: &MassTable,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Distribution, Halt> {
         if !table.charge_correction.is_finite() {
-            return Err(MassError::InvalidData);
+            return Err(Halt::Refused(MassError::InvalidData));
         }
         let mut peaks = vec![Peak {
             mass_u: f64::from(self.charge) * table.charge_correction,
@@ -464,7 +518,7 @@ impl Composition {
                     .find(|item| item.number == number)
                     .ok_or(MassError::MissingIsotope)?;
                 if !isotope.mass.is_finite() || isotope.mass <= 0.0 {
-                    return Err(MassError::InvalidData);
+                    return Err(Halt::Refused(MassError::InvalidData));
                 }
                 for peak in &mut peaks {
                     peak.mass_u += f64::from(count) * isotope.mass;
@@ -476,7 +530,7 @@ impl Composition {
             for isotope in &row.isotopes {
                 let Some(abundance) = isotope.abundance else {
                     if table.missing_abundance == MissingAbundancePolicy::Reject {
-                        return Err(MassError::MissingAbundance);
+                        return Err(Halt::Refused(MassError::MissingAbundance));
                     }
                     omitted_abundances.push((element, isotope.number));
                     continue;
@@ -486,7 +540,7 @@ impl Composition {
                     || !abundance.is_finite()
                     || !(0.0..=1.0).contains(&abundance)
                 {
-                    return Err(MassError::InvalidData);
+                    return Err(Halt::Refused(MassError::InvalidData));
                 }
                 sum += abundance;
                 if abundance > 0.0 {
@@ -494,7 +548,7 @@ impl Composition {
                 }
             }
             if input.is_empty() || !(0.999..=1.001).contains(&sum) {
-                return Err(MassError::MissingAbundance);
+                return Err(Halt::Refused(MassError::MissingAbundance));
             }
             abundance_sums.push((element, sum));
             for (_, abundance) in &mut input {
@@ -509,15 +563,18 @@ impl Composition {
                             .checked_add(1)
                             .filter(|n| *n <= MAX_DISTRIBUTION_WORK)
                             .ok_or(MassError::ResourceLimit)?;
+                        if work.is_multiple_of(DISTRIBUTION_CHECK_STRIDE) {
+                            interrupt.check()?;
+                        }
                         let mut updated = key.clone();
                         updated[i] += 1;
                         let contribution = probability * abundance;
                         if contribution == 0.0 {
-                            return Err(MassError::ProbabilityUnderflow);
+                            return Err(Halt::Refused(MassError::ProbabilityUnderflow));
                         }
                         *next.entry(updated).or_insert(0.0) += contribution;
                         if next.len() > MAX_PEAKS {
-                            return Err(MassError::ResourceLimit);
+                            return Err(Halt::Refused(MassError::ResourceLimit));
                         }
                     }
                 }
@@ -532,11 +589,11 @@ impl Composition {
                     .sum();
                 for peak in &peaks {
                     if next.len() >= MAX_PEAKS {
-                        return Err(MassError::ResourceLimit);
+                        return Err(Halt::Refused(MassError::ResourceLimit));
                     }
                     let probability = peak.probability * probability;
                     if probability == 0.0 {
-                        return Err(MassError::ProbabilityUnderflow);
+                        return Err(Halt::Refused(MassError::ProbabilityUnderflow));
                     }
                     next.push(Peak {
                         mass_u: peak.mass_u + mass,
@@ -550,7 +607,7 @@ impl Composition {
             .iter()
             .any(|peak| !peak.mass_u.is_finite() || !peak.probability.is_finite())
         {
-            return Err(MassError::InvalidData);
+            return Err(Halt::Refused(MassError::InvalidData));
         }
         peaks.sort_by(|a, b| a.mass_u.total_cmp(&b.mass_u));
         Ok(Distribution {

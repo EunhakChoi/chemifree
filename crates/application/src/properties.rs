@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::document::{AtomId, Document, MAX_ISOTOPE_MASS_NUMBER};
 use chemifree_domain::mass::{
     Composition, FormulaError, FormulaScope, MassError, MassTable, atom_groups, composition,
@@ -11,6 +12,9 @@ use chemifree_numerics::{Binary64, format_fixed};
 use serde::{Deserialize, Serialize};
 
 use crate::{DataRegistry, ProfileRecords};
+
+/// The model named by a `chem.properties` reply that reaches the time limit or the calculation.
+pub(crate) const MODEL_ID: &str = "chemifree-properties-1";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -248,9 +252,41 @@ fn display(value: f64, decimals: u8) -> Result<String, PropertiesError> {
         .map_err(|_| PropertiesError::Display)
 }
 
-/// The inferred-H map must come from a model applied to this same complete graph snapshot.
-/// All component results are assembled locally: any error publishes none of them.
-pub(crate) fn calculate(
+/// How the component loop ends without rows. A stop is kept apart from the refusals, so it is
+/// never reported as one.
+enum Halt {
+    /// A refusal of the request or of its data.
+    Refused(PropertiesError),
+    /// The loop was stopped before it finished; the rows may well exist.
+    Interrupted(Interrupted),
+}
+
+impl From<PropertiesError> for Halt {
+    fn from(error: PropertiesError) -> Self {
+        Self::Refused(error)
+    }
+}
+
+impl From<Interrupted> for Halt {
+    fn from(interrupted: Interrupted) -> Self {
+        Self::Interrupted(interrupted)
+    }
+}
+
+/// Computes the component rows of a properties request. The inferred-H map must come from a model
+/// applied to this same complete graph snapshot. All component results are assembled locally, so a
+/// refusal or a stop publishes none of them. The calculation asks `interrupt` before each component
+/// and inside each isotope distribution. It returns exactly what a call with `NEVER` returns, or
+/// [`Interrupted`] and nothing else.
+///
+/// # Errors
+///
+/// Returns [`Interrupted`] when `interrupt` stops the calculation.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The inputs stay separate arguments, with the interrupt last."
+)]
+pub(crate) fn calculate_with(
     document: &Document,
     scope: FormulaScope,
     selection: Option<&Selection>,
@@ -258,13 +294,44 @@ pub(crate) fn calculate(
     kind: PropertyKind,
     table: Option<&MassTable>,
     decimals: u8,
-) -> Result<Vec<ComponentView>, PropertiesError> {
+    interrupt: &dyn Interrupt,
+) -> Result<Result<Vec<ComponentView>, PropertiesError>, Interrupted> {
     if decimals > 8 {
-        return Err(PropertiesError::Display);
+        return Ok(Err(PropertiesError::Display));
     }
-    let groups = atom_groups(document, scope, selection).map_err(PropertiesError::Formula)?;
+    let groups = match atom_groups(document, scope, selection) {
+        Ok(groups) => groups,
+        Err(error) => return Ok(Err(PropertiesError::Formula(error))),
+    };
+    match component_rows(
+        document,
+        groups,
+        inferred_hydrogens,
+        kind,
+        table,
+        decimals,
+        interrupt,
+    ) {
+        Ok(rows) => Ok(Ok(rows)),
+        Err(Halt::Refused(error)) => Ok(Err(error)),
+        Err(Halt::Interrupted(interrupted)) => Err(interrupted),
+    }
+}
+
+/// The component loop behind [`calculate_with`]. A stop stays a `Halt` until the public boundary
+/// maps it, so it cannot be read as a refusal.
+fn component_rows(
+    document: &Document,
+    groups: Vec<Vec<AtomId>>,
+    inferred_hydrogens: &BTreeMap<AtomId, u16>,
+    kind: PropertyKind,
+    table: Option<&MassTable>,
+    decimals: u8,
+    interrupt: &dyn Interrupt,
+) -> Result<Vec<ComponentView>, Halt> {
     let mut output = Vec::with_capacity(groups.len());
     for atoms in groups {
+        interrupt.check()?;
         let composition =
             composition(document, &atoms, inferred_hydrogens).map_err(PropertiesError::Formula)?;
         let mut row = ComponentView {
@@ -325,7 +392,7 @@ pub(crate) fn calculate(
             });
             if kind == PropertyKind::Distribution {
                 let distribution = composition
-                    .distribution(table)
+                    .distribution_with(table, interrupt)?
                     .map_err(PropertiesError::Mass)?;
                 row.abundance_sums = distribution
                     .abundance_sums
@@ -366,6 +433,7 @@ pub(crate) fn calculate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chemifree_domain::budget::NEVER;
     use chemifree_domain::document::{Atom, Command, DocumentId, NewAtomPositions, Point};
     use chemifree_domain::element::Element;
     use chemifree_domain::mass::{
@@ -459,7 +527,7 @@ mod tests {
         let before = document.clone();
         let atom = document.atoms().next().unwrap().0;
         let inferred = BTreeMap::from([(atom, 4)]);
-        let two = calculate(
+        let two = calculate_with(
             &document,
             FormulaScope::Molecule,
             None,
@@ -467,9 +535,11 @@ mod tests {
             PropertyKind::Masses,
             Some(&table()),
             2,
+            &NEVER,
         )
+        .unwrap()
         .unwrap();
-        let five = calculate(
+        let five = calculate_with(
             &document,
             FormulaScope::Molecule,
             None,
@@ -477,7 +547,9 @@ mod tests {
             PropertyKind::Masses,
             Some(&table()),
             5,
+            &NEVER,
         )
+        .unwrap()
         .unwrap();
         assert_eq!(two[0].formula, "CH4");
         assert_eq!(two[0].mass.as_ref().unwrap().exact_display, "16.03");
@@ -498,31 +570,33 @@ mod tests {
             Hydrogens::Inferred
         );
         assert_eq!(
-            calculate(
+            calculate_with(
                 &document,
                 FormulaScope::Molecule,
                 None,
                 &BTreeMap::new(),
                 PropertyKind::Formula,
                 None,
-                2
+                2,
+                &NEVER,
             ),
-            Err(PropertiesError::Formula(FormulaError::UnknownHydrogens(
-                atom
+            Ok(Err(PropertiesError::Formula(
+                FormulaError::UnknownHydrogens(atom)
             )))
         );
         let inferred = BTreeMap::from([(atom, 4)]);
         assert_eq!(
-            calculate(
+            calculate_with(
                 &document,
                 FormulaScope::Molecule,
                 None,
                 &inferred,
                 PropertyKind::Masses,
                 None,
-                2
+                2,
+                &NEVER,
             ),
-            Err(PropertiesError::DataUnavailable)
+            Ok(Err(PropertiesError::DataUnavailable))
         );
     }
 }

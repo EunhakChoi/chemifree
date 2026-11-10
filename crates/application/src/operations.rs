@@ -29,7 +29,7 @@ pub(crate) mod template;
 mod transform;
 pub use template::{TemplateAtom, TemplateAttachment, TemplateInspection, TemplateReplacement};
 
-use chemifree_domain::budget::{Budget, Interrupt, NEVER};
+use chemifree_domain::budget::{Budget, Interrupt, Interrupted, NEVER};
 use chemifree_domain::document::Command;
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId, Representation};
 use chemifree_domain::{graph::MoleculeGraph, identity};
@@ -1018,7 +1018,7 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         Op::ChemAromaticity => (
             runs(
                 id,
-                "Read-only topological ring systems and a named bounded aromaticity interpretation.",
+                "Read-only topological ring systems and a named bounded aromaticity interpretation, under a time limit (time_limit_ms).",
             ),
             &[],
         ),
@@ -1032,14 +1032,14 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         Op::ChemIdentity => (
             runs(
                 id,
-                "Compares bounded recorded or model-normalized graphs and reports canonical numbering and symmetry.",
+                "Compares bounded recorded or model-normalized graphs and reports canonical numbering and symmetry, under a time limit (time_limit_ms).",
             ),
             &[],
         ),
         Op::ChemSubstructure => (
             runs(
                 id,
-                "Read-only substructure search of one drawing in another: every atom and bond mapping under a named model, or a refusal or limit.",
+                "Read-only substructure search of one drawing in another: every atom and bond mapping under a named model, or a refusal or limit, under a time limit (time_limit_ms).",
             ),
             &[],
         ),
@@ -1070,7 +1070,7 @@ fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         Op::ChemProperties => (
             runs(
                 id,
-                "Computes bounded formula and, with available external data, mass or isotope distribution from an immutable graph snapshot.",
+                "Computes bounded formula and, with available external data, mass or isotope distribution from an immutable graph snapshot, under a time limit (time_limit_ms).",
             ),
             &PROPERTY_PARTS,
         ),
@@ -1184,17 +1184,28 @@ struct IdentityParameters {
     mode: IdentityMode,
     #[serde(default)]
     other_document_id: Option<String>,
+    /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
+    /// (so it may be above the server's default); above the maximum it is refused.
+    #[serde(default)]
+    time_limit_ms: Option<u64>,
 }
 
+/// The identity of `graph` under `mode`, computed with `interrupt`. The outer `Result` carries an
+/// interruption; the inner one carries the model's refusal of this graph.
 fn identity_view(
     graph: &MoleculeGraph,
     mode: IdentityMode,
-) -> Result<IdentityView, identity::IdentityError> {
-    let result = match mode {
-        IdentityMode::Recorded => identity::canonicalize(graph),
-        IdentityMode::Chemical => identity::canonicalize_chemical(graph),
+    interrupt: &dyn Interrupt,
+) -> Result<Result<IdentityView, identity::IdentityError>, Interrupted> {
+    let outcome = match mode {
+        IdentityMode::Recorded => identity::canonicalize_with(graph, interrupt),
+        IdentityMode::Chemical => identity::canonicalize_chemical_with(graph, interrupt),
     }?;
-    Ok(IdentityView {
+    let result = match outcome {
+        Ok(result) => result,
+        Err(error) => return Ok(Err(error)),
+    };
+    Ok(Ok(IdentityView {
         code: result.code,
         numbering: result
             .numbering
@@ -1214,7 +1225,7 @@ fn identity_view(
                 attached_to: attached_to.to_string(),
             })
             .collect(),
-    })
+    }))
 }
 
 #[derive(serde::Deserialize)]
@@ -1227,6 +1238,10 @@ struct PropertiesParameters {
     selection: Option<SelectionDto>,
     #[serde(default)]
     data_registration_id: Option<String>,
+    /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
+    /// (so it may be above the server's default); above the maximum it is refused.
+    #[serde(default)]
+    time_limit_ms: Option<u64>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1246,6 +1261,16 @@ struct TransactionParameters {
 struct RevisionParameters {
     document_id: String,
     expected_revision: u64,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AromaticityParameters {
+    document_id: String,
+    /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
+    /// (so it may be above the server's default); above the maximum it is refused.
+    #[serde(default)]
+    time_limit_ms: Option<u64>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1444,6 +1469,21 @@ fn diagnostic(
         path: None,
         details,
     }
+}
+
+/// The reply of a read-only computation stopped by its time limit or a cancel: no result, the
+/// analyzed snapshot's revision, and the operation's model.
+fn stopped_read_only(
+    known: &Known,
+    revision: u64,
+    interrupted: Interrupted,
+    limit_ms: u64,
+    model_id: &'static str,
+) -> OperationResponse {
+    let error = crate::documents::interruption(interrupted, limit_ms);
+    let mut reply = known.reply(Outcome::Error, Some(revision), None, vec![failure(&error)]);
+    reply.model_id = Some(model_id.into());
+    reply
 }
 
 /// A request that has been read as one of a known operation.
@@ -2267,7 +2307,16 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         &self,
         known: &Known,
         parameters: PropertiesParameters,
+        cancel: &dyn Interrupt,
     ) -> OperationResponse {
+        let (budget, limit_ms) = match self.start_time_limit(parameters.time_limit_ms, cancel) {
+            Ok(started) => started,
+            Err(refusal) => {
+                let mut reply = known.invalid(refusal);
+                reply.model_id = Some(properties::MODEL_ID.into());
+                return reply;
+            }
+        };
         if (parameters.scope == PropertiesScope::Selection) != parameters.selection.is_some() {
             return known.invalid(diagnostic(
                 "invalid_selection",
@@ -2294,6 +2343,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Ok(snapshot) => snapshot,
             Err(error) => return known.invalid(failure(&error)),
         };
+        let revision = snapshot.document.revision;
         let precision = if parameters.property == PropertyKind::Formula {
             0
         } else {
@@ -2320,21 +2370,38 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 }
             }
         };
-        let assessments = chemifree_domain::chemistry::inspect_valence(&document);
-        let inferred = assessments
-            .iter()
-            .filter(|state| state.finding == chemifree_domain::chemistry::Finding::Valid)
-            .filter_map(|state| state.hydrogen_count.map(|count| (state.atom, count)))
-            .collect();
-        let components = match properties::calculate(
-            &document,
-            parameters.scope.domain(),
-            selection.as_ref(),
-            &inferred,
-            parameters.property,
-            data.as_ref().map(|(_, table)| table),
-            precision,
-        ) {
+        // Valence inspection and the calculation share one compute slot and one time limit.
+        let (assessments, calculated) = match self.compute_read_only(&budget, |interrupt| {
+            let assessments = chemifree_domain::chemistry::inspect_valence(&document);
+            let inferred = assessments
+                .iter()
+                .filter(|state| state.finding == chemifree_domain::chemistry::Finding::Valid)
+                .filter_map(|state| state.hydrogen_count.map(|count| (state.atom, count)))
+                .collect();
+            let calculated = properties::calculate_with(
+                &document,
+                parameters.scope.domain(),
+                selection.as_ref(),
+                &inferred,
+                parameters.property,
+                data.as_ref().map(|(_, table)| table),
+                precision,
+                interrupt,
+            )?;
+            Ok((assessments, calculated))
+        }) {
+            Ok(computed) => computed,
+            Err(interrupted) => {
+                return stopped_read_only(
+                    known,
+                    revision,
+                    interrupted,
+                    limit_ms,
+                    properties::MODEL_ID,
+                );
+            }
+        };
+        let components = match calculated {
             Ok(result) => result,
             Err(error) => {
                 let (unsupported, diagnostic) = property_failure(error);
@@ -2378,7 +2445,6 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 losses.push(Loss { feature: "exact_natural_weight_fallback".into(), source_path: format!("components[{index}].mass"), disposition: LossDisposition::Normalized, reason: "The profile used a natural weight because no isotope rows were available; affected elements are listed in the result.".into(), semantic_impact: SemanticImpact::Chemistry, consent: LossConsent::NotRequired });
             }
         }
-        let revision = snapshot.document.revision;
         let result = PropertiesResult {
             snapshot: snapshot.into(),
             scope: parameters.scope.as_str(),
@@ -2406,7 +2472,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             Some(OperationResult::Properties(Box::new(result))),
             Vec::new(),
         );
-        response.model_id = Some("chemifree-properties-1".into());
+        response.model_id = Some(properties::MODEL_ID.into());
         response.loss_report = losses;
         response
     }
@@ -2443,6 +2509,20 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         );
         let budget = Budget::new(cancel, deadline).also(self.compute_gate.shutdown_flag());
         Ok((budget, limit_ms))
+    }
+
+    /// Runs a read-only computation in a compute slot under the request's budget. It waits for a
+    /// slot within the time limit, asks the budget once so that a limit of 0 or a cancel stops the
+    /// request even when there is nothing to compute, and holds the slot until `compute` returns.
+    fn compute_read_only<T>(
+        &self,
+        budget: &Budget<'_>,
+        compute: impl FnOnce(&dyn Interrupt) -> Result<T, Interrupted>,
+    ) -> Result<T, Interrupted> {
+        // Bound to a name: `_` alone would give the slot back at once.
+        let _permit = self.compute_gate.enter(budget)?;
+        budget.check()?;
+        compute(budget)
     }
 
     fn dispatch(
@@ -2550,33 +2630,69 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 },
                 Err(invalid) => known.invalid(invalid),
             },
-            Op::ChemAromaticity => match parameters::<SnapshotParameters>(parameters_value) {
-                Ok(p) => match self.documents.graph_snapshot(&p.document_id) {
-                    Ok((snapshot, graph)) => {
-                        let revision = snapshot.document.revision;
-                        let interpretation = chemifree_domain::aromaticity::perceive(&graph);
-                        let systems = interpretation.systems.into_iter().map(|system| {
-                            let classification = match system.classification {
-                                chemifree_domain::aromaticity::Classification::Aromatic => "aromatic",
-                                chemifree_domain::aromaticity::Classification::NonAromatic => "non_aromatic",
-                                chemifree_domain::aromaticity::Classification::Unsupported => "unsupported",
-                            };
-                            AromaticitySystem {
-                                atoms: system.atoms.into_iter().map(|id| id.to_string()).collect(),
-                                bonds: system.bonds.into_iter().map(|id| id.to_string()).collect(),
-                                cycle_rank: system.cycle_rank,
-                                classification,
-                                electrons: system.electrons,
-                                reason: system.reason,
-                            }
-                        }).collect();
-                        let mut reply = known.reply(Outcome::Ok, Some(revision),
-                            Some(OperationResult::Aromaticity(Box::new(AromaticityResult { snapshot: snapshot.into(), systems }))), Vec::new());
-                        reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
-                        reply
+            Op::ChemAromaticity => match parameters::<AromaticityParameters>(parameters_value) {
+                Ok(p) => {
+                    let (budget, limit_ms) = match self.start_time_limit(p.time_limit_ms, cancel) {
+                        Ok(started) => started,
+                        Err(refusal) => {
+                            let mut reply = known.invalid(refusal);
+                            reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
+                            return reply;
+                        }
+                    };
+                    match self.documents.graph_snapshot(&p.document_id) {
+                        Ok((snapshot, graph)) => {
+                            let revision = snapshot.document.revision;
+                            let interpretation =
+                                match self.compute_read_only(&budget, |interrupt| {
+                                    chemifree_domain::aromaticity::perceive_with(&graph, interrupt)
+                                }) {
+                                    Ok(interpretation) => interpretation,
+                                    Err(interrupted) => {
+                                        return stopped_read_only(
+                                            known,
+                                            revision,
+                                            interrupted,
+                                            limit_ms,
+                                            chemifree_domain::aromaticity::MODEL_ID,
+                                        );
+                                    }
+                                };
+                            let systems = interpretation.systems.into_iter().map(|system| {
+                                let classification = match system.classification {
+                                    chemifree_domain::aromaticity::Classification::Aromatic => "aromatic",
+                                    chemifree_domain::aromaticity::Classification::NonAromatic => "non_aromatic",
+                                    chemifree_domain::aromaticity::Classification::Unsupported => "unsupported",
+                                };
+                                AromaticitySystem {
+                                    atoms: system.atoms.into_iter().map(|id| id.to_string()).collect(),
+                                    bonds: system.bonds.into_iter().map(|id| id.to_string()).collect(),
+                                    cycle_rank: system.cycle_rank,
+                                    classification,
+                                    electrons: system.electrons,
+                                    reason: system.reason,
+                                }
+                            }).collect();
+                            let mut reply = known.reply(
+                                Outcome::Ok,
+                                Some(revision),
+                                Some(OperationResult::Aromaticity(Box::new(AromaticityResult {
+                                    snapshot: snapshot.into(),
+                                    systems,
+                                }))),
+                                Vec::new(),
+                            );
+                            reply.model_id = Some(chemifree_domain::aromaticity::MODEL_ID.into());
+                            reply
+                        }
+                        Err(error) => known.reply(
+                            Outcome::Error,
+                            error.current_revision,
+                            None,
+                            vec![failure(&error)],
+                        ),
                     }
-                    Err(error) => known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
-                },
+                }
                 Err(invalid) => known.invalid(invalid),
             },
             Op::ChemAromaticityConvert => match parameters::<AromaticityConversionParameters>(parameters_value) {
@@ -2605,6 +2721,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             },
             Op::ChemIdentity => match parameters::<IdentityParameters>(parameters_value) {
                 Ok(p) => {
+                    let (budget, limit_ms) = match self.start_time_limit(p.time_limit_ms, cancel) {
+                        Ok(started) => started,
+                        Err(refusal) => {
+                            let mut reply = known.invalid(refusal);
+                            reply.model_id = Some(p.mode.model_id().into());
+                            return reply;
+                        }
+                    };
                     let ((snapshot, graph), other) = match self.documents.graph_pair_snapshot(
                         &p.document_id,
                         p.other_document_id.as_deref(),
@@ -2613,23 +2737,56 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                         Err(error) => return known.reply(Outcome::Error, error.current_revision, None, vec![failure(&error)]),
                     };
                     let revision = snapshot.document.revision;
-                    let identity = match identity_view(&graph, p.mode) {
+                    // Read before the target graph moves into the computation below.
+                    let other_graph_stereo = other
+                        .as_ref()
+                        .map(|(_, other_graph)| other_graph.has_stereo());
+                    // One computation for the request. The target is computed only when the source
+                    // has an identity: a source refusal is reported without it.
+                    let (identity, target) = match self.compute_read_only(&budget, |interrupt| {
+                        let identity = identity_view(&graph, p.mode, interrupt)?;
+                        // A source refusal also gives `None`; it returns before `target` is read.
+                        let target = match other {
+                            Some((other_snapshot, other_graph)) if identity.is_ok() => {
+                                let view = identity_view(&other_graph, p.mode, interrupt)?;
+                                Some((other_snapshot, view))
+                            }
+                            _ => None,
+                        };
+                        Ok((identity, target))
+                    }) {
+                        Ok(views) => views,
+                        Err(interrupted) => {
+                            return stopped_read_only(
+                                known,
+                                revision,
+                                interrupted,
+                                limit_ms,
+                                p.mode.model_id(),
+                            );
+                        }
+                    };
+                    let identity = match identity {
                         Ok(value) => value,
                         Err(error) => return identity_failure(known, revision, p.mode, "source", snapshot, error),
                     };
-                    let other_graph_stereo = other.as_ref().map(|(_, other_graph)| other_graph.has_stereo());
-                    let comparison = if let Some((other_snapshot, other_graph)) = other {
-                        let other_identity = match identity_view(&other_graph, p.mode) {
-                            Ok(value) => value,
-                            Err(error) => return identity_failure(known, revision, p.mode, "target", other_snapshot, error),
-                        };
-                        Some(IdentityComparison {
+                    let comparison = match target {
+                        Some((other_snapshot, Ok(other_identity))) => Some(IdentityComparison {
                             equivalent: identity.code == other_identity.code,
                             snapshot: other_snapshot.into(),
                             identity: other_identity,
-                        })
-                    } else {
-                        None
+                        }),
+                        Some((other_snapshot, Err(error))) => {
+                            return identity_failure(
+                                known,
+                                revision,
+                                p.mode,
+                                "target",
+                                other_snapshot,
+                                error,
+                            );
+                        }
+                        None => None,
                     };
                     let stereo = IdentityStereo {
                         compared: false,
@@ -2660,7 +2817,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Err(invalid) => known.invalid(invalid),
             },
             Op::ChemSubstructure => match parameters::<SubstructureParameters>(parameters_value) {
-                Ok(p) => self.substructure(known, p),
+                Ok(p) => self.substructure(known, p, cancel),
                 Err(invalid) => known.invalid(invalid),
             },
             Op::ChemStereo => match parameters::<StereoParameters>(parameters_value) {
@@ -2785,7 +2942,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Backend::NotConnected(provider) => known.invalid(not_connected(provider)),
             },
             Op::ChemProperties => match parameters::<PropertiesParameters>(parameters_value) {
-                Ok(p) => self.chemical_properties(known, p),
+                Ok(p) => self.chemical_properties(known, p, cancel),
                 Err(invalid) => known.invalid(invalid),
             },
             Op::ChemNameToStructure

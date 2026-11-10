@@ -219,7 +219,9 @@ fn the_numbers_the_contract_quotes_are_the_limits() {
 fn the_operation_table_lists_the_operation() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/CONTRACT.md");
     let text = std::fs::read_to_string(path).unwrap();
-    assert!(text.contains("| `chem.substructure` | `{ query_document_id, target_document_id }` |"));
+    assert!(text.contains(
+        "| `chem.substructure` | `{ query_document_id, target_document_id, time_limit_ms? }` |"
+    ));
 }
 
 fn repository_file(relative: &str) -> String {

@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::aromaticity::{self, Classification};
+use crate::budget::{Interrupt, Interrupted, NEVER};
 use crate::chemistry::{self, Finding};
 use crate::document::{Atom, AtomId, Bond, BondOrder};
 use crate::graph::MoleculeGraph;
@@ -33,6 +34,45 @@ impl IdentityError {
             Self::SearchLimit => "search_limit",
             Self::Unsupported(reason) => reason,
         }
+    }
+}
+
+/// Why a search produced no result: the model refused the input, or `interrupt` stopped it.
+enum Halt {
+    /// The model refused the input; this does not depend on the machine.
+    Refused(IdentityError),
+    /// The search was stopped before it finished; the input may well be supported.
+    Interrupted(Interrupted),
+}
+
+impl From<IdentityError> for Halt {
+    fn from(error: IdentityError) -> Self {
+        Self::Refused(error)
+    }
+}
+
+impl From<Interrupted> for Halt {
+    fn from(interrupted: Interrupted) -> Self {
+        Self::Interrupted(interrupted)
+    }
+}
+
+/// Keeps a refusal inside the result and reports an interrupt outside it, so a stop is never
+/// read as a refusal.
+fn interruptible<T>(result: Result<T, Halt>) -> Result<Result<T, IdentityError>, Interrupted> {
+    match result {
+        Ok(value) => Ok(Ok(value)),
+        Err(Halt::Refused(error)) => Ok(Err(error)),
+        Err(Halt::Interrupted(interrupted)) => Err(interrupted),
+    }
+}
+
+/// Maps the result of a search given [`NEVER`], which cannot stop it.
+fn uninterrupted<T>(result: Result<T, Halt>) -> Result<T, IdentityError> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(Halt::Refused(error)) => Err(error),
+        Err(Halt::Interrupted(_)) => unreachable!("the never-interrupt cannot interrupt"),
     }
 }
 
@@ -173,22 +213,22 @@ impl Graph {
         })
     }
 
-    fn chemical(input: &MoleculeGraph) -> Result<Self, IdentityError> {
+    fn chemical(input: &MoleculeGraph, interrupt: &dyn Interrupt) -> Result<Self, Halt> {
         if input.atoms().len() > MAX_ATOMS {
-            return Err(IdentityError::AtomLimit);
+            return Err(Halt::Refused(IdentityError::AtomLimit));
         }
         let atoms: BTreeMap<_, _> = input.atoms().collect();
         let mut aromatic_bonds = BTreeSet::new();
-        let interpreted = aromaticity::perceive(input);
+        let interpreted = aromaticity::perceive_with(input, interrupt)?;
         for system in &interpreted.systems {
             match system.classification {
                 Classification::Aromatic => {
                     aromatic_bonds.extend(system.bonds.iter().copied());
                 }
                 Classification::Unsupported => {
-                    return Err(IdentityError::Unsupported(
+                    return Err(Halt::Refused(IdentityError::Unsupported(
                         system.reason.unwrap_or("aromaticity_unsupported"),
-                    ));
+                    )));
                 }
                 Classification::NonAromatic => {}
             }
@@ -197,7 +237,9 @@ impl Graph {
             .bonds()
             .any(|(id, bond)| bond.order == BondOrder::Aromatic && !aromatic_bonds.contains(&id))
         {
-            return Err(IdentityError::Unsupported("aromaticity_unsupported"));
+            return Err(Halt::Refused(IdentityError::Unsupported(
+                "aromaticity_unsupported",
+            )));
         }
         // Feed the existing valence policy the model's complete Kekulé assignment for
         // recorded aromatic bonds. Existing single/double inputs remain unchanged; the
@@ -217,9 +259,9 @@ impl Graph {
         for (&id, atom) in &atoms {
             let state = chemistry::assess(id, atom, &orders[&id]);
             if state.finding != Finding::Valid {
-                return Err(IdentityError::Unsupported(
+                return Err(Halt::Refused(IdentityError::Unsupported(
                     state.reason.unwrap_or("valence_unsupported"),
-                ));
+                )));
             }
             let count = state
                 .hydrogen_count
@@ -314,13 +356,16 @@ impl Graph {
     }
 }
 
-/// Refine by the current partition and each atom's sorted labeled neighborhood.
+/// Refine by the current partition and each atom's sorted labeled neighborhood. It asks
+/// `interrupt` before each round.
 fn refine(
     graph: &Graph,
     mut colors: Vec<usize>,
     work: &mut usize,
-) -> Result<Vec<usize>, IdentityError> {
+    interrupt: &dyn Interrupt,
+) -> Result<Vec<usize>, Halt> {
     loop {
+        interrupt.check()?;
         let cost = graph.ids.len().saturating_mul(graph.ids.len()).max(1);
         *work = work
             .checked_add(cost)
@@ -387,6 +432,7 @@ fn code(graph: &Graph, order: &[usize]) -> Vec<u8> {
 
 struct Search<'a> {
     graph: &'a Graph,
+    interrupt: &'a dyn Interrupt,
     states: usize,
     work: usize,
     best: Option<(Vec<u8>, Vec<usize>)>,
@@ -409,12 +455,13 @@ impl Search<'_> {
         self.orbit[y] = x;
     }
 
-    fn visit(&mut self, colors: Vec<usize>) -> Result<(), IdentityError> {
+    fn visit(&mut self, colors: Vec<usize>) -> Result<(), Halt> {
+        self.interrupt.check()?;
         if self.states >= MAX_SEARCH_STATES {
-            return Err(IdentityError::SearchLimit);
+            return Err(Halt::Refused(IdentityError::SearchLimit));
         }
         self.states += 1;
-        let colors = refine(self.graph, colors, &mut self.work)?;
+        let colors = refine(self.graph, colors, &mut self.work, self.interrupt)?;
         let mut cells: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         for (v, color) in colors.iter().copied().enumerate() {
             cells.entry(color).or_default().push(v);
@@ -455,14 +502,40 @@ impl Search<'_> {
 /// directed dative bonds all participate. Aromatic/Kekulé and explicit/non-vertex hydrogen
 /// are distinct representations in this profile.
 pub fn canonicalize(input: &MoleculeGraph) -> Result<CanonicalGraph, IdentityError> {
-    finish(Graph::new(input)?).map(|(canonical, _)| canonical)
+    uninterrupted(recorded_search(input, &NEVER))
+}
+
+/// [`canonicalize`] that asks `interrupt` at its checkpoints. It returns exactly what
+/// [`canonicalize`] returns, or `Interrupted` and nothing else.
+///
+/// # Errors
+///
+/// Returns the reason `interrupt` gave for stopping.
+pub fn canonicalize_with(
+    input: &MoleculeGraph,
+    interrupt: &dyn Interrupt,
+) -> Result<Result<CanonicalGraph, IdentityError>, Interrupted> {
+    interruptible(recorded_search(input, interrupt))
 }
 
 /// Canonicalize chemical meaning only when both the bounded valence and aromaticity models
 /// can determine it. Natural terminal hydrogen vertices are folded into their heavy atoms;
 /// isotope-labeled, charged, radical or H--H vertices remain distinct.
 pub fn canonicalize_chemical(input: &MoleculeGraph) -> Result<CanonicalGraph, IdentityError> {
-    finish(Graph::chemical(input)?).map(|(canonical, _)| canonical)
+    uninterrupted(chemical_search(input, &NEVER)).map(|(canonical, _)| canonical)
+}
+
+/// [`canonicalize_chemical`] that asks `interrupt` at its checkpoints. It returns exactly what
+/// [`canonicalize_chemical`] returns, or `Interrupted` and nothing else.
+///
+/// # Errors
+///
+/// Returns the reason `interrupt` gave for stopping.
+pub fn canonicalize_chemical_with(
+    input: &MoleculeGraph,
+    interrupt: &dyn Interrupt,
+) -> Result<Result<CanonicalGraph, IdentityError>, Interrupted> {
+    interruptible(chemical_search(input, interrupt).map(|(canonical, _)| canonical))
 }
 
 /// One atom of a [`ChemicalForm`]: its document ID and its normalized state, with the
@@ -488,7 +561,7 @@ pub struct ChemicalForm {
 
 /// [`canonicalize_chemical`] together with the normalized atoms and bonds it numbered.
 pub fn chemical_form(input: &MoleculeGraph) -> Result<ChemicalForm, IdentityError> {
-    let (canonical, normalized) = finish(Graph::chemical(input)?)?;
+    let (canonical, normalized) = uninterrupted(chemical_search(input, &NEVER))?;
     let normalized = normalized.expect("a chemical graph records its normalized parts");
     let mut position = vec![0; canonical.numbering.len()];
     let index_of: BTreeMap<AtomId, usize> = normalized
@@ -531,9 +604,13 @@ struct Finished {
     parts: Normalized,
 }
 
-fn finish(graph: Graph) -> Result<(CanonicalGraph, Option<Finished>), IdentityError> {
+fn finish(
+    graph: Graph,
+    interrupt: &dyn Interrupt,
+) -> Result<(CanonicalGraph, Option<Finished>), Halt> {
     let mut search = Search {
         graph: &graph,
+        interrupt,
         states: 0,
         work: 0,
         best: None,
@@ -580,4 +657,21 @@ fn finish(graph: Graph) -> Result<(CanonicalGraph, Option<Finished>), IdentityEr
         parts,
     });
     Ok((canonical, finished))
+}
+
+/// The canonical form of a recorded graph, with `interrupt` asked at the search's checkpoints.
+fn recorded_search(
+    input: &MoleculeGraph,
+    interrupt: &dyn Interrupt,
+) -> Result<CanonicalGraph, Halt> {
+    finish(Graph::new(input)?, interrupt).map(|(canonical, _)| canonical)
+}
+
+/// The canonical form of a chemical graph and the normalized parts it numbered, with
+/// `interrupt` asked during perception and the search.
+fn chemical_search(
+    input: &MoleculeGraph,
+    interrupt: &dyn Interrupt,
+) -> Result<(CanonicalGraph, Option<Finished>), Halt> {
+    finish(Graph::chemical(input, interrupt)?, interrupt)
 }
