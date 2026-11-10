@@ -1,9 +1,9 @@
-//! The four read-only operations that run under a time limit take no compute slot:
-//! `chem.aromaticity`, `chem.identity` (recorded and chemical), `chem.substructure` and
-//! `chem.properties`. Unlike `chem.aromaticity_convert` and `chem.cip`, they never wait for a
-//! slot of `Application::with_compute_concurrency`, even when every slot is taken. Each runs
-//! under its request's time limit and the host's cancel, and `Application::cancel_computations`
-//! refuses it.
+//! The read-only operations that run under a time limit take no compute slot: `chem.aromaticity`,
+//! `chem.identity` (recorded and chemical), `chem.substructure`, `chem.properties` and SMILES
+//! export (`document.export` with `format: "smiles"`, in both styles). Unlike
+//! `chem.aromaticity_convert` and `chem.cip`, they never wait for a slot of
+//! `Application::with_compute_concurrency`, even when every slot is taken. Each runs under its
+//! request's time limit and the host's cancel, and `Application::cancel_computations` refuses it.
 //!
 //! Every test sets one slot and holds it with a conversion that is latched at its first
 //! checkpoint. It reaches that checkpoint only after it has taken the slot, so it keeps the only
@@ -18,7 +18,7 @@ use std::thread;
 use std::time::Duration;
 
 use chemifree_application::{Application, Interrupt, Interrupted};
-use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
+use chemifree_providers::{FileDocumentRepository, LocalCapabilities, OpenSmilesCodec};
 use serde_json::{Value, json};
 
 type App = Application<LocalCapabilities, FileDocumentRepository>;
@@ -35,6 +35,7 @@ fn new_app(directory: &tempfile::TempDir) -> App {
         LocalCapabilities,
         FileDocumentRepository::new(directory.path()),
     )
+    .with_smiles_codec(OpenSmilesCodec)
 }
 
 fn request(id: &str, operation: &str, parameters: Value) -> Vec<u8> {
@@ -208,41 +209,61 @@ impl Documents {
     }
 }
 
-/// One operation of the table: the model its replies name, and the parameters of its request for
-/// a subject document and an other document. None of them sets a time limit.
+/// One operation of the table: the model its replies name, the outcome of its plain reply for the
+/// drawn benzene subject, and the parameters of its request for a subject document and an other
+/// document. None of them sets a time limit.
 struct Row {
     operation: &'static str,
     model_id: &'static str,
+    outcome: &'static str,
     parameters: fn(&str, &str) -> Value,
 }
 
-/// The four operations, with the identity operation in both of its modes.
+/// The four inspections, with the identity operation in both of its modes, and SMILES export in
+/// both of its styles. A drawing's export is `partial`: atom positions have no SMILES form.
 fn rows() -> Vec<Row> {
     vec![
         Row {
             operation: "chem.aromaticity",
             model_id: "chemifree-aromaticity-2",
+            outcome: "ok",
             parameters: |subject, _| json!({"document_id": subject}),
         },
         Row {
             operation: "chem.identity",
             model_id: "chemifree-recorded-graph-1",
+            outcome: "ok",
             parameters: |subject, _| json!({"document_id": subject, "mode": "recorded"}),
         },
         Row {
             operation: "chem.identity",
             model_id: "chemifree-chemical-graph-2",
+            outcome: "ok",
             parameters: |subject, other| json!({"document_id": subject, "mode": "chemical", "other_document_id": other}),
         },
         Row {
             operation: "chem.substructure",
             model_id: "chemifree-substructure-1",
+            outcome: "ok",
             parameters: |subject, other| json!({"query_document_id": subject, "target_document_id": other}),
         },
         Row {
             operation: "chem.properties",
             model_id: "chemifree-properties-1",
+            outcome: "ok",
             parameters: |subject, _| json!({"document_id": subject, "scope": "molecule", "property": "formula"}),
+        },
+        Row {
+            operation: "document.export",
+            model_id: "chemifree-smiles-1",
+            outcome: "partial",
+            parameters: |subject, _| json!({"format": "smiles", "document_id": subject, "style": "recorded"}),
+        },
+        Row {
+            operation: "document.export",
+            model_id: "chemifree-smiles-canonical-1",
+            outcome: "partial",
+            parameters: |subject, _| json!({"format": "smiles", "document_id": subject, "style": "canonical"}),
         },
     ]
 }
@@ -391,7 +412,7 @@ fn each_operation_runs_while_the_only_slot_is_held() {
                     call(&app, &id, row.operation, parameters)
                 });
                 if name == "benzene" {
-                    assert_eq!(reply["outcome"], "ok", "{label}: {reply}");
+                    assert_eq!(reply["outcome"], row.outcome, "{label}: {reply}");
                     assert_eq!(reply["model_id"], row.model_id, "{label}: {reply}");
                 }
                 let key = (row.model_id, name);

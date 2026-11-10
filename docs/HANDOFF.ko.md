@@ -1,5 +1,16 @@
 # Chemifree 새 세션 인계
 
+## T0 진행: SMILES 내보내기의 시간 제한·취소 (P41, 둘째 PR)
+
+범위는 `document.export`의 `format: "smiles"`(두 style) 하나다. 다른 형식(MOL/SDF, CDXML, CDX, SVG)은 시간 제한이 없고 `time_limit_ms`를 알 수 없는 매개변수로 거절한다. 첫 PR의 패턴을 따른다: 선택 `time_limit_ms`(기본 5초, 최대 8초, 최대 검사는 문서를 읽기 전, 거절은 style의 `model_id`를 적는다), 동시 계산 슬롯 없음, 점검 한 번 뒤 잠금 밖 쓰기.
+
+- 순서: 매개변수 오류, `not_running`, 시간 제한 거절, 문서 읽기, 쓰기(중단 가능), 코덱 거절, 동의 거절. 중단은 `outcome: "error"`, `result: null`, 스냅숏 revision, style의 `model_id`, `time_limit` 또는 `cancelled`이고 `loss_report`·`loss_digest`가 없으며 `accepted_losses`를 보지 않는다(중단은 손실도 동의도 아니다). export의 다른 오류 응답은 `model_id`가 계속 null이다.
+- 포트: `SmilesCodec`에 필수 메서드 `write_interruptible(graph, style, groups, interrupt) -> Result<Result<SmilesWrite, SmilesError>, Interrupted>`가 생겼다. 기본 구현이 없어서 구현체가 한도를 조용히 무시할 수 없다. 저장소 안의 구현체는 `OpenSmilesCodec` 하나이고, 저장소 밖 구현체는 이 메서드를 추가해야 한다.
+- 제공자 쓰기: 모듈 안 `Halt`로 중단을 환불과 구분한다(`readback_mismatch`·`canonical_limit`은 중단이 만들지 않는다). 점검은 렌더 패스마다, 읽어 돌려보기 파싱 앞, 저장된 입체 기록마다, 방향 결합 배치 앞, 최종 입체 읽기 앞, 정규형의 정체성 검색(`identity::chemical_form_with`)과 방향족 인식(`analysis::interpret_with`)이다. 리더는 가져오기와 공유라 중단 불가이고 내보내기마다 최대 7번 파싱한다(CONTRACT에 적었다).
+- 웹 SMILES 패널은 `time_limit_ms`를 보내지 않아 기본 한도를 받는다. 지금 상한 안에서는 걸릴 가능성이 아주 낮지만 느린 환경에서는 이론상 `time_limit`이 나올 수 있고 웹은 그 코드를 따로 보여 주지 않는다.
+- 검증 기록: `verification/p41-read-only-time-limit.md`의 "SMILES export" 절.
+- 남은 P41 항목: `chem.validate`와 draft 쓰기의 잠금 안 저장소 I/O, 웹의 `time_limit`·`cancelled` 표시, 이슈 #106의 작은 항목. 그 뒤 T0의 구조 정리가 이어진다.
+
 ## T0 진행: 읽기 연산의 시간 제한·취소 (P41, 첫 PR)
 
 2026-11-10에 사용자가 T0 시작을 요청해 첫 PR을 만들었다. 범위는 `chem.aromaticity`, `chem.identity`, `chem.substructure`, `chem.properties` 네 연산이다. SMILES 내보내기는 포트 변경이 필요해 다음 PR이다.
@@ -10,7 +21,7 @@
 - **결정(내가 정함, 2026-11-11 리뷰 뒤 바꿈)**: 네 연산은 동시 계산 슬롯을 쓰지 않는다. 처음 계획(Opus 권고)은 `chem.cip`처럼 슬롯을 쓰는 것이었으나, 코어가 1–2개이고 긴 변환이 슬롯을 잡은 환경에서는 빠른 검사가 `time_limit`을 받을 수 있고 웹이 아직 그 코드를 보여 주지 않는다. Codex와 code-review 둘 다 이를 지적했다. 시간 제한과 취소(호스트 종료 포함)만 두고 동시성은 이전과 같다. 나중에 슬롯을 주는 것은 조이는 변경이며 웹 표시가 먼저다. 이 선택은 사용자 확인 대상으로 남긴다.
 - 점검 없는 구간(그래프 복사, 대상 전체의 고리 인식, 정체성 그래프 구성, 부분구조 후보 사전 필터, 원자가 검사, 1,024 후보·작업 단위 사이)은 측정하지 않았고 지연을 약속하지 않는다.
 - 웹은 이 요청들에 `time_limit_ms`를 보내지 않는다(기본 한도). 두 코드의 웹 표시는 T0의 남은 항목이다.
-- 이 PR 뒤에 남은 P41 항목: SMILES 내보내기(`identity::chemical_form_with`, SMILES 포트와 `OpenSmilesCodec`에 중단 인자, 쓰기 경로의 점검), `chem.validate`와 draft 쓰기의 잠금 안 저장소 I/O, 웹 표시, 이슈 #106의 작은 항목들.
+- 이 PR 뒤에 남은 P41 항목: `chem.validate`와 draft 쓰기의 잠금 안 저장소 I/O, 웹 표시, 이슈 #106의 작은 항목들(SMILES 내보내기는 아래 둘째 PR에서 끝났다).
 - 검증 기록: `verification/p41-read-only-time-limit.md`.
 
 ## 2026-11-10 트랙·아키텍처 재검토 (계획 기록, 코드 변경 없음)
@@ -909,7 +920,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 사용자 요청이 범위를 정한다. P11은 #34와 이전 초안 보관을 다룬 #35로, P12는 #36으로 병합됐다. P14의 마지막 구현은 #69로, P15의 수치 기반 구현은 #75로 병합됐고 각각 병합 후 main CI도 통과했다. PR·리뷰·병합 상태는 GitHub와 `docs/verification/review-history-batch2.md`에서 확인한다.
 
-2026-11-10부터 실행 순서의 기준은 로드맵의 `tracks`(T0–T9, 이 문서 맨 위 절)다. T0는 시작했다(맨 위 "T0 진행" 절). 다음 단위는 T0의 SMILES 내보내기 시간 제한이고, 그 뒤 잠금 안 저장소 I/O, 구조 정리가 이어진다. 아래 목록은 그 순서에 넣지 않은 후보와 범위 메모다:
+2026-11-10부터 실행 순서의 기준은 로드맵의 `tracks`(T0–T9, 이 문서 맨 위 절)다. T0는 시작했다(맨 위 "T0 진행" 절 둘). 다음 단위는 T0의 잠금 안 저장소 I/O 이동과 웹 표시이고, 그 뒤 구조 정리가 이어진다. 아래 목록은 그 순서에 넣지 않은 후보와 범위 메모다:
 
 1. 저장·복구 후속(필요 시): 휴지통 영구 삭제·비우기, 초안 만료 정책(현재는 만료 없음), 읽기 전용 모드.
 2. 형식 입출력: 구현된 MOL/SDF V2000·V3000, CDXML, CDX와 SMILES 부분을 유지한다. SMILES 이중결합 방향 `/`·`\`는 읽기(#221)와 쓰기(#224)가 병합됐고 고리 닫기 숫자나 방향족 결합의 표시만 거절한다. query·반응 SMILES, InChI import 및 고급 필드는 별도 작업이다(이슈 #249). 외부 형식의 거절·수정·손실을 항목별로 정하고 보고한다. 조용한 수정은 하지 않는다.

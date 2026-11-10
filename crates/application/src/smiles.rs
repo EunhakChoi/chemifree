@@ -5,6 +5,7 @@
 //! writer turns a chemical graph into one string, in recorded order or in Chemifree's canonical
 //! form. Neither places atoms: SMILES has no coordinates.
 
+use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::document::{Atom, AtomId, BondOrder};
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::stereo::{Relation, Turn};
@@ -411,4 +412,21 @@ pub trait SmilesCodec: Send + Sync {
         style: SmilesStyle,
         groups: &StereoGroupTable,
     ) -> Result<SmilesWrite, SmilesError>;
+
+    /// Writes a graph and its stereo groups as [`Self::write_with_groups`] does, but asks
+    /// `interrupt` at the writer's checkpoints. Its result is the one `write_with_groups`
+    /// returns, or `Err(Interrupted)` and nothing else: a stop is never reported as a
+    /// [`SmilesError`], as a loss or as a partial text.
+    ///
+    /// # Errors
+    ///
+    /// `Err(Interrupted)` when `interrupt` stops the write before it finishes. Otherwise the
+    /// inner result is the one [`Self::write_with_groups`] returns for the same arguments.
+    fn write_interruptible(
+        &self,
+        graph: &MoleculeGraph,
+        style: SmilesStyle,
+        groups: &StereoGroupTable,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Result<SmilesWrite, SmilesError>, Interrupted>;
 }

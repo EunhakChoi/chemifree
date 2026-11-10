@@ -51,6 +51,10 @@ pub(super) struct SmilesExportParameters {
     /// The `loss_digest` of the refusal that showed the assumptions the text makes.
     #[serde(default)]
     accepted_losses: Option<String>,
+    /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
+    /// (so it may be above the server's default); above the maximum it is refused.
+    #[serde(default)]
+    time_limit_ms: Option<u64>,
 }
 
 /// A part of the source, in bytes (the API's unit) and in characters (the user's).
@@ -582,11 +586,21 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         &self,
         known: &Known,
         p: SmilesExportParameters,
+        cancel: &dyn Interrupt,
     ) -> OperationResponse {
         let Some(codec) = &self.smiles_codec else {
             return known.not_running();
         };
         debug_assert_eq!(p.format, "smiles", "the dispatcher routes only SMILES here");
+        let (budget, limit_ms) = match self.start_time_limit_or_refuse(
+            known,
+            p.time_limit_ms,
+            cancel,
+            p.style.model_id(),
+        ) {
+            Ok(started) => started,
+            Err(reply) => return *reply,
+        };
         let (snapshot, graph, groups) =
             match self.documents.graph_and_groups_snapshot(&p.document_id) {
                 Ok(captured) => captured,
@@ -599,6 +613,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     );
                 }
             };
+        let revision = snapshot.document.revision;
         let mut losses = Vec::new();
         ct_projection::drawing_losses(
             &snapshot.document,
@@ -613,16 +628,29 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         }
         // Attachment points have no SMILES form and require the caller's consent.
         let stripped = without_attachment_points(&graph);
-        let written = match &stripped {
-            Some((graph, loss)) => {
+        let target_graph = match &stripped {
+            Some((stripped_graph, loss)) => {
                 losses.push(loss.clone());
-                codec.write_with_groups(graph, p.style, &groups)
+                stripped_graph
             }
-            None => codec.write_with_groups(&graph, p.style, &groups),
+            None => &graph,
         };
-        let written = match written {
-            Ok(written) => written,
-            Err(error) => return known.invalid(smiles_diagnostic(&error, None)),
+        // The write runs under the request's budget and takes no compute slot. A stop replies with
+        // the time limit or the cancel, before any loss or consent decision is made.
+        let written = match self.compute_read_only(&budget, |interrupt| {
+            codec.write_interruptible(target_graph, p.style, &groups, interrupt)
+        }) {
+            Ok(Ok(written)) => written,
+            Ok(Err(error)) => return known.invalid(smiles_diagnostic(&error, None)),
+            Err(interrupted) => {
+                return stopped_read_only(
+                    known,
+                    revision,
+                    interrupted,
+                    limit_ms,
+                    p.style.model_id(),
+                );
+            }
         };
         losses.extend(written.losses);
         if let Some(refusal) = export_consent_refusal(
@@ -632,7 +660,6 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         ) {
             return known.invalid(refusal);
         }
-        let revision = snapshot.document.revision;
         let result = SmilesExportResult {
             content: written.text,
             style: p.style,

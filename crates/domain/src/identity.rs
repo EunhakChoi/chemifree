@@ -561,7 +561,28 @@ pub struct ChemicalForm {
 
 /// [`canonicalize_chemical`] together with the normalized atoms and bonds it numbered.
 pub fn chemical_form(input: &MoleculeGraph) -> Result<ChemicalForm, IdentityError> {
-    let (canonical, normalized) = uninterrupted(chemical_search(input, &NEVER))?;
+    uninterrupted(chemical_form_search(input, &NEVER))
+}
+
+/// [`chemical_form`] that asks `interrupt` at its checkpoints. It returns exactly what
+/// [`chemical_form`] returns, or `Interrupted` and nothing else.
+///
+/// # Errors
+///
+/// Returns the reason `interrupt` gave for stopping.
+pub fn chemical_form_with(
+    input: &MoleculeGraph,
+    interrupt: &dyn Interrupt,
+) -> Result<Result<ChemicalForm, IdentityError>, Interrupted> {
+    interruptible(chemical_form_search(input, interrupt))
+}
+
+/// The [`chemical_form`] of a chemical graph, with `interrupt` asked during the chemical search.
+fn chemical_form_search(
+    input: &MoleculeGraph,
+    interrupt: &dyn Interrupt,
+) -> Result<ChemicalForm, Halt> {
+    let (canonical, normalized) = chemical_search(input, interrupt)?;
     let normalized = normalized.expect("a chemical graph records its normalized parts");
     let mut position = vec![0; canonical.numbering.len()];
     let index_of: BTreeMap<AtomId, usize> = normalized

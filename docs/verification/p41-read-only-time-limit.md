@@ -24,3 +24,12 @@ See the PR comment for the observed failing assertions. Killed: no stride check;
 - Stretches without a checkpoint are not measured (CONTRACT lists them).
 - A deadline test that depends on the wall clock is not used; expiry is forced with a limit of 0 or a latch.
 - SMILES export, `chem.validate` lock placement and the web display remain (issue #106).
+
+## SMILES export (T0, second pull request)
+
+Status: bounded. `document.export` with `format: "smiles"` (recorded and canonical) takes `time_limit_ms` and the host cancel, with no compute slot. Other export formats have no limit.
+
+- Domain: `identity::chemical_form_with` (the `ChemicalForm` the writer uses; `chemical_form` is its `NEVER` wrapper). Provider: `analysis::interpret_with`; the writer carries a private `Halt` and `write_with`/`interruptible`; five checkpoints at stage boundaries (each render pass and before each read-back parse, each stored stereo record, before directional-bond placement, before the final stereo read-back). Port: `SmilesCodec::write_interruptible`, required, no default. Application: `time_limit_ms` on the SMILES export parameters, order `not_running`, limit refusal, snapshot, write, consent; a stop returns before the losses and the consent check.
+- Tests (new files): `crates/domain/tests/chemical_form_interrupt.rs`, `crates/providers/tests/smiles_write_interrupt.rs` (the interruptible write equals `write_with_groups` below the limit, a stop at the counted checkpoints, stop versus refusal), `crates/application/tests/smiles_export_time_limit.rs` (limit order, `model_id`, stop reply, no losses or digest, consent order, both styles, cancel), SMILES rows in `read_only_without_slot.rs` (no slot), a loop in `scripts/contract-smoke.mjs` (HTTP and CLI).
+- Mutations (private copies, observed failing assertions in the PR comment): the checkpoints removed, a stop returned as `CanonicalLimit`, the style ignored in `write_interruptible`, a stop returned as a result, no limit armed, the limit read after the document, the write given `NEVER`, losses or `model_id` on the stop reply, the consent refusal before or inside the stop.
+- Not covered: the reader's parse (up to 7 per export) and the stretches listed in CONTRACT have no checkpoint; no latency is promised.

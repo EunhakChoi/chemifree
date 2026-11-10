@@ -26,6 +26,7 @@ mod writer;
 use chemifree_application::smiles::{
     SmilesCodec, SmilesError, SmilesLimits, SmilesRead, SmilesStyle, SmilesWrite,
 };
+use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::stereo_group::StereoGroupTable;
 
@@ -62,5 +63,15 @@ impl SmilesCodec for OpenSmilesCodec {
         groups: &StereoGroupTable,
     ) -> Result<SmilesWrite, SmilesError> {
         writer::write(graph, style, groups)
+    }
+
+    fn write_interruptible(
+        &self,
+        graph: &MoleculeGraph,
+        style: SmilesStyle,
+        groups: &StereoGroupTable,
+        interrupt: &dyn Interrupt,
+    ) -> Result<Result<SmilesWrite, SmilesError>, Interrupted> {
+        writer::write_with(graph, style, groups, interrupt)
     }
 }
