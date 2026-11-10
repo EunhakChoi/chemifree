@@ -1,5 +1,17 @@
 # Chemifree 새 세션 인계
 
+## T0 진행: 잠금 배치 (P41, 셋째 PR)
+
+사용자 요청("다음 단계 진행해")으로 시작했다. 응답은 이전과 같고 일이 도는 자리만 바뀐다. 범위는 다섯 가지다.
+
+- `Document::without_history`(도메인): id·revision·내용·선택·카운터를 두고 undo·redo만 뺀 복사본. `analysis_snapshot`(chem.properties·chem.stereo·MOL/SDF 내보내기)과 `save_as`의 원본 복사가 쓴다. 뷰는 여전히 `respond(session)`이라 이력 깊이를 그대로 보고한다. draft 작업(`DraftTask::for_session`)은 이력을 저장하므로 그대로 복제한다.
+- `write_draft`: 복구 조회(`self.recovery`)를 세션 표를 잡기 전으로 옮겼다(문서 turn은 쥔 채). 조회 결과와 `writing()`은 표를 다시 잡은 한 번의 구간에서 함께 게시한다. 같은 문서의 응답은 조회가 draft 소유권을 쥔 동안 표를 쥔 채 기다릴 수 있다(문서에 적었다).
+- 파일 저장소: `save`가 저장 잠금을 쥔 채 새 파일의 stamp와 revision을 캐시에 기록한다. 저장 직후 첫 clean-copy 확인이 파일 읽기가 아니라 stat이다. 캐시가 틀려도 새로고침이 늦어질 뿐 저장의 base 확인은 파일에서 읽는다.
+- 잠금 안에 남긴 것(문서화함): 세션 새로고침 읽기, 첫 열기 로드, 닫힌 문서 그래프 읽기(`graph_readonly`), 응답마다의 draft 조회, 생성·복사 커밋. 새 상태(세대·에포크·슬롯 예약)가 필요해 설계 선행의 별도 PR로 미룬다. `chem.validate`는 복사가 계산만큼 선형이라 옮겨도 이득이 없어 그대로 둔다. 문서 목록의 `saved_at_ms`는 표 밖이다(이슈 #106 항목 정정).
+- 결정(리드, Opus 추천): 위 미룬 항목과 `chem.validate` 유지 두 가지는 사용자 확인 대상이다. 새 잠금 메커니즘은 ARCHITECTURE의 "다중 사용자 서비스에서만 문서별 잠금" 원칙과 부딪혀 사용자 요청 시에만 시작한다.
+- 테스트(새 파일): `crates/domain/tests/history_free_copy.rs`, `crates/application/tests/analysis_history_free.rs`, `draft_lookup_outside_table.rs`(지연 저장소 + 래치, 시계 창 없음), `crates/providers/tests/stored_revision_own_commit.rs`. 검증 기록: `verification/p41-lock-placement.md`.
+- 남은 T0: 웹의 `time_limit`·`cancelled` 표시(TypeScript, 별도 PR), 이슈 #106의 작은 항목, 구조 정리(조립 코드 통합, 큰 파일 분할 5, 로드맵 HTML 생성기).
+
 ## T0 진행: SMILES 내보내기의 시간 제한·취소 (P41, 둘째 PR)
 
 범위는 `document.export`의 `format: "smiles"`(두 style) 하나다. 다른 형식(MOL/SDF, CDXML, CDX, SVG)은 시간 제한이 없고 `time_limit_ms`를 알 수 없는 매개변수로 거절한다. 첫 PR의 패턴을 따른다: 선택 `time_limit_ms`(기본 5초, 최대 8초, 최대 검사는 문서를 읽기 전, 거절은 style의 `model_id`를 적는다), 동시 계산 슬롯 없음, 점검 한 번 뒤 잠금 밖 쓰기.

@@ -79,8 +79,8 @@ pub struct FileDocumentRepository {
     locks: PathBuf,
     trash: PathBuf,
     migrated: PathBuf,
-    /// Revisions read by `stored_revision`, keyed by a stamp of the file, so polling an
-    /// unchanged file does not re-read it.
+    /// Revisions read by `stored_revision` or recorded by `save`, keyed by a stamp of the file,
+    /// so polling an unchanged file does not re-read it.
     probes: Arc<Mutex<HashMap<DocumentId, (FileStamp, u64)>>>,
     /// Owner locks and the exact earlier bytes returned by a claim, until recovery preserves
     /// them. Dropping an entry releases its owner lock.
@@ -91,7 +91,7 @@ pub struct FileDocumentRepository {
     /// brief probe as a different running process. It is per document because the owner lock
     /// is: taking one document's ownership, which may wait on storage, must not hold up
     /// another's draft status. Order: this, then an owner lock, then a save lock (`save` takes
-    /// only the save lock).
+    /// only the save lock, and then briefly `probes`, a leaf).
     taking_ownership: Arc<OwnershipTurns>,
 }
 
@@ -451,9 +451,10 @@ impl DocumentRepository for FileDocumentRepository {
         Ok(ids)
     }
 
-    /// Answers from the cache while the file's stamp is unchanged. A rewrite in place by
-    /// another program that keeps the stamp could be missed until the next change; that only
-    /// delays a refresh, because saves check the base without the cache.
+    /// Answers from the cache while the file's stamp is unchanged. This store's own commits are
+    /// recorded when they are made. A rewrite in place by another program that keeps the stamp
+    /// could be missed until the next change; that only delays a refresh, because saves check the
+    /// base without the cache.
     fn stored_revision(&self, id: &DocumentId) -> Result<Option<u64>, StorageError> {
         let path = self.path(id);
         let stamp = match fs::metadata(&path) {
@@ -531,6 +532,17 @@ impl DocumentRepository for FileDocumentRepository {
                 let _ = fs::rename(&set_aside, self.draft_path(id));
             }
             return Err(write_failed("save", &target, &error));
+        }
+        // Recorded while the save lock keeps other writers out, so the next clean-copy check of
+        // this document is a stat, not a read of the file just written. A wrong entry could only
+        // delay a refresh: saves check their base from the file, not from this cache.
+        if let Ok(metadata) = fs::metadata(&target)
+            && let Some(stamp) = FileStamp::of(&metadata)
+        {
+            self.probes
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(id.clone(), (stamp, document.revision()));
         }
         if draft_set_aside {
             // A leftover is settled as superseded by the next save lock holder.
