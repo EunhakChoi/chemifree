@@ -24,8 +24,11 @@ Nothing on this page marks a feature as implemented. "Planned" items below have 
 | `apps/cli` | application, providers | CLI adapter |
 | `apps/web` | HTTP only | React/TypeScript editor |
 
-Dependencies point inward and no crate depends on one above it in this table. `domain` and
-`application` do no file or network access; they use the clock and threads only.
+Dependencies point inward: a crate depends only on crates listed above it in this table,
+never on one below it. The one exception is test-only: `application`'s tests use
+`providers` as a dev-dependency to run against the real file store. `domain` and
+`application` do no file or network access; from the operating system they use the clock,
+threads and the random source (`getrandom`).
 
 **Ports.** The inner layers own the interfaces and `providers` implements them:
 
@@ -64,9 +67,17 @@ A new feature is a new operation or a new transaction command, not a new adapter
 - The working copy of each open document lives in the API process (`Documents`), behind one
   `sessions` mutex. Work that touches a document's committed file or draft is serialized by
   a per-document turn. The lock order is the document turn, then `sessions`.
-- Heavy computation runs outside the lock on a copy of the graph, with a request time limit,
-  a host cancel signal and a cap on concurrent computations, and its result is applied only
-  if the revision is unchanged (CONTRACT.md, "Computation time limit and cancel").
+- The rule for heavy computation is: outside the lock on a copy of the graph, with a request
+  time limit, a host cancel signal and a cap on concurrent computations, and a result that
+  is applied only if the revision is unchanged. Today only `chem.aromaticity_convert` and
+  `chem.cip` follow it (CONTRACT.md, "Computation time limit and cancel"). The other
+  read-only operations (`chem.aromaticity`, `chem.identity`, `chem.substructure`,
+  `chem.properties`, SMILES export) compute outside the lock and keep their work limits,
+  but have no time limit or cancel, and `chem.validate` computes under the lock (its work
+  is linear in the document). Separately, creates, closes, copies and the file checks most
+  requests make do storage I/O while holding `sessions`; draft writes do not (CONTRACT.md,
+  "Slow storage"). Closing these is the P41 remainder in track T0 (issue #106). A new
+  operation does not inherit the protection; it has to be wired in.
 - This fits a local single-user server. Per-document locks instead of one table lock are
   needed only for a multi-user service (roadmap S rows, not scheduled).
 
@@ -90,7 +101,7 @@ The roadmap row P38 asks for a common renderer. Today there are two implementati
   bounded SVG export.
 
 They share no code (P38a refused WASM and a JavaScript runtime in the service) and are tied
-by a parity fixture of nine golden documents
+by a parity fixture of thirteen golden documents
 (`crates/application/tests/fixtures/svg/parity.json`, `scripts/svg-parity-client-check.mjs`).
 The Rust side does not draw radical dots, attachment points, abbreviation and fragment
 displays or label typography, and it measures label widths from a bundled advance table
@@ -131,7 +142,7 @@ model, the versioned file format with in-memory migration.
 
 | Item | Evidence | When |
 | --- | --- | --- |
-| DATA loaders for engines that do not exist yet sit in `application` | About 18,600 of its 50,800 source lines (`phase4_*`, `phase6_profiles`, `naming_*`, `prediction_*`, `nmr_profile`, `prepared_*`, `active_data*`); only the mass data is read by an implemented operation | Move to a separate crate and rename when the first engine that reads them is built (planned at the start of track T7) |
+| DATA loaders for engines that do not exist yet sit in `application` | About 17,300 of its 50,800 source lines: `phase4_*`, `phase6_profiles.rs`, `naming_*`, `prediction_*`, `nmr_profile.rs`, `prepared_*`, `nickname_data.rs`, `layout_data_binding.rs`, `active_data.rs` and `active_data/`. The general DATA registry (`data.rs`, `data_formats.rs`, `data_profiles.rs`, `active_registry.rs`) and the `mass_*` files, about 3,300 lines, serve the implemented mass and isotope operation and stay | Move to a separate crate and rename when the first engine that reads them is built (planned at the start of track T7) |
 | The contract is written twice by hand | 85 Rust DTO types and the TypeScript validators | At P82: generate a schema from the Rust types for the MCP tool list and use it to check the TypeScript validators for drift |
 | About 190 integration test binaries | The shared build cache is about 41 GiB | P86 |
 | How a local MCP adapter runs | A separate process embedding `Application`, like the CLI, would not show an agent's unsaved edits in the open web editor | P82 connects to the running local server, so P87 (product server) comes first |
