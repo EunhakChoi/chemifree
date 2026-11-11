@@ -453,9 +453,9 @@ const STAGE_PARAMETER = { scan: 'scope', centers: 'atoms', bonds: 'bonds' } as c
  * The error reply of `chem.cip`, or null when it is not one the service sends. Every error
  * reply names the labeler's model; none carries a result. A `resource_limit` names the stage
  * and the parameter that stopped, consistently with its path; a `cip_labeler_invalid` names
- * the unit and the problem. Other codes (an unknown document, a malformed request, a refused
- * document, a cancelled run or a `time_limit` stop, whose `details.limit_ms` the web does not
- * read) are read by their message.
+ * the unit and the problem. A `time_limit` or `cancelled` stop is recognized earlier by
+ * `readComputeStop` and never reaches this function. Other codes (an unknown document, a
+ * malformed request, a refused document) are read by their message.
  */
 export function readCipFailure(reply: Record<string, unknown>): CipFailure | null {
   if (reply.outcome !== 'error' || reply.model_id !== CIP_MODEL || (reply.result !== null && reply.result !== undefined)) return null

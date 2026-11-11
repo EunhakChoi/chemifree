@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { ComputeStopNotice } from '@/components/compute-stop-notice'
 import { LossList } from '@/components/loss-list'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
+import type { ComputeStop } from '@/lib/compute-stop'
 import {
+  ComputeStopped,
   ConsentRequired,
   conversionSnapshotMatcher,
   describeSpan,
@@ -68,6 +71,8 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   const [pending, setPending] = useState(0)
   const [composing, setComposing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The last write the service stopped at its time limit or on a cancel: it produced no result.
+  const [stopped, setStopped] = useState<ComputeStop | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [transport, setTransport] = useState<{ generation: number; action: 'read' | 'write' | 'check' } | null>(null)
   const writtenText = useRef<HTMLTextAreaElement>(null)
@@ -128,6 +133,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     setWritten(null)
     setExportOffer(null)
     setError(null)
+    setStopped(null)
     if (exporting.current > 0) {
       exportRequest.current += 1
       setNotice(MESSAGE_FORM_CHANGED)
@@ -213,6 +219,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     exporting.current += 1
     setPending((count) => count + 1)
     setError(null)
+    setStopped(null)
     setNotice(null)
     setWritten(null)
     if (accepted === undefined) setExportOffer(null)
@@ -234,7 +241,11 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
           })
         } else {
           setExportOffer(null)
-          setError(message(failure, 'Writing SMILES failed.'))
+          if (failure instanceof ComputeStopped) {
+            setStopped(failure.stop)
+          } else {
+            setError(message(failure, 'Writing SMILES failed.'))
+          }
         }
       }
     } finally {
@@ -344,6 +355,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       Preview SMILES import
     </Button>
     {error && <p role="alert">{error}</p>}
+    {stopped !== null && <ComputeStopNotice stop={stopped} onRetry={() => void write()} disabled={busy || composing} retryLabel="Write SMILES again" testId="smiles-stop" />}
     {notice && <p role="status">{notice}</p>}
     {editor.clipboardPending && editor.clipboardAction === 'smiles_import' && <Alert>
       <AlertDescription className="flex flex-col gap-2">

@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { ComputeStopNotice } from '@/components/compute-stop-notice'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
+import type { ComputeStop } from '@/lib/compute-stop'
 import {
+  ComputeStopped,
   SubstructureRefusal,
   sameConversionSnapshot,
   type DocumentListResponse,
@@ -60,6 +63,7 @@ type Outcome =
   | (Asked & { kind: 'found'; search: SubstructureSearch })
   | (Asked & { kind: 'refused'; message: string; code: string; query: DocumentView; target: DocumentView })
   | (Asked & { kind: 'failed'; message: string })
+  | (Asked & { kind: 'stopped'; stop: ComputeStop })
 
 function pairsText(pairs: { query: string; target: string }[]) {
   return pairs.map((pair) => `${pair.query}→${pair.target}`).join(', ')
@@ -143,6 +147,8 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
         store(sameConversionSnapshot(document, searched)
           ? { ...asked, searched, otherSearched, kind: 'refused', message: failure.message, code: failure.code, query: failure.query, target: failure.target }
           : { ...asked, kind: 'failed', message: 'The service refused a different version of this drawing. Search again.' })
+      } else if (failure instanceof ComputeStopped) {
+        store({ ...asked, kind: 'stopped', stop: failure.stop })
       } else {
         store({ ...asked, kind: 'failed', message: failure instanceof Error ? failure.message : 'The search failed.' })
       }
@@ -205,6 +211,7 @@ export function SubstructurePanel({ document, editor }: { document: DocumentView
         {current.message} Query {current.query.id} revision {current.query.revision}; target {current.target.id} revision {current.target.revision}.
       </AlertDescription>
     </Alert>}
+    {current?.kind === 'stopped' && <ComputeStopNotice stop={current.stop} onRetry={() => void search()} disabled={busy || other === NONE} testId="substructure-stop" />}
     {current?.kind === 'found' && <div className="max-h-96 space-y-2 overflow-auto" aria-live="polite" data-testid="substructure-result">
       <p>
         {current.search.mappings.length === 0

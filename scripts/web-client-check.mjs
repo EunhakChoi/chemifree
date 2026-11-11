@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import { sceneCutAfter, sceneCutCopy } from './lib/scene-cut-fixture.mjs'
 
 register('./lib/web-alias-hooks.mjs', import.meta.url)
+await import('./web-compute-stop-client-check.mjs')
 await import('./web-scene-cut-client-check.mjs')
 await import('./web-ring-client-check.mjs')
 await import('./web-caption-client-check.mjs')
@@ -4584,8 +4585,8 @@ test('a CIP reply is shown only while labels are wanted, for the drawing on scre
   assert.equal(cipView(edited, ok, 0, false, true, true).kind, 'checking', 'a stored configuration that changed makes the label stale')
   assert.equal(cipView(value, ok, 1, false, true, true).kind, 'checking', 'another service process')
   assert.equal(cipView(value, ok, 0, true, true, true).kind, 'ready', 'labels stay while the same drawing is asked about again')
-  const failed = { kind: 'failed', generation: 0, snapshot: value, message: 'too big' }
-  assert.deepEqual(cipView(value, failed, 0, false, true, true), { kind: 'failed', message: 'too big' })
+  const failed = { kind: 'failed', generation: 0, snapshot: value, message: 'too big', stop: null }
+  assert.deepEqual(cipView(value, failed, 0, false, true, true), { kind: 'failed', message: 'too big', stop: null })
   assert.equal(cipView(moved, failed, 0, false, true, true).kind, 'checking', 'a failure belongs to the drawing it was asked about')
   assert.equal(cipView(value, failed, 0, true, true, true).kind, 'checking', 'a retry is running')
   assert.equal(unavailableSentence('too big'), 'CIP labels unavailable: too big')

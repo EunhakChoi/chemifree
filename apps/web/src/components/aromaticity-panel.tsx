@@ -1,18 +1,20 @@
 import { useState } from 'react'
 
+import { ComputeStopNotice } from '@/components/compute-stop-notice'
 import { Button } from '@/components/ui/button'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import { sameInspectionSnapshot, type AromaticityInspection, type DocumentView } from '@/lib/document-contract'
+import type { ComputeStop } from '@/lib/compute-stop'
+import { ComputeStopped, sameInspectionSnapshot, type AromaticityInspection, type DocumentView } from '@/lib/document-contract'
 
 /** The interpretation is separate from the recorded bonds until a conversion is requested. */
 export function AromaticityPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
   const [pending, setPending] = useState(false)
   const [answer, setAnswer] = useState<{ generation: number; inspection: AromaticityInspection } | null>(null)
-  const [failure, setFailure] = useState<{ generation: number; snapshot: DocumentView; message: string } | null>(null)
+  const [failure, setFailure] = useState<{ generation: number; snapshot: DocumentView; message: string; stop: ComputeStop | null } | null>(null)
   const current = answer && answer.generation === editor.serviceGeneration &&
     sameInspectionSnapshot(document, answer.inspection.snapshot) ? answer.inspection : null
   const currentFailure = failure && failure.generation === editor.serviceGeneration &&
-    sameInspectionSnapshot(document, failure.snapshot) ? failure.message : null
+    sameInspectionSnapshot(document, failure.snapshot) ? failure : null
 
   async function inspect() {
     const requested = document
@@ -23,7 +25,12 @@ export function AromaticityPanel({ document, editor }: { document: DocumentView;
     try {
       setAnswer({ generation, inspection: await editor.inspectAromaticity(requested.id) })
     } catch (error) {
-      setFailure({ generation, snapshot: requested, message: error instanceof Error ? error.message : 'Inspection failed.' })
+      setFailure({
+        generation,
+        snapshot: requested,
+        message: error instanceof Error ? error.message : 'Inspection failed.',
+        stop: error instanceof ComputeStopped ? error.stop : null,
+      })
     } finally {
       setPending(false)
     }
@@ -35,7 +42,8 @@ export function AromaticityPanel({ document, editor }: { document: DocumentView;
     <Button size="sm" variant="outline" disabled={pending || editor.busy} onClick={() => void inspect()}>
       {pending ? 'Inspecting…' : 'Inspect rings'}
     </Button>
-    {currentFailure && <p role="alert" className="text-xs">{currentFailure}</p>}
+    {currentFailure?.stop && <ComputeStopNotice stop={currentFailure.stop} onRetry={() => void inspect()} disabled={pending || editor.busy} />}
+    {currentFailure && !currentFailure.stop && <p role="alert" className="text-xs">{currentFailure.message}</p>}
     {answer && !current && <p className="text-xs">The drawing or service changed. Inspect again.</p>}
     {current && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto text-xs" data-testid="aromaticity-result">
       <p>Model: {current.model}</p>

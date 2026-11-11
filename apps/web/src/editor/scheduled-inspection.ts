@@ -6,7 +6,8 @@
  * (`hooks/use-scheduled-inspection.ts`) only wires it to React.
  */
 import { CheckScheduler, type Timers } from '@/editor/stereo-agreement'
-import { samePropertySnapshot, type DocumentView } from '@/lib/document-contract'
+import type { ComputeStop } from '@/lib/compute-stop'
+import { ComputeStopped, samePropertySnapshot, type DocumentView } from '@/lib/document-contract'
 
 /** What the runner is told on every render. */
 export interface InspectionSource<T> {
@@ -26,7 +27,8 @@ export interface InspectionSource<T> {
 /** The last reply or failure, and the service process it came from. */
 export type InspectionOutcome<T> =
   | { kind: 'ok'; generation: number; inspection: T }
-  | { kind: 'failed'; generation: number; snapshot: DocumentView; message: string }
+  /** `stop` is the stop that ended the request (a time limit or a cancel), or null for any other failure. */
+  | { kind: 'failed'; generation: number; snapshot: DocumentView; message: string; stop: ComputeStop | null }
 
 export interface InspectionState<T> {
   outcome: InspectionOutcome<T> | null
@@ -146,7 +148,8 @@ export class InspectionRunner<T> {
       outcome = { kind: 'ok', generation, inspection: await inspect(document.id) }
     } catch (failure) {
       const message = failure instanceof Error ? failure.message : 'The request failed.'
-      outcome = { kind: 'failed', generation, snapshot: document, message }
+      const stop = failure instanceof ComputeStopped ? failure.stop : null
+      outcome = { kind: 'failed', generation, snapshot: document, message, stop }
     }
     // A request that was retired (detached, or asking switched off) neither reports nor changes `running`:
     // the one that retired it already did.

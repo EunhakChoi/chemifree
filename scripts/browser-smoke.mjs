@@ -3943,6 +3943,51 @@ step = 'after short_wide_bond_is_selectable'
   assert.deepEqual((await api(`/api/v1/documents/${id}`)).document.bonds, replacement.body.document.bonds, 'one undo restores the original Kekulé bonds')
   await panel.getByRole('button', { name: 'Inspect rings' }).click()
   await panel.getByTestId('aromaticity-result').getByText(/6 π electrons/).waitFor()
+  // A time limit stops a conversion: the page shows the stop as a notice in the default look, with Dismiss.
+  // Nothing changed, so the inspection is still current and both Convert buttons stay enabled.
+  step = 'aromaticity convert time limit stop'
+  const beforeStop = await api(`/api/v1/documents/${id}`)
+  const serviceMessage = 'The computation did not finish within the time limit of 5000 ms; nothing was changed.'
+  const timedOut = {
+    envelope: 'operation_result', contract: 1, outcome: 'error', model_id: 'chemifree-aromaticity-2', document_revision: null, loss_report: [], result: null,
+    diagnostics: [{ code: 'time_limit', severity: 'error', message: serviceMessage, path: null, details: { limit_ms: 5000 } }],
+  }
+  let stopOnce = true
+  const stopping = async (route) => {
+    if (stopOnce && route.request().postDataJSON()?.operation === 'chem.aromaticity_convert') {
+      stopOnce = false
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(timedOut) })
+    }
+    return route.continue()
+  }
+  await page.route('**/api/v1/operations', stopping)
+  try {
+    const stoppedReply = page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') && response.request().postData()?.includes('chem.aromaticity_convert'))
+    await panel.getByRole('button', { name: 'Convert to aromatic', exact: true }).click()
+    assert.equal((await stoppedReply).status(), 200)
+    await waitIdle()
+    const notice = page.getByRole('alert').filter({ hasText: 'Stopped at the time limit (5000 ms)' })
+    await notice.waitFor()
+    assert.equal(await notice.count(), 1, 'one page notice for the stop')
+    assert.equal(await notice.locator('[data-slot="alert-title"]').textContent(), 'Stopped at the time limit (5000 ms)')
+    assert.equal(await notice.locator('[data-slot="alert-description"]').textContent(), serviceMessage)
+    // ui/alert exposes no variant attribute: the destructive look is the text-destructive class on its root.
+    assert.deepEqual(await notice.evaluate((node) => ({ destructive: node.classList.contains('text-destructive'), standard: node.classList.contains('text-card-foreground') })), { destructive: false, standard: true }, 'a stop is not drawn as an error')
+    assert.equal(await notice.getByRole('button', { name: 'Dismiss', exact: true }).count(), 1, 'the notice offers Dismiss')
+    await panel.getByTestId('aromaticity-result').getByText(/6 π electrons/).waitFor()
+    assert.equal(await panel.getByRole('button', { name: 'Convert to aromatic', exact: true }).isEnabled(), true)
+    assert.equal(await panel.getByRole('button', { name: 'Convert to Kekulé', exact: true }).isEnabled(), true)
+    const afterStop = await api(`/api/v1/documents/${id}`)
+    assert.equal(afterStop.document.revision, beforeStop.document.revision, 'a stopped conversion keeps the drawing revision')
+    assert.deepEqual(afterStop.document.bonds, beforeStop.document.bonds, 'a stopped conversion changes no bond')
+    assert.deepEqual([afterStop.session.undo_depth, afterStop.session.redo_depth], [beforeStop.session.undo_depth, beforeStop.session.redo_depth], 'and adds no history')
+    await notice.getByRole('button', { name: 'Dismiss', exact: true }).click()
+    await notice.waitFor({ state: 'detached' })
+  } finally {
+    await page.unroute('**/api/v1/operations', stopping)
+  }
+  results.aromaticity_convert_time_limit_stop = true
+  step = 'after aromaticity_convert_time_limit_stop'
   await page.screenshot({ path: join(outDir, 'editor-aromaticity.png') })
   results.aromaticity_inspection_and_atomic_conversion = true
 }
@@ -4886,6 +4931,40 @@ step = 'after short_wide_bond_is_selectable'
       } finally {
         await agreePage.unroute('**/api/v1/operations', refusing)
       }
+      // A time limit stops the request once: the page shows the stop with no label, and "Try CIP labels
+      // again" asks the service afresh and draws the labels it answers with.
+      step = 'CIP time limit stop'
+      const timedOut = {
+        envelope: 'operation_result', contract: 1, outcome: 'error', model_id: 'chemifree-cip-1',
+        document_revision: (await read(cipId)).document.revision, loss_report: [], result: null,
+        diagnostics: [{ code: 'time_limit', severity: 'error', message: 'The computation did not finish within the time limit of 5000 ms; nothing was changed.', path: null, details: { limit_ms: 5000 } }],
+      }
+      let stopOnce = true
+      const stopping = async (route) => {
+        if (stopOnce && route.request().postDataJSON()?.operation === 'chem.cip') {
+          stopOnce = false
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(timedOut) })
+        }
+        return route.continue()
+      }
+      await atomSwitch.click()
+      await eventually(async () => assert.equal(await cipState.textContent(), 'Switch on atom or bond stereo labels to compute CIP labels for the stored configurations.'))
+      assert.equal(await labels.count(), 0)
+      const beforeStop = cipBodies.length
+      await agreePage.route('**/api/v1/operations', stopping)
+      try {
+        await atomSwitch.click()
+        await eventually(async () => assert.equal(await cipState.textContent(), 'CIP labels stopped at the time limit (5000 ms). No labels are shown.'))
+        assert.equal(await labels.count(), 0, 'no label is drawn after a time limit')
+        assert.equal(cipBodies.length, beforeStop + 1, 'the stop answers the one request that was asked')
+        await agreePage.getByRole('button', { name: 'Try CIP labels again', exact: true }).click()
+        await eventually(async () => assert.deepEqual(await shown(), { a2: `(${expected.get('a2')})`, a4: `(${expected.get('a4')})` }))
+        assert.equal(cipBodies.length, beforeStop + 2, 'the retry asks the service again')
+      } finally {
+        await agreePage.unroute('**/api/v1/operations', stopping)
+      }
+      results.cip_time_limit_stop = true
+      step = 'after cip_time_limit_stop'
       await atomSwitch.click()
       await eventually(async () => assert.equal(await labels.count(), 0))
       assert.deepEqual(await read(cipId), untouched)
