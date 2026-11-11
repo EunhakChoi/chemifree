@@ -1,5 +1,5 @@
-//! Explicit optional InChI registration for a local host. Keep both entry adapters aligned;
-//! the provider owns release, digest, library and ABI validation.
+//! Explicit optional InChI registration shared by the HTTP and CLI entry adapters through
+//! `chemifree-host`. The provider owns release, digest, library and ABI validation.
 
 use std::path::PathBuf;
 
@@ -10,7 +10,7 @@ use crate::LocalApplication;
 
 /// Opt-in fields have no library, version or digest defaults and trigger no discovery.
 #[derive(clap::Args, Debug, Default)]
-pub(super) struct InchiArgs {
+pub struct InchiArgs {
     /// Explicit absolute path to a trusted official InChI shared library. Never searched or downloaded.
     #[arg(long, global = true, env = "CHEMIFREE_INCHI_LIBRARY")]
     inchi_library: Option<PathBuf>,
@@ -66,7 +66,7 @@ impl InchiArgs {
     }
 
     /// A rejected registration disables only this optional provider, never the host.
-    pub(super) fn configure(self, application: LocalApplication) -> LocalApplication {
+    pub fn configure(self, application: LocalApplication) -> LocalApplication {
         let loaded = self
             .registration()
             .and_then(|registration| registration.map(RegisteredInchiProvider::load).transpose());

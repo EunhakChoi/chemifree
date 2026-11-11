@@ -161,6 +161,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chemifree-application",
+ "chemifree-host",
  "chemifree-providers",
  "clap",
  "getrandom",
@@ -193,6 +194,7 @@ name = "chemifree-cli"
 version = "0.1.0"
 dependencies = [
  "chemifree-application",
+ "chemifree-host",
  "chemifree-providers",
  "clap",
  "serde",
@@ -205,7 +207,7 @@ name = "chemifree-conformance"
 version = "0.1.0"
 dependencies = [
  "chemifree-application",
- "chemifree-providers",
+ "chemifree-host",
  "serde",
  "serde_json",
  "sha2",
@@ -217,6 +219,17 @@ name = "chemifree-domain"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "chemifree-host"
+version = "0.1.0"
+dependencies = [
+ "chemifree-application",
+ "chemifree-providers",
+ "clap",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

@@ -1,29 +1,24 @@
-mod inchi_config;
-
 use std::fs::File;
 use std::io::{self, BufRead, Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use chemifree_application::{
-    Application, ApplicationError, AtomConfigurationDto, AtomKindView, AtomView,
-    BondConfigurationDto, BondEndDto, BondQueryDto, BondView, CaptionAlignmentDto,
-    CaptionScriptDto, CaptionStyleDto, CaptionWeightDto, CommandDto, CopyResponse, DeleteResponse,
-    DocumentListResponse, DocumentResponse, DraftDiscardResponse, ErrorCode, GraphicShapeDto,
-    HydrogensDto, ListQuery, ListSort, MAX_LISTED_DOCUMENTS, MarkDto, OperationResponse,
-    PreferencesChange, PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto,
-    RegistryEntryStatus, RestoreResponse, SceneObjectView, SelectionDto, SettingsDto,
-    SettingsSource, StereoGroupKindDto, StereoView, TransactionSelections, TrashListResponse,
+    ApplicationError, AtomConfigurationDto, AtomKindView, AtomView, BondConfigurationDto,
+    BondEndDto, BondQueryDto, BondView, CaptionAlignmentDto, CaptionScriptDto, CaptionStyleDto,
+    CaptionWeightDto, CommandDto, CopyResponse, DeleteResponse, DocumentListResponse,
+    DocumentResponse, DraftDiscardResponse, ErrorCode, GraphicShapeDto, HydrogensDto, ListQuery,
+    ListSort, MAX_LISTED_DOCUMENTS, MarkDto, OperationResponse, PreferencesChange,
+    PreferencesResponse, RadicalDto, RecoveryState, ReferenceTargetDto, RegistryEntryStatus,
+    RestoreResponse, SceneObjectView, SelectionDto, SettingsDto, SettingsSource,
+    StereoGroupKindDto, StereoView, TransactionSelections, TrashListResponse,
 };
-use chemifree_providers::interchange_codec::LocalInterchangeCodec;
-use chemifree_providers::{
-    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, OpenSmilesCodec, V2000Codec,
-    configure_selected_registry, default_data_dir,
+use chemifree_host::{
+    InchiArgs, LocalApplication, LocalStores, local_application, with_selected_providers,
 };
+use chemifree_providers::default_data_dir;
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
-
-type LocalApplication = Application<LocalCapabilities, FileDocumentRepository>;
 
 /// Command input larger than this is refused before parsing.
 const MAX_COMMAND_INPUT_BYTES: u64 = 1024 * 1024;
@@ -36,7 +31,7 @@ struct Args {
     data_dir: Option<PathBuf>,
     /// Optional native InChI registration; absent or rejected registration leaves the host usable.
     #[command(flatten)]
-    inchi: inchi_config::InchiArgs,
+    inchi: InchiArgs,
     /// Separately selected directory containing authorized local DATA.
     #[arg(long, global = true, env = "CHEMIFREE_MODEL_DATA_ROOT")]
     model_data_root: Option<PathBuf>,
@@ -318,18 +313,12 @@ fn main() -> ExitCode {
     };
     // Document store construction performs no I/O. An explicitly selected optional native
     // provider is checked below; without that opt-in no library is accessed.
-    let registry = configure_selected_registry(
+    let application = with_selected_providers(
+        local_application(LocalStores::new(&data_dir)),
         args.model_data_root.as_deref(),
         args.model_trusted_registry.as_deref(),
+        args.inchi,
     );
-    let application = Application::new(LocalCapabilities, FileDocumentRepository::new(&data_dir))
-        .with_image_decoder(chemifree_providers::png_image::EmbeddedPngDecoder)
-        .with_interchange_codec(LocalInterchangeCodec)
-        .with_ctfile_codec(V2000Codec)
-        .with_smiles_codec(OpenSmilesCodec)
-        .with_preferences(FilePreferenceStore::new(&data_dir))
-        .with_data_registry(registry);
-    let application = args.inchi.configure(application);
 
     match args.command {
         Command::Status { json } => {

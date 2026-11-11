@@ -1,16 +1,11 @@
-mod inchi_config;
-
 use std::error::Error;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use chemifree_api::{ApiState, DEFAULT_WEB_ORIGINS, LocalApplication};
-use chemifree_providers::interchange_codec::LocalInterchangeCodec;
-use chemifree_providers::{
-    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, OpenSmilesCodec, V2000Codec,
-    configure_selected_registry, default_data_dir,
-};
+use chemifree_api::{ApiState, DEFAULT_WEB_ORIGINS};
+use chemifree_host::{InchiArgs, LocalStores, local_application, with_selected_providers};
+use chemifree_providers::default_data_dir;
 use clap::Parser;
 use clap::builder::FalseyValueParser;
 use tokio::net::TcpListener;
@@ -26,7 +21,7 @@ struct Args {
     data_dir: Option<PathBuf>,
     /// Optional native InChI registration; absent or rejected registration leaves the host usable.
     #[command(flatten)]
-    inchi: inchi_config::InchiArgs,
+    inchi: InchiArgs,
     /// Separately selected directory containing authorized local DATA.
     #[arg(long, env = "CHEMIFREE_MODEL_DATA_ROOT")]
     model_data_root: Option<PathBuf>,
@@ -51,23 +46,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .data_dir
         .or_else(default_data_dir)
         .ok_or("no user data directory found; pass --data-dir")?;
-    let repository = FileDocumentRepository::new(&data_dir);
-    repository.prune_stale_temporaries();
-    let documents = repository.directory().to_path_buf();
-    let preferences = FilePreferenceStore::new(&data_dir);
-    preferences.prune_stale_temporaries();
-    let registry = configure_selected_registry(
+    let stores = LocalStores::new(&data_dir);
+    stores.prune_stale_temporaries();
+    let documents = stores.documents_directory().to_path_buf();
+    let application = with_selected_providers(
+        local_application(stores),
         args.model_data_root.as_deref(),
         args.model_trusted_registry.as_deref(),
+        args.inchi,
     );
-    let application = LocalApplication::new(LocalCapabilities, repository)
-        .with_image_decoder(chemifree_providers::png_image::EmbeddedPngDecoder)
-        .with_interchange_codec(LocalInterchangeCodec)
-        .with_ctfile_codec(V2000Codec)
-        .with_smiles_codec(OpenSmilesCodec)
-        .with_preferences(preferences)
-        .with_data_registry(registry);
-    let application = args.inchi.configure(application);
 
     let mut token = [0_u8; 32];
     getrandom::fill(&mut token).map_err(|error| format!("no system randomness: {error}"))?;

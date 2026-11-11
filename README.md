@@ -248,7 +248,7 @@ docs/
   SHADCN_REVIEW.ko.md shadcn/ui and @shadcn/lint review
 ```
 
-Dependencies point inward: `application → domain`; `providers → application + domain`; HTTP and CLI compose the application with concrete providers. Document rules (stable IDs, reference integrity, atomic transactions, undo/redo as change sets) live in `crates/domain`; sessions, revisions, request-ID replay, and save semantics live in `crates/application`; file I/O lives in `crates/providers` behind the application-owned `DocumentRepository` port. The web mirror of the v1 contract validates responses at runtime. There is no code generation, service locator, database, or general prediction engine; the scoped property calculations are described in the contract. The structure canvas in `apps/web/src/editor/` is separate from the shadcn/ui controls.
+Dependencies point inward: `application → domain`; `providers → application + domain`; HTTP, CLI and the conformance runner assemble the application with concrete providers through `crates/host` (`local_application`). Document rules (stable IDs, reference integrity, atomic transactions, undo/redo as change sets) live in `crates/domain`; sessions, revisions, request-ID replay, and save semantics live in `crates/application`; file I/O lives in `crates/providers` behind the application-owned `DocumentRepository` port. The web mirror of the v1 contract validates responses at runtime. There is no code generation, service locator, database, or general prediction engine; the scoped property calculations are described in the contract. The structure canvas in `apps/web/src/editor/` is separate from the shadcn/ui controls.
 
 ## API and implementation status
 

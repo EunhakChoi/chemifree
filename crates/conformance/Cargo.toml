@@ -13,7 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 chemifree-application = { workspace = true, features = ["conformance-fixtures"] }
-chemifree-providers.workspace = true
+chemifree-host.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

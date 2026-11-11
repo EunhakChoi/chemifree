@@ -19,14 +19,17 @@ Nothing on this page marks a feature as implemented. "Planned" items below have 
 | `crates/application` | domain, numerics | Sessions, revisions, request replay, the operation surface, ports, the SVG layout, DATA registry and typed loaders |
 | `crates/inchi-native` | domain | Optional native InChI binding |
 | `crates/providers` | application, domain, inchi-native | File store, codecs (MOL/SDF, CDXML, CDX, SMILES), PNG decoder, InChI provider, DATA directory source, capability catalog |
-| `crates/conformance` | application, providers | Conformance runner |
-| `apps/api` | application, providers | HTTP adapter (axum) |
-| `apps/cli` | application, providers | CLI adapter |
+| `crates/host` | application, providers | Assembly of the local `Application` for entry adapters: the file stores of a data directory, the PNG decoder, the codecs, file preferences, the user-selected DATA registry and the optional InChI selection (`InchiArgs`) |
+| `crates/conformance` | application, host | Conformance runner |
+| `apps/api` | application, host, providers | HTTP adapter (axum) |
+| `apps/cli` | application, host, providers | CLI adapter |
 | `apps/web` | HTTP only | React/TypeScript editor |
 
 Dependencies point inward: a crate depends only on crates listed above it in this table,
 never on one below it. The one exception is test-only: `application`'s tests use
-`providers` as a dev-dependency to run against the real file store. `domain` and
+`providers` as a dev-dependency to run against the real file store. Entry adapters keep their transport, data-directory resolution and host-only settings and
+assemble the `Application` only through `crates/host`; a new root (a product server, an MCP
+process that embeds `Application`) does the same. `domain` and
 `application` do no file or network access; from the operating system they use the clock,
 threads and the random source (`getrandom`).
 
@@ -144,7 +147,7 @@ model, the versioned file format with in-memory migration.
 | Finding | Evidence | Change |
 | --- | --- | --- |
 | Hub files are edited by almost every feature | In the last 150 non-merge commits: `apps/web/src/lib/document-contract.ts` (4,177 lines) 45 times, `crates/application/src/contract.rs` (3,067) 32, `crates/application/src/operations.rs` (3,225) 26; a single new shape (#213) also touched `crates/domain/src/document.rs` (4,049) and `crates/providers/src/file_format.rs` (3,736) | Split each file by concern, one PR per file |
-| The composition root exists three times | `apps/api/src/main.rs`, `apps/cli/src/main.rs` and `crates/conformance/src/runner.rs` repeat the same builder chain; `inchi_config.rs` (188 lines) is identical in api and cli; an MCP adapter would be the fourth | One assembly function |
+| The composition root exists three times | `apps/api/src/main.rs`, `apps/cli/src/main.rs` and `crates/conformance/src/runner.rs` repeat the same builder chain; `inchi_config.rs` (188 lines) is identical in api and cli; an MCP adapter would be the fourth | Done in T0 (sixth PR): `crates/host` holds `local_application`, `with_selected_providers` and the shared `InchiArgs`; API, CLI and the conformance runner assemble through it (what differs stays in the adapters: the API and the runner prune stale temporaries, the CLI does not; the runner sets the compute limits to the cap and never selects DATA or InChI) |
 | Status text lives in five places and the roadmap page is synced by hand | Of the same 150 commits: HANDOFF 86, CONTRACT 85, README 74, roadmap JSON 59 and its HTML copy 52 | Done in T0 (fifth PR): `scripts/roadmap-html.mjs` writes the page's data from the JSON and `npm run test:roadmap` checks that they agree |
 
 **Deferred, with the point at which each is taken up:**

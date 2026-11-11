@@ -1,16 +1,13 @@
-//! Runs cases against the shared [`Application`] with the request types and arguments the HTTP
+//! Runs cases against the shared [`LocalApplication`] with the request types and arguments the HTTP
 //! handlers use (not through HTTP), each case on its own fresh data directory.
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use chemifree_application::{
-    Application, ApplicationError, ComputeLimits, DataRegistry, ProfileRecords, phase4_nist,
+    ApplicationError, ComputeLimits, DataRegistry, ProfileRecords, phase4_nist,
 };
-use chemifree_providers::interchange_codec::LocalInterchangeCodec;
-use chemifree_providers::{
-    FileDocumentRepository, FilePreferenceStore, LocalCapabilities, OpenSmilesCodec, V2000Codec,
-};
+use chemifree_host::{LocalApplication, LocalStores, local_application};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -22,8 +19,6 @@ use crate::expect;
 
 /// The record format version.
 pub const REPORT_VERSION: u32 = 1;
-
-type LocalApplication = Application<LocalCapabilities, FileDocumentRepository>;
 
 /// A run record. It holds no times, and runs in which no case fails write identical records.
 /// A failure message quotes the reply or error as is, so it may contain run-specific values,
@@ -199,24 +194,18 @@ fn run_steps(steps: &[Step], fixture: Option<&DataFixture>) -> Result<(), String
     Ok(())
 }
 
-/// Starts the application on `directory` as the API process does at startup.
+/// Starts the application on `directory` with the shared local assembly and the startup prune
+/// of the API process, at the one-hour compute cap, without user-selected DATA or an InChI
+/// provider.
 fn start(directory: &Path, fixture: Option<&DataFixture>) -> Result<LocalApplication, String> {
-    let repository = FileDocumentRepository::new(directory);
-    repository.prune_stale_temporaries();
-    let preferences = FilePreferenceStore::new(directory);
-    preferences.prune_stale_temporaries();
-    let application = Application::new(LocalCapabilities, repository)
-        .with_image_decoder(chemifree_providers::png_image::EmbeddedPngDecoder)
-        // A case checks a deterministic work limit, which must not depend on how fast this build
-        // runs (a debug build is slower than release): the clock is at its cap, as a host setting.
-        .with_compute_limits(ComputeLimits {
-            default_time_ms: ComputeLimits::CAP_MS,
-            max_time_ms: ComputeLimits::CAP_MS,
-        })
-        .with_interchange_codec(LocalInterchangeCodec)
-        .with_ctfile_codec(V2000Codec)
-        .with_smiles_codec(OpenSmilesCodec)
-        .with_preferences(preferences);
+    let stores = LocalStores::new(directory);
+    stores.prune_stale_temporaries();
+    // A case checks a deterministic work limit, which must not depend on how fast this build
+    // runs (a debug build is slower than release): the clock is at its cap, as a host setting.
+    let application = local_application(stores).with_compute_limits(ComputeLimits {
+        default_time_ms: ComputeLimits::CAP_MS,
+        max_time_ms: ComputeLimits::CAP_MS,
+    });
     let Some(fixture) = fixture else {
         return Ok(application);
     };
