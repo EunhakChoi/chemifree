@@ -11,6 +11,8 @@ Read [AGENTS.md](../AGENTS.md), [the handoff](../docs/HANDOFF.ko.md),
 For planned work, use the IDs, dependencies, scope, and acceptance criteria in
 [the roadmap](../docs/roadmap/implementation-roadmap.json). A roadmap ID such as
 P16 is a planning unit, not a GitHub PR number or a promise that one PR is enough.
+After editing the roadmap JSON, run `node scripts/roadmap-html.mjs --write` so the roadmap page
+embeds the same data; `npm run test:roadmap` (part of `npm run check`) fails when it does not.
 
 Use the current source and contract to resolve stale status summaries. Report a
 material disagreement rather than silently broadening the feature. Reading a

@@ -60,9 +60,10 @@
     "test:conformance": "cargo run --locked --quiet --package chemifree-conformance -- --out target/conformance/report.json conformance/suite.json",
     "conformance:record": "cargo run --locked --quiet --package chemifree-conformance -- --out docs/verification/conformance-report.json conformance/suite.json",
     "test:traceability": "node scripts/traceability-check.mjs",
+    "test:roadmap": "node scripts/roadmap-html.mjs --check",
     "test:nextest-overrides": "node scripts/nextest-override-check.mjs",
-    "test:checks": "node --test scripts/traceability-check.test.mjs scripts/lib/request-log.test.mjs scripts/nextest-override-check.test.mjs",
-    "check": "npm run lint && npm run typecheck && npm run test:client && npm run build:web && npm run check:rust && npm run test:nextest-overrides && npm run test:contracts && npm run test:conformance && npm run test:traceability && npm run test:checks"
+    "test:checks": "node --test scripts/traceability-check.test.mjs scripts/lib/request-log.test.mjs scripts/nextest-override-check.test.mjs scripts/roadmap-html.test.mjs",
+    "check": "npm run lint && npm run typecheck && npm run test:client && npm run build:web && npm run check:rust && npm run test:nextest-overrides && npm run test:contracts && npm run test:conformance && npm run test:traceability && npm run test:roadmap && npm run test:checks"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
