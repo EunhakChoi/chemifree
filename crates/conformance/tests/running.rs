@@ -232,3 +232,34 @@ fn a_missing_capture_pointer_fails_instead_of_substituting_a_default() {
     );
     assert!(outcome.is_err_and(|message| message.contains("capture \"missing\": no value")));
 }
+
+#[test]
+fn a_case_may_ask_for_more_time_than_a_host_default_up_to_the_cap() {
+    // The runner's compute limits are the one-hour cap, so a request for the cap itself is
+    // accepted; a host with the default maximum of 8000 ms refuses it.
+    let outcome = run(
+        "accept",
+        json!([
+            {"call": "create", "bind": "d"},
+            {"call": "transact", "document": "d", "expected_revision": 0, "commands": [
+                {"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}},
+                {"op": "add_atom", "element": "C", "position": {"x": 1, "y": 0}},
+                {"op": "add_atom", "element": "C", "position": {"x": 2, "y": 0}},
+                {"op": "add_atom", "element": "C", "position": {"x": 3, "y": 0}},
+                {"op": "add_atom", "element": "C", "position": {"x": 4, "y": 0}},
+                {"op": "add_atom", "element": "C", "position": {"x": 5, "y": 0}},
+                {"op": "add_bond", "begin": "$0", "end": "$1", "order": "double"},
+                {"op": "add_bond", "begin": "$1", "end": "$2", "order": "single"},
+                {"op": "add_bond", "begin": "$2", "end": "$3", "order": "double"},
+                {"op": "add_bond", "begin": "$3", "end": "$4", "order": "single"},
+                {"op": "add_bond", "begin": "$4", "end": "$5", "order": "double"},
+                {"op": "add_bond", "begin": "$5", "end": "$0", "order": "single"}
+            ], "expect": {"document": {"revision": 1}}},
+            {"call": "operation", "document": "d",
+             "request": operation_request("limited", "chem.aromaticity_convert",
+                 json!({"expected_revision": 1, "to": "aromatic", "time_limit_ms": 3600000})),
+             "expect": {"outcome": "ok", "document_revision": 2}}
+        ]),
+    );
+    assert_eq!(outcome, Ok(()));
+}

@@ -22,19 +22,19 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chemifree_application::{
-    API_VERSION, Application, ApplicationError, CancelFlag, CapabilitiesResponse, CloseRequest,
-    CloseResponse, CopyResponse, CreateDocumentRequest, DataStatusResponse, DeleteResponse,
-    DocumentListResponse, DocumentResponse, DraftDiscardResponse, DraftRequest, ErrorCode,
-    ErrorResponse, HealthResponse, ImportPreferencesRequest, ImportSettingsRequest, ListQuery,
-    OperationResponse, PreferencesRequest, PreferencesResponse, RecoverAsCopyRequest,
-    RenameRequest, ResetSettingsRequest, RestoreRequest, RestoreResponse, RevisionRequest,
-    SaveAsRequest, TransactionRequest, TrashListResponse,
+    API_VERSION, ApplicationError, CancelFlag, CapabilitiesResponse, CloseRequest, CloseResponse,
+    CopyResponse, CreateDocumentRequest, DataStatusResponse, DeleteResponse, DocumentListResponse,
+    DocumentResponse, DraftDiscardResponse, DraftRequest, ErrorCode, ErrorResponse, HealthResponse,
+    ImportPreferencesRequest, ImportSettingsRequest, ListQuery, OperationResponse,
+    PreferencesRequest, PreferencesResponse, RecoverAsCopyRequest, RenameRequest,
+    ResetSettingsRequest, RestoreRequest, RestoreResponse, RevisionRequest, SaveAsRequest,
+    TransactionRequest, TrashListResponse,
 };
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use http_body_util::LengthLimitError;
 use serde::Serialize;
 
-pub type LocalApplication = Application<LocalCapabilities, FileDocumentRepository>;
+pub use chemifree_host::LocalApplication;
 
 pub const SESSION_HEADER: &str = "x-chemifree-session";
 pub const MAX_BODY_BYTES: usize = 256 * 1024;
