@@ -3,10 +3,10 @@
 // and a copy that is out of step shows an old roadmap without any error.
 //
 // What a pass establishes: the JSON file is canonical text (JSON.stringify(data, null, 1) and a final newline);
-// its compact serialization, which the embed holds, has no '</' that would end the script element; every row has
-// a string id, no row id repeats, and every id in tracks.order[].rows is a row id; the embed parses to a value
-// deep-equal to the JSON file's data. It does not establish that the roadmap content is right, and it does not
-// look for other text that changes how a script element parses, such as '<!--'.
+// its compact serialization, which the embed holds, has no '</', '<!--' or '<script' (case-insensitive) that
+// would end the script element or change how it parses; every row has a string id, no row id repeats, and every
+// id in tracks.order[].rows is a row id; the embed is exactly that compact serialization of the JSON file's data.
+// It does not establish that the roadmap content is right, and it does not look for other script-data hazards.
 //
 // What is read: both files as UTF-8 text, and from the HTML only the element that opens with the embed tag.
 // --write replaces that content with the compact serialization of the JSON data and keeps every other byte of
@@ -70,8 +70,12 @@ export function checkRoadmapHtml({ json, html }) {
   if (json !== `${JSON.stringify(data, null, 1)}\n`) {
     problems.push(`${JSON_NAME} is not canonical text; it must be JSON.stringify(data, null, 1) and a final newline`)
   }
-  if (JSON.stringify(data).includes('</')) {
+  const serialized = JSON.stringify(data)
+  if (serialized.includes('</')) {
     problems.push(`${JSON_NAME} serializes to text with "</", which would end the script element that embeds it`)
+  }
+  if (/<!--|<script/i.test(serialized)) {
+    problems.push(`${JSON_NAME} serializes to text with "<!--" or "<script", which changes how the embedding script element parses`)
   }
   problems.push(...rowProblems(data), ...embedProblems(html, data))
   return problems
@@ -96,7 +100,11 @@ function embedProblems(html, data) {
   } catch (error) {
     return [error.message]
   }
-  if (isDeepStrictEqual(embedded, data)) return []
+  if (isDeepStrictEqual(embedded, data)) {
+    const { start, end } = embedSpan(html)
+    if (html.slice(start, end) === JSON.stringify(data)) return []
+    return [`${HTML_NAME} embed is not the compact serialization of ${JSON_NAME} that --write produces`]
+  }
   const key = firstDifferingKey(embedded, data)
   const where = key === undefined ? '' : ` at top-level key ${JSON.stringify(key)}`
   return [`${HTML_NAME} embed is stale: its data differs from ${JSON_NAME}${where}`]

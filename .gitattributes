@@ -1,4 +1,6 @@
 conformance/**/*.json text eol=lf
+docs/roadmap/implementation-roadmap.json text eol=lf
+docs/roadmap/implementation-roadmap.html text eol=lf
 docs/verification/conformance-report.json text eol=lf
 crates/providers/tests/data/model-data/** -text
 # CRLF and surrounding spaces are intentional CSV test data.

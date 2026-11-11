@@ -2,6 +2,7 @@
 // Fixtures are inline. Only the last test reads files: the repository's real roadmap pair.
 
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { mock, test } from 'node:test'
@@ -93,6 +94,21 @@ test('checkRoadmapHtml reports data whose serialization would end the script ele
   assertOneProblem(problems, /with "<\/", which would end the script element/)
 })
 
+test('checkRoadmapHtml reports data that would open a comment or a nested script', () => {
+  for (const title of ['Sample <!-- roadmap', 'Sample <SCRIPT roadmap']) {
+    const markup = { ...DATA, title }
+    const problems = checkRoadmapHtml({ json: canonicalText(markup), html: embedRoadmap(pageWith(''), markup) })
+    assertOneProblem(problems, /with "<!--" or "<script"/)
+  }
+})
+
+test('checkRoadmapHtml reports an embed with the same data that is not the compact serialization', () => {
+  const html = embedRoadmap(pageWith(''), DATA).replace(JSON.stringify(DATA), JSON.stringify(DATA, null, 1))
+  assertOneProblem(checkRoadmapHtml({ json: canonicalText(DATA), html }), /not the compact serialization/)
+  const reordered = embedRoadmap(pageWith(''), { rows: DATA.rows, tracks: DATA.tracks, date: DATA.date, title: DATA.title })
+  assertOneProblem(checkRoadmapHtml({ json: canonicalText(DATA), html: reordered }), /not the compact serialization/)
+})
+
 test('checkRoadmapHtml reports a row id that is repeated', () => {
   const repeated = { ...DATA, rows: [DATA.rows[0], { ...DATA.rows[0], title: 'Repeated row' }, DATA.rows[1]] }
   const problems = checkRoadmapHtml({ json: canonicalText(repeated), html: embedRoadmap(pageWith(''), repeated) })
@@ -130,6 +146,16 @@ test('importing the module runs no command', async () => {
   } finally {
     mock.restoreAll()
   }
+})
+
+test('the command line checks the repository pair, and refuses an unknown argument', () => {
+  const script = path.join(ROOT, 'scripts', 'roadmap-html.mjs')
+  const checked = spawnSync(process.execPath, [script, '--check'], { encoding: 'utf8' })
+  assert.equal(checked.status, 0, checked.stderr)
+  assert.match(checked.stdout, /embed matches/)
+  const refused = spawnSync(process.execPath, [script, '--bogus'], { encoding: 'utf8' })
+  assert.equal(refused.status, 1)
+  assert.match(refused.stderr, /usage: node scripts\/roadmap-html\.mjs/)
 })
 
 test('the repository roadmap JSON and HTML pair passes the check', () => {
