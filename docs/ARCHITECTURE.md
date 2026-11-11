@@ -145,7 +145,7 @@ model, the versioned file format with in-memory migration.
 | --- | --- | --- |
 | Hub files are edited by almost every feature | In the last 150 non-merge commits: `apps/web/src/lib/document-contract.ts` (4,177 lines) 45 times, `crates/application/src/contract.rs` (3,067) 32, `crates/application/src/operations.rs` (3,225) 26; a single new shape (#213) also touched `crates/domain/src/document.rs` (4,049) and `crates/providers/src/file_format.rs` (3,736) | Split each file by concern, one PR per file |
 | The composition root exists three times | `apps/api/src/main.rs`, `apps/cli/src/main.rs` and `crates/conformance/src/runner.rs` repeat the same builder chain; `inchi_config.rs` (188 lines) is identical in api and cli; an MCP adapter would be the fourth | One assembly function |
-| Status text lives in five places and the roadmap page is synced by hand | Of the same 150 commits: HANDOFF 86, CONTRACT 85, README 74, roadmap JSON 59 and its HTML copy 52 | Generate the roadmap HTML from the JSON and check that they agree |
+| Status text lives in five places and the roadmap page is synced by hand | Of the same 150 commits: HANDOFF 86, CONTRACT 85, README 74, roadmap JSON 59 and its HTML copy 52 | Done in T0 (fifth PR): `scripts/roadmap-html.mjs` writes the page's data from the JSON and `npm run test:roadmap` checks that they agree |
 
 **Deferred, with the point at which each is taken up:**
 

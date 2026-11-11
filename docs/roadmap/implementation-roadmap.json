@@ -4543,7 +4543,7 @@
      "P41"
     ],
     "pr_estimate": "12–15",
-    "work": "P41 잔여(이슈 #106): 읽기 연산 시간 제한·취소(aromaticity·identity·substructure·properties는 첫 PR, SMILES 내보내기는 둘째 PR에서 납품. 이 연산들의 동시 계산 슬롯은 웹 표시 뒤 결정), 잠금 배치(셋째 PR에서 draft 복구 조회·이력 없는 복사·저장 revision 캐시를 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR), 웹 표시(넷째 PR에서 납품). 구조 정리: 조립 코드 통합 1, 큰 파일 분할 5(동작 변경 없음), 로드맵 HTML 생성기와 일치 검사 1."
+    "work": "P41 잔여(이슈 #106): 읽기 연산 시간 제한·취소(aromaticity·identity·substructure·properties는 첫 PR, SMILES 내보내기는 둘째 PR에서 납품. 이 연산들의 동시 계산 슬롯은 웹 표시 뒤 결정), 잠금 배치(셋째 PR에서 draft 복구 조회·이력 없는 복사·저장 revision 캐시를 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR), 웹 표시(넷째 PR에서 납품). 구조 정리: 조립 코드 통합 1, 큰 파일 분할 5(동작 변경 없음), 로드맵 HTML 동기화 스크립트와 일치 검사 1(다섯째 PR에서 납품: scripts/roadmap-html.mjs, npm run test:roadmap)."
    },
    {
     "id": "T1",

@@ -1,5 +1,14 @@
 # Chemifree 새 세션 인계
 
+## 로드맵 HTML 동기화·일치 검사 (T0, 다섯째 PR)
+
+`docs/roadmap/implementation-roadmap.html`은 JSON 전체를 `<script id="roadmap-data" type="application/json">` 한 줄에 싣는다. 지금까지 손으로 맞췄는데, 어긋나면 오류 없이 옛 로드맵이 보인다. `scripts/roadmap-html.mjs`가 이를 맡는다.
+
+- 로드맵 JSON을 고친 뒤 `node scripts/roadmap-html.mjs --write`로 HTML의 데이터를 다시 쓴다(JSON은 건드리지 않고 HTML의 나머지 바이트는 그대로). JSON 쪽 검사가 하나라도 실패하면 아무것도 쓰지 않는다.
+- `npm run test:roadmap`(`--check`)은 `npm run check`에 들어 있다: JSON이 정규 텍스트(`JSON.stringify(data, null, 1)`+개행)이고, 압축 직렬화에 `</`가 없고, 행 id가 문자열·중복 없음, `tracks.order[].rows`가 모두 행 id이며, 내장 데이터가 JSON과 깊은 비교로 같다. 로드맵 내용이 옳은지는 확인하지 않는다.
+- 테스트: `scripts/roadmap-html.test.mjs`(17개, `test:checks`에 포함; 저장소의 실제 쌍이 통과하는 사례가 동기화 보호다). 뮤테이션 17개를 모두 잡았다.
+- 남은 T0: 이슈 #106의 작은 항목, 구조 정리(조립 코드 통합, 큰 파일 분할 5), 설계 선행의 잠금 안 저장소 I/O 이동(요청 시).
+
 ## 웹 중단 표시 (T0, 넷째 PR)
 
 서버가 보내는 `time_limit`·`cancelled` 중단 응답을 웹이 실제로 구분해 보여 준다. 웹은 여전히 `time_limit_ms`를 보내지 않는다(서버 기본 5초). 서버 코드는 바꾸지 않았다(주석 한 줄만).
@@ -9,7 +18,7 @@
 - 표시: 공용 `ComputeStopNotice`(기본 변형 Alert, 오류 스타일 아님, 제목 "Stopped at the time limit (N ms)"/"Cancelled", 재시도 버튼). 패널은 이전 결과를 지운다(substructure는 `stopped` outcome이 이전 `found`를 대체). 변환 중단은 페이지 수준 알림(제목 같음, Dismiss, 재시도는 기존 Convert 버튼). CIP는 "CIP labels stopped at the time limit (N ms). No labels are shown."/"CIP labels cancelled. No labels are shown."와 기존 "Try CIP labels again"; 다른 실패는 "CIP labels unavailable: …" 그대로.
 - 테스트 계층은 기존 것(Vitest 추가 안 함): `scripts/web-compute-stop-client-check.mjs`(node:test, `web-client-check.mjs`가 불러옴), 새 브라우저 하네스 `scripts/web-compute-stop-check.mjs`(`npm run test:browser:compute-stop`, CI browser job에 단계 추가), `scripts/browser-smoke.mjs`의 CIP·변환 중단 두 구간. 모든 중단 응답은 모의다. 검증 기록: `verification/p41-web-stop-display.md`.
 - 한계(문서화): SMILES 중단 알림은 도면에 묶이지 않아 다음 쓰기나 스타일 변경까지 남는다(기존 SMILES 오류와 같다). 변환 중단의 `document_revision`이 null인 것은 서버의 비약속 동작이라 웹이 정수·null 모두 받는다(#106에 후속).
-- 남은 T0: 이슈 #106의 작은 항목, 구조 정리(조립 코드 통합, 큰 파일 분할 5, 로드맵 HTML 생성기), 설계 선행의 잠금 안 저장소 I/O 이동(요청 시).
+- 남은 T0: 이슈 #106의 작은 항목, 구조 정리(조립 코드 통합, 큰 파일 분할 5), 설계 선행의 잠금 안 저장소 I/O 이동(요청 시).
 
 ## T0 진행: 잠금 배치 (P41, 셋째 PR)
 
@@ -21,7 +30,7 @@
 - 잠금 안에 남긴 것(문서화함): 세션 새로고침 읽기, 첫 열기 로드, 닫힌 문서 그래프 읽기(`graph_readonly`), 응답마다의 draft 조회, 생성·복사 커밋. 새 상태(세대·에포크·슬롯 예약)가 필요해 설계 선행의 별도 PR로 미룬다. `chem.validate`는 복사가 계산만큼 선형이라 옮겨도 이득이 없어 그대로 둔다. 문서 목록의 `saved_at_ms`는 표 밖이다(이슈 #106 항목 정정).
 - 결정(리드, Opus 추천): 위 미룬 항목과 `chem.validate` 유지 두 가지는 사용자 확인 대상이다. 새 잠금 메커니즘은 ARCHITECTURE의 "다중 사용자 서비스에서만 문서별 잠금" 원칙과 부딪혀 사용자 요청 시에만 시작한다.
 - 테스트(새 파일): `crates/domain/tests/history_free_copy.rs`, `crates/application/tests/analysis_history_free.rs`, `draft_lookup_outside_table.rs`(지연 저장소 + 래치, 시계 창 없음), `crates/providers/tests/stored_revision_own_commit.rs`. 검증 기록: `verification/p41-lock-placement.md`.
-- 남은 T0: 이슈 #106의 작은 항목, 구조 정리(조립 코드 통합, 큰 파일 분할 5, 로드맵 HTML 생성기), 설계 선행의 잠금 안 저장소 I/O 이동(사용자 요청 시).
+- 남은 T0: 이슈 #106의 작은 항목, 구조 정리(조립 코드 통합, 큰 파일 분할 5), 설계 선행의 잠금 안 저장소 I/O 이동(사용자 요청 시).
 
 ## T0 진행: SMILES 내보내기의 시간 제한·취소 (P41, 둘째 PR)
 
@@ -74,7 +83,7 @@
 | T8 | 고급 문서·형식 | P68–P81 | 42–70 |
 | T9 | 자동화·출시 | P83–P86, P88, P89 | 20–35 |
 
-- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1, 큰 파일 분할 5, 로드맵 HTML 생성기와 일치 검사 1). 구조 정리는 동작을 바꾸지 않는다.
+- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1, 큰 파일 분할 5, 로드맵 HTML 동기화 스크립트와 일치 검사 1은 다섯째 PR에서 납품). 구조 정리는 동작을 바꾸지 않는다.
 - T1에서는 제품 서버(P87)와 배치 준비·사슬·단순 고리(P42)를 먼저 한다. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38의 마감은 T3 맨 앞으로 옮겼다.
 - T2의 MCP는 실행 중인 로컬 서버의 클라이언트로 붙는다. 그래서 P87이 먼저다.
 - 화학·입체 심화(P18, P20–P28의 남은 범위와 P17·P19에서 T1의 제한된 마감에 넣지 않은 범위)는 별도 트랙이 아니다. 뒤 트랙이 필요로 할 때 해당 행을 다시 연다(예: 명명은 P18·P26, 반응 코덱은 P21·P28).
