@@ -101,6 +101,7 @@ const MALFORMED = [
   ['limit_ms is a string', () => stopReply({ diagnostics: [limitDiagnostic({ details: { limit_ms: '5000' } })] })],
   ['limit_ms is negative', () => stopReply({ diagnostics: [limitDiagnostic({ details: { limit_ms: -1 } })] })],
   ['limit_ms is fractional', () => stopReply({ diagnostics: [limitDiagnostic({ details: { limit_ms: 1.5 } })] })],
+  ['a stop code follows another diagnostic', () => stopReply({ diagnostics: [{ code: 'invalid_request', severity: 'error', message: 'x', path: null, details: {} }, limitDiagnostic()] })],
   ['details is not a record', () => stopReply({ diagnostics: [limitDiagnostic({ details: [5000] })] })],
   ['result is not null', () => stopReply({ result: {} })],
   ['model_id is another model', () => stopReply({ model_id: 'chemifree-cip-1' })],

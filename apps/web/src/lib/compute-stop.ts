@@ -30,6 +30,10 @@ function isRevision(value: unknown, revision: StopExpectation['revision']): bool
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
+function isStopDiagnostic(value: unknown): boolean {
+  return isRecord(value) && (value.code === 'time_limit' || value.code === 'cancelled')
+}
+
 /**
  * Reads a reply as a stop. Returns null when the reply is not a stop (a result, a refusal, or any
  * other error), so the caller reads it as before. Returns `'malformed'` when the reply carries a
@@ -41,7 +45,10 @@ export function readComputeStop(reply: unknown, expect: StopExpectation): Comput
   const diagnostics: unknown = reply.diagnostics
   if (!Array.isArray(diagnostics) || diagnostics.length === 0) return null
   const first: unknown = diagnostics[0]
-  if (!isRecord(first) || (first.code !== 'time_limit' && first.code !== 'cancelled')) return null
+  if (!isRecord(first) || (first.code !== 'time_limit' && first.code !== 'cancelled')) {
+    // A stop code anywhere else is a stop contract that was not kept, not an ordinary refusal.
+    return diagnostics.some(isStopDiagnostic) ? 'malformed' : null
+  }
 
   if (
     diagnostics.length !== 1 ||
