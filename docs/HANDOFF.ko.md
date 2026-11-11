@@ -1,5 +1,15 @@
 # Chemifree 새 세션 인계
 
+## document-contract 분할 (T0, 일곱째 PR)
+
+`apps/web/src/lib/document-contract.ts`(4,215줄)를 `apps/web/src/lib/document-contract/{model,guards,responses,readers,inspection,editing,interchange,transport,client}.ts` 아홉 파일로 나눴다. 순수 이동이며 동작은 바뀌지 않는다. 원래 파일은 명시적 이름 재내보내기만 가진 배럴(66줄, `export *` 없음, 코드 없음)이라 가져오는 쪽 100곳(앱 69, 스크립트 29, 브라우저 픽스처 5)은 그대로다.
+
+- 의존 방향: model → guards → responses → readers → {inspection, editing} → interchange → transport → client. 새 파일끼리는 `@/lib/document-contract/<파일>`로만 가져오고 배럴은 가져오지 않는다. `index.ts`는 없다(Node 별칭 훅이 디렉터리를 찾지 않는다).
+- 순환을 끊은 방법(동작 변경 없음): `firstDiagnostic`을 오류 모델 옆으로, `isCountOrNull`을 기본 가드로 옮기고, `isDocumentResponse`와 응답 읽기를 한 파일에 두고, `snapshotOrigins`의 값 형식을 `{client: DocumentClient}`에서 `{client: object}`로 바꿨다(런타임에서는 지워지는 형식 주석).
+- `DocumentClient`는 `client.ts`에 한 클래스로 남는다(약 2,000줄). 쪼개면 순수 이동이 아니므로 후속으로 둔다. `scene-clipboard-contract.ts`가 배럴을 가져오는 기존 순환도 그대로다(최상위에서 서로를 쓰지 않는 동안만 안전).
+- 증거: (1) 내보내기 표면 비교 — 기준(c68c189c)과 새 트리에서 이름·종류·형식, 런타임 내보내기 키, 모든 런타임 내보내기와 `DocumentClient` 메서드의 `Function.toString`을 뽑아 비교한 출력이 완전히 같다(158 이름); (2) 이동한 줄의 다중집합 비교 — 코드 줄은 `snapshotOrigins` 주석 한 쌍만 다르고(헤더 주석 몇 줄 차이는 의도), 가져오기 DAG에 되돌아가는 간선이 없고 새 파일을 배럴 밖에서 가져오는 곳이 없다; (3) `npm run check` 통과(lint, 타입, 클라이언트 878개 검사, 웹 빌드, 계약·적합성·추적성·로드맵), 브라우저 스모크와 label-{weight,style,shadow,underline,outline}·compute-stop·attach-ring·caption 점검 통과. 줄 이력은 `git blame -C -C` 또는 `git log -L`로 따라간다.
+- 남은 T0: 이슈 #106의 작은 항목, 큰 파일 분할 4(`crates/application/src/contract.rs`, `operations.rs`, `crates/domain/src/document.rs`, `crates/providers/src/file_format.rs`), 설계 선행의 잠금 안 저장소 I/O 이동(요청 시).
+
 ## 조립 코드 통합 (T0, 여섯째 PR)
 
 API·CLI·conformance 실행기가 같은 구성 체인을 손으로 되풀이하고 `inchi_config.rs`가 api와 cli에 똑같이 있었다. 새 crate `crates/host`(패키지 `chemifree-host`, application·providers·clap에 의존)가 하나로 모은다. 동작은 바뀌지 않는다.
@@ -94,7 +104,7 @@ API·CLI·conformance 실행기가 같은 구성 체인을 손으로 되풀이�
 | T8 | 고급 문서·형식 | P68–P81 | 42–70 |
 | T9 | 자동화·출시 | P83–P86, P88, P89 | 20–35 |
 
-- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1은 여섯째 PR(crates/host)에서 납품, 큰 파일 분할 5, 로드맵 HTML 동기화 스크립트와 일치 검사 1은 다섯째 PR에서 납품). 구조 정리는 동작을 바꾸지 않는다.
+- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1은 여섯째 PR(crates/host)에서 납품, 큰 파일 분할 5(`document-contract.ts`는 일곱째 PR에서 납품, 4 남음), 로드맵 HTML 동기화 스크립트와 일치 검사 1은 다섯째 PR에서 납품). 구조 정리는 동작을 바꾸지 않는다.
 - T1에서는 제품 서버(P87)와 배치 준비·사슬·단순 고리(P42)를 먼저 한다. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38의 마감은 T3 맨 앞으로 옮겼다.
 - T2의 MCP는 실행 중인 로컬 서버의 클라이언트로 붙는다. 그래서 P87이 먼저다.
 - 화학·입체 심화(P18, P20–P28의 남은 범위와 P17·P19에서 T1의 제한된 마감에 넣지 않은 범위)는 별도 트랙이 아니다. 뒤 트랙이 필요로 할 때 해당 행을 다시 연다(예: 명명은 P18·P26, 반응 코덱은 P21·P28).
