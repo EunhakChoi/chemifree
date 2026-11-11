@@ -6,7 +6,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { StereoGroupsSection } from '@/components/stereo-groups-section'
-import { cipCell, CIP_OFF, unavailableSentence, type CipView } from '@/editor/cip-labels'
+import { cipCell, CIP_OFF, cipFailureSentence, type CipView } from '@/editor/cip-labels'
 import {
   ACTION_LABELS,
   AGREEMENT_LABELS,
@@ -115,7 +115,7 @@ export function StereoPanel({
           {cip.kind === 'checking' && <p className="text-xs" data-testid="cip-state" aria-busy="true">Computing CIP labels…</p>}
           {cip.kind === 'failed' && (
             <div className="flex flex-wrap items-center gap-2">
-              <p role="alert" className="text-xs" data-testid="cip-state">{unavailableSentence(cip.message)}</p>
+              <p role="alert" className="text-xs" data-testid="cip-state">{cipFailureSentence(cip)}</p>
               <Button size="sm" variant="outline" onClick={onCipCheckNow}>Try CIP labels again</Button>
             </div>
           )}

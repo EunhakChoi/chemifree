@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { ComputeStopNotice } from '@/components/compute-stop-notice'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
@@ -7,7 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { selectionSnapshot } from '@/editor/scene-selection'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
+import type { ComputeStop } from '@/lib/compute-stop'
 import {
+  ComputeStopped,
   samePropertySnapshot,
   type DocumentView,
   type OmittedIsotopeAbundance,
@@ -35,12 +38,12 @@ export function PropertiesPanel({ document, editor }: { document: DocumentView; 
   const [source, setSource] = useState('')
   const [busy, setBusy] = useState(false)
   const [answer, setAnswer] = useState<{ key: string; result: PropertiesInspection } | null>(null)
-  const [failure, setFailure] = useState<{ key: string; snapshot: DocumentView; message: string } | null>(null)
+  const [failure, setFailure] = useState<{ key: string; snapshot: DocumentView; message: string; stop: ComputeStop | null } | null>(null)
   const currentSelection = scope === 'selection' ? selectionSnapshot(editor.selection, document) : null
   const currentSource = property === 'formula' ? '' : source.trim()
   const currentKey = key(scope, property, currentSelection, currentSource, editor.serviceGeneration)
   const current = answer?.key === currentKey && samePropertySnapshot(document, answer.result.snapshot) ? answer.result : null
-  const currentFailure = failure?.key === currentKey && samePropertySnapshot(document, failure.snapshot) ? failure.message : null
+  const currentFailure = failure?.key === currentKey && samePropertySnapshot(document, failure.snapshot) ? failure : null
 
   async function calculate() {
     const selection = scope === 'selection' ? selectionSnapshot(editor.selectionAtPress(), document) : null
@@ -53,7 +56,12 @@ export function PropertiesPanel({ document, editor }: { document: DocumentView; 
       const result = await editor.inspectProperties(document.id, scope, property, selection, sourceId || null)
       setAnswer({ key: requested, result })
     } catch (error) {
-      setFailure({ key: requested, snapshot: document, message: error instanceof Error ? error.message : 'Property calculation failed.' })
+      setFailure({
+        key: requested,
+        snapshot: document,
+        message: error instanceof Error ? error.message : 'Property calculation failed.',
+        stop: error instanceof ComputeStopped ? error.stop : null,
+      })
     } finally {
       setBusy(false)
     }
@@ -86,7 +94,8 @@ export function PropertiesPanel({ document, editor }: { document: DocumentView; 
       <Button size="sm" onClick={() => void calculate()} disabled={busy || editor.busy}>
         {busy ? 'Calculating…' : 'Calculate'}
       </Button>
-      {currentFailure && <Alert variant="destructive"><AlertTitle>Could not calculate</AlertTitle><AlertDescription>{currentFailure}</AlertDescription></Alert>}
+      {currentFailure?.stop && <ComputeStopNotice stop={currentFailure.stop} onRetry={() => void calculate()} disabled={busy || editor.busy} />}
+      {currentFailure && !currentFailure.stop && <Alert variant="destructive"><AlertTitle>Could not calculate</AlertTitle><AlertDescription>{currentFailure.message}</AlertDescription></Alert>}
       {answer && !current && !currentFailure && <p className="text-xs text-muted-foreground">The drawing, selection or request changed. Calculate again.</p>}
       {current && (
         <div className="space-y-2 text-xs" data-testid="properties-result">

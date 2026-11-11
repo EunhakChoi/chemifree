@@ -2609,7 +2609,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
     /// when there is nothing to compute. It takes no compute slot: these inspections are not
     /// counted against `with_compute_concurrency` and never wait for it (CONTRACT.md, "Computation
     /// time limit and cancel"). A slot would let a quick inspection be answered `time_limit` while
-    /// long conversions hold the slots, and the web does not show that code yet.
+    /// long conversions hold the slots.
     fn compute_read_only<T>(
         &self,
         budget: &Budget<'_>,

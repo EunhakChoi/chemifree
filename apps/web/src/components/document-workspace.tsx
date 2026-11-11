@@ -113,8 +113,10 @@ import { useStereoAgreement } from '@/hooks/use-stereo-agreement'
 import { cipMarks } from '@/editor/cip-labels'
 import { agreementRings, agreementRows, viewSentence, type AgreementView } from '@/editor/stereo-agreement'
 import { stereoCounts, type StereoMark, type StereoNote } from '@/lib/stereo-contract'
+import { stopTitle } from '@/lib/compute-stop'
 import {
   ATTACHMENT_POINTS,
+  ComputeStopped,
   sameInspectionSnapshot,
   type AtomView,
   type BondOrder,
@@ -296,12 +298,14 @@ const INFORMATIONAL = new Set([
   'draft_outdated',
   'draft_in_use',
   'draft_not_found',
+  'time_limit',
+  'cancelled',
 ])
 
 function ErrorNotice({ editor }: { editor: DocumentEditor }) {
   const error = editor.error!
   const stale = error.code === 'revision_conflict' || error.code === 'service_restarted'
-  const title = {
+  const title = error instanceof ComputeStopped ? stopTitle(error.stop) : ({
     revision_conflict: 'The document changed',
     service_restarted: 'Local service restarted',
     create_unconfirmed: 'New document not confirmed',
@@ -319,7 +323,7 @@ function ErrorNotice({ editor }: { editor: DocumentEditor }) {
     draft_not_written: 'Left work not autosaved',
     invalid_command: 'Edit rejected',
     unreachable: 'Local service unavailable',
-  }[error.code] ?? 'Request failed'
+  }[error.code] ?? 'Request failed')
   return (
     <Alert variant={stale || INFORMATIONAL.has(error.code) ? 'default' : 'destructive'}>
       <TriangleAlertIcon aria-hidden="true" />

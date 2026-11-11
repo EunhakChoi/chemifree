@@ -1,5 +1,16 @@
 # Chemifree 새 세션 인계
 
+## 웹 중단 표시 (T0, 넷째 PR)
+
+서버가 보내는 `time_limit`·`cancelled` 중단 응답을 웹이 실제로 구분해 보여 준다. 웹은 여전히 `time_limit_ms`를 보내지 않는다(서버 기본 5초). 서버 코드는 바꾸지 않았다(주석 한 줄만).
+
+- 범위: 웹이 실제로 부르는 일곱 가지: `chem.properties`, `chem.aromaticity`, `chem.aromaticity_convert`, `chem.identity`, `chem.substructure`, `chem.cip`(저장 범위, Stereo 패널 스위치), SMILES 내보내기. MOL/SDF 내보내기는 시간 제한이 없어 제외. UI가 없는 연산에는 UI를 만들지 않았다.
+- 리더 `apps/web/src/lib/compute-stop.ts`(`readComputeStop`): `outcome: "error"`, 진단 정확히 하나(`time_limit`+`details.limit_ms`(0 이상 정수) 또는 `cancelled`), `path` null, `result` null, 빈 `loss_report`, 연산의 `model_id`, 정수 `document_revision`(변환은 null도 허용). 중단 코드인데 모양이 다르면 `incompatible_response`로 거절하고, 다른 거절(`resource_limit` 등)은 중단으로 읽지 않는다. `ComputeStopped`(ApiError 하위)는 `document-contract.ts`에 있고 각 클라이언트 메서드가 자기 결과 확인 전에 `throwIfStopped`를 부른다(SMILES는 `exportSmiles`에서만, 가져오기와 공유하는 `smilesReply`에는 넣지 않았다).
+- 표시: 공용 `ComputeStopNotice`(기본 변형 Alert, 오류 스타일 아님, 제목 "Stopped at the time limit (N ms)"/"Cancelled", 재시도 버튼). 패널은 이전 결과를 지운다(substructure는 `stopped` outcome이 이전 `found`를 대체). 변환 중단은 페이지 수준 알림(제목 같음, Dismiss, 재시도는 기존 Convert 버튼). CIP는 "CIP labels stopped at the time limit (N ms). No labels are shown."/"CIP labels cancelled. No labels are shown."와 기존 "Try CIP labels again"; 다른 실패는 "CIP labels unavailable: …" 그대로.
+- 테스트 계층은 기존 것(Vitest 추가 안 함): `scripts/web-compute-stop-client-check.mjs`(node:test, `web-client-check.mjs`가 불러옴), 새 브라우저 하네스 `scripts/web-compute-stop-check.mjs`(`npm run test:browser:compute-stop`, CI browser job에 단계 추가), `scripts/browser-smoke.mjs`의 CIP·변환 중단 두 구간. 모든 중단 응답은 모의다. 검증 기록: `verification/p41-web-stop-display.md`.
+- 한계(문서화): SMILES 중단 알림은 도면에 묶이지 않아 다음 쓰기나 스타일 변경까지 남는다(기존 SMILES 오류와 같다). 변환 중단의 `document_revision`이 null인 것은 서버의 비약속 동작이라 웹이 정수·null 모두 받는다(#106에 후속).
+- 남은 T0: 이슈 #106의 작은 항목, 구조 정리(조립 코드 통합, 큰 파일 분할 5, 로드맵 HTML 생성기), 설계 선행의 잠금 안 저장소 I/O 이동(요청 시).
+
 ## T0 진행: 잠금 배치 (P41, 셋째 PR)
 
 사용자 요청("다음 단계 진행해")으로 시작했다. 응답은 이전과 같고 일이 도는 자리만 바뀐다. 범위는 다섯 가지다.
@@ -10,7 +21,7 @@
 - 잠금 안에 남긴 것(문서화함): 세션 새로고침 읽기, 첫 열기 로드, 닫힌 문서 그래프 읽기(`graph_readonly`), 응답마다의 draft 조회, 생성·복사 커밋. 새 상태(세대·에포크·슬롯 예약)가 필요해 설계 선행의 별도 PR로 미룬다. `chem.validate`는 복사가 계산만큼 선형이라 옮겨도 이득이 없어 그대로 둔다. 문서 목록의 `saved_at_ms`는 표 밖이다(이슈 #106 항목 정정).
 - 결정(리드, Opus 추천): 위 미룬 항목과 `chem.validate` 유지 두 가지는 사용자 확인 대상이다. 새 잠금 메커니즘은 ARCHITECTURE의 "다중 사용자 서비스에서만 문서별 잠금" 원칙과 부딪혀 사용자 요청 시에만 시작한다.
 - 테스트(새 파일): `crates/domain/tests/history_free_copy.rs`, `crates/application/tests/analysis_history_free.rs`, `draft_lookup_outside_table.rs`(지연 저장소 + 래치, 시계 창 없음), `crates/providers/tests/stored_revision_own_commit.rs`. 검증 기록: `verification/p41-lock-placement.md`.
-- 남은 T0: 웹의 `time_limit`·`cancelled` 표시(TypeScript, 별도 PR), 이슈 #106의 작은 항목, 구조 정리(조립 코드 통합, 큰 파일 분할 5, 로드맵 HTML 생성기).
+- 남은 T0: 이슈 #106의 작은 항목, 구조 정리(조립 코드 통합, 큰 파일 분할 5, 로드맵 HTML 생성기), 설계 선행의 잠금 안 저장소 I/O 이동(사용자 요청 시).
 
 ## T0 진행: SMILES 내보내기의 시간 제한·취소 (P41, 둘째 PR)
 
@@ -19,9 +30,9 @@
 - 순서: 매개변수 오류, `not_running`, 시간 제한 거절, 문서 읽기, 쓰기(중단 가능), 코덱 거절, 동의 거절. 중단은 `outcome: "error"`, `result: null`, 스냅숏 revision, style의 `model_id`, `time_limit` 또는 `cancelled`이고 `loss_report`·`loss_digest`가 없으며 `accepted_losses`를 보지 않는다(중단은 손실도 동의도 아니다). export의 다른 오류 응답은 `model_id`가 계속 null이다.
 - 포트: `SmilesCodec`에 필수 메서드 `write_interruptible(graph, style, groups, interrupt) -> Result<Result<SmilesWrite, SmilesError>, Interrupted>`가 생겼다. 기본 구현이 없어서 구현체가 한도를 조용히 무시할 수 없다. 저장소 안의 구현체는 `OpenSmilesCodec` 하나이고, 저장소 밖 구현체는 이 메서드를 추가해야 한다.
 - 제공자 쓰기: 모듈 안 `Halt`로 중단을 환불과 구분한다(`readback_mismatch`·`canonical_limit`은 중단이 만들지 않는다). 점검은 렌더 패스마다, 읽어 돌려보기 파싱 앞, 저장된 입체 기록마다, 방향 결합 배치 앞, 최종 입체 읽기 앞, 정규형의 정체성 검색(`identity::chemical_form_with`)과 방향족 인식(`analysis::interpret_with`)이다. 리더는 가져오기와 공유라 중단 불가이고 내보내기마다 최대 7번 파싱한다(CONTRACT에 적었다).
-- 웹 SMILES 패널은 `time_limit_ms`를 보내지 않아 기본 한도를 받는다. 지금 상한 안에서는 걸릴 가능성이 아주 낮지만 느린 환경에서는 이론상 `time_limit`이 나올 수 있고 웹은 그 코드를 따로 보여 주지 않는다.
+- 웹 SMILES 패널은 `time_limit_ms`를 보내지 않아 기본 한도를 받는다. 지금 상한 안에서는 걸릴 가능성이 아주 낮지만 느린 환경에서는 이론상 `time_limit`이 나올 수 있고, 웹은 그 코드를 구분해 보여 준다(위 "웹 중단 표시" 절).
 - 검증 기록: `verification/p41-read-only-time-limit.md`의 "SMILES export" 절.
-- 남은 P41 항목: `chem.validate`와 draft 쓰기의 잠금 안 저장소 I/O, 웹의 `time_limit`·`cancelled` 표시, 이슈 #106의 작은 항목. 그 뒤 T0의 구조 정리가 이어진다.
+- 남은 P41 항목: 이슈 #106의 작은 항목. 그 뒤 T0의 구조 정리가 이어진다. (잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 끝났다.)
 
 ## T0 진행: 읽기 연산의 시간 제한·취소 (P41, 첫 PR)
 
@@ -32,8 +43,8 @@
 - 도메인: `identity::canonicalize_with`·`canonicalize_chemical_with`, `substructure::find_with`, `Composition::distribution_with`가 `Result<Result<T, ModelError>, Interrupted>`를 돌려주고 기존 함수는 `NEVER` 래퍼다. `IdentityError`·`MatchError`·`MassError`·`PropertiesError`에 새 변형은 없다. `chem.aromaticity`는 이미 있던 `perceive_with`를 쓴다.
 - **결정(내가 정함, 2026-11-11 리뷰 뒤 바꿈)**: 네 연산은 동시 계산 슬롯을 쓰지 않는다. 처음 계획(Opus 권고)은 `chem.cip`처럼 슬롯을 쓰는 것이었으나, 코어가 1–2개이고 긴 변환이 슬롯을 잡은 환경에서는 빠른 검사가 `time_limit`을 받을 수 있고 웹이 아직 그 코드를 보여 주지 않는다. Codex와 code-review 둘 다 이를 지적했다. 시간 제한과 취소(호스트 종료 포함)만 두고 동시성은 이전과 같다. 나중에 슬롯을 주는 것은 조이는 변경이며 웹 표시가 먼저다. 이 선택은 사용자 확인 대상으로 남긴다.
 - 점검 없는 구간(그래프 복사, 대상 전체의 고리 인식, 정체성 그래프 구성, 부분구조 후보 사전 필터, 원자가 검사, 1,024 후보·작업 단위 사이)은 측정하지 않았고 지연을 약속하지 않는다.
-- 웹은 이 요청들에 `time_limit_ms`를 보내지 않는다(기본 한도). 두 코드의 웹 표시는 T0의 남은 항목이다.
-- 이 PR 뒤에 남은 P41 항목: `chem.validate`와 draft 쓰기의 잠금 안 저장소 I/O, 웹 표시, 이슈 #106의 작은 항목들(SMILES 내보내기는 아래 둘째 PR에서 끝났다).
+- 웹은 이 요청들에 `time_limit_ms`를 보내지 않는다(기본 한도). 두 코드의 웹 표시는 넷째 PR에서 납품했다.
+- 이 PR 뒤에 남은 P41 항목: 이슈 #106의 작은 항목들(SMILES 내보내기, 잠금 배치, 웹 표시는 뒤의 PR들에서 끝났다).
 - 검증 기록: `verification/p41-read-only-time-limit.md`.
 
 ## 2026-11-10 트랙·아키텍처 재검토 (계획 기록, 코드 변경 없음)
@@ -63,7 +74,7 @@
 | T8 | 고급 문서·형식 | P68–P81 | 42–70 |
 | T9 | 자동화·출시 | P83–P86, P88, P89 | 20–35 |
 
-- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 안 저장소 I/O 이동, 웹 표시)와 구조 정리(조립 코드 통합 1, 큰 파일 분할 5, 로드맵 HTML 생성기와 일치 검사 1). 구조 정리는 동작을 바꾸지 않는다.
+- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1, 큰 파일 분할 5, 로드맵 HTML 생성기와 일치 검사 1). 구조 정리는 동작을 바꾸지 않는다.
 - T1에서는 제품 서버(P87)와 배치 준비·사슬·단순 고리(P42)를 먼저 한다. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38의 마감은 T3 맨 앞으로 옮겼다.
 - T2의 MCP는 실행 중인 로컬 서버의 클라이언트로 붙는다. 그래서 P87이 먼저다.
 - 화학·입체 심화(P18, P20–P28의 남은 범위와 P17·P19에서 T1의 제한된 마감에 넣지 않은 범위)는 별도 트랙이 아니다. 뒤 트랙이 필요로 할 때 해당 행을 다시 연다(예: 명명은 P18·P26, 반응 코덱은 P21·P28).

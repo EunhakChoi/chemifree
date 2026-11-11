@@ -19,6 +19,7 @@
  */
 import { AGREEMENT_LABELS, itemName, type AgreementRow, type ItemRef } from '@/editor/stereo-agreement'
 import type { CipAtom, CipBond } from '@/lib/cip-contract'
+import type { ComputeStop } from '@/lib/compute-stop'
 import { samePropertySnapshot, type CipInspection, type DocumentView, type Position } from '@/lib/document-contract'
 import { stereoOf } from '@/lib/stereo-contract'
 
@@ -27,6 +28,25 @@ export const CIP_OFF = 'Switch on atom or bond stereo labels to compute CIP labe
 
 /** The sentence for a failed request or limit: the service's message, and no label. */
 export const unavailableSentence = (message: string) => `CIP labels unavailable: ${message}`
+
+/**
+ * The sentence for a failed request: a time limit or a cancel says so, and any other failure shows
+ * the service's message. Either way no label is shown.
+ */
+export function cipFailureSentence(view: { message: string; stop: ComputeStop | null }): string {
+  const { stop } = view
+  if (stop === null) return unavailableSentence(view.message)
+  switch (stop.kind) {
+    case 'time_limit':
+      return `CIP labels stopped at the time limit (${stop.limitMs} ms). No labels are shown.`
+    case 'cancelled':
+      return 'CIP labels cancelled. No labels are shown.'
+    default: {
+      const unreachable: never = stop
+      throw new Error(`Unknown compute stop: ${JSON.stringify(unreachable)}`)
+    }
+  }
+}
 
 /**
  * Whether the page should ask `chem.cip` for this drawing: a label switch is on and the drawing
@@ -44,13 +64,14 @@ export type CipView =
   /** A switch is on but the drawing stores nothing of that kind: nothing is asked. `message` says what is missing. */
   | { kind: 'nothing'; message: string }
   | { kind: 'checking' }
-  | { kind: 'failed'; message: string }
+  /** `stop` is the stop that ended the request (a time limit or a cancel), or null for any other failure. */
+  | { kind: 'failed'; message: string; stop: ComputeStop | null }
   | { kind: 'ready'; inspection: CipInspection }
 
 /** The last reply or failure, and the service process it came from. */
 export type CipOutcome =
   | { kind: 'ok'; generation: number; inspection: CipInspection }
-  | { kind: 'failed'; generation: number; snapshot: DocumentView; message: string }
+  | { kind: 'failed'; generation: number; snapshot: DocumentView; message: string; stop: ComputeStop | null }
 
 /**
  * Labels are shown only while a switch is on and the drawing stores something it covers, only
@@ -77,7 +98,7 @@ export function cipView(
   }
   if (outcome && outcome.generation === generation) {
     if (outcome.kind === 'ok' && samePropertySnapshot(document, outcome.inspection.snapshot)) return { kind: 'ready', inspection: outcome.inspection }
-    if (outcome.kind === 'failed' && !busy && samePropertySnapshot(document, outcome.snapshot)) return { kind: 'failed', message: outcome.message }
+    if (outcome.kind === 'failed' && !busy && samePropertySnapshot(document, outcome.snapshot)) return { kind: 'failed', message: outcome.message, stop: outcome.stop }
   }
   return { kind: 'checking' }
 }

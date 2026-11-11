@@ -6,7 +6,7 @@ Status: bounded. `chem.aromaticity`, `chem.identity`, `chem.substructure` and `c
 
 - Domain: `identity::canonicalize_with` and `canonicalize_chemical_with`, `substructure::find_with`, `Composition::distribution_with`. Each returns `Result<Result<T, ModelError>, Interrupted>` and the existing function is its wrapper over `NEVER`. A private `Halt` keeps a stop from being read as a refusal; no error type gained a variant. Checkpoints ask the interrupt and count nothing, so results below the limit are bit-identical (`steps` of `chem.substructure` included).
 - Application: `compute_read_only` (one check, computation outside the lock) and `stopped_read_only` (the stop reply); each operation reads `time_limit_ms` first, then the snapshot, then computes. `properties::calculate_with` checks per component.
-- Decision (lead): the four operations take no compute slot. The first plan (Opus) gave them one, like `chem.cip`; Codex and the code-review both objected that a quick inspection could be answered `time_limit` behind long conversions while the web shows no `time_limit`. Giving them a slot later is a tightening that needs the web display first. Open for the user's confirmation.
+- Decision (lead): the four operations take no compute slot. The first plan (Opus) gave them one, like `chem.cip`; Codex and the code-review both objected that a quick inspection could be answered `time_limit` behind long conversions while the web shows no `time_limit`. Giving them a slot later is a tightening that needs its own decision; the web display has since been delivered (`p41-web-stop-display.md`). Open for the user's confirmation.
 
 ## Tests
 
@@ -23,7 +23,7 @@ See the PR comment for the observed failing assertions. Killed: no stride check;
 
 - Stretches without a checkpoint are not measured (CONTRACT lists them).
 - A deadline test that depends on the wall clock is not used; expiry is forced with a limit of 0 or a latch.
-- SMILES export, `chem.validate` lock placement and the web display remain (issue #106).
+- SMILES export (second PR), lock placement (third PR, `p41-lock-placement.md`) and the web display (fourth PR, `p41-web-stop-display.md`) were delivered later; `chem.validate` stays under the lock; small items remain in issue #106.
 
 ## SMILES export (T0, second pull request)
 

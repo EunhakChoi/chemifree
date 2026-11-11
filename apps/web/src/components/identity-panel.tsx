@@ -1,11 +1,13 @@
 import { useRef, useState } from 'react'
 
+import { ComputeStopNotice } from '@/components/compute-stop-notice'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import { sameInspectionSnapshot, type CanonicalIdentity, type DocumentView, type IdentityInspection, type IdentityMode } from '@/lib/document-contract'
+import type { ComputeStop } from '@/lib/compute-stop'
+import { ComputeStopped, sameInspectionSnapshot, type CanonicalIdentity, type DocumentView, type IdentityInspection, type IdentityMode } from '@/lib/document-contract'
 
 const MODES: Record<IdentityMode, string> = { recorded: 'Recorded graph', chemical: 'Bounded chemical model' }
 
@@ -28,7 +30,7 @@ export function IdentityPanel({ document, editor }: { document: DocumentView; ed
   const [other, setOther] = useState('none')
   const [busy, setBusy] = useState(false)
   const [answer, setAnswer] = useState<{ key: string; result: IdentityInspection } | null>(null)
-  const [failure, setFailure] = useState<{ key: string; snapshot: DocumentView; message: string } | null>(null)
+  const [failure, setFailure] = useState<{ key: string; snapshot: DocumentView; message: string; stop: ComputeStop | null } | null>(null)
   const requestEpoch = useRef(0)
   const documents = editor.list.kind === 'ready' ? editor.list.list.documents : []
   const choices: Record<string, string> = { none: 'No comparison' }
@@ -36,7 +38,7 @@ export function IdentityPanel({ document, editor }: { document: DocumentView; ed
   if (other !== 'none' && !(other in choices)) choices[other] = other
   const key = requestKey(mode, other, editor.serviceGeneration)
   const current = answer?.key === key && sameInspectionSnapshot(document, answer.result.snapshot) ? answer.result : null
-  const currentFailure = failure?.key === key && sameInspectionSnapshot(document, failure.snapshot) ? failure.message : null
+  const currentFailure = failure?.key === key && sameInspectionSnapshot(document, failure.snapshot) ? failure : null
 
   async function inspect() {
     const requested = requestKey(mode, other, editor.serviceGeneration)
@@ -49,7 +51,14 @@ export function IdentityPanel({ document, editor }: { document: DocumentView; ed
       const result = await editor.inspectIdentity(document.id, mode, other === 'none' ? null : other)
       if (requestEpoch.current === epoch) setAnswer({ key: requested, result })
     } catch (error) {
-      if (requestEpoch.current === epoch) setFailure({ key: requested, snapshot, message: error instanceof Error ? error.message : 'Identity inspection failed.' })
+      if (requestEpoch.current === epoch) {
+        setFailure({
+          key: requested,
+          snapshot,
+          message: error instanceof Error ? error.message : 'Identity inspection failed.',
+          stop: error instanceof ComputeStopped ? error.stop : null,
+        })
+      }
     } finally {
       setBusy(false)
     }
@@ -75,7 +84,8 @@ export function IdentityPanel({ document, editor }: { document: DocumentView; ed
       <Button size="sm" variant="ghost" disabled={editor.list.kind === 'loading'} onClick={() => { requestEpoch.current += 1; setFailure(null); editor.refreshList() }}>Refresh documents</Button>
     </Field>
     <Button size="sm" disabled={busy || editor.busy} onClick={() => void inspect()}>{busy ? 'Inspecting…' : 'Inspect identity'}</Button>
-    {currentFailure && <Alert variant="destructive"><AlertTitle>Could not inspect identity</AlertTitle><AlertDescription>{currentFailure}</AlertDescription></Alert>}
+    {currentFailure?.stop && <ComputeStopNotice stop={currentFailure.stop} onRetry={() => void inspect()} disabled={busy || editor.busy} />}
+    {currentFailure && !currentFailure.stop && <Alert variant="destructive"><AlertTitle>Could not inspect identity</AlertTitle><AlertDescription>{currentFailure.message}</AlertDescription></Alert>}
     {answer && !current && !currentFailure && <p>The drawing, model, comparison or service changed. Inspect again.</p>}
     {current && <div className="max-h-64 space-y-2 overflow-auto" aria-live="polite" data-testid="identity-result">
       <p>Model: {current.model}. Symmetric atoms may exchange canonical numbers.</p>

@@ -2,7 +2,8 @@ import { embeddedPngMetadata, MAX_DOCUMENT_IMAGE_PIXELS } from '@/lib/png-image'
 /** Hand-maintained mirror of the v1 document contract in crates/application/src/contract.rs. */
 import { API_VERSION } from '@/lib/contract'
 import { sceneClipboardCopyMatches, sceneClipboardCutHasIncoming, sceneClipboardCutMatches, sceneClipboardPasteMapping } from '@/lib/scene-clipboard-contract'
-import { readCipFailure, readCipReply, type CipBody, type CipScope } from '@/lib/cip-contract'
+import { CIP_MODEL, readCipFailure, readCipReply, type CipBody, type CipScope } from '@/lib/cip-contract'
+import { readComputeStop, type ComputeStop, type StopExpectation } from '@/lib/compute-stop'
 import { ctabParameters, ctRefusalSentence, DEFAULT_CTAB, writtenDialectMatches, type CtabChoice, type CtDirection } from '@/lib/ct-conversion'
 import {
   holdsStereo,
@@ -848,6 +849,35 @@ export class ApiError extends Error {
     this.reason = details.reason
     this.stateReason = details.stateReason
   }
+}
+
+/**
+ * The service stopped the operation at its time limit or on a cancel. It produced no result and
+ * changed nothing; `stop` says which of the two it was.
+ */
+export class ComputeStopped extends ApiError {
+  readonly stop: ComputeStop
+
+  constructor(stop: ComputeStop, message: string) {
+    super(stop.kind, message, 200)
+    this.name = 'ComputeStopped'
+    this.stop = stop
+  }
+}
+
+/**
+ * Throws the stop a reply carries: `ComputeStopped` for a stop, `incompatible_response` for a stop
+ * code with the wrong shape. Any other reply returns. Call it on the raw reply before the
+ * operation's own outcome checks, so a stop is never read as an ordinary failure.
+ */
+function throwIfStopped(value: unknown, expect: StopExpectation): void {
+  const stop = readComputeStop(value, expect)
+  if (stop === null) return
+  const message = firstDiagnostic(value).message
+  if (stop === 'malformed' || message === null) {
+    throw new ApiError('incompatible_response', 'The local service returned an incompatible stop reply.', 200)
+  }
+  throw new ComputeStopped(stop, message)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -3265,13 +3295,15 @@ export class DocumentClient {
   }
 
   async exportSmiles(documentId: string, style: SmilesStyle, acceptedLosses?: string): Promise<SmilesExport> {
-    const reply = smilesReply(await this.write('/api/v1/operations', {
+    const value = await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'document.export',
       parameters: {
         format: 'smiles', document_id: documentId, style,
         ...(acceptedLosses === undefined ? {} : { accepted_losses: acceptedLosses }),
       },
-    }, 'reload'))
+    }, 'reload')
+    throwIfStopped(value, { models: [style === 'canonical' ? 'chemifree-smiles-canonical-1' : 'chemifree-smiles-1'], revision: 'count' })
+    const reply = smilesReply(value)
     const { result } = reply
     if (typeof result.content !== 'string' || result.style !== style || !isRecord(result.snapshot)) {
       throw new ApiError('incompatible_response', 'The service returned invalid SMILES export content.', 200)
@@ -3376,6 +3408,7 @@ export class DocumentClient {
     const value = await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.properties', parameters,
     }, 'reload')
+    throwIfStopped(value, { models: ['chemifree-properties-1'], revision: 'count' })
     if (!isRecord(value) || (value.outcome !== 'ok' && value.outcome !== 'partial')) {
       const first = isRecord(value) && Array.isArray(value.diagnostics) ? value.diagnostics[0] : null
       const message = isRecord(first) && typeof first.message === 'string' ? first.message : 'The local service could not calculate these properties.'
@@ -3447,6 +3480,7 @@ export class DocumentClient {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics',
       operation: 'chem.aromaticity', parameters: { document_id: id },
     }, 'reload')
+    throwIfStopped(value, { models: ['chemifree-aromaticity-2'], revision: 'count' })
     if (!isRecord(value) || value.outcome !== 'ok' || value.model_id !== 'chemifree-aromaticity-2' ||
         !isRecord(value.result) || !isRecord(value.result.snapshot) || !Array.isArray(value.result.systems)) {
       throw new ApiError('analysis_unavailable', 'The local service could not inspect aromaticity.', 200)
@@ -3512,6 +3546,7 @@ export class DocumentClient {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics',
       operation: 'chem.cip', parameters: { document_id: id, ...params, scope },
     }, 'reload')
+    throwIfStopped(value, { models: [CIP_MODEL], revision: 'count' })
     const incompatible = () => new ApiError('incompatible_response', 'The local service returned an incompatible CIP reply.', 200)
     if (!isRecord(value)) throw incompatible()
     if (value.outcome === 'unsupported') {
@@ -3538,6 +3573,7 @@ export class DocumentClient {
       parameters: { document_id: id, mode, ...(otherId === null ? {} : { other_document_id: otherId }) },
     }, 'reload')
     const expectedModel = mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-2'
+    throwIfStopped(value, { models: [expectedModel], revision: 'count' })
     if (!isRecord(value) || (value.outcome !== 'ok' && value.outcome !== 'partial')) {
       const diagnostic = firstDiagnostic(value)
       const message = diagnostic.message ?? 'The local service could not compare these graphs.'
@@ -3630,6 +3666,7 @@ export class DocumentClient {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.substructure',
       parameters: { query_document_id: queryId, target_document_id: targetId },
     }, 'reload')
+    throwIfStopped(value, { models: ['chemifree-substructure-1'], revision: 'count' })
     const incompatible = () => new ApiError('incompatible_response', 'The local service returned an incompatible substructure search.', 200)
     if (!isRecord(value) || !Array.isArray(value.diagnostics)) throw incompatible()
     // The two snapshots a reply is about, which must be the drawings asked for and the revision it reports.
@@ -3712,6 +3749,7 @@ export class DocumentClient {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'chem.aromaticity_convert',
       parameters: { document_id: id, expected_revision: expectedRevision, to, selection_before: selection, selection_after: selection },
     }, 'reload')
+    throwIfStopped(value, { models: ['chemifree-aromaticity-2'], revision: 'count_or_null' })
     if (!isRecord(value) || value.outcome !== 'ok' || !isRecord(value.result)) {
       const { code, message, details } = firstDiagnostic(value)
       throw new ApiError(code ?? 'analysis_unavailable', message ?? 'The local service could not convert aromaticity.', 200, {
