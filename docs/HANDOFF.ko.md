@@ -6,7 +6,7 @@ API·CLI·conformance 실행기가 같은 구성 체인을 손으로 되풀이�
 
 - `LocalApplication`(별칭 한 곳), `LocalStores`(데이터 디렉터리의 파일 저장소: `new`, `prune_stale_temporaries`, `documents_directory`), `local_application(stores)`(PNG 디코더, 교환·CTfile·SMILES 코덱, 파일 환경설정), `with_selected_providers(app, model_data_root, model_trusted_registry, inchi)`(사용자가 고른 DATA 레지스트리, 그다음 InChI), `InchiArgs`(두 어댑터의 같은 파일을 옮김; 플래그·환경 변수·도움말·stderr 문구 그대로).
 - 어댑터에 남은 진짜 차이(플래그로 만들지 않음): API와 conformance 실행기는 시작할 때 오래된 임시 파일을 정리하고 CLI는 정리하지 않는다(기록된 이유 없음; 특성화 테스트가 고정했으니 바꾸려면 동작 변경 PR로). conformance는 계산 한도를 상한(1시간)으로 두고 DATA·InChI를 고르지 않으며 픽스처 케이스에만 합성 레지스트리를 쓴다. 데이터 디렉터리 해석과 오류 문구, clap 선언(CLI만 `global = true`), 토큰·바인드·초안 기록기·명령 분배도 어댑터에 있다.
-- 호출 순서가 둘 바뀌었다(정리가 두 저장소 생성 뒤로, DATA 레지스트리 선택이 `Application::new` 뒤로, conformance의 `with_compute_limits`가 환경설정 뒤로). 생성자는 I/O가 없고 레지스트리 선택은 출력하지 않아 관찰할 수 없다(소스 확인).
+- 호출 순서가 셋 바뀌었다(정리가 두 저장소 생성 뒤로, DATA 레지스트리 선택이 `Application::new` 뒤로, conformance의 `with_compute_limits`가 환경설정 뒤로). 생성자는 I/O가 없고(`file_store.rs`·`preference_store.rs`의 `new`) 레지스트리 선택은 출력하지 않아 관찰할 수 없다(소스 확인).
 - 증거: `--help`·`--version`과 하위 명령 도움말 출력이 이전과 같다, conformance 보고서가 이전과 같다(119 케이스), `cargo tree -e features`에서 api·cli·host에 `conformance-fixtures`가 없다, 계약 스모크 통과. 특성화 테스트 `apps/api/tests/startup_assembly.rs`, `apps/cli/tests/startup_assembly.rs`, conformance `running.rs`의 사례는 옮기기 전 코드에서 먼저 통과시켰고 그 뒤 수정하지 않았다. host 단위 테스트(8개, 뮤테이션 5개 잡음).
 - 새 루트(제품 서버 P87, MCP)는 같은 함수를 쓴다. `InchiArgs::configure`는 표준 오류에 쓴다(stdio를 쓰는 루트는 유의).
 - 남은 T0: 이슈 #106의 작은 항목, 큰 파일 분할 5, 설계 선행의 잠금 안 저장소 I/O 이동(요청 시).
