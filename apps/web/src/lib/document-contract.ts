@@ -3302,7 +3302,7 @@ export class DocumentClient {
         ...(acceptedLosses === undefined ? {} : { accepted_losses: acceptedLosses }),
       },
     }, 'reload')
-    throwIfStopped(value, { models: ['chemifree-smiles-1', 'chemifree-smiles-canonical-1'], revision: 'count' })
+    throwIfStopped(value, { models: [style === 'canonical' ? 'chemifree-smiles-canonical-1' : 'chemifree-smiles-1'], revision: 'count' })
     const reply = smilesReply(value)
     const { result } = reply
     if (typeof result.content !== 'string' || result.style !== style || !isRecord(result.snapshot)) {

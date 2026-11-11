@@ -209,6 +209,13 @@ test('a canonical SMILES stop is a ComputeStopped error too', async (t) => {
   assert.deepEqual([error.code, error.stop], ['time_limit', { kind: 'time_limit', limitMs: 5000 }])
 })
 
+test('a SMILES stop of the other style is not the stop of the style asked for', async (t) => {
+  operations(t, () => json(stopReply({ operation: 'document.export', model_id: 'chemifree-smiles-1', document_revision: 3 })))
+  const error = await rejectionOf(new DocumentClient().exportSmiles('d1', 'canonical'))
+  assert.equal(error instanceof ComputeStopped, false)
+  assert.equal(error.code, 'incompatible_response')
+})
+
 test('a request that gets no reply is unreachable and is never read as a stop', async (t) => {
   operations(t, () => { throw new TypeError('fetch failed') })
   const error = await rejectionOf(new DocumentClient().inspectAromaticity('d1'))
