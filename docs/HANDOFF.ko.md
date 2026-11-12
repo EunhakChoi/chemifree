@@ -1,5 +1,18 @@
 # Chemifree 새 세션 인계
 
+## document.rs 분할 (T0, 열째 PR)
+
+`crates/domain/src/document.rs`(4,068줄)를 302줄 모듈 뿌리와 새 자식 열 개 `crates/domain/src/document/{entities,command,error,change_set,content,history,accessors,lifecycle,draft,apply}.rs`로 나눴다(기존 자식 `abbreviation`·`fragment_display`·`persistence`와 `lib.rs`, 다른 crate는 손대지 않음). 순수 이동이며 동작은 바뀌지 않는다.
+
+- `document`는 공개 모듈이라 옮긴 공개 항목 27개를 모두 이름으로 다시 내보낸다. `chemifree_domain::document::<이름>`·`crate::document::<이름>` 경로는 그대로다.
+- 뿌리에 남은 것: 모듈 문서, 상수 18개, `DocumentId`, `serial_id` 매크로와 ID 형식 넷, 자식이 비공개 필드나 튜플 생성자를 쓰는 정의(`Content`, `Draft`, `Created`, `Direction`, `unique`, `DocumentParts`, `RestoreError`, `Document`), 인라인 단위 테스트 하나(`use crate::stereo_group::GroupKind;` 한 줄 추가).
+- 자식: 값 형식 `entities`, 명령 `command`, 오류 `error`, 변경 집합 `change_set`, `impl Content` `content`, 적용·undo·redo `history`, 읽기 접근자 `accessors`, 생성·복원 `lifecycle`, `Draft` 도우미 `draft`, `Draft::apply` `apply`. 메서드를 더하는 자식은 각자 `impl Document`/`impl Draft` 블록을 연다. 공개 항목은 뿌리 경로(`use super::{..}`)로 가져오고, `pub(super)` 도우미는 `super::<자식>::<항목>`으로 가져온다(`history` → `change_set`, `lifecycle` → `history`뿐). `entities`와 `error`는 서로를 쓴다.
+- 가시성: 컴파일러가 요구한 `pub(super)` 42개(entities 3, change_set 5, content 15, history 2, draft 16, apply 1). `pub`·`pub(crate)`로 넓힌 항목은 없다(공개 선언 집합이 기준과 같다).
+- 허용한 차이: rustfmt가 `pub(super)` 때문에 100열을 넘은 시그니처 4개(content 1, draft 2, history 1)를 다시 감쌌다. 자식에서 해석되지 않는 문서 링크 둘은 대상만 바꿨다(`command.rs`의 `StereoError::*` 넷은 문서 끝 참조 정의로, `change_set.rs`의 `HISTORY_CHANGE_LIMIT`은 `super::` 경로로). 계획의 S8 범위는 메서드를 닫는 기준 3538행을 빠뜨렸고, 구현은 그 줄을 포함했다.
+- `apply.rs`(771줄)는 600줄 목표를 넘는다. `Draft::apply`가 약 700줄 함수 하나라서 순수 이동으로는 나눌 수 없고, 명령 묶음별로 나누는 것은 후속이다.
+- 증거: (TG1) 이동한 줄의 다중집합이 기준(154cb18e)과 같다(impl 머리·닫는 괄호와 위 허용 차이만); (TG2) 기존 자식과 `lib.rs` 무변경, 바뀐 추적 파일은 `document.rs` 하나; (TG3) 공개 선언 집합 같음, 새 `pub(super)` 42개, 자식의 공개 항목 27개 모두 재내보냄, `cargo doc` 새 경고 없음; (TG4) `cargo nextest list --workspace`가 기준과 같음; `npm run check`.
+- 남은 T0: 이슈 #106의 작은 항목, 큰 파일 분할 1(`crates/providers/src/file_format.rs`), 설계 선행의 잠금 안 저장소 I/O 이동(요청 시).
+
 ## operations.rs 분할 (T0, 아홉째 PR)
 
 `crates/application/src/operations.rs`(3,416줄)를 553줄 모듈 뿌리와 새 자식 아홉 개 `crates/application/src/operations/{reply,catalog_table,catalog,backend,molfile,chem_properties,chem_aromaticity,dispatch,property_tests}.rs`로 나눴다(기존 자식 14개, `lib.rs`, `documents.rs`, `contract/`는 손대지 않음). 순수 이동이며 동작은 바뀌지 않는다.
@@ -126,7 +139,7 @@ API·CLI·conformance 실행기가 같은 구성 체인을 손으로 되풀이�
 | T8 | 고급 문서·형식 | P68–P81 | 42–70 |
 | T9 | 자동화·출시 | P83–P86, P88, P89 | 20–35 |
 
-- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1은 여섯째 PR(crates/host)에서 납품, 큰 파일 분할 5(`document-contract.ts`는 일곱째 PR, `contract.rs`는 여덟째 PR, `operations.rs`는 아홉째 PR에서 납품, 2 남음), 로드맵 HTML 동기화 스크립트와 일치 검사 1은 다섯째 PR에서 납품). 구조 정리는 동작을 바꾸지 않는다.
+- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1은 여섯째 PR(crates/host)에서 납품, 큰 파일 분할 5(`document-contract.ts`는 일곱째 PR, `contract.rs`는 여덟째 PR, `operations.rs`는 아홉째 PR, `document.rs`는 열째 PR에서 납품, 1 남음), 로드맵 HTML 동기화 스크립트와 일치 검사 1은 다섯째 PR에서 납품). 구조 정리는 동작을 바꾸지 않는다.
 - T1에서는 제품 서버(P87)와 배치 준비·사슬·단순 고리(P42)를 먼저 한다. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38의 마감은 T3 맨 앞으로 옮겼다.
 - T2의 MCP는 실행 중인 로컬 서버의 클라이언트로 붙는다. 그래서 P87이 먼저다.
 - 화학·입체 심화(P18, P20–P28의 남은 범위와 P17·P19에서 T1의 제한된 마감에 넣지 않은 범위)는 별도 트랙이 아니다. 뒤 트랙이 필요로 할 때 해당 행을 다시 연다(예: 명명은 P18·P26, 반응 코덱은 P21·P28).
