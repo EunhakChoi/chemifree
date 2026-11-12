@@ -1,5 +1,6 @@
 /**
- * Hand-maintained mirror of the v1 document contract in crates/application/src/contract.rs.
+ * Hand-maintained mirror of the v1 document contract in crates/application/src/contract/
+ * (re-exported by contract.rs).
  * The code lives in ./document-contract/; this file is the only entry point for importers.
  */
 

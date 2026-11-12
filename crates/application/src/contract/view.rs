@@ -2,8 +2,6 @@
 
 use serde::Serialize;
 
-#[cfg(doc)]
-use super::chemistry::query_label;
 use super::chemistry::{BondOrderDto, BondQueryDto, HydrogensDto, QueryDto, RadicalDto};
 use super::request::SelectionDto;
 use super::scene::{
@@ -68,7 +66,7 @@ impl DocumentView {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct AtomView {
     pub id: String,
-    /// The element symbol, or for a query atom its label (see [`query_label`]), which is not
+    /// The element symbol, or for a query atom its label (see [`query_label`](super::chemistry::query_label)), which is not
     /// an element symbol: `kind` says which.
     pub element: String,
     pub charge: i8,

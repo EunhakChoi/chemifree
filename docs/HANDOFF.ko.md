@@ -4,8 +4,8 @@
 
 `crates/application/src/contract.rs`(3,067줄)를 `crates/application/src/contract/{request,chemistry,stereo,settings,scene,parse,command,view,convert,response}.rs` 열 파일로 나눴다. 순수 이동이며 동작은 바뀌지 않는다. 원래 파일은 모듈 문서, 비공개 자식 모듈 10개, 재내보내기 목록(`pub use` 86 이름, `pub(crate) use` 13 이름)만 가진 55줄 모듈 뿌리라 `crate::contract::<이름>`과 `chemifree_application::<이름>` 경로는 그대로다.
 
-- 자식끼리는 `super::<자식>::<항목>`으로만 참조하고, 다른 자식이 쓰는 항목 21개를 `pub(super)`로 열었다. 의존: request·chemistry·stereo가 잎, settings → request, scene → settings, command·view·response·parse는 앞의 것들을 쓰고, convert(`to_commands`·`to_command`)는 command·parse·scene·settings를 쓴다.
-- 아무도 쓰지 않던 재내보내기 셋(`FragmentDisplayRunDto`, `FragmentDisplayView`, `GROUP_NUMBER_RANGE`)은 뺐다(항목은 자식 안에 남음). `view.rs`에 문서 링크용 `#[cfg(doc)] use super::chemistry::query_label;`을 더했다. rustfmt가 `parse.rs`의 두 시그니처(`atom_kind`, `reference`)를 다시 감쌌다(토큰은 같음).
+- 자식끼리는 `super::<자식>::<항목>`으로만 참조하고, 다른 자식이 쓰는 항목 17개(`Refusal`, parse 함수 13개, `font_view`, stereo 상수 2개)와 `Refusal`의 필드 4개를 `pub(super)`로 열었다. 의존: request·chemistry·stereo가 잎, settings → request, scene → settings, command·view·response·parse는 앞의 것들을 쓰고, convert(`to_commands`·`to_command`)는 command·parse·scene·settings를 쓴다.
+- 아무도 쓰지 않던 crate 안 재내보내기 셋(`FragmentDisplayRunDto`, `FragmentDisplayView`, `GROUP_NUMBER_RANGE`; `lib.rs`는 원래 내보내지 않았다)은 뺐다. 항목은 자식 안에 남고 `GROUP_NUMBER_RANGE`는 `parse` 안의 비공개 상수가 되었다. `view.rs`의 `query_label` 문서 링크는 경로를 직접 쓴다. rustfmt가 `parse.rs`의 두 시그니처(`atom_kind`, `reference`)를 다시 감쌌다(토큰은 같음).
 - `to_command`는 `convert.rs`에 한 함수로 남는다(약 560줄). 새 트랜잭션 명령은 여전히 이 함수를 고친다. 쪼개는 것은 후속이다.
 - 증거: (1) 이동한 코드 비교 — 원본의 항목이 모두 정확히 한 자식에 같은 본문으로 있다(가시성 접두와 위 rustfmt 재감싸기 제외); (2) 경로 탐침 — 모든 기존 공개 경로가 컴파일된다; (3) rustdoc 비교 — 차이는 재내보내기 리디렉트 스텁 84개의 위치(`contract/<f>.html` → `contract/<자식>/<f>.html`)뿐이고 대상은 같다; (4) `npm run check` 통과. 줄 이력은 `git blame -C -C` 또는 `git log -L`로 따라간다.
 - 남은 T0: 이슈 #106의 작은 항목, 큰 파일 분할 3(`crates/application/src/operations.rs`, `crates/domain/src/document.rs`, `crates/providers/src/file_format.rs`), 설계 선행의 잠금 안 저장소 I/O 이동(요청 시).

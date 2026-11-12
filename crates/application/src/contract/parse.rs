@@ -78,7 +78,7 @@ pub(super) fn group_number(number: Option<i64>) -> Result<Option<i32>, Refusal> 
 
 /// The `reason` of a stereo group number outside the 32-bit signed range. The domain never
 /// sees such a number, so this is the wire's own code, listed beside the domain's.
-pub const GROUP_NUMBER_RANGE: &str = "stereo_group_number_range";
+const GROUP_NUMBER_RANGE: &str = "stereo_group_number_range";
 
 pub(super) fn atom_refs(values: &[String]) -> Result<Vec<AtomRef>, String> {
     values.iter().map(|id| atom_ref(id)).collect()

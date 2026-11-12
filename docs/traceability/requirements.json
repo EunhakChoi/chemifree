@@ -30,7 +30,8 @@
           "status": "implemented",
           "implementation": [
             "crates/domain/src/document.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/response.rs",
+            "crates/application/src/contract/view.rs",
             "crates/providers/src/file_format.rs"
           ],
           "evidence": [
@@ -48,7 +49,9 @@
           "implementation": [
             "crates/domain/src/scene.rs",
             "crates/domain/src/document.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/scene.rs",
+            "crates/application/src/contract/view.rs",
             "crates/providers/src/file_format.rs"
           ],
           "evidence": [
@@ -93,7 +96,9 @@
           "implementation": [
             "crates/domain/src/element.rs",
             "crates/domain/src/document.rs",
-            "crates/application/src/contract.rs"
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/convert.rs",
+            "crates/application/src/contract/view.rs"
           ],
           "evidence": [
             "case:out-of-range-input-refused",
@@ -109,7 +114,9 @@
           "implementation": [
             "crates/domain/src/states.rs",
             "crates/domain/src/document.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/chemistry.rs",
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/parse.rs",
             "crates/providers/src/file_format.rs",
             "apps/web/src/editor/label.ts"
           ],
@@ -128,7 +135,9 @@
           "implementation": [
             "crates/domain/src/states.rs",
             "crates/domain/src/document.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/chemistry.rs",
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/parse.rs",
             "crates/providers/src/file_format.rs",
             "apps/web/src/editor/label.ts",
             "apps/web/src/editor/geometry.ts"
@@ -256,7 +265,9 @@
             "crates/domain/src/stereo.rs",
             "crates/domain/src/document.rs",
             "crates/providers/src/file_format.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/parse.rs",
+            "crates/application/src/contract/stereo.rs",
             "crates/application/src/documents.rs",
             "crates/application/src/operations.rs",
             "apps/web/src/lib/stereo-contract.ts"
@@ -287,7 +298,8 @@
             "crates/domain/src/stereo_drawing.rs",
             "crates/domain/src/stereo.rs",
             "crates/domain/src/document.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/stereo.rs",
             "crates/application/src/documents.rs",
             "crates/application/src/operations.rs",
             "apps/web/src/lib/document-contract.ts"
@@ -314,7 +326,7 @@
             "crates/domain/src/stereo_drawing.rs",
             "crates/application/src/operations/stereo.rs",
             "crates/application/src/operations.rs",
-            "crates/application/src/contract.rs"
+            "crates/application/src/contract/stereo.rs"
           ],
           "evidence": [
             "case:stereo-drawn-and-stored-disagree",
@@ -426,7 +438,9 @@
             "crates/domain/src/stereo_group.rs",
             "crates/domain/src/document.rs",
             "crates/providers/src/file_format.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/parse.rs",
+            "crates/application/src/contract/stereo.rs",
             "crates/application/src/documents.rs",
             "crates/application/src/operations.rs",
             "apps/web/src/lib/stereo-contract.ts"
@@ -1053,7 +1067,9 @@
             "crates/domain/src/document.rs",
             "crates/domain/src/scene.rs",
             "crates/application/src/operations/selection_scope.rs",
-            "crates/application/src/contract.rs"
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/parse.rs",
+            "crates/application/src/contract/request.rs"
           ],
           "evidence": [
             "case:selection-scope-union-move-history",
@@ -1069,7 +1085,9 @@
             "crates/domain/src/scene/arrangement.rs",
             "crates/domain/src/document.rs",
             "crates/application/src/operations/arrangement.rs",
-            "crates/application/src/contract.rs"
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/scene.rs",
+            "crates/application/src/contract/view.rs"
           ],
           "evidence": [
             "case:object-arrangement-plan-history",
@@ -1085,7 +1103,9 @@
             "crates/domain/src/scene/transform.rs",
             "crates/domain/src/document.rs",
             "crates/application/src/operations/transform.rs",
-            "crates/application/src/contract.rs"
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/request.rs",
+            "crates/application/src/contract/scene.rs"
           ],
           "evidence": [
             "case:selection-transform-plan-history",
@@ -1503,7 +1523,9 @@
           "status": "implemented",
           "implementation": [
             "crates/domain/src/stereo_group.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/response.rs",
+            "crates/application/src/contract/stereo.rs",
             "crates/application/src/documents.rs",
             "crates/application/src/ct_projection.rs",
             "crates/application/src/stereo_projection.rs",
@@ -1988,7 +2010,8 @@
           "implementation": [
             "crates/domain/src/settings.rs",
             "crates/domain/src/document.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/settings.rs",
             "crates/application/src/documents.rs",
             "crates/providers/src/file_format.rs",
             "apps/web/src/editor/settings.ts"
@@ -2044,7 +2067,9 @@
           "implementation": [
             "crates/domain/src/scene.rs",
             "crates/domain/src/settings.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/scene.rs",
+            "crates/application/src/contract/view.rs",
             "crates/providers/src/file_format.rs",
             "apps/web/src/editor/scene-caption.tsx",
             "apps/web/src/editor/label.ts",
@@ -2140,7 +2165,9 @@
           "status": "implemented",
           "implementation": [
             "crates/application/src/error.rs",
-            "crates/application/src/contract.rs",
+            "crates/application/src/contract/command.rs",
+            "crates/application/src/contract/convert.rs",
+            "crates/application/src/contract/request.rs",
             "apps/api/src/lib.rs"
           ],
           "evidence": [
