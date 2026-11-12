@@ -1,5 +1,18 @@
 # Chemifree 새 세션 인계
 
+## file_format.rs 분할 (T0, 열한째 PR)
+
+`crates/providers/src/file_format.rs`(3,736줄)를 569줄 모듈 뿌리와 새 자식 열 개 `crates/providers/src/file_format/{settings,records,scene,graph,objects,changes,migrate,checks,write,read}.rs`로 나눴다(`lib.rs`, `file_store.rs`, `preference_store.rs`, 테스트는 손대지 않음). 순수 이동이며 동작은 바뀌지 않는다. 이로써 T0의 큰 파일 분할 다섯이 모두 끝났다.
+
+- `file_format`은 crate 안 비공개 모듈이다. crate 안에서 보이던 이름 13개(`encode`, `encode_draft`, `decode`, `decode_draft`, `decode_revision`, `decode_draft_info`, `earlier_version`, `earlier_draft_version`, 저장 설정 열거형 다섯)는 `pub(crate) use`로 같은 경로에 남는다.
+- 뿌리에 남은 것: 스키마 버전에 관한 것 전부(모듈 문서, 형식·버전 상수, 인라인 옛 버전 모듈 `v6`·`v5`·`v4`·`v2`·`v1` 바이트 그대로, `required_option`, 헤더·`Version` 해석, `earlier`).
+- 자식: 저장 형태 `settings`·`records`(버전 2–6 공용 기록)·`scene`(버전 30 문서), 코덱 `graph`·`objects`·`changes`, 이주 `migrate`, 버전별 원시 JSON 검사 `checks`, 진입점 `write`·`read`.
+- 가시성: 저장 형태는 불변식 없는 serde 데이터이고 코덱이 필드를 직접 만들고 읽으므로, 도메인 분할과 달리 구조체를 뿌리 밖으로 옮기고 컴파일러가 요구한 곳에 `pub(super)`를 붙였다. 필드 163개와 항목 97개(records 필드 64·항목 33, scene 99·27, 나머지 자식은 항목만). 모두 `file_format` 안에서만 보이며 `pub`·`pub(crate)`로 넓힌 항목은 없다(Opus 권고, 대안은 뿌리 약 1,200줄).
+- 허용한 차이: rustfmt가 `pub(super)` 때문에 100열을 넘은 시그니처 3개(`objects.rs`의 `read_fragment_display`·`read_scene_state`, `checks.rs`의 `refuse_earlier_captions`)를 다시 감쌌다.
+- 그대로 둔 것(후속): 문서 주석의 "1 to 26"(실제로는 1–29)과 `version` 오류 문구의 손으로 나열한 버전 목록. 오류 문구는 테스트가 고정한다.
+- 증거: (TG1) 이동한 줄이 기준(2394312e)과 같다(가시성 접두와 위 재감싸기만); (TG2) 소비자 무변경; (TG3) `pub(crate)` 집합 13개 그대로; (TG4) 테스트 목록이 기준과 같고 워크스페이스 nextest 2,578개 통과; `npm run check`.
+- 남은 T0: 이슈 #106의 작은 항목, 설계 선행의 잠금 안 저장소 I/O 이동(요청 시). 분할 후속: `Draft::apply`·`dispatch`·`to_command`·`DocumentClient` 분해, 결과 형식 위치 정리.
+
 ## document.rs 분할 (T0, 열째 PR)
 
 `crates/domain/src/document.rs`(4,068줄)를 302줄 모듈 뿌리와 새 자식 열 개 `crates/domain/src/document/{entities,command,error,change_set,content,history,accessors,lifecycle,draft,apply}.rs`로 나눴다(기존 자식 `abbreviation`·`fragment_display`·`persistence`와 `lib.rs`, 다른 crate는 손대지 않음). 순수 이동이며 동작은 바뀌지 않는다.
@@ -139,7 +152,7 @@ API·CLI·conformance 실행기가 같은 구성 체인을 손으로 되풀이�
 | T8 | 고급 문서·형식 | P68–P81 | 42–70 |
 | T9 | 자동화·출시 | P83–P86, P88, P89 | 20–35 |
 
-- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1은 여섯째 PR(crates/host)에서 납품, 큰 파일 분할 5(`document-contract.ts`는 일곱째 PR, `contract.rs`는 여덟째 PR, `operations.rs`는 아홉째 PR, `document.rs`는 열째 PR에서 납품, 1 남음), 로드맵 HTML 동기화 스크립트와 일치 검사 1은 다섯째 PR에서 납품). 구조 정리는 동작을 바꾸지 않는다.
+- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1은 여섯째 PR(crates/host)에서 납품, 큰 파일 분할 5(`document-contract.ts`는 일곱째 PR, `contract.rs`는 여덟째 PR, `operations.rs`는 아홉째 PR, `document.rs`는 열째 PR, `file_format.rs`는 열한째 PR에서 납품, 모두 완료), 로드맵 HTML 동기화 스크립트와 일치 검사 1은 다섯째 PR에서 납품). 구조 정리는 동작을 바꾸지 않는다.
 - T1에서는 제품 서버(P87)와 배치 준비·사슬·단순 고리(P42)를 먼저 한다. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38의 마감은 T3 맨 앞으로 옮겼다.
 - T2의 MCP는 실행 중인 로컬 서버의 클라이언트로 붙는다. 그래서 P87이 먼저다.
 - 화학·입체 심화(P18, P20–P28의 남은 범위와 P17·P19에서 T1의 제한된 마감에 넣지 않은 범위)는 별도 트랙이 아니다. 뒤 트랙이 필요로 할 때 해당 행을 다시 연다(예: 명명은 P18·P26, 반응 코덱은 P21·P28).

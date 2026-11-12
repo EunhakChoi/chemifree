@@ -35,7 +35,10 @@
             "crates/domain/src/document/change_set.rs",
             "crates/application/src/contract/response.rs",
             "crates/application/src/contract/view.rs",
-            "crates/providers/src/file_format.rs"
+            "crates/providers/src/file_format.rs",
+            "crates/providers/src/file_format/graph.rs",
+            "crates/providers/src/file_format/scene.rs",
+            "crates/providers/src/file_format/changes.rs"
           ],
           "evidence": [
             "case:graph-scene-separation",
@@ -57,7 +60,10 @@
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/scene.rs",
             "crates/application/src/contract/view.rs",
-            "crates/providers/src/file_format.rs"
+            "crates/providers/src/file_format.rs",
+            "crates/providers/src/file_format/scene.rs",
+            "crates/providers/src/file_format/objects.rs",
+            "crates/providers/src/file_format/changes.rs"
           ],
           "evidence": [
             "case:scene-tree-history",
@@ -127,6 +133,8 @@
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/parse.rs",
             "crates/providers/src/file_format.rs",
+            "crates/providers/src/file_format/graph.rs",
+            "crates/providers/src/file_format/records.rs",
             "apps/web/src/editor/label.ts"
           ],
           "evidence": [
@@ -150,6 +158,9 @@
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/parse.rs",
             "crates/providers/src/file_format.rs",
+            "crates/providers/src/file_format/graph.rs",
+            "crates/providers/src/file_format/records.rs",
+            "crates/providers/src/file_format/changes.rs",
             "apps/web/src/editor/label.ts",
             "apps/web/src/editor/geometry.ts"
           ],
@@ -280,6 +291,9 @@
             "crates/domain/src/document/draft.rs",
             "crates/domain/src/document/apply.rs",
             "crates/providers/src/file_format.rs",
+            "crates/providers/src/file_format/graph.rs",
+            "crates/providers/src/file_format/records.rs",
+            "crates/providers/src/file_format/changes.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/parse.rs",
             "crates/application/src/contract/stereo.rs",
@@ -462,6 +476,9 @@
             "crates/domain/src/document/draft.rs",
             "crates/domain/src/document/history.rs",
             "crates/providers/src/file_format.rs",
+            "crates/providers/src/file_format/graph.rs",
+            "crates/providers/src/file_format/scene.rs",
+            "crates/providers/src/file_format/changes.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/parse.rs",
             "crates/application/src/contract/stereo.rs",
@@ -1412,7 +1429,10 @@
             "crates/domain/src/document/content.rs",
             "crates/domain/src/document/history.rs",
             "crates/application/src/documents.rs",
-            "crates/providers/src/file_format.rs"
+            "crates/providers/src/file_format.rs",
+            "crates/providers/src/file_format/scene.rs",
+            "crates/providers/src/file_format/objects.rs",
+            "crates/providers/src/file_format/changes.rs"
           ],
           "evidence": [
             "case:scene-tree-history",
@@ -2068,6 +2088,9 @@
             "crates/application/src/contract/settings.rs",
             "crates/application/src/documents.rs",
             "crates/providers/src/file_format.rs",
+            "crates/providers/src/file_format/settings.rs",
+            "crates/providers/src/file_format/changes.rs",
+            "crates/providers/src/file_format/migrate.rs",
             "apps/web/src/editor/settings.ts"
           ],
           "evidence": [
@@ -2125,6 +2148,9 @@
             "crates/application/src/contract/scene.rs",
             "crates/application/src/contract/view.rs",
             "crates/providers/src/file_format.rs",
+            "crates/providers/src/file_format/objects.rs",
+            "crates/providers/src/file_format/scene.rs",
+            "crates/providers/src/file_format/settings.rs",
             "apps/web/src/editor/scene-caption.tsx",
             "apps/web/src/editor/label.ts",
             "crates/domain/src/document/abbreviation.rs",
