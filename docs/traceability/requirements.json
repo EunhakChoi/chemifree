@@ -30,6 +30,9 @@
           "status": "implemented",
           "implementation": [
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/entities.rs",
+            "crates/domain/src/document/content.rs",
+            "crates/domain/src/document/change_set.rs",
             "crates/application/src/contract/response.rs",
             "crates/application/src/contract/view.rs",
             "crates/providers/src/file_format.rs"
@@ -49,6 +52,8 @@
           "implementation": [
             "crates/domain/src/scene.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/content.rs",
+            "crates/domain/src/document/apply.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/scene.rs",
             "crates/application/src/contract/view.rs",
@@ -96,6 +101,8 @@
           "implementation": [
             "crates/domain/src/element.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/entities.rs",
+            "crates/domain/src/document/apply.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/convert.rs",
             "crates/application/src/contract/view.rs"
@@ -114,6 +121,8 @@
           "implementation": [
             "crates/domain/src/states.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/entities.rs",
+            "crates/domain/src/document/apply.rs",
             "crates/application/src/contract/chemistry.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/parse.rs",
@@ -135,6 +144,8 @@
           "implementation": [
             "crates/domain/src/states.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/entities.rs",
+            "crates/domain/src/document/apply.rs",
             "crates/application/src/contract/chemistry.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/parse.rs",
@@ -265,6 +276,9 @@
           "implementation": [
             "crates/domain/src/stereo.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/command.rs",
+            "crates/domain/src/document/draft.rs",
+            "crates/domain/src/document/apply.rs",
             "crates/providers/src/file_format.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/parse.rs",
@@ -300,6 +314,9 @@
             "crates/domain/src/stereo_drawing.rs",
             "crates/domain/src/stereo.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/command.rs",
+            "crates/domain/src/document/draft.rs",
+            "crates/domain/src/document/apply.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/stereo.rs",
             "crates/application/src/documents.rs",
@@ -441,6 +458,9 @@
           "implementation": [
             "crates/domain/src/stereo_group.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/command.rs",
+            "crates/domain/src/document/draft.rs",
+            "crates/domain/src/document/history.rs",
             "crates/providers/src/file_format.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/parse.rs",
@@ -1028,7 +1048,8 @@
           "summary": "Deleting atoms deletes exactly the bonds that touch them, and undo restores both.",
           "status": "implemented",
           "implementation": [
-            "crates/domain/src/document.rs"
+            "crates/domain/src/document.rs",
+            "crates/domain/src/document/apply.rs"
           ],
           "evidence": [
             "case:atom-deletion-removes-incident-bonds",
@@ -1042,6 +1063,9 @@
           "status": "implemented",
           "implementation": [
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/apply.rs",
+            "crates/domain/src/document/draft.rs",
+            "crates/domain/src/document/history.rs",
             "crates/domain/src/scene.rs"
           ],
           "evidence": [
@@ -1072,6 +1096,9 @@
           "status": "implemented",
           "implementation": [
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/content.rs",
+            "crates/domain/src/document/accessors.rs",
+            "crates/domain/src/document/apply.rs",
             "crates/domain/src/scene.rs",
             "crates/application/src/operations/selection_scope.rs",
             "crates/application/src/contract/command.rs",
@@ -1091,6 +1118,9 @@
           "implementation": [
             "crates/domain/src/scene/arrangement.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/content.rs",
+            "crates/domain/src/document/accessors.rs",
+            "crates/domain/src/document/apply.rs",
             "crates/application/src/operations/arrangement.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/scene.rs",
@@ -1109,6 +1139,9 @@
           "implementation": [
             "crates/domain/src/scene/transform.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/content.rs",
+            "crates/domain/src/document/accessors.rs",
+            "crates/domain/src/document/apply.rs",
             "crates/application/src/operations/transform.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/request.rs",
@@ -1294,6 +1327,8 @@
           "status": "implemented",
           "implementation": [
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/history.rs",
+            "crates/domain/src/document/error.rs",
             "crates/application/src/documents.rs"
           ],
           "evidence": [
@@ -1307,7 +1342,9 @@
           "summary": "Each changing transaction, undo and redo adds one revision; a transaction that changes nothing adds none; an edit after undo drops the redo branch without reusing atom ids.",
           "status": "implemented",
           "implementation": [
-            "crates/domain/src/document.rs"
+            "crates/domain/src/document.rs",
+            "crates/domain/src/document/history.rs",
+            "crates/domain/src/document/change_set.rs"
           ],
           "evidence": [
             "case:transaction-revision-and-no-op",
@@ -1352,6 +1389,9 @@
           "status": "implemented",
           "implementation": [
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/history.rs",
+            "crates/domain/src/document/change_set.rs",
+            "crates/domain/src/document/apply.rs",
             "crates/application/src/documents.rs"
           ],
           "evidence": [
@@ -1368,6 +1408,9 @@
           "implementation": [
             "crates/domain/src/scene.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/apply.rs",
+            "crates/domain/src/document/content.rs",
+            "crates/domain/src/document/history.rs",
             "crates/application/src/documents.rs",
             "crates/providers/src/file_format.rs"
           ],
@@ -2018,6 +2061,9 @@
           "implementation": [
             "crates/domain/src/settings.rs",
             "crates/domain/src/document.rs",
+            "crates/domain/src/document/apply.rs",
+            "crates/domain/src/document/change_set.rs",
+            "crates/domain/src/document/lifecycle.rs",
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/settings.rs",
             "crates/application/src/documents.rs",
