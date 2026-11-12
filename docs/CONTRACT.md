@@ -55,7 +55,7 @@ Capabilities: `{ api_version, capabilities: [{ id, label, status, description }]
 
 ## Operation contract 1
 
-One request and reply shape for every operation, named and versioned apart from the HTTP routes above. HTTP and the CLI pass the request bytes to the same `Application::execute`, so both give the same reply, error codes included. Rust types: `crates/application/src/operations.rs`; vocabulary (operation names, profiles, representation, execution): `crates/domain/src/operation.rs`.
+One request and reply shape for every operation, named and versioned apart from the HTTP routes above. HTTP and the CLI pass the request bytes to the same `Application::execute`, so both give the same reply, error codes included. Rust types: `crates/application/src/operations/reply.rs` (envelope, diagnostics, losses and shared results; each operation's own result type is in its file under `crates/application/src/operations/`, and `operations.rs` reads the envelope); vocabulary (operation names, profiles, representation, execution): `crates/domain/src/operation.rs`.
 
 Request: `{ "contract": 1, "request_id", "profile", "operation", "parameters": {} }`. All five fields are required and no others are allowed. `profile` is `preserve-semantics` (keep document meaning; report what is lost) or `legacy-observed` (reproduce another program's observed behavior: nothing runs under it except `capabilities.inspect`; every other operation is answered `unsupported` with the diagnostic `profile_unavailable`). There is no default profile.
 
