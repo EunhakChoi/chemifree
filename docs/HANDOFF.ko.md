@@ -1,5 +1,17 @@
 # Chemifree 새 세션 인계
 
+## operations.rs 분할 (T0, 아홉째 PR)
+
+`crates/application/src/operations.rs`(3,416줄)를 553줄 모듈 뿌리와 새 자식 아홉 개 `crates/application/src/operations/{reply,catalog_table,catalog,backend,molfile,chem_properties,chem_aromaticity,dispatch,property_tests}.rs`로 나눴다(기존 자식 14개, `lib.rs`, `documents.rs`, `contract/`는 손대지 않음). 순수 이동이며 동작은 바뀌지 않는다.
+
+- 뿌리에 남은 것: 모듈 문서, 자식 선언과 재내보내기 목록, 모든 자식이 `super::<항목>`으로 쓰는 공통 부분(`OPERATION_CONTRACT`, `ENVELOPE_FIELDS`, `parameters`, 실패·진단 도우미, `Known`, `execute`·`execute_with`, 시간 제한 도우미 셋). 메서드는 메서드로 남고 새 자식마다 `impl Application` 블록을 연다(기존 자식과 같음).
+- 의존: reply는 뿌리의 `diagnostic`·`protocol_error`를 쓰므로 뿌리와 서로 의존한다(뿌리와 기존 자식 사이와 같음). catalog_table → reply이고 뿌리가 그 `entry`를 가져온다. catalog → catalog_table·reply·cip, backend·molfile·chem_properties·chem_aromaticity는 공통 부분과 reply를 쓰고, dispatch는 각 연산 파일의 매개변수 형식을 가져오며 `row`·`operation_catalog`는 메서드로 부른다. 새 파일은 명시적 가져오기만 쓴다(glob 없음). 사용처가 하나인 도우미 일부(`indexed_failure`, `ct_mapping`)는 뿌리에 남겼다.
+- 가시성: 컴파일러가 요구한 `pub(super)` 25개(catalog_table 11, catalog 1, backend 3, molfile 5, chem_properties 2, chem_aromaticity 2, dispatch 1)뿐이고 `pub`·`pub(crate)`로 넓힌 항목은 없다. 아무도 쓰지 않던 crate 경로 8개가 없어졌다: 옛 뿌리에 정의된 결과 형식 7개(`ValenceResult`, `ValenceAtom`, `PropertiesResult`, `PropertyValenceWarning`, `CtPreviewResult`, `CtExportResult`, `CtExportMapping`)는 `crate::operations::<이름>` 재내보내기가 쓰이지 않는 `pub use`(`-D warnings` 오류)라 이제 `operations` 안에서만 보이고, 별칭 `TemplateReplacement`는 뺐다. `lib.rs`는 원래 어느 것도 내보내지 않았다.
+- 허용한 차이: rustfmt가 `pub(super)` 때문에 100열을 넘은 `molfile.rs`의 `ct_format_alias` 시그니처를 다시 감쌌다; `property_tests`는 들여쓰기가 줄고 rustfmt가 몇 줄을 다시 감쌌다(토큰은 같음, 모듈 경로·테스트 ID 그대로); 뿌리 모듈 문서의 "the dispatcher below"를 `operations/dispatch.rs`로 고쳤다.
+- `dispatch`는 `dispatch.rs`에 한 함수로 남는다(약 370줄). 새 연산은 여전히 이 함수를 고친다. 쪼개는 것은 후속이다. chem.validate·chem.properties·chem.aromaticity·chem.identity·MOL/SDF의 결과 형식은 `reply.rs`에 남았다(그 연산을 바꾸면 `reply.rs`도 고친다); 기존 자식처럼 각 연산 파일로 옮기는 것도 후속이다.
+- 증거: (TG1) 이동한 줄의 다중집합이 기준(bdfb22f6)과 같다(새 줄은 impl 머리·닫는 괄호, 위 허용 차이만); (TG2) `property_tests` 토큰 동일; (TG3) 기존 자식·`lib.rs`·`documents.rs`·`contract/` 무변경; (TG4) `cargo nextest list`가 기준과 같다(1,152줄), `cargo doc` 경고 0 — rustdoc 차이는 재내보내기 리디렉트 스텁 22개가 `operations/reply/` 아래로 옮겨진 것과 `Application` 페이지의 impl 절 구분(메서드 집합 같음)뿐; (TG5) 가시성 25개·새 `pub(crate)` 0·뺀 별칭 8개 모두 `lib.rs`에 없음; `npm run check`.
+- 남은 T0: 이슈 #106의 작은 항목, 큰 파일 분할 2(`crates/domain/src/document.rs`, `crates/providers/src/file_format.rs`), 설계 선행의 잠금 안 저장소 I/O 이동(요청 시).
+
 ## contract.rs 분할 (T0, 여덟째 PR)
 
 `crates/application/src/contract.rs`(3,067줄)를 `crates/application/src/contract/{request,chemistry,stereo,settings,scene,parse,command,view,convert,response}.rs` 열 파일로 나눴다. 순수 이동이며 동작은 바뀌지 않는다. 원래 파일은 모듈 문서, 비공개 자식 모듈 10개, 재내보내기 목록(`pub use` 86 이름, `pub(crate) use` 13 이름)만 가진 55줄 모듈 뿌리라 `crate::contract::<이름>`과 `chemifree_application::<이름>` 경로는 그대로다.
@@ -114,7 +126,7 @@ API·CLI·conformance 실행기가 같은 구성 체인을 손으로 되풀이�
 | T8 | 고급 문서·형식 | P68–P81 | 42–70 |
 | T9 | 자동화·출시 | P83–P86, P88, P89 | 20–35 |
 
-- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1은 여섯째 PR(crates/host)에서 납품, 큰 파일 분할 5(`document-contract.ts`는 일곱째 PR, `contract.rs`는 여덟째 PR에서 납품, 3 남음), 로드맵 HTML 동기화 스크립트와 일치 검사 1은 다섯째 PR에서 납품). 구조 정리는 동작을 바꾸지 않는다.
+- T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1은 여섯째 PR(crates/host)에서 납품, 큰 파일 분할 5(`document-contract.ts`는 일곱째 PR, `contract.rs`는 여덟째 PR, `operations.rs`는 아홉째 PR에서 납품, 2 남음), 로드맵 HTML 동기화 스크립트와 일치 검사 1은 다섯째 PR에서 납품). 구조 정리는 동작을 바꾸지 않는다.
 - T1에서는 제품 서버(P87)와 배치 준비·사슬·단순 고리(P42)를 먼저 한다. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38의 마감은 T3 맨 앞으로 옮겼다.
 - T2의 MCP는 실행 중인 로컬 서버의 클라이언트로 붙는다. 그래서 P87이 먼저다.
 - 화학·입체 심화(P18, P20–P28의 남은 범위와 P17·P19에서 T1의 제한된 마감에 넣지 않은 범위)는 별도 트랙이 아니다. 뒤 트랙이 필요로 할 때 해당 행을 다시 연다(예: 명명은 P18·P26, 반응 코덱은 P21·P28).

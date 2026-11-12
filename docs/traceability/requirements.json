@@ -157,7 +157,7 @@
           "status": "partial",
           "implementation": [
             "crates/domain/src/chemistry.rs",
-            "crates/application/src/operations.rs",
+            "crates/application/src/operations/dispatch.rs",
             "apps/web/src/components/document-workspace.tsx"
           ],
           "evidence": [
@@ -176,7 +176,8 @@
           "implementation": [
             "crates/domain/src/rings.rs",
             "crates/domain/src/aromaticity.rs",
-            "crates/application/src/operations.rs",
+            "crates/application/src/operations/chem_aromaticity.rs",
+            "crates/application/src/operations/dispatch.rs",
             "apps/web/src/components/aromaticity-panel.tsx"
           ],
           "evidence": [
@@ -196,7 +197,7 @@
           "status": "partial",
           "implementation": [
             "crates/domain/src/identity.rs",
-            "crates/application/src/operations.rs",
+            "crates/application/src/operations/dispatch.rs",
             "apps/web/src/components/identity-panel.tsx"
           ],
           "evidence": [
@@ -269,7 +270,8 @@
             "crates/application/src/contract/parse.rs",
             "crates/application/src/contract/stereo.rs",
             "crates/application/src/documents.rs",
-            "crates/application/src/operations.rs",
+            "crates/application/src/operations/catalog_table.rs",
+            "crates/application/src/operations/dispatch.rs",
             "apps/web/src/lib/stereo-contract.ts"
           ],
           "evidence": [
@@ -301,7 +303,8 @@
             "crates/application/src/contract/command.rs",
             "crates/application/src/contract/stereo.rs",
             "crates/application/src/documents.rs",
-            "crates/application/src/operations.rs",
+            "crates/application/src/operations/dispatch.rs",
+            "crates/application/src/operations/catalog_table.rs",
             "apps/web/src/lib/document-contract.ts"
           ],
           "evidence": [
@@ -325,7 +328,7 @@
             "crates/domain/src/stereo_inspection.rs",
             "crates/domain/src/stereo_drawing.rs",
             "crates/application/src/operations/stereo.rs",
-            "crates/application/src/operations.rs",
+            "crates/application/src/operations/dispatch.rs",
             "crates/application/src/contract/stereo.rs"
           ],
           "evidence": [
@@ -385,7 +388,8 @@
             "crates/domain/src/cip.rs",
             "crates/application/src/cip.rs",
             "crates/application/src/operations/cip.rs",
-            "crates/application/src/operations.rs",
+            "crates/application/src/operations/catalog.rs",
+            "crates/application/src/operations/dispatch.rs",
             "crates/domain/src/operation.rs"
           ],
           "evidence": [
@@ -442,7 +446,7 @@
             "crates/application/src/contract/parse.rs",
             "crates/application/src/contract/stereo.rs",
             "crates/application/src/documents.rs",
-            "crates/application/src/operations.rs",
+            "crates/application/src/operations/catalog_table.rs",
             "apps/web/src/lib/stereo-contract.ts"
           ],
           "evidence": [
@@ -665,7 +669,8 @@
           "implementation": [
             "crates/providers/src/ctfile.rs",
             "crates/application/src/ct_projection.rs",
-            "crates/application/src/operations.rs"
+            "crates/application/src/operations/molfile.rs",
+            "crates/application/src/operations/backend.rs"
           ],
           "evidence": [
             "case:molfile-round-trip",
@@ -693,7 +698,8 @@
           "status": "implemented",
           "implementation": [
             "crates/application/src/ct_projection.rs",
-            "crates/application/src/operations.rs",
+            "crates/application/src/operations/molfile.rs",
+            "crates/application/src/operations/backend.rs",
             "crates/providers/src/ctfile/v3000.rs",
             "crates/providers/src/ctfile.rs"
           ],
@@ -713,7 +719,8 @@
           "implementation": [
             "crates/application/src/ct_projection.rs",
             "crates/application/src/stereo_projection.rs",
-            "crates/application/src/operations.rs",
+            "crates/application/src/operations/molfile.rs",
+            "crates/application/src/operations/backend.rs",
             "crates/application/src/ctfile.rs",
             "crates/providers/src/ctfile/v3000.rs",
             "crates/providers/src/ctfile.rs"
@@ -1459,7 +1466,7 @@
           "status": "partial",
           "implementation": [
             "crates/domain/src/chemistry.rs",
-            "crates/application/src/operations.rs"
+            "crates/application/src/operations/dispatch.rs"
           ],
           "evidence": [
             "case:valence-snapshot",
@@ -1477,7 +1484,8 @@
           "implementation": [
             "crates/domain/src/aromaticity.rs",
             "crates/application/src/documents.rs",
-            "crates/application/src/operations.rs"
+            "crates/application/src/operations/chem_aromaticity.rs",
+            "crates/application/src/operations/dispatch.rs"
           ],
           "evidence": [
             "case:aromaticity-conversion",
@@ -2212,6 +2220,9 @@
           "implementation": [
             "crates/domain/src/operation.rs",
             "crates/application/src/operations.rs",
+            "crates/application/src/operations/reply.rs",
+            "crates/application/src/operations/dispatch.rs",
+            "crates/application/src/operations/catalog.rs",
             "apps/api/src/lib.rs",
             "apps/cli/src/main.rs"
           ],
@@ -2237,6 +2248,10 @@
             "crates/domain/src/mass.rs",
             "crates/application/src/documents.rs",
             "crates/application/src/operations.rs",
+            "crates/application/src/operations/dispatch.rs",
+            "crates/application/src/operations/cip.rs",
+            "crates/application/src/operations/chem_aromaticity.rs",
+            "crates/application/src/operations/chem_properties.rs",
             "crates/application/src/operations/substructure.rs",
             "crates/application/src/properties.rs",
             "crates/application/src/error.rs",
