@@ -5,11 +5,11 @@
 `crates/providers/src/file_format.rs`(3,736줄)를 569줄 모듈 뿌리와 새 자식 열 개 `crates/providers/src/file_format/{settings,records,scene,graph,objects,changes,migrate,checks,write,read}.rs`로 나눴다(`lib.rs`, `file_store.rs`, `preference_store.rs`, 테스트는 손대지 않음). 순수 이동이며 동작은 바뀌지 않는다. 이로써 T0의 큰 파일 분할 다섯이 모두 끝났다.
 
 - `file_format`은 crate 안 비공개 모듈이다. crate 안에서 보이던 이름 13개(`encode`, `encode_draft`, `decode`, `decode_draft`, `decode_revision`, `decode_draft_info`, `earlier_version`, `earlier_draft_version`, 저장 설정 열거형 다섯)는 `pub(crate) use`로 같은 경로에 남는다.
-- 뿌리에 남은 것: 스키마 버전에 관한 것 전부(모듈 문서, 형식·버전 상수, 인라인 옛 버전 모듈 `v6`·`v5`·`v4`·`v2`·`v1` 바이트 그대로, `required_option`, 헤더·`Version` 해석, `earlier`).
-- 자식: 저장 형태 `settings`·`records`(버전 2–6 공용 기록)·`scene`(버전 30 문서), 코덱 `graph`·`objects`·`changes`, 이주 `migrate`, 버전별 원시 JSON 검사 `checks`, 진입점 `write`·`read`.
+- 뿌리에 남은 것: 버전 목록(모듈 문서, 형식·버전 상수, 인라인 옛 버전 모듈 `v6`·`v5`·`v4`·`v2`·`v1` 바이트 그대로, `required_option`, 헤더·`Version` 해석, `earlier`). 형식 버전을 올리면 뿌리 말고도 `scene`(현재 형태)·`checks`(버전별 필드)·`read`(버전별 분기)를 고친다. 뿌리는 인라인 옛 모듈이 `use super::{..}`로 쓰는 `records`·`scene`·`settings` 이름을 비공개로 가져오므로 뿌리와 자식이 서로 의존한다.
+- 자식: 저장 형태 `settings`·`records`(버전 공용 기록, 버전 2·3 껍데기, 기록 트레이트; 버전 4–6 껍데기는 인라인 모듈에 남음)·`scene`(버전 30 문서), 코덱 `graph`·`objects`·`changes`, 이주 `migrate`, 버전별 원시 JSON 검사 `checks`, 진입점 `write`·`read`.
 - 가시성: 저장 형태는 불변식 없는 serde 데이터이고 코덱이 필드를 직접 만들고 읽으므로, 도메인 분할과 달리 구조체를 뿌리 밖으로 옮기고 컴파일러가 요구한 곳에 `pub(super)`를 붙였다. 필드 163개와 항목 97개(records 필드 64·항목 33, scene 99·27, 나머지 자식은 항목만). 모두 `file_format` 안에서만 보이며 `pub`·`pub(crate)`로 넓힌 항목은 없다(Opus 권고, 대안은 뿌리 약 1,200줄).
 - 허용한 차이: rustfmt가 `pub(super)` 때문에 100열을 넘은 시그니처 3개(`objects.rs`의 `read_fragment_display`·`read_scene_state`, `checks.rs`의 `refuse_earlier_captions`)를 다시 감쌌다.
-- 그대로 둔 것(후속): 문서 주석의 "1 to 26"(실제로는 1–29)과 `version` 오류 문구의 손으로 나열한 버전 목록. 오류 문구는 테스트가 고정한다.
+- 리뷰에서 고친 것: `read.rs` 문서 주석 셋의 "1 to 26"을 코드(`earlier`가 1–29)에 맞게 "1 to 29"로 고쳤다. 그대로 둔 것(후속): `version` 오류 문구의 손으로 나열한 버전 목록(테스트가 고정), 버전 하나에 여러 곳을 고치는 `Version` 구조, 옛 기록 트레이트 구현의 위치(`graph`)와 `UnmarkedBondState` 변환의 위치(`records`).
 - 증거: (TG1) 이동한 줄이 기준(2394312e)과 같다(가시성 접두와 위 재감싸기만); (TG2) 소비자 무변경; (TG3) `pub(crate)` 집합 13개 그대로; (TG4) 테스트 목록이 기준과 같고 워크스페이스 nextest 2,578개 통과; `npm run check`.
 - 남은 T0: 이슈 #106의 작은 항목, 설계 선행의 잠금 안 저장소 I/O 이동(요청 시). 분할 후속: `Draft::apply`·`dispatch`·`to_command`·`DocumentClient` 분해, 결과 형식 위치 정리.
 

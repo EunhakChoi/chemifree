@@ -2091,6 +2091,7 @@
             "crates/providers/src/file_format/settings.rs",
             "crates/providers/src/file_format/changes.rs",
             "crates/providers/src/file_format/migrate.rs",
+            "crates/providers/src/file_format/checks.rs",
             "apps/web/src/editor/settings.ts"
           ],
           "evidence": [
@@ -2151,6 +2152,7 @@
             "crates/providers/src/file_format/objects.rs",
             "crates/providers/src/file_format/scene.rs",
             "crates/providers/src/file_format/settings.rs",
+            "crates/providers/src/file_format/checks.rs",
             "apps/web/src/editor/scene-caption.tsx",
             "apps/web/src/editor/label.ts",
             "crates/domain/src/document/abbreviation.rs",

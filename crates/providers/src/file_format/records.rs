@@ -1,5 +1,6 @@
 //! Stored atom, bond, stereo and history records shared across versions, the version 2 and 3
-//! document and draft shells, and the record traits migration reads through.
+//! document and draft shells, and the record traits that migration and the version 2 and 3
+//! change-set reader read through.
 
 use chemifree_domain::document::{Atom, Bond};
 use serde::{Deserialize, Serialize};

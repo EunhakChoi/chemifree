@@ -42,7 +42,7 @@ pub(crate) fn decode_revision(bytes: &[u8]) -> Result<u64, String> {
     Ok(probe.document.revision)
 }
 
-/// The earlier version of a document file this build reads (1 to 26), which a save
+/// The earlier version of a document file this build reads (1 to 29), which a save
 /// replaces only after keeping a copy of it; `None` otherwise.
 pub(crate) fn earlier_version(bytes: &[u8]) -> Option<u32> {
     earlier(version(bytes, FORMAT, FORMAT_VERSION, "document"))
@@ -53,7 +53,7 @@ pub(crate) fn earlier_draft_version(bytes: &[u8]) -> Option<u32> {
     earlier(version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft"))
 }
 
-/// Parses and fully validates a stored document, including its history; a version 1 to 26 file
+/// Parses and fully validates a stored document, including its history; a version 1 to 29 file
 /// is migrated.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     let format = version(bytes, FORMAT, FORMAT_VERSION, "document")?;
@@ -120,7 +120,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Document, String> {
     Document::restore(parts).map_err(|error| error.to_string())
 }
 
-/// Parses and fully validates a recovery draft; a version 1 to 26 draft is migrated.
+/// Parses and fully validates a recovery draft; a version 1 to 29 draft is migrated.
 pub(crate) fn decode_draft(bytes: &[u8]) -> Result<Draft, String> {
     let format = version(bytes, DRAFT_FORMAT, DRAFT_FORMAT_VERSION, "draft")?;
     check_graphic_fields(bytes, format)?;
