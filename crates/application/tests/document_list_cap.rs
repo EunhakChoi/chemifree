@@ -99,7 +99,8 @@ fn assert_stored_list(stored: usize, expected_truncated: bool) {
 /// Trashes `trashed` documents and checks the trash listing. The flag is `expected_truncated`.
 /// The listing holds the lesser of the trashed count and the cap, each trashed document once,
 /// every entry stamped, and the stamps non-increasing: newest first by the stamps the store
-/// reports.
+/// reports. The order check guards the response sort, not the store's clock, which may step
+/// back; the stamp value is checked by the file store's own unit test.
 fn assert_trash_list(trashed: usize, expected_truncated: bool) {
     let (_directory, app) = application_in_temp_dir();
     let trashed_ids = trash_documents(&app, trashed);

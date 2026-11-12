@@ -50,6 +50,8 @@ struct MemoryStore {
     /// Commit times on a fake clock that advances by one per commit or delete.
     saved_at: Arc<Mutex<BTreeMap<DocumentId, u64>>>,
     clock: Arc<AtomicU64>,
+    /// When set, trashing stamps every document with this time instead of the clock.
+    frozen_trash_stamp: Arc<Mutex<Option<u64>>>,
     process: u32,
     /// The document whose draft writes and removals wait for `draft_gate`, as a stalled disk
     /// would; other documents' drafts go through.
@@ -300,7 +302,10 @@ impl DocumentRepository for MemoryStore {
             });
         }
         let document = documents.remove(id).expect("checked above");
-        let at = self.clock.fetch_add(1, Ordering::SeqCst) + 1;
+        let at = match *self.frozen_trash_stamp.lock().unwrap() {
+            Some(stamp) => stamp,
+            None => self.clock.fetch_add(1, Ordering::SeqCst) + 1,
+        };
         self.trash
             .lock()
             .unwrap()
@@ -2386,6 +2391,48 @@ fn the_most_recently_trashed_documents_are_listed_however_full_the_trash_is() {
     assert_eq!(
         trash.documents[0].id, newest,
         "the newest deletion is listed first"
+    );
+}
+
+#[test]
+fn trashed_documents_with_equal_stamps_are_kept_and_listed_by_identifier() {
+    let (app, store) = application();
+    let stamp = 1_000;
+    *store.frozen_trash_stamp.lock().unwrap() = Some(stamp);
+    let ids: Vec<String> = (0..1001)
+        .map(|_| app.create_document(None, None).unwrap().document.id)
+        .collect();
+    for id in &ids {
+        app.delete(id, None, 0).unwrap();
+    }
+
+    // With one stamp for every deletion, the identifier orders them: the cap keeps the
+    // smallest identifiers and drops the greatest.
+    let mut by_identifier = ids;
+    by_identifier.sort_by_cached_key(|id| DocumentId::parse(id).unwrap());
+    let greatest = by_identifier.last().unwrap().clone();
+    let expected: Vec<String> = by_identifier.into_iter().take(1000).collect();
+
+    let trash = app.list_trash().unwrap();
+    assert!(
+        trash.truncated,
+        "1001 trashed documents exceed the cap, so the list must say it is incomplete"
+    );
+    assert!(
+        trash
+            .documents
+            .iter()
+            .all(|d| d.deleted_at_ms == Some(stamp)),
+        "every deletion must carry the frozen stamp, or the test does not reach the ties"
+    );
+    let listed: Vec<String> = trash.documents.iter().map(|d| d.id.clone()).collect();
+    assert_eq!(
+        listed, expected,
+        "equal stamps keep the smallest identifiers, listed in ascending identifier order"
+    );
+    assert!(
+        !listed.contains(&greatest),
+        "the greatest identifier {greatest} must be omitted from the capped list"
     );
 }
 
