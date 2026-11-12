@@ -1,4 +1,5 @@
-//! The operation catalog: the profile table, each operation's row with the connected providers' wording, and the catalog reply.
+//! The operation catalog: the profile table, each operation's row with the connected
+//! providers' wording, and the catalog reply.
 
 use chemifree_domain::operation::{CompatibilityProfile, Execution, OperationId};
 

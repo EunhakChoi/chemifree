@@ -2251,6 +2251,7 @@
             "crates/application/src/operations/dispatch.rs",
             "crates/application/src/operations/cip.rs",
             "crates/application/src/operations/chem_aromaticity.rs",
+            "crates/application/src/operations/chem_properties.rs",
             "crates/application/src/operations/substructure.rs",
             "crates/application/src/properties.rs",
             "crates/application/src/error.rs",

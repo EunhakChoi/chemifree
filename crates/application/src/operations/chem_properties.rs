@@ -1,4 +1,5 @@
-//! chem.properties: formula, mass and isotope distribution over one snapshot, and its failure codes.
+//! chem.properties: formula, mass and isotope distribution over one snapshot, and its failure
+//! codes.
 
 use chemifree_domain::budget::Interrupt;
 use serde_json::Map;

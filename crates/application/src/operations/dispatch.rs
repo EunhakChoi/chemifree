@@ -1,4 +1,5 @@
-//! The dispatcher: reads each known operation's parameters and runs it, with the parameters and identity helpers only its inline arms use.
+//! The dispatcher: reads each known operation's parameters and runs it, with the parameters
+//! and identity helpers only its inline arms use.
 
 use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::graph::MoleculeGraph;

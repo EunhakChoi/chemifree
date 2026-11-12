@@ -1,4 +1,5 @@
-//! Which provider serves a document.import or document.export request.
+//! Format routing for document.import and document.export: the backend kinds, the routing
+//! method and the not-connected reply.
 
 use serde_json::{Map, Value};
 

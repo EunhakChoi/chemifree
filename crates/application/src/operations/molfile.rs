@@ -1,4 +1,5 @@
-//! MOL/SDF through document.import and document.export: parameters, the mol-v2000/mol-v3000 format ids, the shared import flow adapter and the export.
+//! MOL/SDF through document.import and document.export: parameters, the mol-v2000/mol-v3000
+//! format ids, the shared import flow adapter and the export.
 
 use serde_json::{Map, Value};
 

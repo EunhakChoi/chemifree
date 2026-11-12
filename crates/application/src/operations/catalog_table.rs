@@ -1,4 +1,5 @@
-//! The support table: entry rows, the transaction and property part tables, and each operation's entry.
+//! The support table: entry rows, the transaction and property part tables, and each
+//! operation's entry.
 
 use std::borrow::Cow;
 
