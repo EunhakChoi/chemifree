@@ -1,9 +1,9 @@
 /**
  * Hand-maintained mirror of the stereo parts of the v1 document contract in
- * crates/application/src/contract.rs and of the `chem.stereo` reply: bond marks, stated
- * configurations, and the service's comparison of the two. Representation only. Nothing here
- * derives a configuration from a mark, computes a CIP label (that is `chem.cip`, read by
- * lib/cip-contract.ts), or compares two drawings: the
+ * crates/application/src/contract/ (stereo.rs and the views that use it) and of the
+ * `chem.stereo` reply: bond marks, stated configurations, and the service's comparison of
+ * the two. Representation only. Nothing here derives a configuration from a mark, computes a
+ * CIP label (that is `chem.cip`, read by lib/cip-contract.ts), or compares two drawings: the
  * service does (it derives from the marks and one instance's positions, for
  * `set_configuration_from_drawing` and for `chem.stereo`), and this module reads and checks what
  * it answers. The editor draws marks (editor/geometry.ts), sends marks and the configuration

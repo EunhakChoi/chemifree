@@ -3,7 +3,7 @@
 Bounded P35 is done against the roadmap editing/storage scope under the approved graph-preserving display decision. Caption/chemical typography, editable Et text (#201), explicit retained-fragment displays (#202) and script runs (#203) are merged with passing final-head PR check/browser CI. #203 merge `84ef063` also passed [post-merge main CI 42322504482](https://github.com/EunhakChoi/chemifree/actions/runs/42322504482). The [completion audit](verification/p35-completion-audit.md) records the acceptance evidence, actual Codex/independent reviews and finding fixes. Implementation-session notes marked historical below describe what was unrun then; they are superseded by that delivery evidence. General scientific/rendering requirements and the documented unsupported behavior remain incomplete. This documentation correction reran no product checks.
 
 
-Rust DTOs are shared by HTTP and the CLI in `crates/application/src/` (`lib.rs`, `contract.rs`, `error.rs`). The browser keeps a hand-maintained mirror with runtime validation in `apps/web/src/lib/contract.ts` and `apps/web/src/lib/document-contract.ts` (a barrel over `apps/web/src/lib/document-contract/`). There is no generated SDK.
+Rust DTOs are shared by HTTP and the CLI in `crates/application/src/` (`lib.rs`, `contract.rs` with its children in `contract/`, `error.rs`). The browser keeps a hand-maintained mirror with runtime validation in `apps/web/src/lib/contract.ts` and `apps/web/src/lib/document-contract.ts` (a barrel over `apps/web/src/lib/document-contract/`). There is no generated SDK.
 
 Every JSON response includes `api_version: "v1"`; HTTP paths carry the same major version.
 
