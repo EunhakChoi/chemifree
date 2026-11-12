@@ -1,5 +1,15 @@
 # Chemifree 새 세션 인계
 
+## document_list_cap 시계 의존 시험 (T0, #106 작은 항목)
+
+`crates/application/tests/document_list_cap.rs`의 휴지통 경우 둘이 WSL 호스트에서 자주 실패했다. 파일 저장소는 휴지통 이동 시각을 벽시계 밀리초로 찍는데(`file_store.rs`), 벽시계가 뒤로 감길 수 있다(측정: 40초 안에 2.9초 한 번). 시험은 1ms 쉬고 이동 순서와 목록 순서를 같다고 봤다.
+
+- 파일 저장소 경우는 이제 상한·`truncated`·각 문서 한 번·나열된 시각이 줄지 않음만 본다(시각 파일은 읽지 않음). `..._one_past_the_cap_keep_the_most_recent`는 `..._one_past_the_cap_are_truncated`로 이름을 바꿨다.
+- "상한이 시각상 가장 최근 1,000개를 남긴다"는 논리 시계를 쓰는 `MemoryStore` 시험(`tests/documents.rs`의 `the_most_recently_trashed_documents_are_listed_however_full_the_trash_is`)이 전체 목록 일치로 확인한다(첫 정렬을 뒤집는 변이를 잡음).
+- 제품 동작은 바뀌지 않았다. CONTRACT의 휴지통 절에 `deleted_at_ms`가 벽시계라 시계가 뒤로 가면 그 무렵 지운 문서는 일어난 순서가 아니라 시각 순서로 나열·보존된다는 설명을 더했다. 검증 기록 `docs/verification/list-truncated.md` 갱신.
+- 증거: 호스트에서 `document_list_cap` 10회 연속 통과, `npm run check` 전체 통과(2,578개, 이 호스트에서 처음으로 실패 없음).
+- 남은 #106 작은 항목: `reader::parse`·`analysis::interpret`까지 중단 신호 전달, `chem.stereo`·`chem.inchi` 시간 제한.
+
 ## file_format.rs 분할 (T0, 열한째 PR)
 
 `crates/providers/src/file_format.rs`(3,736줄)를 569줄 모듈 뿌리와 새 자식 열 개 `crates/providers/src/file_format/{settings,records,scene,graph,objects,changes,migrate,checks,write,read}.rs`로 나눴다(`lib.rs`, `file_store.rs`, `preference_store.rs`, 테스트는 손대지 않음). 순수 이동이며 동작은 바뀌지 않는다. 이로써 T0의 큰 파일 분할 다섯이 모두 끝났다.

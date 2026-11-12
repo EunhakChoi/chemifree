@@ -2360,13 +2360,29 @@ fn the_most_recently_trashed_documents_are_listed_however_full_the_trash_is() {
     // Deleted last, and last in identifier order ("doc-999" sorts after "doc-1000").
     let newest = "doc-999".to_owned();
     assert!(ids.contains(&newest));
+    let mut deleted = Vec::new();
     for id in ids.iter().filter(|id| **id != newest) {
         app.delete(id, None, 0).unwrap();
+        deleted.push(id.clone());
     }
     app.delete(&newest, None, 0).unwrap();
+    deleted.push(newest.clone());
 
     let trash = app.list_trash().unwrap();
     assert_eq!(trash.documents.len(), 1000, "the list is capped");
+    assert!(
+        trash.truncated,
+        "1001 trashed documents exceed the cap, so the list must say it is incomplete"
+    );
+    // The cap keeps the 1000 newest deletions, listed in reverse deletion order.
+    let expected: Vec<String> = deleted.iter().rev().take(1000).cloned().collect();
+    let listed: Vec<String> = trash.documents.iter().map(|d| d.id.clone()).collect();
+    assert_eq!(listed, expected, "the 1000 newest deletions, newest first");
+    let oldest = &deleted[0];
+    assert!(
+        trash.documents.iter().all(|d| d.id != *oldest),
+        "the oldest deletion {oldest} must be omitted from the capped list"
+    );
     assert_eq!(
         trash.documents[0].id, newest,
         "the newest deletion is listed first"

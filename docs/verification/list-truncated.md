@@ -4,7 +4,7 @@ Scope: the document list and the trash list reply with an additive boolean `trun
 
 ## Tests
 
-- `crates/application/tests/document_list_cap.rs` (8 tests, public `Application` over the file repository): exactly 1,000 and 1,001 stored; exactly 1,000 and 1,001 trashed (the newest 1,000 are kept, in order); three documents; a title search on a truncated list still reports `truncated`; the cap literal 1,000. The trash cases pause 1 ms after each delete because the store stamps trash time in whole milliseconds and ties break by id; this is a clock tick, not a wait for completion.
+- `crates/application/tests/document_list_cap.rs` (8 tests, public `Application` over the file repository): exactly 1,000 and 1,001 stored; exactly 1,000 and 1,001 trashed (the cap, the flag, each listed document once and trashed, and stamps non-increasing in the listed order); three documents; a title search on a truncated list still reports `truncated`; the cap literal 1,000. The file store stamps a trashing with the wall clock, which can step backwards (measured once on a WSL host: 2.9 s within 40 s), so these cases do not check which documents the cap keeps. That rule (the newest 1,000 by stamp, newest first) is checked deterministically over `MemoryStore`'s logical clock in `crates/application/tests/documents.rs` (`the_most_recently_trashed_documents_are_listed_however_full_the_trash_is`). Until 2026-11 the file-store cases paused 1 ms per delete and compared against trashing order, which failed on such hosts (#106).
 - `scripts/web-client-check.mjs`: 12 cases through `DocumentClient.list()` and `.trash()` (flag kept when true, accepted when false or absent, `"yes"`, `null` and `1` refused as `incompatible_response`).
 - The browser smoke does not render the notices; the CLI line is not asserted by a test (it is one `eprintln!` after the `unreadable` loop).
 
@@ -14,6 +14,7 @@ Scope: the document list and the trash list reply with an additive boolean `trun
 | --- | --- |
 | list comparison `>` to `>=` | `stored_documents_at_the_cap_are_all_listed` |
 | trash comparison `>` to `>=` | `trashed_documents_at_the_cap_are_all_listed` |
+| trash selection sort flipped to oldest first (2026-11, #106) | `the_most_recently_trashed_documents_are_listed_however_full_the_trash_is` (`tests/documents.rs`, `MemoryStore`) |
 | list `truncated` forced to false | `stored_documents_one_past_the_cap_are_truncated`, `a_title_search_on_a_truncated_list_still_reports_truncated` |
 | `isList` ignores the field check | the three document-list refusal cases |
 | `isTrashList` ignores the field check | the three trash-list refusal cases |
