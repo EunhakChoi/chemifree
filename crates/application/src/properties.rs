@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use chemifree_domain::budget::{Interrupt, Interrupted};
+use chemifree_domain::budget::{Interrupt, Interrupted, interruptible};
 use chemifree_domain::document::{AtomId, Document, MAX_ISOTOPE_MASS_NUMBER};
 use chemifree_domain::mass::{
     Composition, FormulaError, FormulaScope, MassError, MassTable, atom_groups, composition,
@@ -253,23 +253,13 @@ fn display(value: f64, decimals: u8) -> Result<String, PropertiesError> {
 }
 
 /// How the component loop ends without rows. A stop is kept apart from the refusals, so it is
-/// never reported as one.
-enum Halt {
-    /// A refusal of the request or of its data.
-    Refused(PropertiesError),
-    /// The loop was stopped before it finished; the rows may well exist.
-    Interrupted(Interrupted),
-}
+/// never reported as one. `Refused` is a refusal of the request or of its data. `Interrupted` is
+/// the loop stopped before it finished; the rows may well exist.
+type Halt = chemifree_domain::budget::Halt<PropertiesError>;
 
 impl From<PropertiesError> for Halt {
     fn from(error: PropertiesError) -> Self {
         Self::Refused(error)
-    }
-}
-
-impl From<Interrupted> for Halt {
-    fn from(interrupted: Interrupted) -> Self {
-        Self::Interrupted(interrupted)
     }
 }
 
@@ -303,7 +293,7 @@ pub(crate) fn calculate_with(
         Ok(groups) => groups,
         Err(error) => return Ok(Err(PropertiesError::Formula(error))),
     };
-    match component_rows(
+    interruptible(component_rows(
         document,
         groups,
         inferred_hydrogens,
@@ -311,11 +301,7 @@ pub(crate) fn calculate_with(
         table,
         decimals,
         interrupt,
-    ) {
-        Ok(rows) => Ok(Ok(rows)),
-        Err(Halt::Refused(error)) => Ok(Err(error)),
-        Err(Halt::Interrupted(interrupted)) => Err(interrupted),
-    }
+    ))
 }
 
 /// The component loop behind [`calculate_with`]. A stop stays a `Halt` until the public boundary

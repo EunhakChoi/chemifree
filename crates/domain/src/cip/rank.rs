@@ -3,7 +3,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::budget::{Interrupt, Interrupted};
+use crate::budget::Interrupt;
 use crate::document::{AtomId, BondId};
 
 use super::bond::{Counted, Geometry, Oracle};
@@ -11,22 +11,15 @@ use super::context::{Context, Mass};
 use super::digraph::{Arena, Distance, Kind, NodeIx};
 use super::{Reason, Rule};
 
-/// Why a comparison did not finish.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Halt {
-    Reason(Reason),
-    Interrupted(Interrupted),
-}
+/// Why a comparison did not finish. `Refused` is the model's [`Reason`] for a limit it reached or
+/// a case it cannot decide; this does not depend on the machine. A refusal that leaves the
+/// comparison finished is kept by [`Engine::refusal`] instead. `Interrupted` is the comparison
+/// stopped before it finished; the answer may well exist.
+pub(super) type Halt = crate::budget::Halt<Reason>;
 
 impl From<Reason> for Halt {
     fn from(reason: Reason) -> Self {
-        Self::Reason(reason)
-    }
-}
-
-impl From<Interrupted> for Halt {
-    fn from(interrupted: Interrupted) -> Self {
-        Self::Interrupted(interrupted)
+        Self::Refused(reason)
     }
 }
 

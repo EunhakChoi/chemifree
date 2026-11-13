@@ -30,6 +30,8 @@ use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::stereo_group::StereoGroupTable;
 
+pub(super) use chemifree_domain::budget::{interruptible, uninterrupted};
+
 /// The longest input the reader accepts, in UTF-8 bytes, and the longest text a writer returns.
 pub const MAX_INPUT_BYTES: usize = 16 * 1024;
 /// The deepest nesting of branches.
@@ -78,45 +80,5 @@ impl SmilesCodec for OpenSmilesCodec {
 
 type Fail = SmilesError;
 
-/// Why a write produced no text: the writer refused the drawing, or `interrupt` stopped it.
-#[derive(Debug)]
-pub(super) enum Halt {
-    /// The writer refused the drawing; this does not depend on the machine.
-    Refused(Fail),
-    /// The write was stopped before it finished; the drawing may well be writable.
-    Interrupted(Interrupted),
-}
-
-impl From<Fail> for Halt {
-    fn from(error: Fail) -> Self {
-        Self::Refused(error)
-    }
-}
-
-impl From<Interrupted> for Halt {
-    fn from(interrupted: Interrupted) -> Self {
-        Self::Interrupted(interrupted)
-    }
-}
-
-/// Keeps a refusal inside the result and reports a stop outside it, so a stop is never read as a
-/// refusal.
-pub(super) fn interruptible<T>(result: Result<T, Halt>) -> Result<Result<T, Fail>, Interrupted> {
-    match result {
-        Ok(value) => Ok(Ok(value)),
-        Err(Halt::Refused(error)) => Ok(Err(error)),
-        Err(Halt::Interrupted(interrupted)) => Err(interrupted),
-    }
-}
-
-/// Maps the result of a write given [`NEVER`](chemifree_domain::budget::NEVER), which cannot
-/// stop it. A stop would be a bug, so it panics rather than being read as a refusal.
-pub(super) fn uninterrupted<T>(result: Result<T, Halt>) -> Result<T, Fail> {
-    match result {
-        Ok(value) => Ok(value),
-        Err(Halt::Refused(error)) => Err(error),
-        Err(Halt::Interrupted(interrupted)) => {
-            unreachable!("the never-interrupt cannot interrupt: {interrupted:?}")
-        }
-    }
-}
+/// Why a write produced no text: the writer refused the drawing, or an interrupt stopped it.
+pub(super) type Halt = chemifree_domain::budget::Halt<Fail>;
