@@ -914,7 +914,7 @@ pub(crate) fn write_failed(action: &str, path: &Path, error: &io::Error) -> Stor
 }
 
 #[cfg(unix)]
-fn create_private_dir(path: &Path) -> io::Result<()> {
+pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
     fs::DirBuilder::new()
         .recursive(true)
@@ -923,7 +923,7 @@ fn create_private_dir(path: &Path) -> io::Result<()> {
 }
 
 #[cfg(not(unix))]
-fn create_private_dir(path: &Path) -> io::Result<()> {
+pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
     fs::create_dir_all(path)
 }
 
@@ -938,7 +938,7 @@ fn exists(path: &Path) -> Result<bool, StorageError> {
 }
 
 /// Opens (creating if needed) a lock file without truncating it.
-fn open_lock_file(path: &Path) -> io::Result<File> {
+pub(crate) fn open_lock_file(path: &Path) -> io::Result<File> {
     if let Some(directory) = path.parent() {
         create_private_dir(directory)?;
     }

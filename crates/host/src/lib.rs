@@ -5,7 +5,6 @@
 //! directory; the CLI and the conformance runner do not take it.
 
 mod inchi;
-mod server_lock;
 
 use std::path::Path;
 
@@ -17,8 +16,8 @@ use chemifree_providers::{
     configure_selected_registry,
 };
 
+pub use chemifree_providers::{LockHolder, ServerLock, ServerLockError};
 pub use inchi::InchiArgs;
-pub use server_lock::{LockHolder, ServerLock, ServerLockError};
 
 /// The application the local hosts run: the local capability catalog over saved documents.
 pub type LocalApplication = Application<LocalCapabilities, FileDocumentRepository>;

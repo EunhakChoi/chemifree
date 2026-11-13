@@ -93,7 +93,17 @@ async fn run() -> Result<(), Box<dyn Error>> {
     // The lock comes before pruning, so a refused second server changes nothing, and before the
     // bind, so a second default start names the holder instead of reporting a port conflict.
     let server_lock = match ServerLock::acquire(&data_dir) {
-        Ok(server_lock) => server_lock,
+        Ok(server_lock) => Some(server_lock),
+        // The data directory refuses writes and holds no lock file, so the server starts without
+        // a lock. The warning is the one line that says so.
+        Err(ServerLockError::NotCreated { path, error }) => {
+            eprintln!(
+                "Server lock not taken: {} cannot be created ({error}); the data directory is \
+                 read-only, so another server may use it at the same time.",
+                path.display()
+            );
+            None
+        }
         Err(error @ ServerLockError::Held { .. }) => {
             eprintln!(
                 "Chemifree API cannot start: {error}. Stop that server or pass another --data-dir."
@@ -137,8 +147,10 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let address = listener.local_addr()?;
     // A refused second start names this server from the record, which is written before the
     // listening line is printed. The record is informational, so a failure to write it is reported
-    // and the server still starts.
-    if let Err(error) = server_lock.record_url(&format!("http://{address}")) {
+    // and the server still starts. A server that holds no lock has no record to write.
+    if let Some(server_lock) = &server_lock
+        && let Err(error) = server_lock.record_url(&format!("http://{address}"))
+    {
         eprintln!(
             "Could not record this server in {}: {error}",
             server_lock.path().display()

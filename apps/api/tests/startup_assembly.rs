@@ -2,126 +2,39 @@
 //! prune of its stores, every format codec with file-backed preferences, and the optional
 //! provider selection. Each case starts the binary on an ephemeral port and speaks HTTP to it.
 
+mod common;
+
 use std::ffi::OsStr;
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
+use common::{Running, TIMEOUT};
 use serde_json::{Value, json};
 
-/// Bounds every wait on the process, so a hung API fails the test instead of stalling it.
-const TIMEOUT: Duration = Duration::from_secs(15);
 /// Past the one-hour age at which the stores prune an abandoned temporary.
 const STALE_AGE: Duration = Duration::from_secs(2 * 60 * 60);
 /// The `format_conversion` label with every codec attached.
 const ALL_CODECS_LABEL: &str = "MOL/SDF, CDXML, CDX, SMILES and SVG subsets";
 /// The stderr line for a partial optional InChI registration.
 const INCHI_REFUSAL: &str = "Optional InChI provider unavailable (inchi_registration_invalid): Optional InChI registration requires --inchi-library, --inchi-version (1.07.5), and --inchi-sha256 together.";
-/// Environment variables that select host settings. Each child starts without them.
-const SELECTION_ENV: [&str; 10] = [
-    "CHEMIFREE_COMPUTE_CONCURRENCY",
-    "CHEMIFREE_DATA_DIR",
-    "CHEMIFREE_MODEL_DATA_ROOT",
-    "CHEMIFREE_MODEL_TRUSTED_REGISTRY",
-    "CHEMIFREE_INCHI_LIBRARY",
-    "CHEMIFREE_INCHI_VERSION",
-    "CHEMIFREE_INCHI_SHA256",
-    "CHEMIFREE_INCHI_TIMEOUT_SECONDS",
-    "CHEMIFREE_LOG_REQUESTS",
-    "CHEMIFREE_WEB_DIR",
-];
 
-/// A running API process on an ephemeral port. Dropping it kills and reaps the child, also
-/// when an assertion fails first.
-struct Api {
-    child: Child,
-    port: u16,
-    /// Every stderr line up to and including the documents line.
-    startup: Vec<String>,
+/// Starts the API binary with `--port 0`, `--data-dir` set to `data` and `extra` appended, and
+/// returns once it has printed its documents line.
+fn start_api(data: &Path, extra: &[&OsStr]) -> Running {
+    let mut args: Vec<&OsStr> = vec![
+        OsStr::new("--port"),
+        OsStr::new("0"),
+        OsStr::new("--data-dir"),
+        data.as_os_str(),
+    ];
+    args.extend_from_slice(extra);
+    Running::start(args.as_slice(), &[])
 }
 
-impl Drop for Api {
-    fn drop(&mut self) {
-        // The child may have exited already; killing and reaping it is what matters here.
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-impl Api {
-    /// Starts the binary with `--port 0`, `--data-dir data` and `extra`, and returns once it
-    /// has printed its documents line.
-    fn start(data: &Path, extra: &[&OsStr]) -> Self {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_chemifree-api"));
-        for name in SELECTION_ENV {
-            command.env_remove(name);
-        }
-        let mut child = command
-            .args(["--port", "0", "--data-dir"])
-            .arg(data)
-            .args(extra)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("the API binary starts");
-        let stderr = child.stderr.take().expect("stderr is piped");
-        let (sender, lines) = mpsc::channel();
-        thread::spawn(move || {
-            for line in BufReader::new(stderr).lines() {
-                let Ok(line) = line else { break };
-                // The receiver may be gone by now; the pipe is still read to its end, so the
-                // child never blocks on it.
-                let _ = sender.send(line);
-            }
-        });
-        let mut api = Self {
-            child,
-            port: 0,
-            startup: Vec::new(),
-        };
-        api.read_startup(&lines);
-        api
-    }
-
-    /// Records stderr up to the documents line, which the binary prints last, and the port
-    /// named by its listening line.
-    fn read_startup(&mut self, lines: &Receiver<String>) {
-        let deadline = Instant::now() + TIMEOUT;
-        loop {
-            let wait = deadline.saturating_duration_since(Instant::now());
-            let line = match lines.recv_timeout(wait) {
-                Ok(line) => line,
-                Err(RecvTimeoutError::Timeout) => panic!(
-                    "no documents line within {TIMEOUT:?}; stderr so far: {:?}",
-                    self.startup
-                ),
-                Err(RecvTimeoutError::Disconnected) => panic!(
-                    "the API exited before its documents line; stderr: {:?}",
-                    self.startup
-                ),
-            };
-            let done = line.starts_with("Documents: ");
-            self.startup.push(line);
-            if done {
-                break;
-            }
-        }
-        let port: u16 = self
-            .startup
-            .iter()
-            .find_map(|line| line.strip_prefix("Chemifree API listening on http://127.0.0.1:"))
-            .expect("the listening line names the loopback address")
-            .parse()
-            .expect("the listening line ends with a port number");
-        self.port = port;
-    }
-
+impl Running {
     /// The origin of the API's own loopback address, which writes must present.
     fn origin(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
@@ -265,7 +178,7 @@ fn startup_prunes_abandoned_temporaries_and_names_the_documents_directory() {
     stale_temporary(&stale_preferences);
     young_temporary(&young_preferences);
 
-    let api = Api::start(data, &[]);
+    let api = start_api(data, &[]);
 
     assert!(
         !stale_document.exists(),
@@ -297,7 +210,7 @@ fn startup_prunes_abandoned_temporaries_and_names_the_documents_directory() {
 fn the_assembled_api_attaches_every_codec_and_file_preferences() {
     let directory = tempfile::tempdir().expect("a temporary data directory");
     let data = directory.path();
-    let api = Api::start(data, &[]);
+    let api = start_api(data, &[]);
 
     let capabilities = api.send("GET", "/api/v1/capabilities", &[], None).json();
     let conversion = capabilities["capabilities"]
@@ -353,7 +266,7 @@ fn optional_provider_selection_errors_are_reported_and_the_api_still_serves() {
     let root = directory.path();
     let library = root.join("missing.so");
     let model_root = root.join("missing");
-    let api = Api::start(
+    let api = start_api(
         &root.join("data"),
         &[
             OsStr::new("--inchi-library"),

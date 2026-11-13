@@ -3,18 +3,19 @@
 //! the data directory lock that lets one server serve a directory at a time, and the compute
 //! concurrency setting. Each case kills and reaps every server it starts before it ends.
 
-use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read, Write};
+mod common;
+
+use std::ffi::OsStr;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::process::ExitStatusExt;
-use std::path::Path;
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::mpsc::{self, Receiver};
-use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus};
+use std::time::{Duration, SystemTime};
 
-/// Bounds every wait on a process, so a hung server fails the test instead of stalling it.
-const TIMEOUT: Duration = Duration::from_secs(15);
+use common::{Running, TIMEOUT, api_command, configure_child, run_to_exit};
+
 /// Past the one-hour age at which the stores prune an abandoned temporary.
 const STALE_AGE: Duration = Duration::from_secs(2 * 60 * 60);
 /// The exit status of a startup or serving failure that the cases below do not name.
@@ -27,55 +28,8 @@ const EXIT_PORT_IN_USE: i32 = 3;
 const EXIT_DATA_DIR_IN_USE: i32 = 4;
 /// The signal that SIGKILL delivers. It ends a process without running its shutdown code.
 const SIGKILL: i32 = 9;
-/// Environment variables that choose host settings. Each child starts without them, so the
-/// developer's shell cannot change what a case observes.
-const SELECTION_ENV: [&str; 10] = [
-    "CHEMIFREE_COMPUTE_CONCURRENCY",
-    "CHEMIFREE_DATA_DIR",
-    "CHEMIFREE_INCHI_LIBRARY",
-    "CHEMIFREE_INCHI_SHA256",
-    "CHEMIFREE_INCHI_TIMEOUT_SECONDS",
-    "CHEMIFREE_INCHI_VERSION",
-    "CHEMIFREE_LOG_REQUESTS",
-    "CHEMIFREE_MODEL_DATA_ROOT",
-    "CHEMIFREE_MODEL_TRUSTED_REGISTRY",
-    "CHEMIFREE_WEB_DIR",
-];
-
-/// A running API server on an ephemeral port. Dropping it kills and reaps the child, also when an
-/// assertion fails first.
-struct Running {
-    child: Child,
-    pid: u32,
-    port: u16,
-}
-
-impl Drop for Running {
-    fn drop(&mut self) {
-        // The child may have exited already; killing and reaping it is what matters here.
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
 
 impl Running {
-    /// Starts the binary with `args` and `env`, and returns once it has printed its documents line,
-    /// which ends its startup. The port is the one that its listening line names.
-    fn start(args: &[&str], env: &[(&str, &str)]) -> Self {
-        let mut child = lifecycle_command(args, env)
-            .spawn()
-            .expect("the API binary starts");
-        let lines = stderr_lines(&mut child);
-        let mut server = Self {
-            pid: child.id(),
-            child,
-            port: 0,
-        };
-        // The server is already owned here, so a panic while reading its startup still kills it.
-        server.port = listening_port(&lines);
-        server
-    }
-
     /// Sends SIGKILL and reaps the server, the way a crash ends it.
     fn sigkill(&mut self) -> ExitStatus {
         self.child.kill().expect("the server can be killed");
@@ -83,98 +37,25 @@ impl Running {
     }
 }
 
-/// The API binary with `args` and `env` on top of a cleared selection environment. Its stdin and
-/// stdout are closed, and its stderr is piped.
-fn lifecycle_command(args: &[&str], env: &[(&str, &str)]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_chemifree-api"));
-    for name in SELECTION_ENV {
-        command.env_remove(name);
-    }
+/// The API binary with `args`, started by `sh` with a file size limit of zero, so that every write
+/// it makes to a file fails with `EFBIG`. The shell ignores SIGXFSZ first, since its default action
+/// ends the process, and `exec` keeps an ignored signal ignored.
+fn no_file_writes_command(args: &[&str]) -> Command {
+    let mut command = Command::new("sh");
     command
-        .args(args)
-        .envs(env.iter().copied())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
+        .arg("-c")
+        .arg(r#"trap "" XFSZ && ulimit -f 0 && exec "$0" "$@""#)
+        .arg(env!("CARGO_BIN_EXE_chemifree-api"))
+        .args(args);
+    configure_child(&mut command, &[]);
     command
-}
-
-/// Reads the child's stderr to its end on a thread, so the child never blocks on a full pipe. The
-/// lines arrive on the returned channel, which closes when the stream ends.
-fn stderr_lines(child: &mut Child) -> Receiver<String> {
-    let stderr = child.stderr.take().expect("stderr is piped");
-    let (sender, lines) = mpsc::channel();
-    thread::spawn(move || {
-        for line in BufReader::new(stderr).lines() {
-            let Ok(line) = line else { break };
-            // The receiver may be gone by now. The pipe is still read to its end, so the child
-            // never blocks on it.
-            let _ = sender.send(line);
-        }
-    });
-    lines
-}
-
-/// Reads stderr up to the documents line, which the binary prints last before it serves, and
-/// returns the port that its listening line names.
-fn listening_port(lines: &Receiver<String>) -> u16 {
-    let deadline = Instant::now() + TIMEOUT;
-    let mut seen: Vec<String> = Vec::new();
-    loop {
-        let wait = deadline.saturating_duration_since(Instant::now());
-        let line = match lines.recv_timeout(wait) {
-            Ok(line) => line,
-            Err(error) => panic!("no documents line ({error}); stderr so far: {seen:?}"),
-        };
-        let done = line.starts_with("Documents: ");
-        seen.push(line);
-        if done {
-            break;
-        }
-    }
-    let listening = seen
-        .iter()
-        .find_map(|line| line.strip_prefix("Chemifree API listening on http://127.0.0.1:"))
-        .expect("the listening line names the loopback address");
-    listening
-        .parse()
-        .expect("the listening line ends with a port number")
-}
-
-/// Waits for the child to exit. Kills and reaps it, then fails the test, when it has not exited in
-/// time.
-fn exit_within_timeout(child: &mut Child) -> ExitStatus {
-    let deadline = Instant::now() + TIMEOUT;
-    loop {
-        if let Some(status) = child.try_wait().expect("the child can be polled") {
-            return status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("the process did not exit within {TIMEOUT:?}: a refused start exits at once");
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
 }
 
 /// Starts the binary with `args` and `env` and waits for it to exit, which a refused start does at
 /// once. Returns its exit code and all of its stderr.
-fn refused(args: &[&str], env: &[(&str, &str)]) -> (Option<i32>, String) {
-    let mut child = lifecycle_command(args, env)
-        .spawn()
-        .expect("the API binary starts");
-    let mut stderr = child.stderr.take().expect("stderr is piped");
-    let reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        stderr
-            .read_to_end(&mut bytes)
-            .expect("stderr can be read to its end");
-        String::from_utf8_lossy(&bytes).into_owned()
-    });
-    let status = exit_within_timeout(&mut child);
-    let text = reader.join().expect("the stderr reader finishes");
-    (status.code(), text)
+fn refused(args: &[&str], env: &[(&str, &OsStr)]) -> (Option<i32>, String) {
+    let (status, stderr) = run_to_exit(api_command(args, env));
+    (status.code(), stderr)
 }
 
 /// The status of a GET of `path` on the server at `port`, sent with the server's own Host. The
@@ -214,6 +95,61 @@ fn stale_temporary(path: &Path) {
 /// The path as the text that a command-line argument takes. The test paths are UTF-8.
 fn path_text(path: &Path) -> &str {
     path.to_str().expect("the test path is UTF-8")
+}
+
+/// Sets the permission bits of `path`.
+fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+}
+
+/// A data directory, and optionally its lock file, made read-only for the length of a case.
+/// Dropping it restores owner-only modes, so the temporary directory can be removed on every path,
+/// also a failing one.
+struct ReadOnly {
+    directory: PathBuf,
+    lock_file: Option<PathBuf>,
+}
+
+impl ReadOnly {
+    /// Makes `directory` read-only, and `lock_file` too when it is given. Returns `None`, after
+    /// restoring the modes, when this process can still create files in `directory`, as root can: a
+    /// refusal can be observed only where writes are refused.
+    fn new(directory: &Path, lock_file: Option<&Path>) -> Option<Self> {
+        let read_only = Self {
+            directory: directory.to_path_buf(),
+            lock_file: lock_file.map(Path::to_path_buf),
+        };
+        set_mode(&read_only.directory, 0o555).expect("the directory can be made read-only");
+        if let Some(lock_file) = &read_only.lock_file {
+            set_mode(lock_file, 0o444).expect("the lock file can be made read-only");
+        }
+        let probe = directory.join("write-probe");
+        if OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&probe)
+            .is_ok()
+        {
+            // A probe that could be written means that root made it. It is removed here, and the
+            // modes are restored when `read_only` is dropped on return.
+            let _ = fs::remove_file(&probe);
+            return None;
+        }
+        Some(read_only)
+    }
+}
+
+impl Drop for ReadOnly {
+    fn drop(&mut self) {
+        // A failed restore is ignored here. The cleanup of the temporary directory reports what it
+        // cannot remove.
+        if let Some(lock_file) = &self.lock_file {
+            let _ = set_mode(lock_file, 0o600);
+        }
+        let _ = set_mode(&self.directory, 0o700);
+    }
 }
 
 #[test]
@@ -396,6 +332,137 @@ fn a_killed_server_leaves_no_lock_behind() {
 }
 
 #[test]
+fn a_read_only_data_directory_without_a_lock_file_starts_without_the_lock() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let data_path = directory.path().join("data");
+    fs::create_dir(&data_path).expect("the data directory can be created");
+    let Some(_read_only) = ReadOnly::new(&data_path, None) else {
+        eprintln!("skipped: this process can write to a read-only directory, as root can");
+        return;
+    };
+    let data = path_text(&data_path);
+    let lock_path = data_path.join("server.lock");
+
+    let server = Running::start(&["--port", "0", "--data-dir", data], &[]);
+
+    let expected = format!(
+        "Server lock not taken: {} cannot be created (Permission denied (os error 13)); the data \
+         directory is read-only, so another server may use it at the same time.",
+        lock_path.display()
+    );
+    let warnings: Vec<&str> = server
+        .startup
+        .iter()
+        .map(String::as_str)
+        .filter(|line| line.starts_with("Server lock not taken"))
+        .collect();
+    assert_eq!(
+        warnings,
+        [expected.as_str()],
+        "the start prints one line that says it runs without the lock: {:?}",
+        server.startup
+    );
+    assert!(
+        !server
+            .startup
+            .iter()
+            .any(|line| line.starts_with("Could not record")),
+        "a server without a lock records nothing: {:?}",
+        server.startup
+    );
+    assert!(
+        !lock_path.exists(),
+        "no lock file is created in a read-only directory"
+    );
+    assert_eq!(
+        get_status(server.port, "/api/v1/health"),
+        200,
+        "the server without the lock answers"
+    );
+}
+
+#[test]
+fn a_read_only_lock_file_is_held_through_a_read_only_handle() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let data_path = directory.path().join("data");
+    fs::create_dir(&data_path).expect("the data directory can be created");
+    let lock_path = data_path.join("server.lock");
+    File::create(&lock_path).expect("the lock file can be created");
+    // A lock file that this process may write is opened read-write even in a read-only directory,
+    // so the lock file is made read-only too.
+    let Some(_read_only) = ReadOnly::new(&data_path, Some(&lock_path)) else {
+        eprintln!("skipped: this process can write to a read-only directory, as root can");
+        return;
+    };
+    let data = path_text(&data_path);
+
+    let first = Running::start(&["--port", "0", "--data-dir", data], &[]);
+
+    assert_eq!(
+        fs::read_to_string(&lock_path).expect("the lock file can be read"),
+        "",
+        "a server that holds the lock read-only writes no record"
+    );
+    let refusal = format!(
+        "Could not record this server in {}: the lock file was opened read-only",
+        lock_path.display()
+    );
+    assert!(
+        first.startup.contains(&refusal),
+        "the holder reports that it cannot record its address: {:?}",
+        first.startup
+    );
+    assert_eq!(
+        get_status(first.port, "/api/v1/health"),
+        200,
+        "the server that holds the read-only lock answers"
+    );
+
+    let (code, stderr) = refused(&["--port", "0", "--data-dir", data], &[]);
+
+    assert_eq!(
+        code,
+        Some(EXIT_DATA_DIR_IN_USE),
+        "a second server is refused while the read-only lock is held: {stderr}"
+    );
+    let expected = format!(
+        "Chemifree API cannot start: the data directory {data} is already used by another \
+         Chemifree API server (pid unknown, address not recorded). Stop that server or pass \
+         another --data-dir."
+    );
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert_eq!(
+        lines,
+        [expected.as_str()],
+        "the refusal names no holder, because the read-only holder recorded nothing"
+    );
+}
+
+#[test]
+fn a_record_that_cannot_be_written_neither_stops_the_start_nor_erases_the_old_record() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let data_path = directory.path().join("data");
+    fs::create_dir(&data_path).expect("the data directory can be created");
+    let lock_path = data_path.join("server.lock");
+    let record = "pid=1\nurl=http://127.0.0.1:4242\n";
+    fs::write(&lock_path, record).expect("the earlier record can be written");
+    let data = path_text(&data_path);
+
+    let server = Running::spawn(no_file_writes_command(&["--port", "0", "--data-dir", data]));
+
+    assert_eq!(
+        get_status(server.port, "/api/v1/health"),
+        200,
+        "the server starts although it cannot write its record"
+    );
+    assert_eq!(
+        fs::read_to_string(&lock_path).expect("the lock file can be read"),
+        record,
+        "a write that is refused leaves the earlier record in place"
+    );
+}
+
+#[test]
 fn compute_concurrency_outside_1_to_64_is_refused_before_the_data_directory_is_touched() {
     let directory = tempfile::tempdir().expect("a temporary directory");
     let root = directory.path();
@@ -434,7 +501,7 @@ fn compute_concurrency_outside_1_to_64_is_refused_before_the_data_directory_is_t
     let data = path_text(&data_path);
     let (code, stderr) = refused(
         &["--port", "0", "--data-dir", data],
-        &[("CHEMIFREE_COMPUTE_CONCURRENCY", "0")],
+        &[("CHEMIFREE_COMPUTE_CONCURRENCY", OsStr::new("0"))],
     );
     assert_eq!(
         code,
@@ -480,7 +547,7 @@ fn compute_concurrency_in_range_is_accepted_from_the_flag_and_the_environment() 
     let data = path_text(&data_path);
     let server = Running::start(
         &["--port", "0", "--data-dir", data],
-        &[("CHEMIFREE_COMPUTE_CONCURRENCY", "2")],
+        &[("CHEMIFREE_COMPUTE_CONCURRENCY", OsStr::new("2"))],
     );
     assert_eq!(
         get_status(server.port, "/api/v1/health"),

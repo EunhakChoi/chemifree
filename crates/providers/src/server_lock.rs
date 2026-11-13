@@ -3,17 +3,17 @@
 
 use std::error::Error;
 use std::fmt;
-use std::fs::{self, File, OpenOptions, TryLockError};
+use std::fs::{File, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
+use crate::file_store;
+
 /// The most bytes of a record that are read. A record this module writes is far shorter; the bound
 /// keeps a tampered file from being read whole.
 const RECORD_LIMIT: u64 = 1024;
-/// The longest address a record may show.
-const MAX_URL_BYTES: usize = 64;
-/// The only address form a record may show: the server listens on loopback.
+/// The only address form a record may show: the server listens on loopback, and a port follows.
 const URL_PREFIX: &str = "http://127.0.0.1:";
 
 /// The data directory's server lock, held for as long as this value lives.
@@ -23,13 +23,17 @@ const URL_PREFIX: &str = "http://127.0.0.1:";
 /// deleted or truncated on drop: deleting a lock file that another process is about to open could
 /// let two holders in. The record in the file is informational. A refused server reads it while
 /// the lock is held. The holder rewrites the record right after taking the lock, so a refused
-/// server shows the current holder's record, except in the instant before that rewrite, when it
-/// may still show the record a killed server left.
+/// server shows the current holder's record. A holder that could not write its record leaves the
+/// older one in place: the record a killed server left, or, for a lock taken through a read-only
+/// handle, whatever the file held before.
 #[derive(Debug)]
 #[must_use = "if unused the lock is released immediately"]
 pub struct ServerLock {
     file: File,
     path: PathBuf,
+    /// Whether `file` was opened for writing. A lock taken through a read-only handle cannot record
+    /// its address.
+    writable: bool,
 }
 
 impl ServerLock {
@@ -40,23 +44,42 @@ impl ServerLock {
     /// lock is held until the returned value is dropped.
     ///
     /// The record is replaced with this process's pid only after the lock is taken, so a refused
-    /// process never erases the record of the holder.
+    /// process never erases the record of the holder. Where writes are refused, an existing lock
+    /// file is still locked, through a read-only handle, and its record is left as it is.
     ///
     /// # Errors
     ///
-    /// Returns [`ServerLockError::Held`] when another live process holds the lock, and
-    /// [`ServerLockError::Io`] when the directory or the lock file cannot be created, locked or
-    /// written.
+    /// Returns [`ServerLockError::Held`] when another live process holds the lock,
+    /// [`ServerLockError::NotCreated`] when the data directory refuses writes and holds no lock
+    /// file, and [`ServerLockError::Io`] when the directory cannot be created, or when the lock file
+    /// cannot be opened or locked.
     pub fn acquire(data_dir: &Path) -> Result<Self, ServerLockError> {
-        create_private_dir(data_dir).map_err(|error| ServerLockError::Io {
+        file_store::create_private_dir(data_dir).map_err(|error| ServerLockError::Io {
             path: data_dir.to_path_buf(),
             error,
         })?;
         let path = data_dir.join(Self::FILE_NAME);
-        let file = open_lock_file(&path).map_err(|error| ServerLockError::Io {
-            path: path.clone(),
-            error,
-        })?;
+        let (file, writable) = match file_store::open_lock_file(&path) {
+            Ok(file) => (file, true),
+            Err(error) if is_write_refusal(&error) => {
+                // An existing lock file can still be locked through a read-only handle, which
+                // keeps other servers out. A missing one cannot be created, so the server starts
+                // without a lock.
+                match File::open(&path) {
+                    Ok(file) => (file, false),
+                    Err(open_error) if open_error.kind() == io::ErrorKind::NotFound => {
+                        return Err(ServerLockError::NotCreated { path, error });
+                    }
+                    Err(open_error) => {
+                        return Err(ServerLockError::Io {
+                            path,
+                            error: open_error,
+                        });
+                    }
+                }
+            }
+            Err(error) => return Err(ServerLockError::Io { path, error }),
+        };
         match file.try_lock() {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => {
@@ -67,13 +90,17 @@ impl ServerLock {
             }
             Err(TryLockError::Error(error)) => return Err(ServerLockError::Io { path, error }),
         }
-        replace_record(&file, &format!("pid={}\n", process::id())).map_err(|error| {
-            ServerLockError::Io {
-                path: path.clone(),
-                error,
-            }
-        })?;
-        Ok(Self { file, path })
+        if writable {
+            // The record is informational and the lock is already held, so a failed write does not
+            // stop the start. `record_url` writes the record again once the listener is bound, and
+            // reports its own failure.
+            let _ = replace_record(&file, &format!("pid={}\n", process::id()));
+        }
+        Ok(Self {
+            file,
+            path,
+            writable,
+        })
     }
 
     /// Records `url` next to this process's pid, replacing the record that `acquire` wrote. A
@@ -81,8 +108,16 @@ impl ServerLock {
     ///
     /// # Errors
     ///
-    /// Returns the I/O error from rewriting the lock file. The lock stays held either way.
+    /// Returns the I/O error from rewriting the lock file, or an error of kind
+    /// [`io::ErrorKind::PermissionDenied`] when the lock was taken through a read-only handle. The
+    /// lock stays held either way.
     pub fn record_url(&self, url: &str) -> io::Result<()> {
+        if !self.writable {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "the lock file was opened read-only",
+            ));
+        }
         replace_record(&self.file, &format!("pid={}\nurl={url}\n", process::id()))
     }
 
@@ -126,6 +161,14 @@ pub enum ServerLockError {
         /// The holder's recorded pid and address, each `None` when the record does not state it.
         holder: LockHolder,
     },
+    /// The lock file does not exist and the data directory refuses writes, so no lock can be taken.
+    /// The caller may start without one, as the server does with a warning.
+    NotCreated {
+        /// The lock file that could not be created.
+        path: PathBuf,
+        /// Why it could not be created: writes are refused.
+        error: io::Error,
+    },
     /// The lock file or its directory could not be created, locked or written.
     Io {
         /// The file or directory that failed.
@@ -143,6 +186,11 @@ impl fmt::Display for ServerLockError {
                 "the data directory {} is already used by another Chemifree API server ({holder})",
                 data_dir.display()
             ),
+            Self::NotCreated { path, error } => write!(
+                formatter,
+                "could not create the server lock {}: {error}",
+                path.display()
+            ),
             Self::Io { path, error } => write!(
                 formatter,
                 "could not take the server lock {}: {error}",
@@ -156,52 +204,32 @@ impl Error for ServerLockError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Held { .. } => None,
-            Self::Io { error, .. } => Some(error),
+            Self::NotCreated { error, .. } | Self::Io { error, .. } => Some(error),
         }
     }
 }
 
-/// Creates `path` and any missing parents, private to the owner on unix.
-#[cfg(unix)]
-fn create_private_dir(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)
-}
-
-#[cfg(not(unix))]
-fn create_private_dir(path: &Path) -> io::Result<()> {
-    fs::create_dir_all(path)
-}
-
-/// Opens the lock file, creating it if needed. It is never truncated here: only a caller that
-/// holds the lock replaces the record, through [`replace_record`].
-fn open_lock_file(path: &Path) -> io::Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    options.open(path)
-}
-
-/// Replaces the whole record with `record`. Callers must hold the lock, because the truncation
-/// would otherwise erase the holder's record.
+/// Replaces the record with `record`. The new bytes are written from the start of the file, and the
+/// file is then cut to their length, so a failed write never leaves an empty file where the record
+/// was. Callers must hold the lock.
 fn replace_record(file: &File, record: &str) -> io::Result<()> {
     let mut writer = file;
     writer.seek(SeekFrom::Start(0))?;
-    file.set_len(0)?;
-    writer.write_all(record.as_bytes())
+    writer.write_all(record.as_bytes())?;
+    file.set_len(record.len() as u64)
+}
+
+/// Whether `error` reports that writes are refused, by permissions or by a read-only file system.
+fn is_write_refusal(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem
+    )
 }
 
 /// Reads the record of the current holder. It is called only when another process holds the lock,
-/// so the record is that holder's, except in the instant before the holder rewrites it (see
-/// [`ServerLock`]). A file that cannot be read gives an empty record.
+/// so the record is normally that holder's; it is an older one when the holder could not write its
+/// own (see [`ServerLock`]). A file that cannot be read gives an empty record.
 fn read_holder(path: &Path) -> LockHolder {
     let Ok(file) = File::open(path) else {
         return LockHolder::default();
@@ -239,18 +267,19 @@ fn parse_holder(record: &str) -> LockHolder {
     holder
 }
 
-/// The address to show: a loopback HTTP origin of at most [`MAX_URL_BYTES`] printable ASCII
-/// bytes. The record is a file that any process may edit, so anything else is refused, which keeps
-/// control characters out of the terminal.
+/// The address to show: the loopback origin of a server, with a port of one to five ASCII digits.
+/// The record is a file that any process may edit, so anything else is refused, which keeps text
+/// that another process chose out of the terminal and the message.
 fn accepted_url(value: &str) -> Option<&str> {
-    let accepted = value.starts_with(URL_PREFIX)
-        && value.len() <= MAX_URL_BYTES
-        && value.bytes().all(|byte| byte.is_ascii_graphic());
-    accepted.then_some(value)
+    let port = value.strip_prefix(URL_PREFIX)?;
+    let is_port = (1..=5).contains(&port.len()) && port.bytes().all(|byte| byte.is_ascii_digit());
+    is_port.then_some(value)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
 
     /// The address that the tests record, in the form a server records its own.
@@ -440,22 +469,30 @@ mod tests {
     }
 
     #[test]
-    fn parse_holder_accepts_an_address_of_up_to_64_bytes() {
-        let prefix = "http://127.0.0.1:";
-        let at_limit = format!("{prefix}{}", "1".repeat(64 - prefix.len()));
-        let over_limit = format!("{at_limit}1");
-        assert_eq!(at_limit.len(), 64, "the fixture is exactly at the limit");
-
+    fn accepted_url_takes_a_loopback_address_with_a_port_of_one_to_five_digits() {
         assert_eq!(
-            parse_holder(&format!("url={at_limit}\n")).url,
-            Some(at_limit.clone()),
-            "an address of 64 bytes is shown"
+            accepted_url(ADDRESS),
+            Some(ADDRESS),
+            "a loopback address with a port is shown"
         );
         assert_eq!(
-            parse_holder(&format!("url={over_limit}\n")).url,
-            None,
-            "an address of 65 bytes is not shown"
+            accepted_url("http://127.0.0.1:65535"),
+            Some("http://127.0.0.1:65535"),
+            "a port of five digits is shown"
         );
+        for refused in [
+            "http://127.0.0.1:@evil.example/x",
+            "http://127.0.0.1:@ab",
+            "http://127.0.0.1:",
+            "http://127.0.0.1:123456",
+            "http://127.0.0.1:42a",
+        ] {
+            assert_eq!(
+                accepted_url(refused),
+                None,
+                "{refused:?} does not end in a port of one to five digits, so it is refused"
+            );
+        }
     }
 
     #[test]

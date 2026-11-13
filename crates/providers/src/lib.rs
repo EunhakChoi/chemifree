@@ -14,6 +14,7 @@ pub mod interchange_codec;
 mod opaque_policy;
 pub mod png_image;
 mod preference_store;
+mod server_lock;
 mod smiles;
 
 use chemifree_application::CapabilityCatalog;
@@ -26,6 +27,7 @@ pub use data_directory::{
 pub use file_store::{FileDocumentRepository, MAX_DOCUMENT_BYTES, default_data_dir};
 pub use inchi::{InchiRegistration, RegisteredInchiProvider};
 pub use preference_store::FilePreferenceStore;
+pub use server_lock::{LockHolder, ServerLock, ServerLockError};
 pub use smiles::{MAX_BRANCH_DEPTH, MAX_INPUT_BYTES, MAX_RING_LABEL, OpenSmilesCodec};
 
 /// Actual implementation status. Change an entry only together with its real operation.
