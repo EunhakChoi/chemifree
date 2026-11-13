@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 
 use crate::aromaticity::{self, Classification};
-use crate::budget::{Interrupt, Interrupted, NEVER};
+use crate::budget::{Interrupt, Interrupted, NEVER, interruptible};
 use crate::document::{Atom, AtomId, Bond, BondId, BondOrder};
 use crate::graph::MoleculeGraph;
 use crate::states::{AtomKind, BondQuery, QueryAtom, QueryBondOrder};
@@ -580,23 +580,14 @@ impl Offence {
 }
 
 /// Why a search produced no result: it ended with a [`MatchError`], which a search reaches only
-/// through one of its limits, or the caller's interrupt stopped it.
-enum Halt {
-    /// A limit of the search ended it; this does not depend on the machine.
-    Refused(MatchError),
-    /// The search was stopped before it finished; the target may well be supported.
-    Interrupted(Interrupted),
-}
+/// through one of its limits, or the caller's interrupt stopped it. `Refused` is the case where
+/// a limit of the search ended it; this does not depend on the machine. `Interrupted` is the case
+/// where the search was stopped before it finished; the target may well be supported.
+type Halt = crate::budget::Halt<MatchError>;
 
 impl From<MatchError> for Halt {
     fn from(error: MatchError) -> Self {
         Self::Refused(error)
-    }
-}
-
-impl From<Interrupted> for Halt {
-    fn from(interrupted: Interrupted) -> Self {
-        Self::Interrupted(interrupted)
     }
 }
 
@@ -821,11 +812,7 @@ pub fn find_with(
         ..
     } = search;
     // An interrupt ends the search at once: no refusal or limit that it reached is reported.
-    let ended = match ended {
-        Err(Halt::Interrupted(interrupted)) => return Err(interrupted),
-        Err(Halt::Refused(error)) => Err(error),
-        Ok(()) => Ok(()),
-    };
+    let ended = interruptible(ended)?;
     if let Some(Offence { reason, at, query }) = offence {
         return Ok(Err(MatchError::Unsupported {
             side: Side::Target,

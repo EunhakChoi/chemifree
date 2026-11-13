@@ -223,7 +223,7 @@ fn could_differ(
         Err(halt @ Halt::Interrupted(_)) => return Err(halt),
         // A limit, or an order that is not consistent: charged as a limit, because how far
         // the comparison got depends on the order its neighbors were visited in.
-        Err(Halt::Reason(_)) => {
+        Err(Halt::Refused(_)) => {
             let over = budget.cap.saturating_add(1);
             budget.charge(over, budget.descriptors)?;
             return Ok(true);
@@ -420,7 +420,7 @@ pub(super) fn rank_slots(
             ranking.requested.extend(engine.requested().iter().copied());
             let (ordering, rule) = match outcome {
                 Err(Halt::Interrupted(interrupted)) => return Err(interrupted),
-                Err(Halt::Reason(reason)) => {
+                Err(Halt::Refused(reason)) => {
                     ranking.nodes = ranking.nodes.saturating_add(over);
                     ranking.own_nodes = ranking.own_nodes.saturating_add(over);
                     ranking.unsupported.push(reason);
@@ -477,7 +477,7 @@ pub(super) fn rank_slots(
                     Ok(Some(reason)) => ranking.unsupported.push(reason),
                     Ok(None) => {}
                     Err(Halt::Interrupted(interrupted)) => return Err(interrupted),
-                    Err(Halt::Reason(reason)) => ranking.unsupported.push(reason),
+                    Err(Halt::Refused(reason)) => ranking.unsupported.push(reason),
                 }
             }
         }

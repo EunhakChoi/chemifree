@@ -79,10 +79,15 @@ A new feature is a new operation or a new transaction command, not a new adapter
   commit nothing, so the revision rule does not apply to them. In the domain
   an interruptible computation is a `_with(…, interrupt)` function returning
   `Result<Result<T, ModelError>, Interrupted>`, and the existing function is its wrapper
-  over `NEVER`; a stop is never a model error. SMILES export follows the same rule: the
-  `SmilesCodec` port has a required `write_interruptible` method (no default, so an
-  implementor cannot silently ignore the limit), the provider writer carries a private
-  `Halt` (shared with the reader in the `smiles` module) like the domain modules, and the
+  over `NEVER`; a stop is never a model error. Inside, the identity, mass, substructure and
+  stereo-inspection models, CIP ranking and labelling, and `chem.properties` keep a stop apart
+  from a refusal with the shared `budget::Halt<E>` (`budget::interruptible`/`uninterrupted` at
+  the boundary); only aromaticity keeps its own `Halt`, because that enum and its `Reason`
+  variant are public API used by the application and its tests. SMILES export follows the same
+  rule: the `SmilesCodec` port has a required `write_interruptible` method (no default, so an
+  implementor cannot silently ignore the limit), the provider reader and writer share
+  `budget::Halt<SmilesError>` through a `smiles` module alias (the `From<SmilesError>` impl
+  lives in the application crate, which owns `SmilesError`), and the
   reader has `parse_with` for the writer's read-back parses while import keeps the `NEVER`
   wrapper `parse`, because import has no time limit (CONTRACT.md lists the parts of a
   read-back parse that stay unchecked). `chem.stereo` has `stereo_inspection::inspect_with` and the same time limit and cancel as

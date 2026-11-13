@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use crate::budget::{Interrupt, Interrupted, NEVER};
+use crate::budget::{Interrupt, Interrupted, NEVER, interruptible, uninterrupted};
 use crate::document::{AtomId, BondId, Document, ObjectId};
 use crate::stereo::{CenterState, DoubleBondState, Slot, StereoError, StereoRecord};
 use crate::stereo_drawing::{DeriveError, Drawing, MisplacedMark, NotDerivable, WEAK_EVIDENCE};
@@ -292,7 +292,7 @@ pub fn inspect(
     plan: &Plan,
     instances: &[ObjectId],
 ) -> Result<Inspection, InspectError> {
-    inspect_with(document, plan, instances, &NEVER).expect("the never-interrupt cannot interrupt")
+    uninterrupted(compare_items(document, plan, instances, &NEVER))
 }
 
 /// [`inspect`] that asks `interrupt` at its checkpoints: before each instance is drawn, before
@@ -310,22 +310,14 @@ pub fn inspect_with(
     instances: &[ObjectId],
     interrupt: &dyn Interrupt,
 ) -> Result<Result<Inspection, InspectError>, Interrupted> {
-    match compare_items(document, plan, instances, interrupt) {
-        Ok(inspection) => Ok(Ok(inspection)),
-        Err(Halt::Refused(error)) => Ok(Err(error)),
-        Err(Halt::Interrupted(interrupted)) => Err(interrupted),
-    }
+    interruptible(compare_items(document, plan, instances, interrupt))
 }
 
 /// Why the comparison ends without an [`Inspection`]: the document is refused, or `interrupt`
 /// stopped it. A stop stays a `Halt` until [`inspect_with`] maps it, so it is never read as a
-/// refusal.
-enum Halt {
-    /// A broken document invariant; this does not depend on the machine.
-    Refused(InspectError),
-    /// The comparison was stopped before it finished; the inspection may well exist.
-    Interrupted(Interrupted),
-}
+/// refusal. `Refused` is a broken document invariant; this does not depend on the machine.
+/// `Interrupted` is the comparison stopped before it finished; the inspection may well exist.
+type Halt = crate::budget::Halt<InspectError>;
 
 impl From<StereoError> for Halt {
     fn from(error: StereoError) -> Self {
@@ -336,12 +328,6 @@ impl From<StereoError> for Halt {
 impl From<DeriveError> for Halt {
     fn from(error: DeriveError) -> Self {
         Self::Refused(error.into())
-    }
-}
-
-impl From<Interrupted> for Halt {
-    fn from(interrupted: Interrupted) -> Self {
-        Self::Interrupted(interrupted)
     }
 }
 
