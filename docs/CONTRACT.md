@@ -2674,7 +2674,7 @@ Allowed web origins default to `http://127.0.0.1:5173`, `http://localhost:5173`,
 - Write protection applies unchanged; the `Host` check covers file requests too.
 - Every answer, API or file, carries `Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Cross-Origin-Opener-Policy: same-origin`.
 
-The first two slices of the local product server (P87) are implemented: serving the web app (this section) and the local server lifecycle (the next section). The `build:product`/`start` scripts are not implemented yet.
+The local product server (P87) is implemented within this scope: serving the web app (this section), the local server lifecycle (the next section), and three npm scripts. `npm run build:product` builds the web app into `apps/web/dist` and a release `chemifree-api`/`chemifree`; `npm start` runs the release API with `--web-dir apps/web/dist` on the default port 3001 (extra arguments after `--` are passed to the API, e.g. `npm start -- --port 8080`); `npm run test:product` checks it end to end (docs/verification/p87-product-server.md). A single self-contained binary is P88 and not implemented.
 
 ## Local server lifecycle
 

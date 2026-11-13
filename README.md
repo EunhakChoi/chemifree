@@ -167,6 +167,44 @@ cargo run --locked -p chemifree-api -- --port 3002 --data-dir ./tmp/chemifree-da
 
 The development proxy targets port 3001. If you choose another API port, update `apps/web/vite.config.ts` accordingly. The standalone CLI's `status` confirms its local application can run; it does not report whether an HTTP server is running. The browser holds no document state of its own: each edit is a request with the revision it was based on, and the API's working copy is authoritative until saved. An open API session and the CLI can edit the same file; saves from every process take an OS lock on the document, so a later save from the other side is refused with `save_conflict` rather than overwriting, and a crashed process never leaves the lock held.
 
+## Run as a local product
+
+Use the same tool versions as [Run locally](#run-locally): Node **22.22.2**, npm **11.13.0** and Rust **1.95.0**. Linux is the checked platform.
+
+```bash
+npm ci
+npm run build:product   # web app into apps/web/dist; release chemifree-api and chemifree
+npm start               # then open http://127.0.0.1:3001
+```
+
+`npm start` runs one API process, which serves the web app and `/api` from the same origin; Vite is not started. If `apps/web/dist` is missing or has no `index.html`, the API exits 1 and names the directory, so run `npm run build:product` first.
+
+Settings are command-line flags or environment variables; there is no configuration file. Pass flags after `--`, for example `npm start -- --port 8080 --data-dir ~/chemifree-data`.
+
+- `--port <n>`: default **3001**. The address is always 127.0.0.1. `--port 0` picks a free port, and the startup line names it. There is no environment variable.
+- `--data-dir <dir>` or `CHEMIFREE_DATA_DIR`: default is the platform user-data directory described in [Run locally](#run-locally), so `npm start` uses your real documents unless you choose another directory.
+- `--compute-concurrency <n>` or `CHEMIFREE_COMPUTE_CONCURRENCY`: 1 to 64. The default is the smaller of the machine's cores and 4.
+- `--web-dir <dir>` or `CHEMIFREE_WEB_DIR`: the built web app to serve. `npm start` already passes `apps/web/dist`, so the variable matters only when you run `chemifree-api` directly.
+
+One server runs per data directory, held through `<data>/server.lock`. A second server on the same directory exits with status 4, and a busy port exits with status 3. `npm run dev` follows the same rule, so stop it before you run `npm start` (both default to port 3001). The exit statuses and messages are in [Local server lifecycle](docs/CONTRACT.md#local-server-lifecycle), and the cache and security headers of served files are in [Serving the web app](docs/CONTRACT.md#serving-the-web-app).
+
+Stop with Ctrl+C, or SIGTERM on Unix. A stop writes the server's unsaved changes to their recovery drafts before it releases the lock. A document with a recoverable draft is listed as **Unsaved work found**, and opening it offers **Recover** or **Discard draft**. The CLI (`chemifree`) does not take the server lock, so it can read and edit the same data directory while the server runs; per-document save locks and revision checks stop one side from silently overwriting the other.
+
+To upgrade, stop the server, then run:
+
+```bash
+git pull
+npm ci
+npm run build:product
+npm start
+```
+
+`npm start` rebuilds the API when its sources changed, but only `npm run build:product` rebuilds the web app.
+
+Verification: `npm run test:product` runs the end-to-end check against the release build, so run `npm run build:product` first. It needs Chromium, either Playwright's build (`npx playwright-core install chromium`) or the one named by `CHEMIFREE_BROWSER`, as for `npm run test:browser`. See the [product-server record](docs/verification/p87-product-server.md).
+
+Not done: a single self-contained binary (P88), an installer, a service or auto-start, automatic updates, and user authentication. Windows and macOS are untested.
+
 ## Check and build
 
 The real-backend native transfer check is `npm run test:browser:clipboard-integration`. It starts an API on an assigned port with temporary storage and Vite on port 5173 (which must be free), then drives production clipboard panels, editor hook and HTTP client. Browser clipboard transport alone is replaced. See the [P33k check scope](docs/verification/p33k-native-clipboard-integration.md) and [bounded P33 completion evidence](docs/verification/p33-clipboard-completion.md).

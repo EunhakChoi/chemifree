@@ -1,5 +1,22 @@
 # Chemifree 새 세션 인계
 
+## P87 S3: 로컬 제품 실행 (T1, P87 마지막 조각)
+
+- npm 스크립트(`package.json`): `build:product`는 `npm run build:web`(출력 `apps/web/dist`) 뒤 `cargo build --release --locked`로 `chemifree-api`와 `chemifree`(CLI)를 만든다. `start`는 `cargo run --release --locked --quiet --package chemifree-api -- --web-dir apps/web/dist`이며 `--` 뒤 인자를 그대로 넘긴다(`npm start -- --port 8080`). `cargo run`은 `build:product`의 바이너리를 재사용하고, 소스가 바뀌었으면 다시 빌드한다. Vite는 띄우지 않는다. `test:product`는 `node scripts/product-server-check.mjs`이며 `check` 체인에는 넣지 않는다(`check` 잡에는 Chromium이 없다).
+- 웹 앱 변경 없음: 웹은 상대 경로 `/api/v1/...`만 쓰고 API base 설정이 없으며, 기본 base `/`와 기본 출력 경로를 그대로 둔다. Vite 개발 프록시(`/api` → 127.0.0.1:3001)도 그대로다. 같은 출처 쓰기는 S1의 `--web-dir` 자기 루프백 출처 허용으로 충족된다.
+- `scripts/product-server-check.mjs`는 빌드하지 않는다. `--profile release|debug`(기본 release)로 `cargo metadata`의 target 디렉터리에서 두 바이너리와 `apps/web/dist/index.html`을 찾고, 없으면 `npm run build:product`(debug는 `cargo build --locked --package chemifree-api --package chemifree-cli && npm run build:web`)를 안내하며 종료 1. 임시 디렉터리의 데이터로 일곱 점검을 순서대로 돌린다. 점검마다 `ok <이름>`을 출력하고, 첫 실패는 `FAILED <이름>: <메시지>` 뒤 종료 1이며, 자식 프로세스·브라우저·임시 디렉터리를 모든 경로에서 정리한다.
+  - `headers`: `/`(`no-cache`), `/assets/*.js`(1년 `immutable`), 보안 헤더 전부(CSP·nosniff·Referrer-Policy·COOP), `/api/v1/health`의 CSP.
+  - `ui-save`: Playwright chromium으로 새 문서를 만들어 원자 2개와 결합 1개를 그리고 저장(`Saved`)한다. 콘솔 오류와 CSP 위반이 없어야 한다.
+  - `cli-read`: `chemifree documents show <id> --json`이 같은 데이터 디렉터리의 저장본을 읽는다.
+  - `second-server`: 같은 데이터 디렉터리의 두 번째 서버는 종료 4.
+  - `port-conflict`: 이미 쓰이는 포트로 시작하면 종료 3.
+  - `sigkill-restart`: SIGKILL 뒤 같은 데이터 디렉터리로 다시 시작되고 문서가 목록에 남는다(잠금이 낡지 않음).
+  - `sigterm-recovery`: 저장 안 된 편집이 있는 서버를 SIGTERM으로 끝내면 종료 0이고 `drafts/<id>.json`이 남는다. 다음 시작은 목록에 "Unsaved work found"를 보여 주고, 열면 복구 안내가 `recoverable` 상태다.
+- CI(`browser` 잡): "Autosave process ownership and explicit restart reconciliation" 뒤, "Browser smoke" 앞에 두 단계를 둔다. `npm run build:web && cargo build --locked --package chemifree-api --package chemifree-cli`, 그다음 `npm run test:product -- --profile debug`. 앞 단계(`web-abbreviation-check`)가 이미 컴파일한 debug 크레이트를 증분으로 쓴다. release 컴파일은 CI에 넣지 않는다(이 잡에는 Rust 캐시가 없어 몇 분이 더 든다). release 경로는 로컬 실행으로 기록한다(`docs/verification/p87-product-server.md`).
+- README: `## Run as a local product`를 `## Run locally`와 `## Check and build` 사이에 둔다. 도구 버전, `npm ci`, `npm run build:product`, `npm start`(기본 http://127.0.0.1:3001), 플래그·환경 변수(`--port`, `--data-dir`/`CHEMIFREE_DATA_DIR`, `--compute-concurrency`/`CHEMIFREE_COMPUTE_CONCURRENCY`, `--web-dir`/`CHEMIFREE_WEB_DIR`), 데이터 디렉터리당 서버 하나, 종료 코드(CONTRACT "Local server lifecycle"), 업그레이드 절차(서버 중지 → `git pull` → `npm ci` → `npm run build:product` → `npm start`).
+- 추적표 `API-01.6`(implemented, `docs/traceability/requirements.json`): 구현은 `apps/api/src/main.rs`, `apps/api/src/lib.rs`, `crates/providers/src/server_lock.rs`, `scripts/product-server-check.mjs`, `package.json`이고, 증거는 `check:check:rust`(`apps/api/tests/static_assets.rs`, `server_lifecycle.rs`)다. `test:product`는 `check`에 닿지 않아 증거가 될 수 없다. implemented 행은 후속을 둘 수 없어 후속은 비웠다. P87은 로드맵에서 아직 `planned`이므로 API-01.rest·QUALITY-01.rest 후속에 P87이 남아 있다.
+- 남은 것: 단일 실행 파일 P88, 설치 프로그램 없음, Windows·macOS 미검증. 로드맵 P87을 `done`으로 바꾸는 것은 PR 시점 리드 결정이며, 바꾸면 API-01.rest·QUALITY-01.rest 후속 목록에서 P87을 빼야 한다.
+
 ## P87 S2: 로컬 서버 수명 주기 (T1)
 
 - `--compute-concurrency <n>`/`CHEMIFREE_COMPUTE_CONCURRENCY`(1–64, 서버만). 이미 있던 `Application::with_compute_concurrency`에 넘기고, 없으면 기본값(코어 수와 4 중 작은 값)을 그대로 둔다. 범위 밖·정수 아님·빈 값은 clap 사용 오류(종료 2)로 데이터 디렉터리를 건드리기 전에 거부.
@@ -7,8 +24,8 @@
 - 데이터 디렉터리당 서버 하나: `crates/providers/src/server_lock.rs`의 `ServerLock`(host가 다시 내보냄)이 `<data>/server.lock`에 std `File::try_lock`(저장 잠금과 같은 OS 권고 잠금)을 건다. 두 번째 서버는 기록된 pid·URL을 한 줄로 알리고 종료 4. SIGKILL 뒤에도 다음 시작을 막지 않으며, 파일은 지우지 않는다(지우면 두 서버가 다른 파일을 잠글 수 있음). 잠금은 정리(prune)·서비스 전, 해제는 마지막 초안 쓰기 뒤. 데이터 디렉터리가 없으면 시작 때 만든다. 읽기 전용 데이터 디렉터리(리뷰 반영): 기존 `server.lock`은 읽기 전용 핸들로 잠그고, 없으면 잠금 없이 경고 한 줄과 함께 시작한다(보기 유지, 쓰기는 `read_only`). 기록 쓰기 실패는 시작을 막지 않는다. 기록 URL은 `http://127.0.0.1:`+숫자 1–5개만 보인다. 시험 도우미와 `SELECTION_ENV`는 `apps/api/tests/common/mod.rs`로 모았다.
 - 종료 코드 표(0·1·2·3·4)는 CONTRACT "Local server lifecycle". 종료 1 오류는 이제 Display 형식 `Error: <메시지>`(S1 리뷰에서 미룬 따옴표 출력 해결).
 - 시험: `apps/api/tests/server_lifecycle.rs`(실제 바이너리), 잠금·포트 충돌·범위 검사 변이를 잡는다. `contract-smoke.mjs`의 요청 로그 서버는 자기 데이터 디렉터리를 쓴다.
-- 확인 한계(Opus 결정 C): `--compute-concurrency`가 `Application::with_compute_concurrency`로 넘어가는 연결은 코드 읽기로만 확인했다. 파싱과 범위(1–64)는 시험하지만, main.rs의 호출을 지워도 잡는 시험은 없다(한도가 밖에서 보이지 않음). 관측 가능한 한도(예: capabilities의 읽기 전용 필드)는 사용자 결정으로 미룬다.
-- 남은 것: Windows에서 `LockFileEx`는 강제 잠금이라 두 번째 서버가 기록을 못 읽어 "pid unknown"이 될 수 있다(미검증). S3(`build:product`/`start`, 제품 서버 점검 스크립트, CI, README, 검증 문서).
+- 확인 한계(Opus 결정 C): `--compute-concurrency`가 `Application::with_compute_concurrency`로 넘어가는 연결은 코드 읽기로만 확인했다. 파싱과 범위(1–64)는 시험하지만, main.rs의 호출을 지워도 잡는 시험은 없다(한도가 밖에서 보이지 않음). 관측 가능한 한도(capabilities의 읽기 전용 필드)는 넣지 않기로 했다(사용자 결정 2026-11-14, Opus 추천: 한 번 낸 v1 필드는 유지해야 하므로 시험 하나를 위해 넣지 않음).
+- 남은 것: Windows에서 `LockFileEx`는 강제 잠금이라 두 번째 서버가 기록을 못 읽어 "pid unknown"이 될 수 있다(미검증). S3는 완료(위 `## P87 S3` 참조).
 
 ## P87 S1: API가 빌드된 웹 앱을 같은 출처로 제공 (T1 시작)
 
@@ -1087,7 +1104,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 113개(implemented 64, partial 13, unverified 3, not_implemented 33) · conformance 사례 119개(passed 119: accept 87·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 114개(implemented 65, partial 13, unverified 3, not_implemented 33) · conformance 사례 119개(passed 119: accept 87·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, MODEL-03, CODEC-01, CODEC-02, CODEC-03, CODEC-05, CODEC-06, OPS-01, OPS-02, CHEM-01, CHEM-02, STEREO-01, RENDER-01, STYLE-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
