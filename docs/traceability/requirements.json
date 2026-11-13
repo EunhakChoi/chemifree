@@ -2346,6 +2346,20 @@
           ]
         },
         {
+          "id": "API-01.6",
+          "summary": "chemifree-api serves a built web app from --web-dir on its own origin with the documented cache and security headers, takes its settings from flags and environment variables only (default port 3001), runs one server per data directory through <data>/server.lock, and exits with the documented statuses 0-4; npm run build:product and npm start build and run it, and npm run test:product checks it end to end with a browser (CI browser job, outside npm run check).",
+          "status": "implemented",
+          "implementation": [
+            "apps/api/src/main.rs",
+            "apps/api/src/lib.rs",
+            "crates/providers/src/server_lock.rs"
+          ],
+          "evidence": [
+            "check:check:rust"
+          ],
+          "followups": []
+        },
+        {
           "id": "API-01.rest",
           "summary": "Model identifiers from operations that use a model or method, resource errors and cancel for operations other than the aromaticity conversion, chem.cip, the read-only inspections, chem.stereo, chem.inchi and SMILES export, reproducing observed behaviour under the legacy-observed profile, other adapters.",
           "status": "not_implemented",
