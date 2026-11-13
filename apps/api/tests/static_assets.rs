@@ -5,22 +5,22 @@
 //! real directory on disk. The origin and startup cases run the real binary, because its origin
 //! policy and its startup checks live in its own startup code.
 
+mod common;
+
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver};
-use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use axum::response::Response;
 use chemifree_api::{ApiState, SESSION_HEADER, WebDir, router};
+use common::{Running, TIMEOUT, api_command, run_to_exit};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -29,11 +29,6 @@ use tower::ServiceExt;
 const PORT: u16 = 3999;
 const HOST: &str = "127.0.0.1:3999";
 const TOKEN: &str = "static-test-token";
-/// Bounds every wait on the API process, so a hung process fails the test instead of stalling it.
-const TIMEOUT: Duration = Duration::from_secs(15);
-/// Environment variables that choose the web or data directory. Each child starts without them,
-/// so the developer's shell cannot change what a case observes.
-const SELECTION_ENV: [&str; 2] = ["CHEMIFREE_WEB_DIR", "CHEMIFREE_DATA_DIR"];
 
 /// The cache policy of a file whose name Vite derives from its content.
 const HASHED_POLICY: &str = "public, max-age=31536000, immutable";
@@ -494,44 +489,7 @@ async fn write_protection_still_applies_with_a_web_directory() {
     );
 }
 
-/// An API binary on an ephemeral port. Dropping it kills and reaps the child, also when an
-/// assertion fails first.
-struct Running {
-    child: Child,
-    port: u16,
-}
-
-impl Drop for Running {
-    fn drop(&mut self) {
-        // The child may have exited already; killing and reaping it is what matters here.
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 impl Running {
-    /// Starts the binary with `args` and `env` on port 0, and returns once it has printed the
-    /// documents line, which ends its startup.
-    fn start(args: &[&OsStr], env: &[(&str, &OsStr)]) -> Self {
-        let mut command = api_command(args);
-        command.arg("--port").arg("0").envs(env.iter().copied());
-        let mut child = command.spawn().expect("the API binary starts");
-        let stderr = child.stderr.take().expect("stderr is piped");
-        let (sender, lines) = mpsc::channel();
-        thread::spawn(move || {
-            for line in BufReader::new(stderr).lines() {
-                let Ok(line) = line else { break };
-                // The receiver may be gone by now. The pipe is still read to its end, so the
-                // child never blocks on it.
-                let _ = sender.send(line);
-            }
-        });
-        Self {
-            port: listening_port(&lines),
-            child,
-        }
-    }
-
     /// The origin of the API's own loopback address, which its web app presents.
     fn origin(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
@@ -549,62 +507,6 @@ impl Running {
             .expect("the session carries its token")
             .to_owned();
         (header, token)
-    }
-}
-
-/// The API binary with `args`, its selection environment cleared and its stderr piped.
-fn api_command(args: &[&OsStr]) -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_chemifree-api"));
-    for name in SELECTION_ENV {
-        command.env_remove(name);
-    }
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    command
-}
-
-/// Reads stderr up to the documents line, which the binary prints last before it serves, and
-/// returns the port named by its listening line.
-fn listening_port(lines: &Receiver<String>) -> u16 {
-    let deadline = Instant::now() + TIMEOUT;
-    let mut seen: Vec<String> = Vec::new();
-    loop {
-        let wait = deadline.saturating_duration_since(Instant::now());
-        let line = match lines.recv_timeout(wait) {
-            Ok(line) => line,
-            Err(error) => panic!("no documents line ({error}); stderr so far: {seen:?}"),
-        };
-        let done = line.starts_with("Documents: ");
-        seen.push(line);
-        if done {
-            break;
-        }
-    }
-    let listening = seen
-        .iter()
-        .find_map(|line| line.strip_prefix("Chemifree API listening on http://127.0.0.1:"))
-        .expect("the listening line names the loopback address");
-    listening
-        .parse()
-        .expect("the listening line ends with a port number")
-}
-
-/// Waits for the child to exit. Kills it and fails the test when it has not exited in time.
-fn exit_within_timeout(child: &mut Child) -> ExitStatus {
-    let deadline = Instant::now() + TIMEOUT;
-    loop {
-        if let Some(status) = child.try_wait().expect("the child can be polled") {
-            return status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("the API did not exit within {TIMEOUT:?}");
-        }
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -676,6 +578,8 @@ fn the_binary_admits_writes_from_its_own_origin_only_when_it_serves_the_web_app(
     fs::create_dir(&data).unwrap();
     let api = Running::start(
         &[
+            OsStr::new("--port"),
+            OsStr::new("0"),
             OsStr::new("--data-dir"),
             data.as_os_str(),
             OsStr::new("--web-dir"),
@@ -733,7 +637,12 @@ fn the_environment_can_name_the_web_directory() {
     let data = root.path().join("data");
     fs::create_dir(&data).unwrap();
     let api = Running::start(
-        &[OsStr::new("--data-dir"), data.as_os_str()],
+        &[
+            OsStr::new("--port"),
+            OsStr::new("0"),
+            OsStr::new("--data-dir"),
+            data.as_os_str(),
+        ],
         &[("CHEMIFREE_WEB_DIR", web.as_os_str())],
     );
     let reply = exchange(api.port, "GET", "/", &[], "");
@@ -753,24 +662,17 @@ fn a_missing_web_directory_stops_startup_before_anything_is_created() {
     // The start would prune this file, if it got past the web directory check.
     stale_temporary(&data);
     let before = listing(root.path());
-    let mut child = api_command(&[
-        OsStr::new("--port"),
-        OsStr::new("0"),
-        OsStr::new("--data-dir"),
-        data.as_os_str(),
-        OsStr::new("--web-dir"),
-        missing.as_os_str(),
-    ])
-    .spawn()
-    .expect("the API binary starts");
-    let status = exit_within_timeout(&mut child);
-    let mut stderr = String::new();
-    child
-        .stderr
-        .take()
-        .expect("stderr is piped")
-        .read_to_string(&mut stderr)
-        .expect("stderr is text");
+    let (status, stderr) = run_to_exit(api_command(
+        &[
+            OsStr::new("--port"),
+            OsStr::new("0"),
+            OsStr::new("--data-dir"),
+            data.as_os_str(),
+            OsStr::new("--web-dir"),
+            missing.as_os_str(),
+        ],
+        &[],
+    ));
 
     assert!(
         !status.success(),
@@ -832,6 +734,8 @@ fn a_valid_start_prunes_a_stale_temporary() {
     let stale = stale_temporary(&data);
     let _api = Running::start(
         &[
+            OsStr::new("--port"),
+            OsStr::new("0"),
             OsStr::new("--data-dir"),
             data.as_os_str(),
             OsStr::new("--web-dir"),
@@ -939,24 +843,17 @@ fn an_unreadable_index_html_stops_startup_before_anything_is_created() {
     // The start would prune this file, if it got past the web directory check.
     stale_temporary(&data);
     let before = listing(root.path());
-    let mut child = api_command(&[
-        OsStr::new("--port"),
-        OsStr::new("0"),
-        OsStr::new("--data-dir"),
-        data.as_os_str(),
-        OsStr::new("--web-dir"),
-        web.as_os_str(),
-    ])
-    .spawn()
-    .expect("the API binary starts");
-    let status = exit_within_timeout(&mut child);
-    let mut stderr = String::new();
-    child
-        .stderr
-        .take()
-        .expect("stderr is piped")
-        .read_to_string(&mut stderr)
-        .expect("stderr is text");
+    let (status, stderr) = run_to_exit(api_command(
+        &[
+            OsStr::new("--port"),
+            OsStr::new("0"),
+            OsStr::new("--data-dir"),
+            data.as_os_str(),
+            OsStr::new("--web-dir"),
+            web.as_os_str(),
+        ],
+        &[],
+    ));
     // Restored before any assertion, so the temporary directory is cleaned up on every path.
     set_index_mode(&web, 0o644);
 

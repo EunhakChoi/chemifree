@@ -1,6 +1,8 @@
 //! Assembly of the local `Application` for the entry adapters: the HTTP API, the CLI and the
 //! conformance runner. Each adapter keeps its own transport, data-directory resolution and
-//! host-only settings, and builds the application through this crate.
+//! host-only settings, and builds the application through this crate. Only the HTTP API takes the
+//! data directory's [`ServerLock`], before it prunes or serves, so a second API server refuses that
+//! directory; the CLI and the conformance runner do not take it.
 
 mod inchi;
 
@@ -14,6 +16,7 @@ use chemifree_providers::{
     configure_selected_registry,
 };
 
+pub use chemifree_providers::{LockHolder, ServerLock, ServerLockError};
 pub use inchi::InchiArgs;
 
 /// The application the local hosts run: the local capability catalog over saved documents.

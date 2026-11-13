@@ -18,8 +18,8 @@ Nothing on this page marks a feature as implemented. "Planned" items below have 
 | `crates/numerics` | `num-bigint`, `num-integer` | Exact rationals and stored number formats |
 | `crates/application` | domain, numerics | Sessions, revisions, request replay, the operation surface, ports, the SVG layout, DATA registry and typed loaders |
 | `crates/inchi-native` | domain | Optional native InChI binding |
-| `crates/providers` | application, domain, inchi-native | File store, codecs (MOL/SDF, CDXML, CDX, SMILES), PNG decoder, InChI provider, DATA directory source, capability catalog |
-| `crates/host` | application, providers | Assembly of the local `Application` for entry adapters: the file stores of a data directory, the PNG decoder, the codecs, file preferences, the user-selected DATA registry and the optional InChI selection (`InchiArgs`) |
+| `crates/providers` | application, domain, inchi-native | File store, the data directory's server lock (`ServerLock`, `<data>/server.lock`, taken only by the API), codecs (MOL/SDF, CDXML, CDX, SMILES), PNG decoder, InChI provider, DATA directory source, capability catalog |
+| `crates/host` | application, providers | Assembly of the local `Application` for entry adapters: the file stores of a data directory, the PNG decoder, the codecs, file preferences, the user-selected DATA registry and the optional InChI selection (`InchiArgs`), and a re-export of the providers' `ServerLock` |
 | `crates/conformance` | application, host | Conformance runner |
 | `apps/api` | application, host, providers | HTTP adapter (axum); with `--web-dir` it also serves a built web app (tower-http `ServeDir`) on the same origin, under one security-header layer |
 | `apps/cli` | application, host, providers | CLI adapter |

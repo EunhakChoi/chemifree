@@ -1,10 +1,14 @@
 use std::error::Error;
+use std::io::ErrorKind;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::sync::Arc;
 
 use chemifree_api::{ApiState, DEFAULT_WEB_ORIGINS, WebDir};
-use chemifree_host::{InchiArgs, LocalStores, local_application, with_selected_providers};
+use chemifree_host::{
+    InchiArgs, LocalStores, ServerLock, ServerLockError, local_application, with_selected_providers,
+};
 use chemifree_providers::default_data_dir;
 use clap::Parser;
 use clap::builder::FalseyValueParser;
@@ -23,6 +27,17 @@ struct Args {
     /// `index.html`. Without it, the API serves no web files.
     #[arg(long, env = "CHEMIFREE_WEB_DIR")]
     web_dir: Option<PathBuf>,
+    /// How many computations (chem.aromaticity_convert, chem.cip) may run at once, 1 to 64.
+    /// Defaults to the machine's cores, at most 4.
+    // 1 to 64 is the range `Application::with_compute_concurrency` keeps as given. It clamps
+    // any value outside that range, so the parser refuses those values instead.
+    #[arg(
+        long,
+        env = "CHEMIFREE_COMPUTE_CONCURRENCY",
+        value_name = "N",
+        value_parser = clap::value_parser!(u8).range(1..=64)
+    )]
+    compute_concurrency: Option<u8>,
     /// Optional native InChI registration; absent or rejected registration leaves the host usable.
     #[command(flatten)]
     inchi: InchiArgs,
@@ -44,8 +59,30 @@ struct Args {
     log_requests: bool,
 }
 
+/// The exit status when `--port` is already in use. Other startup and serving failures exit with
+/// 1, a command-line usage error with 2, and a data directory held by another server with
+/// `EXIT_DATA_DIR_IN_USE`.
+const EXIT_PORT_IN_USE: i32 = 3;
+
+/// The exit status when another live server holds the data directory's lock. The message names
+/// that server's pid and address when its record states them.
+const EXIT_DATA_DIR_IN_USE: i32 = 4;
+
+/// Runs the server. A failure is printed to standard error as `Error: {error}`, using the error's
+/// `Display` text. `main` returns an `ExitCode` rather than a `Result`, because the runtime would
+/// then print the `Debug` form, which quotes and escapes the message.
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> ExitCode {
+    match run().await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
     // Checked before anything is created or pruned, so a bad web directory changes nothing.
     let web_dir = args.web_dir.as_deref().map(WebDir::open).transpose()?;
@@ -53,6 +90,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .data_dir
         .or_else(default_data_dir)
         .ok_or("no user data directory found; pass --data-dir")?;
+    // The lock comes before pruning, so a refused second server changes nothing, and before the
+    // bind, so a second default start names the holder instead of reporting a port conflict.
+    let server_lock = match ServerLock::acquire(&data_dir) {
+        Ok(server_lock) => Some(server_lock),
+        // The data directory refuses writes and holds no lock file, so the server starts without
+        // a lock. The warning is the one line that says so.
+        Err(ServerLockError::NotCreated { path, error }) => {
+            eprintln!(
+                "Server lock not taken: {} cannot be created ({error}); the data directory is \
+                 read-only, so another server may use it at the same time.",
+                path.display()
+            );
+            None
+        }
+        Err(error @ ServerLockError::Held { .. }) => {
+            eprintln!(
+                "Chemifree API cannot start: {error}. Stop that server or pass another --data-dir."
+            );
+            // `process::exit` skips destructors. This process holds no lock and has started no
+            // draft writer, so there is nothing that needs them.
+            std::process::exit(EXIT_DATA_DIR_IN_USE);
+        }
+        Err(error @ ServerLockError::Io { .. }) => return Err(error.into()),
+    };
     let stores = LocalStores::new(&data_dir);
     stores.prune_stale_temporaries();
     let documents = stores.documents_directory().to_path_buf();
@@ -62,14 +123,39 @@ async fn main() -> Result<(), Box<dyn Error>> {
         args.model_trusted_registry.as_deref(),
         args.inchi,
     );
+    // The builder runs only when the flag is given, so the machine default stays otherwise.
+    let application = match args.compute_concurrency {
+        Some(computations) => application.with_compute_concurrency(usize::from(computations)),
+        None => application,
+    };
 
     let mut token = [0_u8; 32];
     getrandom::fill(&mut token).map_err(|error| format!("no system randomness: {error}"))?;
     let token: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
 
     let origins = allowed_origins(args.allow_origins, web_dir.is_some());
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, args.port)).await?;
+    let listener = match TcpListener::bind((Ipv4Addr::LOCALHOST, args.port)).await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == ErrorKind::AddrInUse => {
+            eprintln!("{}", port_in_use_message(args.port));
+            // `process::exit` skips destructors. That is safe here because no draft writer or
+            // server has started yet.
+            std::process::exit(EXIT_PORT_IN_USE);
+        }
+        Err(error) => return Err(error.into()),
+    };
     let address = listener.local_addr()?;
+    // A refused second start names this server from the record, which is written before the
+    // listening line is printed. The record is informational, so a failure to write it is reported
+    // and the server still starts. A server that holds no lock has no record to write.
+    if let Some(server_lock) = &server_lock
+        && let Err(error) = server_lock.record_url(&format!("http://{address}"))
+    {
+        eprintln!(
+            "Could not record this server in {}: {error}",
+            server_lock.path().display()
+        );
+    }
     let state = ApiState::new(application, token, address.port(), &origins)?;
     let state = match web_dir {
         Some(web_dir) => state.with_web_dir(web_dir),
@@ -99,6 +185,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     for (id, error) in drafts.finish() {
         eprintln!("Could not draft unsaved changes to {id} before stopping: {error}");
     }
+    // Held until the final drafts are written, so a second server cannot start during that write.
+    drop(server_lock);
     served?;
     Ok(())
 }
@@ -114,6 +202,14 @@ fn allowed_origins(allow_origins: Vec<String>, serves_web: bool) -> Vec<String> 
     } else {
         DEFAULT_WEB_ORIGINS.map(String::from).to_vec()
     }
+}
+
+/// The one line printed when `port` is already in use on the loopback address.
+fn port_in_use_message(port: u16) -> String {
+    format!(
+        "Chemifree API cannot start: port {port} on 127.0.0.1 is already in use. Stop the program \
+         using it, or pass another port with --port <n> (--port 0 picks a free one)."
+    )
 }
 
 async fn shutdown_signal() {
@@ -168,6 +264,14 @@ mod tests {
         assert_eq!(
             allowed_origins(Vec::new(), /* serves_web= */ false),
             DEFAULT_WEB_ORIGINS
+        );
+    }
+
+    #[test]
+    fn the_port_in_use_message_names_the_port_and_the_way_out() {
+        assert_eq!(
+            port_in_use_message(4321),
+            "Chemifree API cannot start: port 4321 on 127.0.0.1 is already in use. Stop the program using it, or pass another port with --port <n> (--port 0 picks a free one)."
         );
     }
 }

@@ -174,7 +174,9 @@ try {
 
   // The opt-in request log: one line per request with method, path, and status, and
   // nothing from the headers (such as the session token).
-  const logging = await startApi({ CHEMIFREE_LOG_REQUESTS: '1' })
+  // One server serves one data directory, so the second server gets a directory of its own.
+  const loggingData = mkdtempSync(join(tmpdir(), 'chemifree-contract-log-'))
+  const logging = await startApi({ CHEMIFREE_LOG_REQUESTS: '1', CHEMIFREE_DATA_DIR: loggingData })
   try {
     assert.equal((await fetch(`${logging.baseUrl}/api/v1/health`)).status, 200)
     const loggedSession = await (await fetch(`${logging.baseUrl}/api/v1/session`)).json()
@@ -183,6 +185,7 @@ try {
     assert.ok(!logging.log().includes(loggedSession.token), 'the session token is never logged')
   } finally {
     await stop(logging.child)
+    rmSync(loggingData, { recursive: true, force: true })
   }
   assert.doesNotMatch(api.log(), /GET \/api\/v1\/health/, 'nothing is logged without the option')
 
