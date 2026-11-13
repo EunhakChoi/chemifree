@@ -82,9 +82,10 @@ A new feature is a new operation or a new transaction command, not a new adapter
   over `NEVER`; a stop is never a model error. SMILES export follows the same rule: the
   `SmilesCodec` port has a required `write_interruptible` method (no default, so an
   implementor cannot silently ignore the limit), the provider writer carries a private
-  `Halt` like the domain modules, and the reader stays uninterrupted because import has no
-  time limit; that includes the read-back parses the writer makes, so a write's stop can
-  wait for them (CONTRACT.md lists them as unchecked). The remaining read-only operations (`chem.stereo`, `chem.inchi`) compute outside the lock and keep their work limits,
+  `Halt` (shared with the reader in the `smiles` module) like the domain modules, and the
+  reader has `parse_with` for the writer's read-back parses while import keeps the `NEVER`
+  wrapper `parse`, because import has no time limit (CONTRACT.md lists the parts of a
+  read-back parse that stay unchecked). The remaining read-only operations (`chem.stereo`, `chem.inchi`) compute outside the lock and keep their work limits,
   but have no time limit or cancel, and `chem.validate` computes under the lock (its work
   is linear in the document). Separately, creates, closes, copies and the file checks most
   requests make do storage I/O while holding `sessions`; draft writes do not (CONTRACT.md,

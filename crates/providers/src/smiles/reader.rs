@@ -12,6 +12,7 @@ use chemifree_application::smiles::{
     SmilesAtom, SmilesBond, SmilesCode, SmilesError, SmilesRead, SmilesStereo, Span,
 };
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
+use chemifree_domain::budget::{Interrupt, Interrupted, NEVER};
 use chemifree_domain::document::{
     Atom, AtomId, Bond, BondId, BondOrder, MAX_CHARGE, MAX_COMMANDS, MAX_ISOTOPE_MASS_NUMBER,
     MIN_CHARGE,
@@ -27,9 +28,9 @@ use super::cx;
 use super::double_bonds::{self, Linked, Mark};
 use super::stereo::Neighborhoods;
 use super::tables;
-use super::{MAX_BRANCH_DEPTH, MAX_INPUT_BYTES, MAX_RING_LABEL};
-
-type Fail = SmilesError;
+use super::{
+    Fail, Halt, MAX_BRANCH_DEPTH, MAX_INPUT_BYTES, MAX_RING_LABEL, interruptible, uninterrupted,
+};
 
 /// What the reader resolved for one atom, which is what a writer must reproduce.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -164,21 +165,42 @@ fn boundary_at_most(source: &str, limit: usize) -> usize {
     offset
 }
 
-/// Read `source` completely.
+/// Reads `source` completely, with no interrupt that could stop it. See [`parse_with`] for the
+/// read that an interrupt can stop.
 pub(super) fn parse(source: &str) -> Result<Parsed, Fail> {
+    uninterrupted(parse_in(source, &NEVER))
+}
+
+/// Reads like [`parse`], asking `interrupt` at two checkpoints. Checkpoint A is inside
+/// `analysis::interpret_with`, the aromaticity model, and is asked only for a text with aromatic
+/// bonds. Checkpoint B is one check right after the interpretation block and before
+/// `analysis::analyse`. Neither the token pass nor the graph construction asks, and neither
+/// `analysis::analyse` nor anything after B does. A refusal comes back inside the result and a stop
+/// outside it, so a stop is never read as a refusal. A refusal found before the first checkpoint,
+/// such as an empty text or a grammar error, is returned without asking `interrupt`.
+pub(super) fn parse_with(
+    source: &str,
+    interrupt: &dyn Interrupt,
+) -> Result<Result<Parsed, Fail>, Interrupted> {
+    interruptible(parse_in(source, interrupt))
+}
+
+/// The reader, asking `interrupt` at its checkpoints. A stop is `Halt::Interrupted`, never a
+/// refusal.
+fn parse_in(source: &str, interrupt: &dyn Interrupt) -> Result<Parsed, Halt> {
     if source.is_empty() {
-        return Err(at(SmilesCode::EmptyInput, Span::new(0, 0)));
+        return Err(at(SmilesCode::EmptyInput, Span::new(0, 0)).into());
     }
     if source.len() > MAX_INPUT_BYTES {
         let offset = boundary_at_most(source, MAX_INPUT_BYTES);
-        return Err(at(SmilesCode::InputTooLong, char_span(source, offset)));
+        return Err(at(SmilesCode::InputTooLong, char_span(source, offset)).into());
     }
     if source
         .as_bytes()
         .first()
         .is_some_and(|b| tables::is_whitespace(*b))
     {
-        return Err(at(SmilesCode::LeadingWhitespace, Span::new(0, 1)));
+        return Err(at(SmilesCode::LeadingWhitespace, Span::new(0, 1)).into());
     }
     let mut reader = Reader {
         source,
@@ -199,7 +221,7 @@ pub(super) fn parse(source: &str) -> Result<Parsed, Fail> {
         neighborhoods: Neighborhoods::default(),
     };
     reader.chain()?;
-    reader.finish()
+    reader.finish(interrupt)
 }
 
 impl Reader<'_> {
@@ -833,7 +855,7 @@ impl Reader<'_> {
         Ok(orders)
     }
 
-    fn finish(self) -> Result<Parsed, Fail> {
+    fn finish(self, interrupt: &dyn Interrupt) -> Result<Parsed, Halt> {
         let Trailing {
             block,
             ignored_text,
@@ -871,10 +893,7 @@ impl Reader<'_> {
         if let Some(index) =
             (0..self.atoms.len()).find(|&i| self.atoms[i].aromatic && aromatic_degree[i] == 0)
         {
-            return Err(at(
-                SmilesCode::AromaticAtomOutsideRing,
-                self.atoms[index].span,
-            ));
+            return Err(at(SmilesCode::AromaticAtomOutsideRing, self.atoms[index].span).into());
         }
         let aromatic: BTreeSet<BondId> = orders
             .iter()
@@ -886,15 +905,18 @@ impl Reader<'_> {
         let interpretation = if aromatic.is_empty() {
             None
         } else {
-            let found = analysis::interpret(&graph, &aromatic).map_err(|failure| {
-                at(
-                    SmilesCode::AromaticSystemUnsupported,
-                    aromatic_span(failure.atom),
-                )
-                .because(failure.reason)
-            })?;
+            let found =
+                analysis::interpret_with(&graph, &aromatic, interrupt)?.map_err(|failure| {
+                    at(
+                        SmilesCode::AromaticSystemUnsupported,
+                        aromatic_span(failure.atom),
+                    )
+                    .because(failure.reason)
+                })?;
             Some(found)
         };
+        // Checkpoint B, the last one: analysis::analyse and everything after it never ask.
+        interrupt.check()?;
         let analysed = analysis::analyse(&graph, interpretation.as_ref()).map_err(|failure| {
             at(
                 SmilesCode::AromaticSystemUnsupported,
@@ -994,7 +1016,7 @@ impl Reader<'_> {
                     .or_else(|| double_bonds.last().map(|found| found.span))
                     .or_else(|| centers.last().map(|center| center.span))
                     .unwrap_or_else(|| Span::new(0, 0));
-                return Err(at(SmilesCode::CommandLimit, span));
+                return Err(at(SmilesCode::CommandLimit, span).into());
             }
             SmilesStereo {
                 centers,
@@ -1029,5 +1051,139 @@ impl Reader<'_> {
             resolved,
             graph,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use chemifree_domain::budget::CancelFlag;
+
+    use super::*;
+
+    /// Answers every question with `answer` and counts the questions it is asked.
+    struct Answering {
+        answer: Result<(), Interrupted>,
+        asked: Cell<u32>,
+    }
+
+    impl Answering {
+        fn new(answer: Result<(), Interrupted>) -> Self {
+            Self {
+                answer,
+                asked: Cell::new(0),
+            }
+        }
+    }
+
+    impl Interrupt for Answering {
+        fn check(&self) -> Result<(), Interrupted> {
+            self.asked.set(self.asked.get() + 1);
+            self.answer
+        }
+    }
+
+    /// The refusal `parse_with` gives `text` under `interrupt`, or `None` when the text reads.
+    fn refusal(text: &str, interrupt: &dyn Interrupt) -> Result<Option<SmilesError>, Interrupted> {
+        parse_with(text, interrupt).map(Result::err)
+    }
+
+    /// An interrupt that is not [`NEVER`] but answers Ok reads what [`parse`] reads.
+    #[test]
+    fn parse_with_an_ok_answer_returns_what_parse_returns() {
+        for (text, reads) in [
+            ("CCO", true),
+            ("c1ccccc1", true),
+            ("C[C@H](N)O |&1:1|", true),
+            ("C(C", false),
+        ] {
+            let expected = parse(text).map(|parsed| parsed.read);
+            assert_eq!(expected.is_ok(), reads, "whether {text:?} reads");
+            let answering = Answering::new(Ok(()));
+            let actual = parse_with(text, &answering).expect("an Ok answer cannot stop a read");
+            assert_eq!(
+                actual.map(|parsed| parsed.read),
+                expected,
+                "parse_with with an Ok answer on {text:?}"
+            );
+            if reads {
+                assert!(
+                    answering.asked.get() > 0,
+                    "a text that reads is asked at checkpoint B: {text:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_cancel_stops_a_read_at_its_first_checkpoint() {
+        let flag = CancelFlag::new();
+        flag.cancel();
+        assert_eq!(
+            parse_with("CCO", &flag).err(),
+            Some(Interrupted::Cancelled),
+            "a cancelled read of CCO is stopped, not read"
+        );
+    }
+
+    #[test]
+    fn a_refusal_before_any_checkpoint_stays_a_refusal_under_a_cancel() {
+        let flag = CancelFlag::new();
+        flag.cancel();
+        assert_eq!(
+            refusal("", &flag),
+            Ok(Some(SmilesError::at(
+                SmilesCode::EmptyInput,
+                Span::new(0, 0)
+            ))),
+            "an empty text is refused before any checkpoint"
+        );
+        assert_eq!(
+            refusal("C(C", &flag),
+            Ok(Some(SmilesError::at(
+                SmilesCode::UnclosedBranch,
+                Span::new(1, 1)
+            ))),
+            "an unclosed branch is refused before any checkpoint"
+        );
+    }
+
+    #[test]
+    fn an_aromatic_read_asks_more_checkpoints_than_a_plain_read() {
+        let benzene = Answering::new(Ok(()));
+        parse_with("c1ccccc1", &benzene)
+            .expect("the answering interrupt never stops")
+            .expect("benzene reads");
+        assert!(
+            benzene.asked.get() >= 2,
+            "benzene is asked inside the aromaticity model and at checkpoint B, got {}",
+            benzene.asked.get()
+        );
+
+        let ethanol = Answering::new(Ok(()));
+        parse_with("CCO", &ethanol)
+            .expect("the answering interrupt never stops")
+            .expect("ethanol reads");
+        assert_eq!(
+            ethanol.asked.get(),
+            1,
+            "CCO has no aromatic bond, so only checkpoint B asks"
+        );
+    }
+
+    #[test]
+    fn a_time_limit_at_the_first_question_stops_an_aromatic_read() {
+        let expired = Answering::new(Err(Interrupted::TimeLimit));
+        assert_eq!(
+            parse_with("c1ccccc1", &expired).err(),
+            Some(Interrupted::TimeLimit),
+            "a time limit in the aromaticity model stops the read rather than refusing it"
+        );
+        assert_eq!(
+            expired.asked.get(),
+            1,
+            "the read stops at the first question"
+        );
     }
 }

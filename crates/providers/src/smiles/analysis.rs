@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use chemifree_domain::aromaticity::{self, Classification, Interpretation};
-use chemifree_domain::budget::{Interrupt, Interrupted, NEVER};
+use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::chemistry::{self, AtomAssessment, Finding};
 use chemifree_domain::document::{Atom, AtomId, BondId, BondOrder};
 use chemifree_domain::graph::MoleculeGraph;
@@ -17,20 +17,12 @@ pub(super) struct AromaticFailure {
     pub reason: &'static str,
 }
 
-/// The aromaticity model's reading of a graph whose aromatic bonds are `aromatic`.
+/// The aromaticity model's reading of a graph whose aromatic bonds are `aromatic`, asking
+/// `interrupt` while the model reads the graph.
 ///
 /// Every ring system holding an aromatic bond must be classified aromatic. An aromatic bond
 /// that lies in no ring system, or in a system the model cannot classify, is refused with the
-/// model's own reason.
-pub(super) fn interpret(
-    graph: &MoleculeGraph,
-    aromatic: &BTreeSet<BondId>,
-) -> Result<Interpretation, AromaticFailure> {
-    interpret_with(graph, aromatic, &NEVER).expect("the never-interrupt cannot interrupt")
-}
-
-/// [`interpret`] that asks `interrupt` while the aromaticity model reads the graph. It returns
-/// exactly what [`interpret`] returns, or `Interrupted` and nothing else.
+/// model's own reason. A stop is reported only as `Interrupted`, never as a partial reading.
 ///
 /// # Errors
 ///
@@ -81,10 +73,10 @@ pub(super) struct Analysis {
 }
 
 /// Assess every atom of `graph`. Aromatic bonds are given the assignment `interpretation`
-/// finds; it must come from [`interpret`] on the same graph, and is `None` exactly when the
-/// graph has no aromatic bond.
+/// finds; it must come from [`interpret_with`] on the same graph, and is `None` exactly when
+/// the graph has no aromatic bond.
 ///
-/// `interpret` has already required every ring system holding an aromatic bond to be
+/// `interpret_with` has already required every ring system holding an aromatic bond to be
 /// aromatic, so a Kekulé assignment exists for each. Should the model still find none, the
 /// failure names the first atom of the first ring system that holds an aromatic bond.
 pub(super) fn analyse(
