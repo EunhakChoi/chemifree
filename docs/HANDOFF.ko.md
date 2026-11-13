@@ -14,8 +14,8 @@
   - `sigterm-recovery`: 저장 안 된 편집이 있는 서버를 SIGTERM으로 끝내면 종료 0이고 `drafts/<id>.json`이 남는다. 다음 시작은 목록에 "Unsaved work found"를 보여 주고, 열면 복구 안내가 `recoverable` 상태다.
 - CI(`browser` 잡): "Autosave process ownership and explicit restart reconciliation" 뒤, "Browser smoke" 앞에 두 단계를 둔다. `npm run build:web && cargo build --locked --package chemifree-api --package chemifree-cli`, 그다음 `npm run test:product -- --profile debug`. 앞 단계(`web-abbreviation-check`)가 이미 컴파일한 debug 크레이트를 증분으로 쓴다. release 컴파일은 CI에 넣지 않는다(이 잡에는 Rust 캐시가 없어 몇 분이 더 든다). release 경로는 로컬 실행으로 기록한다(`docs/verification/p87-product-server.md`).
 - README: `## Run as a local product`를 `## Run locally`와 `## Check and build` 사이에 둔다. 도구 버전, `npm ci`, `npm run build:product`, `npm start`(기본 http://127.0.0.1:3001), 플래그·환경 변수(`--port`, `--data-dir`/`CHEMIFREE_DATA_DIR`, `--compute-concurrency`/`CHEMIFREE_COMPUTE_CONCURRENCY`, `--web-dir`/`CHEMIFREE_WEB_DIR`), 데이터 디렉터리당 서버 하나, 종료 코드(CONTRACT "Local server lifecycle"), 업그레이드 절차(서버 중지 → `git pull` → `npm ci` → `npm run build:product` → `npm start`).
-- 추적표 `API-01.6`(implemented, `docs/traceability/requirements.json`): 구현은 `apps/api/src/main.rs`, `apps/api/src/lib.rs`, `crates/providers/src/server_lock.rs`, `scripts/product-server-check.mjs`, `package.json`이고, 증거는 `check:check:rust`(`apps/api/tests/static_assets.rs`, `server_lifecycle.rs`)다. `test:product`는 `check`에 닿지 않아 증거가 될 수 없다. implemented 행은 후속을 둘 수 없어 후속은 비웠다. P87은 이 PR에서 로드맵 `in_progress`이므로 API-01.rest·QUALITY-01.rest 후속에 P87이 남아 있다. 스크립트(`package.json`, `product-server-check.mjs`)는 `check`에 닿지 않아 구현 목록에서 뺐고 CI 브라우저 잡이 확인한다.
-- 남은 것: 단일 실행 파일 P88, 설치 프로그램 없음, Windows·macOS 미검증. 병합 뒤 짧은 문서 커밋에서 로드맵 P87을 `done`(병합 커밋·main CI)으로 바꾸고 API-01.rest·QUALITY-01.rest 후속 목록에서 P87을 뺀다.
+- 추적표 `API-01.6`(implemented, `docs/traceability/requirements.json`): 구현은 `apps/api/src/main.rs`, `apps/api/src/lib.rs`, `crates/providers/src/server_lock.rs`이고, 증거는 `check:check:rust`(`apps/api/tests/static_assets.rs`, `server_lifecycle.rs`)다. `test:product`는 `check`에 닿지 않아 증거가 될 수 없다. implemented 행은 후속을 둘 수 없어 후속은 비웠다. 스크립트(`package.json`, `product-server-check.mjs`)는 `check`에 닿지 않아 구현 목록에서 뺐고 CI 브라우저 잡이 확인한다.
+- 남은 것: 단일 실행 파일 P88, 설치 프로그램 없음, Windows·macOS 미검증. P87은 `done`이다(#268·#269·#270, 병합 `7466befa`, main CI 통과). API-01.rest·QUALITY-01.rest 후속 목록에서 P87을 뺐다. T1의 다음 작업은 사용자 요청이 정하며, 트랙에 적힌 행은 실행 순서가 아니고 `depends_on`이 시작 가능 여부를 정한다.
 
 ## P87 S2: 로컬 서버 수명 주기 (T1)
 
@@ -244,7 +244,7 @@ API·CLI·conformance 실행기가 같은 구성 체인을 손으로 되풀이�
 | T9 | 자동화·출시 | P83–P86, P88, P89 | 20–35 |
 
 - T0의 내용: P41 잔여(읽기 연산 aromaticity·identity·substructure·properties·SMILES 내보내기의 시간 제한과 취소 — 앞의 네 연산은 첫 PR에서 납품, 잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 납품, 나머지 잠금 안 저장소 I/O는 설계 선행 별도 PR)와 구조 정리(조립 코드 통합 1은 여섯째 PR(crates/host)에서 납품, 큰 파일 분할 5(`document-contract.ts`는 일곱째 PR, `contract.rs`는 여덟째 PR, `operations.rs`는 아홉째 PR, `document.rs`는 열째 PR, `file_format.rs`는 열한째 PR에서 납품, 모두 완료), 로드맵 HTML 동기화 스크립트와 일치 검사 1은 다섯째 PR에서 납품). 구조 정리는 동작을 바꾸지 않는다.
-- T1에서는 제품 서버(P87)와 배치 준비·사슬·단순 고리(P42)를 먼저 한다. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38의 마감은 T3 맨 앞으로 옮겼다.
+- T1에서 제품 서버(P87)는 끝났다(2026-11-14). 배치 준비·사슬·단순 고리(P42)를 먼저 한다. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38의 마감은 T3 맨 앞으로 옮겼다.
 - T2의 MCP는 실행 중인 로컬 서버의 클라이언트로 붙는다. 그래서 P87이 먼저다.
 - 화학·입체 심화(P18, P20–P28의 남은 범위와 P17·P19에서 T1의 제한된 마감에 넣지 않은 범위)는 별도 트랙이 아니다. 뒤 트랙이 필요로 할 때 해당 행을 다시 연다(예: 명명은 P18·P26, 반응 코덱은 P21·P28).
 - W01–W05(조건부 호환)와 S01–S07(선택 확장)은 일정에 넣지 않았다.
