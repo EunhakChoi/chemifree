@@ -5,7 +5,7 @@
 //! writer turns a chemical graph into one string, in recorded order or in Chemifree's canonical
 //! form. Neither places atoms: SMILES has no coordinates.
 
-use chemifree_domain::budget::{Interrupt, Interrupted};
+use chemifree_domain::budget::{Halt, Interrupt, Interrupted};
 use chemifree_domain::document::{Atom, AtomId, BondOrder};
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::stereo::{Relation, Turn};
@@ -251,6 +251,14 @@ impl std::fmt::Display for SmilesError {
 }
 
 impl std::error::Error for SmilesError {}
+
+/// Lets a SMILES reader or writer pass a refusal on with `?`. The impl lives here because both
+/// types are foreign to the providers crate, which implements the codec.
+impl From<SmilesError> for Halt<SmilesError> {
+    fn from(error: SmilesError) -> Self {
+        Self::Refused(error)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SmilesAtom {

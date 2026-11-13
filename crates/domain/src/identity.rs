@@ -38,6 +38,8 @@ impl IdentityError {
 }
 
 /// Why a search produced no result: the model refused the input, or `interrupt` stopped it.
+/// `Refused` is the model refusing the input; this does not depend on the machine.
+/// `Interrupted` is the search stopped before it finished; the input may well be supported.
 type Halt = crate::budget::Halt<IdentityError>;
 
 impl From<IdentityError> for Halt {

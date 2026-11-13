@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use crate::budget::{Interrupt, Interrupted, NEVER, interruptible};
+use crate::budget::{Interrupt, Interrupted, NEVER, interruptible, uninterrupted};
 use crate::document::{AtomId, BondId, Document, ObjectId};
 use crate::stereo::{CenterState, DoubleBondState, Slot, StereoError, StereoRecord};
 use crate::stereo_drawing::{DeriveError, Drawing, MisplacedMark, NotDerivable, WEAK_EVIDENCE};
@@ -292,7 +292,7 @@ pub fn inspect(
     plan: &Plan,
     instances: &[ObjectId],
 ) -> Result<Inspection, InspectError> {
-    inspect_with(document, plan, instances, &NEVER).expect("the never-interrupt cannot interrupt")
+    uninterrupted(compare_items(document, plan, instances, &NEVER))
 }
 
 /// [`inspect`] that asks `interrupt` at its checkpoints: before each instance is drawn, before
@@ -315,7 +315,8 @@ pub fn inspect_with(
 
 /// Why the comparison ends without an [`Inspection`]: the document is refused, or `interrupt`
 /// stopped it. A stop stays a `Halt` until [`inspect_with`] maps it, so it is never read as a
-/// refusal.
+/// refusal. `Refused` is a broken document invariant; this does not depend on the machine.
+/// `Interrupted` is the comparison stopped before it finished; the inspection may well exist.
 type Halt = crate::budget::Halt<InspectError>;
 
 impl From<StereoError> for Halt {

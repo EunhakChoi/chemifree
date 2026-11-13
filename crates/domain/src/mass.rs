@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::budget::{Interrupt, Interrupted, NEVER, interruptible};
+use crate::budget::{Interrupt, Interrupted, NEVER, interruptible, uninterrupted};
 use crate::document::{AtomId, Document};
 use crate::element::Element;
 use crate::scene::{SceneObject, Selection};
@@ -308,7 +308,9 @@ fn validate(row: &ElementMass) -> Result<(), MassError> {
 }
 
 /// How the enumeration ends without a distribution. A stop is kept apart from the refusals, so
-/// it is never reported as one.
+/// it is never reported as one. `Refused` is a refusal of the data or of a limit; this does not
+/// depend on the machine. `Interrupted` is the enumeration stopped before it finished; the
+/// distribution may well exist.
 type Halt = crate::budget::Halt<MassError>;
 
 impl From<MassError> for Halt {
@@ -451,8 +453,7 @@ impl Composition {
     /// input fractions within 0.1% of one are normalized; raw sums are returned explicitly.
     /// Missing abundance is not treated as zero, and underflow yields no partial distribution.
     pub fn distribution(&self, table: &MassTable) -> Result<Distribution, MassError> {
-        self.distribution_with(table, &NEVER)
-            .expect("the never-interrupt cannot interrupt")
+        uninterrupted(self.enumerate_distribution(table, &NEVER))
     }
 
     /// Like [`Composition::distribution`], but asks `interrupt` once for every 1,024 work units.

@@ -158,7 +158,9 @@ pub fn uninterrupted<T, E>(result: Result<T, Halt<E>>) -> Result<T, E> {
     match result {
         Ok(value) => Ok(value),
         Err(Halt::Refused(error)) => Err(error),
-        Err(Halt::Interrupted(_)) => unreachable!("the never-interrupt cannot interrupt"),
+        Err(Halt::Interrupted(interrupted)) => {
+            unreachable!("the never-interrupt cannot interrupt: {interrupted:?}")
+        }
     }
 }
 
@@ -295,5 +297,45 @@ mod tests {
             4,
             "check 4 must ask the caller's interrupt once, before the second stops it"
         );
+    }
+
+    #[test]
+    fn interruptible_keeps_a_value_inside_the_result() {
+        assert_eq!(interruptible::<u8, &str>(Ok(7)), Ok(Ok(7)));
+    }
+
+    #[test]
+    fn interruptible_keeps_a_refusal_inside_the_result() {
+        assert_eq!(
+            interruptible::<u8, &str>(Err(Halt::Refused("bad input"))),
+            Ok(Err("bad input")),
+            "a refusal is an answer, so it stays inside the result"
+        );
+    }
+
+    #[test]
+    fn interruptible_reports_each_stop_outside_the_result() {
+        for reason in [Interrupted::Cancelled, Interrupted::TimeLimit] {
+            assert_eq!(
+                interruptible::<u8, &str>(Err(Halt::Interrupted(reason))),
+                Err(reason),
+                "a stop ({reason:?}) must stay outside the result, not read as a refusal"
+            );
+        }
+    }
+
+    #[test]
+    fn uninterrupted_passes_a_value_and_a_refusal_through() {
+        assert_eq!(uninterrupted::<u8, &str>(Ok(7)), Ok(7));
+        assert_eq!(
+            uninterrupted::<u8, &str>(Err(Halt::Refused("bad input"))),
+            Err("bad input")
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "the never-interrupt cannot interrupt")]
+    fn uninterrupted_panics_on_a_stop() {
+        let _ = uninterrupted::<u8, &str>(Err(Halt::Interrupted(Interrupted::TimeLimit)));
     }
 }

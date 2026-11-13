@@ -253,7 +253,8 @@ fn display(value: f64, decimals: u8) -> Result<String, PropertiesError> {
 }
 
 /// How the component loop ends without rows. A stop is kept apart from the refusals, so it is
-/// never reported as one.
+/// never reported as one. `Refused` is a refusal of the request or of its data. `Interrupted` is
+/// the loop stopped before it finished; the rows may well exist.
 type Halt = chemifree_domain::budget::Halt<PropertiesError>;
 
 impl From<PropertiesError> for Halt {
