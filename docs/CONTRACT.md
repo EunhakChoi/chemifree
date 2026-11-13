@@ -2665,11 +2665,12 @@ Allowed web origins default to `http://127.0.0.1:5173`, `http://localhost:5173`,
 
 ## Serving the web app
 
-`chemifree-api --web-dir <dir>` (or `CHEMIFREE_WEB_DIR`) serves a built web app from `<dir>` on the API's own origin. Without it the API serves no files. Startup fails (exit 1, naming the directory) before the data directory is touched when `<dir>` is not a readable directory or has no `index.html`.
+`chemifree-api --web-dir <dir>` (or `CHEMIFREE_WEB_DIR`) serves a built web app from `<dir>` on the API's own origin. Without it the API serves no files. Startup fails (exit 1, naming the directory) before the data directory is touched when `<dir>` is not a readable directory or has no readable `index.html`.
 
 - `GET /` and `/index.html` answer the index with `Cache-Control: no-cache`; files under `/assets/` answer with `public, max-age=31536000, immutable` (also on `304`); other files use `no-cache`.
-- A path without a file is `404`; there is no fallback to the index. Paths that leave the directory (`..`, encoded or not) are `404`. Files are read as they are on disk, and links inside the directory are followed.
-- `/api`, `/api/` and unknown `/api/...` paths keep the JSON `not_found` envelope; other methods than `GET`/`HEAD` on files are `405`.
+- A path without a file is `404`; there is no fallback to the index. Paths are decided after percent-decoding. A path that leaves the directory (`..`, encoded or not), a segment that starts with `.` (for example `/.env`, `/.vite/…`, or `/./index.html`), and a link whose target lies outside the directory are `404`; links that stay inside it are followed.
+- The directory is resolved to its canonical path at startup; replacing a linked `--web-dir` takes effect on restart.
+- `/api`, `/api/` and unknown `/api/...` paths keep the JSON `not_found` envelope. A method other than `GET`/`HEAD` is `405` on an existing file and `404` on a path without one.
 - Write protection applies unchanged; the `Host` check covers file requests too.
 - Every answer, API or file, carries `Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Cross-Origin-Opener-Policy: same-origin`.
 

@@ -1,8 +1,9 @@
 //! What the API serves beside its routes when it is given a built web directory: the web files and
 //! their cache policy, refusals for every other path, the Host guard and the security headers on
-//! every answer, and the origins that may write. The cases over the router use a real directory on
-//! disk. The origin and startup cases run the real binary, because its origin policy and its
-//! startup checks live in its own startup code.
+//! every answer, and write protection, which still applies with the web directory attached. Cases
+//! without a web directory pin down what the web files replace. The cases over the router use a
+//! real directory on disk. The origin and startup cases run the real binary, because its origin
+//! policy and its startup checks live in its own startup code.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -55,6 +56,8 @@ const APP_JS: &str = "console.log('app');";
 const APP_CSS: &str = "body { margin: 0; }";
 /// Marks the files beside the web directory, which no request may reach.
 const OUTSIDE_MARK: &str = "outside-7f3a";
+/// Marks the dotfiles that a case writes into the web directory, which no request may read.
+const DOTFILE_MARK: &str = "dotfile-5c1d";
 
 /// The API over a fresh data directory, serving a web directory beside its routes.
 struct Served {
@@ -63,15 +66,29 @@ struct Served {
     _data: TempDir,
 }
 
-/// An API that serves `web` and allows no origin beyond its own, as the binary does when it
-/// serves a web directory.
+/// An API over a fresh data directory that serves `web` beside its routes. The API is built with
+/// no web origin, so only its own origin may write. The origins that the binary allows when it
+/// serves a web directory come from `allowed_origins` in `main.rs`, and these cases do not
+/// reproduce them.
 fn api_over(web: &Path) -> Served {
+    api_with(Some(WebDir::open(web).unwrap()))
+}
+
+/// An API over a fresh data directory, with no web directory.
+fn api_without_web() -> Served {
+    api_with(None)
+}
+
+/// An API over a fresh data directory, serving `web` when one is given.
+fn api_with(web: Option<WebDir>) -> Served {
     let data = tempfile::tempdir().unwrap();
     let application =
         chemifree_host::local_application(chemifree_host::LocalStores::new(data.path()));
-    let state = ApiState::new(application, TOKEN.into(), PORT, &[])
-        .unwrap()
-        .with_web_dir(WebDir::open(web).unwrap());
+    let state = ApiState::new(application, TOKEN.into(), PORT, &[]).unwrap();
+    let state = match web {
+        Some(web) => state.with_web_dir(web),
+        None => state,
+    };
     Served {
         router: router(Arc::new(state)),
         _data: data,
@@ -177,6 +194,27 @@ async fn hashed_assets_are_cached_for_a_year_under_their_own_mime_type() {
 }
 
 #[tokio::test]
+async fn a_not_modified_hashed_asset_keeps_its_long_lifetime() {
+    let root = tempfile::tempdir().unwrap();
+    let api = api_over(&fixture(root.path()));
+    let first = ask(&api, get("/assets/app-3f9c.js")).await;
+    let modified = header_of(&first, "last-modified").to_owned();
+
+    let conditional = Request::get("/assets/app-3f9c.js")
+        .header("host", HOST)
+        .header("if-modified-since", modified)
+        .body(Body::empty())
+        .unwrap();
+    let response = ask(&api, conditional).await;
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(
+        header_of(&response, "cache-control"),
+        HASHED_POLICY,
+        "the revalidated answer keeps the asset's lifetime"
+    );
+}
+
+#[tokio::test]
 async fn other_files_at_the_root_are_served_without_caching() {
     let root = tempfile::tempdir().unwrap();
     let api = api_over(&fixture(root.path()));
@@ -223,6 +261,8 @@ async fn paths_outside_the_web_directory_are_not_found() {
         "/%2E%2E%2Fsecret",
         "/assets/%2e%2e/%2e%2e/secret",
         "/assets/..%2f..%2fsecret",
+        // A NUL byte names no file on any platform, so it is refused like any other miss.
+        "/%00",
     ] {
         let response = ask(&api, get(uri)).await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
@@ -234,11 +274,120 @@ async fn paths_outside_the_web_directory_are_not_found() {
     }
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn a_symlink_that_leaves_the_web_directory_is_not_found() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let web = fixture(root.path());
+    let elsewhere = root.path().join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    fs::write(
+        elsewhere.join("secret.txt"),
+        format!("{OUTSIDE_MARK} in a directory"),
+    )
+    .unwrap();
+    symlink(elsewhere, web.join("linked-dir")).unwrap();
+    symlink(root.path().join("secret"), web.join("linked-file.txt")).unwrap();
+    let api = api_over(&web);
+
+    for uri in ["/linked-dir/secret.txt", "/linked-file.txt"] {
+        let response = ask(&api, get(uri)).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "{uri} resolves outside the web directory"
+        );
+        assert_eq!(header_of(&response, "cache-control"), REVALIDATE, "{uri}");
+        let body = text_of(response).await;
+        assert!(
+            !body.contains(OUTSIDE_MARK),
+            "{uri} reached the file beside the web directory: {body:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_symlink_that_stays_inside_the_web_directory_is_served() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let web = fixture(root.path());
+    symlink(web.join("assets/app-3f9c.js"), web.join("alias.js")).unwrap();
+    symlink(web.join("assets"), web.join("shortcut")).unwrap();
+    let api = api_over(&web);
+
+    for uri in ["/alias.js", "/shortcut/app-3f9c.js"] {
+        let response = ask(&api, get(uri)).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "{uri} resolves inside the web directory"
+        );
+        assert_eq!(text_of(response).await, APP_JS, "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn dot_prefixed_web_paths_are_not_found_even_when_the_files_exist() {
+    let root = tempfile::tempdir().unwrap();
+    let web = fixture(root.path());
+    fs::write(web.join(".env"), format!("{DOTFILE_MARK} env")).unwrap();
+    fs::create_dir(web.join(".hidden")).unwrap();
+    fs::write(web.join(".hidden/x"), format!("{DOTFILE_MARK} hidden")).unwrap();
+    fs::create_dir(web.join(".vite")).unwrap();
+    fs::write(
+        web.join(".vite/manifest.json"),
+        format!("{DOTFILE_MARK} manifest"),
+    )
+    .unwrap();
+    let api = api_over(&web);
+
+    // The last spelling escapes the dot, so only a check of the decoded path refuses it.
+    for uri in ["/.env", "/.hidden/x", "/.vite/manifest.json", "/%2eenv"] {
+        let response = ask(&api, get(uri)).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "{uri} is a dotfile"
+        );
+        assert_eq!(header_of(&response, "cache-control"), REVALIDATE, "{uri}");
+        let body = text_of(response).await;
+        assert!(
+            !body.contains(DOTFILE_MARK),
+            "{uri} reached the dotfile: {body:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_percent_encoded_hashed_asset_keeps_the_hashed_policy() {
+    let root = tempfile::tempdir().unwrap();
+    let api = api_over(&fixture(root.path()));
+
+    for uri in ["/%61ssets/app-3f9c.js", "/assets/%61pp-3f9c.js"] {
+        let response = ask(&api, get(uri)).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "{uri} names the hashed asset"
+        );
+        assert_eq!(
+            header_of(&response, "cache-control"),
+            HASHED_POLICY,
+            "{uri} is decided by its decoded path"
+        );
+        assert_eq!(text_of(response).await, APP_JS, "{uri}");
+    }
+}
+
 #[tokio::test]
 async fn unknown_api_paths_keep_the_json_envelope() {
     let root = tempfile::tempdir().unwrap();
     let api = api_over(&fixture(root.path()));
-    for uri in ["/api/nope", "/api/v1/nope"] {
+    for uri in ["/api", "/api/", "/api/nope", "/api/v1/nope"] {
         let response = ask(&api, get(uri)).await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
         assert_eq!(json_of(response).await["code"], "not_found", "{uri}");
@@ -250,6 +399,23 @@ async fn unknown_api_paths_keep_the_json_envelope() {
     let response = ask(&api, wrong_method).await;
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(json_of(response).await["code"], "method_not_allowed");
+}
+
+#[tokio::test]
+async fn the_api_routes_answer_beside_the_web_app() {
+    let root = tempfile::tempdir().unwrap();
+    let api = api_over(&fixture(root.path()));
+    let response = ask(&api, get("/api/v1/health")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json_of(response).await["status"], "ok");
+}
+
+#[tokio::test]
+async fn without_a_web_directory_the_root_is_an_unknown_api_path() {
+    let plain = api_without_web();
+    let response = ask(&plain, get("/")).await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(json_of(response).await["code"], "not_found");
 }
 
 #[tokio::test]
@@ -271,6 +437,7 @@ async fn a_foreign_host_is_refused_for_web_files_as_for_the_api() {
 async fn every_answer_carries_the_security_headers() {
     let root = tempfile::tempdir().unwrap();
     let api = api_over(&fixture(root.path()));
+    let plain = api_without_web();
     let foreign_host = Request::get("/")
         .header("host", "evil.example")
         .body(Body::empty())
@@ -281,14 +448,22 @@ async fn every_answer_carries_the_security_headers() {
         ("an API answer", ask(&api, get("/api/v1/health")).await),
         ("an unknown API path", ask(&api, get("/api/nope")).await),
         ("a refused Host", ask(&api, foreign_host).await),
+        (
+            "a root without a web directory",
+            ask(&plain, get("/")).await,
+        ),
     ];
     for (answer, response) in &answers {
         assert_security_headers(response, answer);
     }
 }
 
+/// Attaching a web directory does not relax write protection. A write from the API's own origin
+/// is admitted, and one from the dev server's origin is refused. The API here is built with no web
+/// origin, so this does not test which origins the binary allows when it serves a web directory;
+/// `allowed_origins` in `main.rs` and the binary-level case below cover that.
 #[tokio::test]
-async fn a_web_directory_admits_writes_from_its_own_origin_only() {
+async fn write_protection_still_applies_with_a_web_directory() {
     let root = tempfile::tempdir().unwrap();
     let api = api_over(&fixture(root.path()));
     let post_from = |origin: &str| {
@@ -686,4 +861,122 @@ fn a_web_directory_without_index_html_is_refused_by_name() {
     let error = WebDir::open(&bare).unwrap_err();
     assert!(error.contains("has no index.html"), "{error}");
     assert!(error.contains(&bare.display().to_string()), "{error}");
+}
+
+#[test]
+fn a_file_is_refused_as_a_web_directory_by_name() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("index.html");
+    fs::write(&file, INDEX_HTML).unwrap();
+    let error = WebDir::open(&file).unwrap_err();
+    assert!(error.contains("is not a directory"), "{error}");
+    assert!(error.contains(&file.display().to_string()), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_web_directory_is_kept_by_its_canonical_path() {
+    use std::os::unix::fs::symlink;
+
+    let root = tempfile::tempdir().unwrap();
+    let web = fixture(root.path());
+    // Opened through a link, the directory must still be kept by where it really is.
+    let link = root.path().join("web-link");
+    symlink(&web, &link).unwrap();
+    let opened = WebDir::open(&link).unwrap();
+    assert_eq!(opened.path(), web.canonicalize().unwrap());
+}
+
+/// Writes a web directory at `root/web` whose `index.html` has mode 0o000. Returns the directory,
+/// or `None` after restoring the file when this process reads it anyway, as root does: a refusal
+/// can only be observed by a process that cannot read the file.
+#[cfg(unix)]
+fn web_with_unreadable_index(root: &Path) -> Option<PathBuf> {
+    let web = root.join("web");
+    fs::create_dir(&web).unwrap();
+    fs::write(web.join("index.html"), INDEX_HTML).unwrap();
+    set_index_mode(&web, 0o000);
+    if fs::File::open(web.join("index.html")).is_ok() {
+        set_index_mode(&web, 0o644);
+        return None;
+    }
+    Some(web)
+}
+
+/// Sets the mode of the `index.html` in `web`.
+#[cfg(unix)]
+fn set_index_mode(web: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::set_permissions(web.join("index.html"), fs::Permissions::from_mode(mode)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_index_html_is_refused_by_name() {
+    let root = tempfile::tempdir().unwrap();
+    let Some(web) = web_with_unreadable_index(root.path()) else {
+        eprintln!("skipped: this process reads a 0o000 file, as root does");
+        return;
+    };
+    let outcome = WebDir::open(&web);
+    // Restored before any assertion, so the temporary directory is cleaned up on every path.
+    set_index_mode(&web, 0o644);
+    let error = outcome.expect_err("an index.html that cannot be read is refused");
+    assert!(error.contains("cannot be read"), "{error}");
+    assert!(error.contains(&web.display().to_string()), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_index_html_stops_startup_before_anything_is_created() {
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().join("data");
+    let Some(web) = web_with_unreadable_index(root.path()) else {
+        eprintln!("skipped: this process reads a 0o000 file, as root does");
+        return;
+    };
+    // The start would prune this file, if it got past the web directory check.
+    stale_temporary(&data);
+    let before = listing(root.path());
+    let mut child = api_command(&[
+        OsStr::new("--port"),
+        OsStr::new("0"),
+        OsStr::new("--data-dir"),
+        data.as_os_str(),
+        OsStr::new("--web-dir"),
+        web.as_os_str(),
+    ])
+    .spawn()
+    .expect("the API binary starts");
+    let status = exit_within_timeout(&mut child);
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .expect("stderr is piped")
+        .read_to_string(&mut stderr)
+        .expect("stderr is text");
+    // Restored before any assertion, so the temporary directory is cleaned up on every path.
+    set_index_mode(&web, 0o644);
+
+    assert!(
+        !status.success(),
+        "an unreadable index.html is a startup error, exit {status:?}: {stderr}"
+    );
+    assert!(
+        !stderr.contains("panicked"),
+        "the error is reported without a panic: {stderr}"
+    );
+    assert!(stderr.contains("cannot be read"), "{stderr}");
+    let shown = web.display().to_string();
+    assert!(
+        stderr.contains(&shown),
+        "the message names the directory: {stderr}"
+    );
+    assert_eq!(
+        listing(root.path()),
+        before,
+        "a refused start creates and prunes nothing"
+    );
 }

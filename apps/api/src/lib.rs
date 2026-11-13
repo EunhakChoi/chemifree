@@ -9,11 +9,14 @@
 //!
 //! Every answer, API or web file, carries the headers listed in `SECURITY_HEADERS`. With a web
 //! directory ([`ApiState::with_web_dir`]), the built web app is served from the same origin: its
-//! files pass the same `Host` guard, and no path outside `/api` falls back to `index.html`.
+//! files pass the same `Host` guard, and no path outside `/api` falls back to `index.html`. Only
+//! files inside that directory are served: a dot-prefixed path, or a symlink that leads outside
+//! it, answers 404.
 //!
 //! This keeps other websites from driving the local API. It is not user authentication:
 //! any local process that can reach the loopback port can obtain the token.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
@@ -40,7 +43,6 @@ use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use http_body_util::LengthLimitError;
 use serde::Serialize;
 use tower_http::services::ServeDir;
-use tower_http::set_header::SetResponseHeaderLayer;
 
 pub use chemifree_host::LocalApplication;
 
@@ -143,7 +145,7 @@ impl WebDir {
     /// # Errors
     ///
     /// Returns a message naming `dir` when it cannot be read, is not a directory, or holds no
-    /// `index.html` file.
+    /// `index.html` file that can be read.
     pub fn open(dir: &std::path::Path) -> Result<Self, String> {
         let shown = dir.display();
         let metadata = fs::metadata(dir)
@@ -151,9 +153,17 @@ impl WebDir {
         if !metadata.is_dir() {
             return Err(format!("web directory {shown} is not a directory"));
         }
-        if !dir.join("index.html").is_file() {
+        let index = dir.join("index.html");
+        if !index.is_file() {
             return Err(format!(
                 "web directory {shown} has no index.html; pass the output directory of a web build"
+            ));
+        }
+        // `is_file` reads only metadata, which a file the server cannot read still has. Opening it
+        // checks that `/` can be served before the data directory is created or pruned.
+        if let Err(error) = fs::File::open(&index) {
+            return Err(format!(
+                "web directory {shown} has an index.html that cannot be read: {error}"
             ));
         }
         let root = dir
@@ -293,6 +303,8 @@ pub fn router(state: Shared) -> Router {
         // Without a web app, every path that matches no route is an unknown API route.
         None => api.fallback(not_found),
         // With one, unknown API paths keep their JSON answer, and every other path is a web file.
+        // The `/api` routes stay explicit rather than nested: `nest` sends `/api/` to the web
+        // fallback, and `nest_service` collapses `//` after the prefix.
         Some(web_dir) => api
             .route("/api", any(not_found))
             .route("/api/", any(not_found))
@@ -308,20 +320,71 @@ pub fn router(state: Shared) -> Router {
 }
 
 /// The web app's files under `web_dir`, with the cache policy of [`web_cache_control`]. A path
-/// without a file answers 404, because the app has no client-side routes to fall back to.
+/// without a file answers 404, because the app has no client-side routes to fall back to. A path
+/// that [`guard_web_files`] refuses gets the same answer.
 fn web_files(web_dir: &WebDir) -> Router {
     Router::new()
         // `ServeDir` answers a directory request, `/` included, with that directory's `index.html`.
         .fallback_service(ServeDir::new(web_dir.path()))
+        .layer(middleware::from_fn_with_state(
+            web_dir.clone(),
+            guard_web_files,
+        ))
         .layer(middleware::from_fn(web_cache_control))
+}
+
+/// Answers 404 before `ServeDir` runs, for a path that names a dotfile or a file outside the web
+/// directory. `ServeDir` would serve both: it does not hide dot-prefixed names, and it follows
+/// symlinks wherever they lead. The refusal is the answer a missing file gets, so it reveals
+/// nothing about what exists.
+async fn guard_web_files(State(web_dir): State<WebDir>, request: Request, next: Next) -> Response {
+    let raw_path = request.uri().path().to_owned();
+    // The check reads the file system, so it runs off the reactor, as `run` does for the API.
+    let checked =
+        tokio::task::spawn_blocking(move || web_file_is_served(web_dir.path(), &raw_path)).await;
+    match checked {
+        Ok(true) => next.run(request).await,
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        // A check that did not finish serves nothing, and says so rather than looking like a miss.
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// Whether `ServeDir` may serve the file that the raw request path names under `root`. No segment
+/// of the decoded path may start with `.`, and the file must resolve, through every symlink, to a
+/// path inside `root`. A symlink that stays inside `root` is served.
+fn web_file_is_served(root: &std::path::Path, raw_path: &str) -> bool {
+    let Some(decoded) = decoded_web_path(raw_path) else {
+        return false;
+    };
+    // Windows takes `\` as a separator too, so a segment may start after one there.
+    if decoded
+        .split(['/', '\\'])
+        .any(|segment| segment.starts_with('.'))
+    {
+        return false;
+    }
+    let mut file = root.to_path_buf();
+    file.extend(decoded.split('/').filter(|segment| !segment.is_empty()));
+    matches!(file.canonicalize(), Ok(resolved) if resolved.starts_with(root))
+}
+
+/// The request path with its percent-escapes decoded, as `ServeDir` decodes it. `None` when the
+/// decoded bytes are not UTF-8, which `ServeDir` refuses as well.
+fn decoded_web_path(raw_path: &str) -> Option<Cow<'_, str>> {
+    percent_encoding::percent_decode_str(raw_path)
+        .decode_utf8()
+        .ok()
 }
 
 /// Sets how a web file may be cached. Vite names the files under `assets/` by content hash, so
 /// their names never change and they may be cached for a year; every other file, the index
-/// included, is revalidated on use. Only an answer that carries the file gets the long lifetime,
-/// so a missing asset is never cached as one.
+/// included, is revalidated on use. The path is decoded first, so an escaped spelling of an asset
+/// path gets the policy of the plain one. Only an answer that carries the file gets the long
+/// lifetime, so a missing asset is never cached as one.
 async fn web_cache_control(request: Request, next: Next) -> Response {
-    let hashed = request.uri().path().starts_with("/assets/");
+    let hashed =
+        decoded_web_path(request.uri().path()).is_some_and(|path| path.starts_with("/assets/"));
     let mut response = next.run(request).await;
     let status = response.status();
     let carries_file = status.is_success() || status == StatusCode::NOT_MODIFIED;
@@ -338,14 +401,17 @@ async fn web_cache_control(request: Request, next: Next) -> Response {
 
 /// Adds [`SECURITY_HEADERS`] to every answer of `router`, including the refusals made by the
 /// layers beneath it.
-fn with_security_headers(mut router: Router<Shared>) -> Router<Shared> {
+fn with_security_headers(router: Router<Shared>) -> Router<Shared> {
+    router.layer(middleware::map_response(set_security_headers))
+}
+
+/// Sets every [`SECURITY_HEADERS`] entry on `response`, replacing any value it already has.
+async fn set_security_headers(mut response: Response) -> Response {
+    let headers = response.headers_mut();
     for (name, value) in SECURITY_HEADERS {
-        router = router.layer(SetResponseHeaderLayer::overriding(
-            name,
-            HeaderValue::from_static(value),
-        ));
+        headers.insert(name, HeaderValue::from_static(value));
     }
-    router
+    response
 }
 
 /// An HTTP error with the v1 envelope.
@@ -926,8 +992,7 @@ async fn method_not_allowed() -> ApiError {
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
-    use axum::http::{Request, StatusCode};
-    use serde_json::Value;
+    use axum::http::StatusCode;
 
     use super::*;
 
@@ -967,88 +1032,8 @@ mod tests {
         assert_eq!(unread_body(broken).status(), StatusCode::BAD_REQUEST);
     }
 
-    const TEST_PORT: u16 = 3999;
-    const TEST_HOST: &str = "127.0.0.1:3999";
-    const TEST_TOKEN: &str = "web-test-token";
-
-    /// A router over a fresh data directory, serving `web` when given. The data directory is
-    /// returned as well, so that it lives as long as the test needs it.
-    fn router_for_test(web: Option<WebDir>, origins: &[String]) -> (Router, tempfile::TempDir) {
-        let data = tempfile::tempdir().unwrap();
-        let application =
-            chemifree_host::local_application(chemifree_host::LocalStores::new(data.path()));
-        let state = ApiState::new(application, TEST_TOKEN.into(), TEST_PORT, origins).unwrap();
-        let state = match web {
-            Some(web) => state.with_web_dir(web),
-            None => state,
-        };
-        (router(Arc::new(state)), data)
-    }
-
-    /// Writes what a Vite build leaves in a web directory: an index, a hashed asset and a favicon.
-    /// A secret file sits beside the web directory, where no request may reach it.
-    fn web_fixture(root: &std::path::Path) -> std::path::PathBuf {
-        let web = root.join("web");
-        fs::create_dir_all(web.join("assets")).unwrap();
-        fs::write(
-            web.join("index.html"),
-            "<!doctype html><title>Chemifree</title>",
-        )
-        .unwrap();
-        fs::write(web.join("assets/app-3f9c.js"), "console.log('app');").unwrap();
-        fs::write(
-            web.join("favicon.svg"),
-            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
-        )
-        .unwrap();
-        fs::write(root.join("secret.txt"), "not for the web").unwrap();
-        web
-    }
-
-    fn get(uri: &str) -> Request<Body> {
-        Request::get(uri)
-            .header("host", TEST_HOST)
-            .body(Body::empty())
-            .unwrap()
-    }
-
-    async fn ask(router: &Router, request: Request<Body>) -> Response {
-        use tower::ServiceExt;
-
-        router.clone().oneshot(request).await.unwrap()
-    }
-
-    async fn text_of(response: Response) -> String {
-        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        String::from_utf8_lossy(&bytes).into_owned()
-    }
-
-    async fn json_of(response: Response) -> Value {
-        serde_json::from_str(&text_of(response).await).unwrap()
-    }
-
-    fn cache_control(response: &Response) -> &str {
-        response
-            .headers()
-            .get(header::CACHE_CONTROL)
-            .expect("the answer names its cache policy")
-            .to_str()
-            .unwrap()
-    }
-
-    fn assert_security_headers(response: &Response, answer: &str) {
-        for (name, value) in SECURITY_HEADERS {
-            assert_eq!(
-                response.headers().get(&name).map(|v| v.to_str().unwrap()),
-                Some(value),
-                "{answer} carries {}",
-                name.as_str()
-            );
-        }
-    }
-
+    /// Checks the whole list that every answer gets. The integration suite sees the four named
+    /// headers on an answer, but not an extra entry added to the list.
     #[test]
     fn the_security_policy_is_the_documented_one() {
         let actual: Vec<(String, &str)> = SECURITY_HEADERS
@@ -1068,233 +1053,5 @@ mod tests {
         .map(|(name, value)| (name.to_owned(), value))
         .collect();
         assert_eq!(actual, expected);
-    }
-
-    #[tokio::test]
-    async fn the_web_app_is_served_with_its_cache_policy() {
-        let root = tempfile::tempdir().unwrap();
-        let web = WebDir::open(&web_fixture(root.path())).unwrap();
-        let (api, _data) = router_for_test(Some(web), &[]);
-
-        for uri in ["/", "/index.html"] {
-            let response = ask(&api, get(uri)).await;
-            assert_eq!(response.status(), StatusCode::OK, "{uri} is the index");
-            assert!(
-                response
-                    .headers()
-                    .get(header::CONTENT_TYPE)
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .starts_with("text/html"),
-                "{uri} is served as HTML"
-            );
-            assert_eq!(cache_control(&response), "no-cache", "{uri} is revalidated");
-            let body = text_of(response).await;
-            assert!(body.contains("<title>Chemifree</title>"), "{uri}: {body:?}");
-        }
-
-        let response = ask(&api, get("/assets/app-3f9c.js")).await;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            cache_control(&response),
-            "public, max-age=31536000, immutable",
-            "a hashed asset is cached for a year"
-        );
-
-        let response = ask(&api, get("/favicon.svg")).await;
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            cache_control(&response),
-            "no-cache",
-            "a file at the root is revalidated"
-        );
-    }
-
-    #[tokio::test]
-    async fn paths_without_a_file_are_not_found_and_never_fall_back_to_the_index() {
-        let root = tempfile::tempdir().unwrap();
-        let web = WebDir::open(&web_fixture(root.path())).unwrap();
-        let (api, _data) = router_for_test(Some(web), &[]);
-
-        for uri in ["/documents/42", "/assets/missing-0000.js"] {
-            let response = ask(&api, get(uri)).await;
-            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
-            assert_eq!(
-                cache_control(&response),
-                "no-cache",
-                "{uri}: a miss is never cached as a file"
-            );
-            let body = text_of(response).await;
-            assert!(!body.contains("<title>"), "{uri} answered with the index");
-        }
-    }
-
-    #[tokio::test]
-    async fn a_not_modified_hashed_asset_keeps_its_long_lifetime() {
-        let root = tempfile::tempdir().unwrap();
-        let web = WebDir::open(&web_fixture(root.path())).unwrap();
-        let (api, _data) = router_for_test(Some(web), &[]);
-
-        let first = ask(&api, get("/assets/app-3f9c.js")).await;
-        let modified = first.headers()[header::LAST_MODIFIED].clone();
-        let conditional = Request::get("/assets/app-3f9c.js")
-            .header("host", TEST_HOST)
-            .header(header::IF_MODIFIED_SINCE, modified)
-            .body(Body::empty())
-            .unwrap();
-        let response = ask(&api, conditional).await;
-        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
-        assert_eq!(
-            cache_control(&response),
-            "public, max-age=31536000, immutable",
-            "the revalidated answer keeps the asset's lifetime"
-        );
-    }
-
-    #[tokio::test]
-    async fn files_outside_the_web_directory_are_not_reachable() {
-        let root = tempfile::tempdir().unwrap();
-        let web = WebDir::open(&web_fixture(root.path())).unwrap();
-        let (api, _data) = router_for_test(Some(web), &[]);
-
-        for uri in [
-            "/secret.txt",
-            "/../secret.txt",
-            "/%2e%2e/secret.txt",
-            "/%2E%2E%2fsecret.txt",
-            "/assets/..%2f..%2fsecret.txt",
-            "/assets/%2e%2e/%2e%2e/secret.txt",
-            "/%00",
-        ] {
-            let response = ask(&api, get(uri)).await;
-            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
-            let body = text_of(response).await;
-            assert!(
-                !body.contains("not for the web"),
-                "{uri} reached the secret"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn api_paths_without_a_route_keep_their_json_answer() {
-        let root = tempfile::tempdir().unwrap();
-        let web = WebDir::open(&web_fixture(root.path())).unwrap();
-        let (api, _data) = router_for_test(Some(web), &[]);
-
-        for uri in ["/api", "/api/", "/api/nope", "/api/v1/nope"] {
-            let response = ask(&api, get(uri)).await;
-            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
-            assert_eq!(json_of(response).await["code"], "not_found", "{uri}");
-        }
-
-        let response = ask(&api, get("/api/v1/health")).await;
-        assert_eq!(response.status(), StatusCode::OK);
-        let wrong_method = Request::post("/api/v1/health")
-            .header("host", TEST_HOST)
-            .body(Body::empty())
-            .unwrap();
-        let response = ask(&api, wrong_method).await;
-        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
-        assert_eq!(json_of(response).await["code"], "method_not_allowed");
-    }
-
-    #[tokio::test]
-    async fn every_answer_carries_the_security_headers() {
-        let root = tempfile::tempdir().unwrap();
-        let web = WebDir::open(&web_fixture(root.path())).unwrap();
-        let (api, _data) = router_for_test(Some(web), &[]);
-        let (plain, _plain_data) = router_for_test(None, &[]);
-        let foreign_host = Request::get("/")
-            .header("host", "evil.example")
-            .body(Body::empty())
-            .unwrap();
-
-        let answers = [
-            ("GET / from the web app", ask(&api, get("/")).await),
-            (
-                "GET /documents/42 from the web app",
-                ask(&api, get("/documents/42")).await,
-            ),
-            ("GET /api/v1/health", ask(&api, get("/api/v1/health")).await),
-            ("GET /api/nope", ask(&api, get("/api/nope")).await),
-            ("GET with a foreign Host", ask(&api, foreign_host).await),
-            ("GET / without a web app", ask(&plain, get("/")).await),
-        ];
-        for (answer, response) in &answers {
-            assert_security_headers(response, answer);
-        }
-    }
-
-    #[tokio::test]
-    async fn a_foreign_host_is_refused_for_web_files_as_for_the_api() {
-        let root = tempfile::tempdir().unwrap();
-        let web = WebDir::open(&web_fixture(root.path())).unwrap();
-        let (api, _data) = router_for_test(Some(web), &[]);
-
-        for uri in ["/", "/assets/app-3f9c.js"] {
-            let request = Request::get(uri)
-                .header("host", "evil.example")
-                .body(Body::empty())
-                .unwrap();
-            let response = ask(&api, request).await;
-            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
-            assert_eq!(json_of(response).await["code"], "forbidden_host", "{uri}");
-        }
-    }
-
-    #[tokio::test]
-    async fn without_a_web_directory_the_root_is_an_unknown_api_path() {
-        let (plain, _data) = router_for_test(None, &[]);
-        let response = ask(&plain, get("/")).await;
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        assert_eq!(json_of(response).await["code"], "not_found");
-    }
-
-    #[tokio::test]
-    async fn with_a_web_directory_only_the_own_origin_may_write() {
-        let root = tempfile::tempdir().unwrap();
-        let web = WebDir::open(&web_fixture(root.path())).unwrap();
-        let (api, _data) = router_for_test(Some(web), &[]);
-        let create = |origin: &str| {
-            Request::post("/api/v1/documents")
-                .header("host", TEST_HOST)
-                .header("origin", origin)
-                .header("sec-fetch-site", "same-origin")
-                .header("content-type", "application/json")
-                .header(SESSION_HEADER, TEST_TOKEN)
-                .body(Body::from(r#"{"request_id":"create-1"}"#))
-                .unwrap()
-        };
-
-        let response = ask(&api, create("http://127.0.0.1:5173")).await;
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        assert_eq!(json_of(response).await["code"], "forbidden_origin");
-
-        let response = ask(&api, create("http://127.0.0.1:3999")).await;
-        assert_eq!(response.status(), StatusCode::CREATED);
-    }
-
-    #[test]
-    fn a_web_directory_must_be_a_directory_with_an_index() {
-        let root = tempfile::tempdir().unwrap();
-
-        let error = WebDir::open(&root.path().join("missing")).unwrap_err();
-        assert!(error.contains("cannot be read"), "{error}");
-
-        let file = root.path().join("index.html");
-        fs::write(&file, "<!doctype html>").unwrap();
-        let error = WebDir::open(&file).unwrap_err();
-        assert!(error.contains("is not a directory"), "{error}");
-
-        let bare = root.path().join("bare");
-        fs::create_dir(&bare).unwrap();
-        let error = WebDir::open(&bare).unwrap_err();
-        assert!(error.contains("has no index.html"), "{error}");
-
-        let dir = web_fixture(root.path());
-        let web = WebDir::open(&dir).unwrap();
-        assert_eq!(web.path(), dir.canonicalize().unwrap());
     }
 }
