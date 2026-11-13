@@ -581,22 +581,11 @@ impl Offence {
 
 /// Why a search produced no result: it ended with a [`MatchError`], which a search reaches only
 /// through one of its limits, or the caller's interrupt stopped it.
-enum Halt {
-    /// A limit of the search ended it; this does not depend on the machine.
-    Refused(MatchError),
-    /// The search was stopped before it finished; the target may well be supported.
-    Interrupted(Interrupted),
-}
+type Halt = crate::budget::Halt<MatchError>;
 
 impl From<MatchError> for Halt {
     fn from(error: MatchError) -> Self {
         Self::Refused(error)
-    }
-}
-
-impl From<Interrupted> for Halt {
-    fn from(interrupted: Interrupted) -> Self {
-        Self::Interrupted(interrupted)
     }
 }
 

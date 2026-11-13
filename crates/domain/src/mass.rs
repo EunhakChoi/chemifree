@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::budget::{Interrupt, Interrupted, NEVER};
+use crate::budget::{Interrupt, Interrupted, NEVER, interruptible};
 use crate::document::{AtomId, Document};
 use crate::element::Element;
 use crate::scene::{SceneObject, Selection};
@@ -309,22 +309,11 @@ fn validate(row: &ElementMass) -> Result<(), MassError> {
 
 /// How the enumeration ends without a distribution. A stop is kept apart from the refusals, so
 /// it is never reported as one.
-enum Halt {
-    /// A refusal of the data or of a limit; this does not depend on the machine.
-    Refused(MassError),
-    /// The enumeration was stopped before it finished; the distribution may well exist.
-    Interrupted(Interrupted),
-}
+type Halt = crate::budget::Halt<MassError>;
 
 impl From<MassError> for Halt {
     fn from(error: MassError) -> Self {
         Self::Refused(error)
-    }
-}
-
-impl From<Interrupted> for Halt {
-    fn from(interrupted: Interrupted) -> Self {
-        Self::Interrupted(interrupted)
     }
 }
 
@@ -478,11 +467,7 @@ impl Composition {
         table: &MassTable,
         interrupt: &dyn Interrupt,
     ) -> Result<Result<Distribution, MassError>, Interrupted> {
-        match self.enumerate_distribution(table, interrupt) {
-            Ok(distribution) => Ok(Ok(distribution)),
-            Err(Halt::Refused(error)) => Ok(Err(error)),
-            Err(Halt::Interrupted(interrupted)) => Err(interrupted),
-        }
+        interruptible(self.enumerate_distribution(table, interrupt))
     }
 
     /// The enumeration behind [`Composition::distribution_with`]. A stop stays a `Halt` until the

@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::aromaticity::{self, Classification};
-use crate::budget::{Interrupt, Interrupted, NEVER};
+use crate::budget::{Interrupt, Interrupted, NEVER, interruptible, uninterrupted};
 use crate::chemistry::{self, Finding};
 use crate::document::{Atom, AtomId, Bond, BondOrder};
 use crate::graph::MoleculeGraph;
@@ -38,41 +38,11 @@ impl IdentityError {
 }
 
 /// Why a search produced no result: the model refused the input, or `interrupt` stopped it.
-enum Halt {
-    /// The model refused the input; this does not depend on the machine.
-    Refused(IdentityError),
-    /// The search was stopped before it finished; the input may well be supported.
-    Interrupted(Interrupted),
-}
+type Halt = crate::budget::Halt<IdentityError>;
 
 impl From<IdentityError> for Halt {
     fn from(error: IdentityError) -> Self {
         Self::Refused(error)
-    }
-}
-
-impl From<Interrupted> for Halt {
-    fn from(interrupted: Interrupted) -> Self {
-        Self::Interrupted(interrupted)
-    }
-}
-
-/// Keeps a refusal inside the result and reports an interrupt outside it, so a stop is never
-/// read as a refusal.
-fn interruptible<T>(result: Result<T, Halt>) -> Result<Result<T, IdentityError>, Interrupted> {
-    match result {
-        Ok(value) => Ok(Ok(value)),
-        Err(Halt::Refused(error)) => Ok(Err(error)),
-        Err(Halt::Interrupted(interrupted)) => Err(interrupted),
-    }
-}
-
-/// Maps the result of a search given [`NEVER`], which cannot stop it.
-fn uninterrupted<T>(result: Result<T, Halt>) -> Result<T, IdentityError> {
-    match result {
-        Ok(value) => Ok(value),
-        Err(Halt::Refused(error)) => Err(error),
-        Err(Halt::Interrupted(_)) => unreachable!("the never-interrupt cannot interrupt"),
     }
 }
 

@@ -116,6 +116,52 @@ impl Interrupt for Budget<'_> {
     }
 }
 
+/// Why a computation that can be interrupted produced no result: it refused its input, or it
+/// was stopped. A stop stays a `Halt` until [`interruptible`] or [`uninterrupted`] maps it, so it
+/// is never read as a refusal.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Halt<E> {
+    /// The input was refused for this reason; the refusal does not depend on the machine.
+    Refused(E),
+    /// The computation was stopped before it finished. The stop is a property of the machine or
+    /// of the caller, not of the input.
+    Interrupted(Interrupted),
+}
+
+impl<E> From<Interrupted> for Halt<E> {
+    fn from(interrupted: Interrupted) -> Self {
+        Self::Interrupted(interrupted)
+    }
+}
+
+/// Keeps a refusal inside the result and reports a stop outside it, so a stop is never read as a
+/// refusal.
+///
+/// # Errors
+///
+/// Returns the stop as the outer `Err` when the computation was interrupted.
+pub fn interruptible<T, E>(result: Result<T, Halt<E>>) -> Result<Result<T, E>, Interrupted> {
+    match result {
+        Ok(value) => Ok(Ok(value)),
+        Err(Halt::Refused(error)) => Ok(Err(error)),
+        Err(Halt::Interrupted(interrupted)) => Err(interrupted),
+    }
+}
+
+/// Maps the result of a computation given [`NEVER`], which cannot stop it. A stop would be a bug,
+/// so it panics rather than being read as a refusal.
+///
+/// # Panics
+///
+/// Panics if the computation was interrupted, which a computation given [`NEVER`] cannot be.
+pub fn uninterrupted<T, E>(result: Result<T, Halt<E>>) -> Result<T, E> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(Halt::Refused(error)) => Err(error),
+        Err(Halt::Interrupted(_)) => unreachable!("the never-interrupt cannot interrupt"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
