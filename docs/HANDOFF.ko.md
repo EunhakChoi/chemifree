@@ -7,6 +7,8 @@
 - 도메인: `stereo_inspection::inspect_with`(`inspect`는 `NEVER` 감싸개, 비공개 `Halt`). 점검은 인스턴스 시작마다, 중심·이중결합 항목마다, 마지막 판정 앞에 한 번이다(n×(1+a+b)+1번).
 - 응용: 순서는 제한 → `instance` 읽기 → 스냅숏 → 장면에 없는 인스턴스·20,000 항목 `resource_limit` → 한 번 묻기 → 잠금 밖 계산. 따라서 제한 0이어도 너무 큰 요청은 `resource_limit`이다. 중단은 `chemifree-stereo-1`을 이름으로 하는 기존 중단 응답이다.
 - 시험·변이: `crates/domain/tests/stereo_inspection_interrupt.rs`, `read_only_time_limit.rs`·`read_only_without_slot.rs`의 `chem.stereo` 행. 점검 셋 제거, 응용이 `NEVER` 전달, 중단을 `document_unreadable`로, 스냅숏 뒤 제한 읽기, 자리 잡기 변이를 각각 잡는다.
+- 리뷰에서 고친 것: 웹 `inspectStereo`가 다른 검사처럼 `throwIfStopped`로 중단 응답의 모양을 검사한다(`web-compute-stop-client-check.mjs`에 `chem.stereo` 경우 4개). 응용 시험에 입체 중심·이중결합이 있는 문서로 항목 점검마다 멈추는 시험과 "`instance`보다 제한을 먼저 읽는다" 시험을 더했다. CONTRACT의 동시 계산 절(슬롯 없는 목록), 점검 없는 구간(저장 기록 읽기, 마지막 판정), `document_unreadable`과 중단의 순서가 기계에 따라 다름을 적었다.
+- 그대로 둔 것(후속): 자동 입체 검사는 중단을 실패한 검사(메시지와 "Check again")로 보이며 수동 패널의 중단 알림을 쓰지 않는다(`stereo-agreement.ts`의 `AgreementView`에 중단 필드가 없음. 바꾸려면 그 파일·`stereo-panel.tsx`·`web-client-check.mjs`·브라우저 스모크). 여덟째 `Halt` 복사본(공용 `budget::Halt<E>` 후보). 계산 직전 질문과 첫 인스턴스 질문의 겹침과 마지막 판정의 이웃 색인 재구성(다른 검사와 같은 구조).
 - 남은 #106 작은 항목: `chem.inchi` 시간 제한. Opus 권고는 A안(네이티브 호출 직전에 한 번만 묻고, 호출과 전역 잠금 대기는 점검 없음으로 문서화, `time_limit_ms`는 동의 요약값에 넣지 않음). 요청마다 `-W`를 줄이는 B안과 보조 프로세스로 실제 중단하는 D안은 사용자 결정 사항이다.
 
 ## SMILES 읽어 돌려보기 파싱의 중단 (T0, #106 작은 항목)

@@ -1,4 +1,4 @@
-# P41: time limit and cancel for four read-only operations
+# P41: time limit and cancel for the read-only operations
 
 Status: bounded. `chem.aromaticity`, `chem.identity`, `chem.substructure` and `chem.properties` take the `time_limit_ms` of [CONTRACT.md "Computation time limit and cancel"](../CONTRACT.md#computation-time-limit-and-cancel) and the host cancel. They take no compute-gate slot. SMILES export and (since #106, 2026-11) `chem.stereo` have them too (sections below); `chem.inchi` does not yet. This is the first pull request of track T0; the plan, slicing and the lead's decision are in HANDOFF.ko.md ("T0 진행").
 
