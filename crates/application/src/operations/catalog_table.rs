@@ -567,7 +567,7 @@ pub(super) fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
                 ..missing(
                     id,
                     "P30",
-                    "The optional native InChI provider is unavailable. This read-only operation requires an explicitly configured provider and returns no identifier without one. It runs under a time limit (time_limit_ms) that is asked once before the native call; the native call itself is not interrupted.",
+                    "The optional native InChI provider is unavailable. This read-only operation requires an explicitly configured provider and returns no identifier without one. It runs under a time limit (time_limit_ms) that is asked before the native call and again once the native-call lock is held; the native call itself is not interrupted.",
                 )
             },
             &[],

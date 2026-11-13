@@ -1,6 +1,6 @@
 //! Read-only Standard InChI generation, with an exact snapshot and loss consent. The request's
-//! time limit and the host cancel are asked once, right before the native call; no compute slot
-//! is taken.
+//! time limit and the host cancel are asked before the native call and again once the provider
+//! holds its native lock; no compute slot is taken.
 
 use chemifree_domain::stereo_group::GroupKind;
 use serde::Deserialize;
@@ -16,8 +16,9 @@ pub(super) struct InchiParameters {
     accepted_losses: Option<String>,
     /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
     /// (so it may be above the server's default); above the maximum it is refused. It is asked
-    /// once, right before the native call; the call is not interrupted, so a result that arrives
-    /// after the limit is still returned.
+    /// before the native call and again once the provider holds its native lock, right before the
+    /// call. The call is not interrupted, so a result that arrives after the limit is still
+    /// returned.
     #[serde(default)]
     time_limit_ms: Option<u64>,
 }
@@ -132,9 +133,11 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 )],
             );
         }
-        // Asked once, immediately before the native call. The call cannot be interrupted, so
-        // nothing is checked after it: a call that runs past the limit still returns its result.
-        let generated = self.compute_read_only(&budget, |_| Ok(provider.generate(&graph, &groups)));
+        // Asked before the call, and again by the provider once it holds its native lock, right
+        // before the native call. Nothing is asked after the call begins: it cannot be interrupted,
+        // so a call that runs past the limit still returns its result.
+        let generated =
+            self.compute_read_only(&budget, |stop| provider.generate(&graph, &groups, stop));
         let output = match generated {
             Ok(Ok(output)) => output,
             Ok(Err(error)) => {

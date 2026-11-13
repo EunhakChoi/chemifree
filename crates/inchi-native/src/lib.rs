@@ -11,6 +11,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::element::Element;
 
 #[cfg(target_os = "linux")]
@@ -218,22 +219,33 @@ impl NativeInchi {
 
     /// Computes Standard InChI and its Standard InChIKey from explicit molecular input.
     ///
+    /// `stop` is asked once the native serialization lock is held, right before the native
+    /// call. It is never asked after that call begins, so a finished call is returned as is.
+    ///
     /// # Errors
-    /// Refuses invalid indices, topology, unsupported element names, oversized inputs,
-    /// poisoned serialization locks, native errors and nonstandard or malformed output.
-    pub fn generate(&self, molecule: &Molecule) -> Result<Output, Error> {
-        validate(molecule)?;
+    /// The inner error refuses invalid indices, topology, unsupported element names, oversized
+    /// inputs, poisoned serialization locks, native errors and nonstandard or malformed output.
+    /// `Err(Interrupted)` means `stop` ended the call before the native library ran.
+    pub fn generate(
+        &self,
+        molecule: &Molecule,
+        stop: &dyn Interrupt,
+    ) -> Result<Result<Output, Error>, Interrupted> {
+        if let Err(refusal) = validate(molecule) {
+            return Ok(Err(refusal));
+        }
         #[cfg(target_os = "linux")]
         {
             self.library
-                .generate(molecule, self.registration.timeout_seconds)
+                .generate(molecule, self.registration.timeout_seconds, stop)
         }
         #[cfg(not(target_os = "linux"))]
         {
-            Err(error(
+            let _ = stop;
+            Ok(Err(error(
                 ErrorKind::Unavailable,
                 "Native InChI is unavailable on this platform.",
-            ))
+            )))
         }
     }
 }

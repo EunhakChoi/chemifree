@@ -37,7 +37,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             return Row {
                 entry: runs(
                     "chem.inchi",
-                    "Read-only bounded Standard InChI/InChIKey generation with checked provider version, build, effective options, exact snapshot, explicit losses and consent. Unsupported chemistry and AND/OR groups are refused. Stored configurations are used; drawn marks are not substituted.",
+                    "Read-only bounded Standard InChI/InChIKey generation with checked provider version, build, effective options, exact snapshot, explicit losses and consent. Unsupported chemistry and AND/OR groups are refused. Stored configurations are used; drawn marks are not substituted. It runs under a time limit (time_limit_ms) that is asked before the native call and again once the native-call lock is held; the native call itself is not interrupted.",
                 ),
                 parts: &[],
                 note: None,

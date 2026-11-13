@@ -1,13 +1,18 @@
 //! Application boundary checks use an explicit provider fake, not a native chemistry engine.
 
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
+use std::time::Duration;
 
 use chemifree_application::inchi::{
     InchiError, InchiErrorKind, InchiOutput, InchiProvider, InchiProviderIdentity, MODEL_ID,
 };
 use chemifree_application::{
-    Application, CancelFlag, Loss, LossConsent, LossDisposition, SemanticImpact,
+    Application, CancelFlag, Interrupt, Interrupted, Loss, LossConsent, LossDisposition,
+    SemanticImpact,
 };
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::stereo_group::StereoGroupTable;
@@ -20,11 +25,17 @@ type App = Application<LocalCapabilities, FileDocumentRepository>;
 const DEFAULT_LIMIT_MS: u64 = 5_000;
 /// The largest limit a request may set, in milliseconds.
 const MAXIMUM_LIMIT_MS: u64 = 8_000;
+/// Long enough for the holder of the only slot to reach its checkpoint; short enough to end a
+/// failing run.
+const WAIT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 struct FixtureProvider {
     answer: Result<InchiOutput, InchiError>,
     calls: Arc<AtomicUsize>,
+    /// Cancelled when generation starts, as a host cancel that arrives while the provider waits
+    /// for its native lock would be.
+    cancel_on_entry: Option<Arc<CancelFlag>>,
 }
 
 impl InchiProvider for FixtureProvider {
@@ -40,9 +51,14 @@ impl InchiProvider for FixtureProvider {
         &self,
         _graph: &MoleculeGraph,
         _groups: &StereoGroupTable,
-    ) -> Result<InchiOutput, InchiError> {
+        stop: &dyn Interrupt,
+    ) -> Result<Result<InchiOutput, InchiError>, Interrupted> {
+        if let Some(cancel) = &self.cancel_on_entry {
+            cancel.cancel();
+        }
+        stop.check()?;
         self.calls.fetch_add(1, Ordering::Relaxed);
-        self.answer.clone()
+        Ok(self.answer.clone())
     }
 }
 
@@ -59,6 +75,7 @@ fn fixture(losses: Vec<Loss>) -> FixtureProvider {
             losses,
         }),
         calls: Arc::new(AtomicUsize::new(0)),
+        cancel_on_entry: None,
     }
 }
 
@@ -239,6 +256,7 @@ fn native_failures_and_malformed_successes_return_no_identifiers() {
         let provider = FixtureProvider {
             answer,
             calls: Arc::new(AtomicUsize::new(0)),
+            cancel_on_entry: None,
         };
         let app = Application::new(
             LocalCapabilities,
@@ -581,4 +599,206 @@ fn a_time_limit_the_computation_meets_leaves_the_reply_unchanged() {
             "time_limit_ms {limit} changed the reply: {limited}"
         );
     }
+}
+
+/// A document holding a Kekulé benzene at revision 1. A conversion of it asks its interrupt, so
+/// its holder stops at a checkpoint while it holds the only slot.
+fn kekule_benzene(app: &App) -> String {
+    let created = call(app, "document.create", json!({}));
+    let id = created["result"]["document"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut commands: Vec<Value> = (0..6)
+        .map(|i| json!({"op":"add_atom", "element":"C", "position":{"x":i * 20,"y":0}}))
+        .collect();
+    for i in 0..6 {
+        let order = if i % 2 == 0 { "double" } else { "single" };
+        commands.push(json!({"op":"add_bond", "begin":format!("${i}"), "end":format!("${}", (i + 1) % 6), "order":order}));
+    }
+    let drawn = call(
+        app,
+        "document.transaction",
+        json!({"document_id":id,"expected_revision":0,"commands":commands}),
+    );
+    assert_eq!(drawn["outcome"], "ok", "{drawn}");
+    id
+}
+
+/// Stops the holder of the only slot at its first checkpoint, and holds it there until the
+/// release sender is dropped.
+struct Latch {
+    reached: Sender<()>,
+    release: Mutex<Receiver<()>>,
+    first: AtomicUsize,
+}
+
+impl Interrupt for Latch {
+    fn check(&self) -> Result<(), Interrupted> {
+        if self.first.fetch_add(1, Ordering::SeqCst) == 0 {
+            self.reached.send(()).ok();
+            // Nothing is ever sent: the receive returns once the release sender is dropped.
+            self.release.lock().unwrap().recv().ok();
+        }
+        Ok(())
+    }
+}
+
+/// A latch, the receiver that reports when it is reached, and the sender whose drop releases it.
+fn new_latch() -> (Latch, Receiver<()>, Sender<()>) {
+    let (reached, reached_rx) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel();
+    (
+        Latch {
+            reached,
+            release: Mutex::new(release_rx),
+            first: AtomicUsize::new(0),
+        },
+        reached_rx,
+        release,
+    )
+}
+
+#[test]
+fn a_cancel_that_arrives_before_the_native_call_stops_it_and_returns_no_identifier() {
+    for time_limit_ms in [None, Some(DEFAULT_LIMIT_MS)] {
+        let directory = tempfile::tempdir().unwrap();
+        let cancel = Arc::new(CancelFlag::new());
+        let provider = FixtureProvider {
+            cancel_on_entry: Some(Arc::clone(&cancel)),
+            ..fixture(Vec::new())
+        };
+        let app = Application::new(
+            LocalCapabilities,
+            FileDocumentRepository::new(directory.path()),
+        )
+        .with_inchi_provider(provider.clone());
+        let id = methane(&app);
+        // The flag is set only once the provider is entered, so the stop comes from the
+        // provider's own check, not from the request's check before it.
+        let mut parameters = json!({"document_id":id});
+        if let Some(limit) = time_limit_ms {
+            parameters["time_limit_ms"] = json!(limit);
+        }
+        let label = parameters.to_string();
+        let reply = call_cancelled(&app, "chem.inchi", parameters, &cancel);
+        assert_eq!(reply["outcome"], "error", "{label}: {reply}");
+        assert_eq!(reply["document_revision"], 1, "{label}: {reply}");
+        assert_eq!(reply["result"], Value::Null, "{label}: {reply}");
+        assert_eq!(reply["model_id"], MODEL_ID, "{label}: {reply}");
+        assert_eq!(
+            reply["diagnostics"].as_array().unwrap().len(),
+            1,
+            "{label}: {reply}"
+        );
+        assert_eq!(
+            reply["diagnostics"][0]["code"], "cancelled",
+            "{label}: {reply}"
+        );
+        assert_eq!(
+            reply["diagnostics"][0]["details"],
+            json!({}),
+            "{label}: {reply}"
+        );
+        assert_eq!(
+            provider.calls.load(Ordering::Relaxed),
+            0,
+            "{label}: the native call ran after the cancel"
+        );
+    }
+}
+
+#[test]
+fn chem_inchi_answers_while_the_only_compute_slot_is_held() {
+    let directory = tempfile::tempdir().unwrap();
+    let provider = fixture(Vec::new());
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    )
+    .with_inchi_provider(provider.clone())
+    .with_compute_concurrency(1);
+    let id = methane(&app);
+    let idle = call(&app, "chem.inchi", json!({"document_id":id}));
+    assert_eq!(idle["outcome"], "ok", "{idle}");
+    let holding = kekule_benzene(&app);
+    let (latch, reached, release) = new_latch();
+    thread::scope(|scope| {
+        // Owned by this closure, so a failed assertion below releases the holder.
+        let release = release;
+        let holder = scope.spawn(|| {
+            app.execute_with(
+                &request_bytes(
+                    "chem.aromaticity_convert",
+                    json!({"document_id":holding,"expected_revision":1,"to":"aromatic","time_limit_ms":MAXIMUM_LIMIT_MS}),
+                ),
+                &latch,
+            )
+        });
+        reached
+            .recv_timeout(WAIT)
+            .expect("the holder took the only slot and reached its checkpoint");
+        // The holder keeps the only slot until it is released, and chem.inchi takes no slot.
+        let held = call(&app, "chem.inchi", json!({"document_id":id}));
+        drop(release);
+        let holder_reply = serde_json::to_value(holder.join().unwrap()).unwrap();
+        assert_eq!(holder_reply["outcome"], "ok", "holder: {holder_reply}");
+        assert_eq!(held["outcome"], "ok", "{held}");
+        assert_eq!(
+            without_request_id(held),
+            without_request_id(idle),
+            "chem.inchi answered differently while the only slot was held"
+        );
+    });
+    assert_eq!(
+        provider.calls.load(Ordering::Relaxed),
+        2,
+        "the provider was not called for both requests"
+    );
+}
+
+#[test]
+fn chem_inchi_is_refused_after_cancel_computations_before_the_provider_is_called() {
+    let directory = tempfile::tempdir().unwrap();
+    let provider = fixture(Vec::new());
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    )
+    .with_inchi_provider(provider.clone());
+    let id = methane(&app);
+    // The same request answers ok before the close, so the refusal below is the close's doing.
+    let before = call(&app, "chem.inchi", json!({"document_id":id}));
+    assert_eq!(before["outcome"], "ok", "{before}");
+    app.cancel_computations();
+    for parameters in [
+        json!({"document_id":id}),
+        json!({"document_id":id,"time_limit_ms":DEFAULT_LIMIT_MS}),
+    ] {
+        let label = parameters.to_string();
+        let reply = call(&app, "chem.inchi", parameters);
+        assert_eq!(reply["outcome"], "error", "{label}: {reply}");
+        assert_eq!(reply["document_revision"], 1, "{label}: {reply}");
+        assert_eq!(reply["result"], Value::Null, "{label}: {reply}");
+        assert_eq!(reply["model_id"], MODEL_ID, "{label}: {reply}");
+        assert_eq!(
+            reply["diagnostics"].as_array().unwrap().len(),
+            1,
+            "{label}: {reply}"
+        );
+        assert_eq!(
+            reply["diagnostics"][0]["code"], "cancelled",
+            "{label}: {reply}"
+        );
+        assert_eq!(
+            reply["diagnostics"][0]["details"],
+            json!({}),
+            "{label}: {reply}"
+        );
+    }
+    assert_eq!(
+        provider.calls.load(Ordering::Relaxed),
+        1,
+        "the provider was called after cancel_computations"
+    );
 }

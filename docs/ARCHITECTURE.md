@@ -86,8 +86,9 @@ A new feature is a new operation or a new transaction command, not a new adapter
   reader has `parse_with` for the writer's read-back parses while import keeps the `NEVER`
   wrapper `parse`, because import has no time limit (CONTRACT.md lists the parts of a
   read-back parse that stay unchecked). `chem.stereo` has `stereo_inspection::inspect_with` and the same time limit and cancel as
-  the four inspections. `chem.inchi` takes the same limit and cancel but asks only once, before
-  the native call, which cannot be interrupted (its bound is the registered `-W` timeout); a
+  the four inspections. `chem.inchi` takes the same limit and cancel; the `InchiProvider` port
+  takes the interrupt and returns `Result<Result<_, InchiError>, Interrupted>`, and the native
+  binding asks it again once it holds its process-wide call mutex, right before the C call, which cannot be interrupted (its bound is the registered `-W` timeout); a
   real interruption would need process isolation, a separate decision. `chem.validate` computes under the lock (its work
   is linear in the document). Separately, creates, closes, copies and the file checks most
   requests make do storage I/O while holding `sessions`; draft writes do not (CONTRACT.md,

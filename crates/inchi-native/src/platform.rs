@@ -11,6 +11,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::ptr;
 use std::sync::Mutex;
 
+use chemifree_domain::budget::{Interrupt, Interrupted};
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -206,7 +207,12 @@ impl Library {
         }
     }
 
-    pub(super) fn generate(&self, molecule: &Molecule, timeout: u16) -> Result<Output, Error> {
+    pub(super) fn generate(
+        &self,
+        molecule: &Molecule,
+        timeout: u16,
+        stop: &dyn Interrupt,
+    ) -> Result<Result<Output, Error>, Interrupted> {
         // Caller validated counts, element names, adjacency capacities and every stereo index.
         let mut atoms: Vec<InchiAtom> = molecule
             .atoms
@@ -283,9 +289,15 @@ impl Library {
                 }
             })
             .collect();
-        let mut options = CString::new(format!("-W{timeout}"))
-            .map_err(|_| crate::error(ErrorKind::InvalidInput, "Invalid timeout option."))?
-            .into_bytes_with_nul();
+        let mut options = match CString::new(format!("-W{timeout}")) {
+            Ok(options) => options.into_bytes_with_nul(),
+            Err(_) => {
+                return Ok(Err(crate::error(
+                    ErrorKind::InvalidInput,
+                    "Invalid timeout option.",
+                )));
+            }
+        };
         let mut input = InchiInput {
             atom: atoms.as_mut_ptr(),
             stereo: if stereo.is_empty() {
@@ -297,89 +309,88 @@ impl Library {
             num_atoms: atoms.len() as i16,
             num_stereo: stereo.len() as i16,
         };
-        let _lock = NATIVE_CALL.lock().map_err(|_| {
-            crate::error(
-                ErrorKind::Unavailable,
-                "The native InChI serialization lock is poisoned.",
-            )
-        })?;
-        let mut output = OwnedOutput {
-            raw: InchiOutput {
-                inchi: ptr::null_mut(),
-                aux: ptr::null_mut(),
-                message: ptr::null_mut(),
-                log: ptr::null_mut(),
-            },
-            free: self.free,
-        };
-        // SAFETY: input points to initialized, validated mutable arrays whose allocation
-        // lives across this synchronous call; options are mutable NUL-terminated bytes.
-        // Output is zero-initialized and freed once by its matching FreeStdINCHI function.
-        let status = unsafe { (self.generate)(&mut input, &mut output.raw) };
-        let inchi = copy_text(output.raw.inchi)?;
-        let aux_info = copy_text(output.raw.aux)?;
-        let message = copy_text(output.raw.message)?;
-        let log = copy_text(output.raw.log)?;
-        if status != 0 && status != 1 {
-            return Err(Error {
-                kind: ErrorKind::Native,
-                native_code: Some(status),
-                message: format!(
-                    "Native InChI returned {status}: {}",
-                    message.as_deref().unwrap_or("no message")
-                ),
-            });
-        }
-        let inchi = inchi
-            .filter(|text| text.starts_with("InChI=1S/"))
-            .ok_or_else(|| {
+        // The stop is asked inside `locked`, once the native lock is held. Everything from here
+        // to the end of the closure runs under that lock, including the native key call.
+        locked(stop, || {
+            let mut output = OwnedOutput {
+                raw: InchiOutput {
+                    inchi: ptr::null_mut(),
+                    aux: ptr::null_mut(),
+                    message: ptr::null_mut(),
+                    log: ptr::null_mut(),
+                },
+                free: self.free,
+            };
+            // SAFETY: input points to initialized, validated mutable arrays whose allocation
+            // lives across this synchronous call; options are mutable NUL-terminated bytes.
+            // Output is zero-initialized and freed once by its matching FreeStdINCHI function.
+            let status = unsafe { (self.generate)(&mut input, &mut output.raw) };
+            let inchi = copy_text(output.raw.inchi)?;
+            let aux_info = copy_text(output.raw.aux)?;
+            let message = copy_text(output.raw.message)?;
+            let log = copy_text(output.raw.log)?;
+            if status != 0 && status != 1 {
+                return Err(Error {
+                    kind: ErrorKind::Native,
+                    native_code: Some(status),
+                    message: format!(
+                        "Native InChI returned {status}: {}",
+                        message.as_deref().unwrap_or("no message")
+                    ),
+                });
+            }
+            let inchi = inchi
+                .filter(|text| text.starts_with("InChI=1S/"))
+                .ok_or_else(|| {
+                    crate::error(
+                        ErrorKind::InvalidOutput,
+                        "The native library returned no Standard InChI.",
+                    )
+                })?;
+            let inchi_text = CString::new(inchi.as_str()).map_err(|_| {
+                crate::error(ErrorKind::InvalidOutput, "Invalid native InChI string.")
+            })?;
+            let mut key = [0 as c_char; 28];
+            // SAFETY: inchi_text is a live NUL-terminated Standard InChI and key has the
+            // documented minimum 28 bytes. Calls remain serialized and the library remains loaded.
+            let key_status = unsafe { (self.key)(inchi_text.as_ptr(), key.as_mut_ptr()) };
+            if key_status != 0 {
+                return Err(Error {
+                    kind: ErrorKind::Native,
+                    native_code: Some(key_status),
+                    message: format!("Standard InChIKey generation returned {key_status}."),
+                });
+            }
+            let key_bytes: Vec<u8> = key.iter().map(|byte| *byte as u8).collect();
+            if key_bytes[27] != 0
+                || !key_bytes[..27].iter().enumerate().all(|(index, byte)| {
+                    if index == 14 || index == 25 {
+                        *byte == b'-'
+                    } else {
+                        byte.is_ascii_uppercase()
+                    }
+                })
+            {
+                return Err(crate::error(
+                    ErrorKind::InvalidOutput,
+                    "The native library returned a malformed Standard InChIKey.",
+                ));
+            }
+            let inchikey = String::from_utf8(key_bytes[..27].to_vec()).map_err(|_| {
                 crate::error(
                     ErrorKind::InvalidOutput,
-                    "The native library returned no Standard InChI.",
+                    "The native InChIKey is not ASCII.",
                 )
             })?;
-        let inchi_text = CString::new(inchi.as_str())
-            .map_err(|_| crate::error(ErrorKind::InvalidOutput, "Invalid native InChI string."))?;
-        let mut key = [0 as c_char; 28];
-        // SAFETY: inchi_text is a live NUL-terminated Standard InChI and key has the
-        // documented minimum 28 bytes. Calls remain serialized and the library remains loaded.
-        let key_status = unsafe { (self.key)(inchi_text.as_ptr(), key.as_mut_ptr()) };
-        if key_status != 0 {
-            return Err(Error {
-                kind: ErrorKind::Native,
-                native_code: Some(key_status),
-                message: format!("Standard InChIKey generation returned {key_status}."),
-            });
-        }
-        let key_bytes: Vec<u8> = key.iter().map(|byte| *byte as u8).collect();
-        if key_bytes[27] != 0
-            || !key_bytes[..27].iter().enumerate().all(|(index, byte)| {
-                if index == 14 || index == 25 {
-                    *byte == b'-'
-                } else {
-                    byte.is_ascii_uppercase()
-                }
+            Ok(Output {
+                return_code: status,
+                inchi,
+                inchikey,
+                aux_info,
+                message,
+                log,
+                warning: status == 1,
             })
-        {
-            return Err(crate::error(
-                ErrorKind::InvalidOutput,
-                "The native library returned a malformed Standard InChIKey.",
-            ));
-        }
-        let inchikey = String::from_utf8(key_bytes[..27].to_vec()).map_err(|_| {
-            crate::error(
-                ErrorKind::InvalidOutput,
-                "The native InChIKey is not ASCII.",
-            )
-        })?;
-        Ok(Output {
-            return_code: status,
-            inchi,
-            inchikey,
-            aux_info,
-            message,
-            log,
-            warning: status == 1,
         })
     }
 }
@@ -416,6 +427,26 @@ impl Drop for OwnedOutput {
             (self.free)(&mut self.raw);
         }
     }
+}
+
+/// Runs `call` while holding the process-wide native lock. `stop` is asked once the lock is held,
+/// right before `call`: a stop returns `Err(Interrupted)` and `call` never runs. A call that has
+/// started is not interrupted.
+fn locked<T>(
+    stop: &dyn Interrupt,
+    call: impl FnOnce() -> Result<T, Error>,
+) -> Result<Result<T, Error>, Interrupted> {
+    let _guard = match NATIVE_CALL.lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            return Ok(Err(crate::error(
+                ErrorKind::Unavailable,
+                "The native InChI serialization lock is poisoned.",
+            )));
+        }
+    };
+    stop.check()?;
+    Ok(call())
 }
 
 fn symbol(handle: *mut c_void, name: &CStr) -> Result<*mut c_void, Error> {
@@ -473,6 +504,11 @@ fn copy_text(pointer: *const c_char) -> Result<Option<String>, Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::sync::TryLockError;
+
+    use chemifree_domain::budget::NEVER;
+
     use super::*;
     #[test]
     fn abi_layout_matches_the_pinned_public_header() {
@@ -489,5 +525,57 @@ mod tests {
             mem::offset_of!(InchiInput, num_atoms),
             3 * mem::size_of::<*mut c_void>()
         );
+    }
+
+    /// Answers every check with `answer`, counts the checks, and records whether the native
+    /// lock was held when it was asked.
+    struct Probe {
+        answer: Result<(), Interrupted>,
+        asked: Cell<u32>,
+        lock_held_when_asked: Cell<bool>,
+    }
+
+    impl Interrupt for Probe {
+        fn check(&self) -> Result<(), Interrupted> {
+            self.asked.set(self.asked.get() + 1);
+            // Only a held lock reports WouldBlock; a poisoned lock is not reported as held.
+            self.lock_held_when_asked.set(matches!(
+                NATIVE_CALL.try_lock(),
+                Err(TryLockError::WouldBlock)
+            ));
+            self.answer
+        }
+    }
+
+    #[test]
+    fn a_stop_is_asked_while_the_native_lock_is_held_and_then_the_call_never_runs() {
+        let stop = Probe {
+            answer: Err(Interrupted::Cancelled),
+            asked: Cell::new(0),
+            lock_held_when_asked: Cell::new(false),
+        };
+        let runs = Cell::new(0);
+        let outcome = locked(&stop, || {
+            runs.set(runs.get() + 1);
+            Ok(())
+        });
+        assert_eq!(outcome, Err(Interrupted::Cancelled));
+        assert_eq!(stop.asked.get(), 1, "the stop must be asked exactly once");
+        assert!(
+            stop.lock_held_when_asked.get(),
+            "the stop must be asked while NATIVE_CALL is held"
+        );
+        assert_eq!(runs.get(), 0, "the native call must not run after a stop");
+    }
+
+    #[test]
+    fn without_a_stop_the_call_runs_exactly_once_and_its_value_is_returned() {
+        let runs = Cell::new(0);
+        let outcome = locked(&NEVER, || {
+            runs.set(runs.get() + 1);
+            Ok(7_u8)
+        });
+        assert_eq!(runs.get(), 1);
+        assert_eq!(outcome, Ok(Ok(7)));
     }
 }

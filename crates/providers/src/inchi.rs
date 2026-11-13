@@ -6,6 +6,7 @@ use chemifree_application::inchi::{
     InchiError, InchiErrorKind, InchiOutput, InchiProvider, InchiProviderIdentity,
 };
 use chemifree_application::{Loss, LossConsent, LossDisposition, SemanticImpact};
+use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::chemistry::{self, Finding};
 use chemifree_domain::document::{AtomId, BondOrder};
 use chemifree_domain::graph::MoleculeGraph;
@@ -370,13 +371,16 @@ impl InchiProvider for RegisteredInchiProvider {
         &self,
         graph: &MoleculeGraph,
         groups: &StereoGroupTable,
-    ) -> Result<InchiOutput, InchiError> {
-        let prepared = prepare(graph, groups)?;
-        let output = self
-            .native
-            .generate(&prepared.molecule)
-            .map_err(native_error)?;
-        Ok(finish(output, prepared.losses))
+        stop: &dyn Interrupt,
+    ) -> Result<Result<InchiOutput, InchiError>, Interrupted> {
+        let prepared = match prepare(graph, groups) {
+            Ok(prepared) => prepared,
+            Err(refusal) => return Ok(Err(refusal)),
+        };
+        let output = self.native.generate(&prepared.molecule, stop)?;
+        Ok(output
+            .map_err(native_error)
+            .map(|output| finish(output, prepared.losses)))
     }
 }
 
