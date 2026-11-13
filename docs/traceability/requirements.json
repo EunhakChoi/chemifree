@@ -2352,9 +2352,7 @@
           "implementation": [
             "apps/api/src/main.rs",
             "apps/api/src/lib.rs",
-            "crates/providers/src/server_lock.rs",
-            "scripts/product-server-check.mjs",
-            "package.json"
+            "crates/providers/src/server_lock.rs"
           ],
           "evidence": [
             "check:check:rust"

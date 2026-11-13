@@ -14,7 +14,7 @@
 // names a Chrome or Chromium executable, as in scripts/browser-smoke.mjs.
 
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,6 +39,7 @@ const HTTP_MS = 10_000
 const UI_MS = 15_000
 const CLI_MS = 30_000
 // Variables that would change what the child processes read: the check passes every setting by flag.
+// The CHEMIFREE_ settings that the API, the CLI and the crates under them read at run time.
 const CLEARED_ENV = [
   'CHEMIFREE_DATA_DIR',
   'CHEMIFREE_WEB_DIR',
@@ -46,6 +47,12 @@ const CLEARED_ENV = [
   'CHEMIFREE_MODEL_DATA_ROOT',
   'CHEMIFREE_MODEL_TRUSTED_REGISTRY',
   'CHEMIFREE_LOG_REQUESTS',
+  'CHEMIFREE_INCHI_LIBRARY',
+  'CHEMIFREE_INCHI_VERSION',
+  'CHEMIFREE_INCHI_SHA256',
+  'CHEMIFREE_INCHI_TIMEOUT_SECONDS',
+  // The file store pauses each save by this many milliseconds in debug builds, which this check runs.
+  'CHEMIFREE_TEST_COMMIT_DELAY_MS',
 ]
 const USAGE = 'usage: node scripts/product-server-check.mjs [--profile release|debug]'
 const TIMED_OUT = Symbol('timed out')
@@ -78,8 +85,8 @@ function timeLimit(promise, timeoutMs) {
 }
 
 /** Fetches with a time limit, so a server that stops answering fails the check instead of hanging it. */
-function fetchLimited(url) {
-  return fetch(url, { signal: AbortSignal.timeout(HTTP_MS) })
+function fetchLimited(url, init = {}) {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(HTTP_MS) })
 }
 
 async function getJson(url) {
@@ -109,6 +116,7 @@ function createContext(profile) {
     current: 'setup',
     reported: false,
     cleanup: null,
+    stopStatus: null,
     workDir: null,
     dataDir: null,
     otherDataDir: null,
@@ -393,8 +401,57 @@ async function checkSigkillRestart(ctx) {
 }
 
 /**
+ * The revision, atom count and bond count of a recovery draft file, or null when there is no draft.
+ * The draft is the service's own JSON: its `document` holds the working copy as it was drafted.
+ */
+function readDraft(path) {
+  if (!existsSync(path)) return null
+  const draft = JSON.parse(readFileSync(path, 'utf8'))
+  const document = draft?.document
+  return {
+    revision: document?.revision,
+    atoms: countOf(document?.molecule?.atoms),
+    bonds: countOf(document?.molecule?.bonds),
+  }
+}
+
+/**
+ * Adds one carbon atom through the API and returns the document as the reply gives it. A write carries
+ * the session token that GET /api/v1/session names, as the API requires.
+ */
+async function addAtomThroughApi(ctx, id) {
+  const base = ctx.primary.baseUrl
+  const session = await getJson(`${base}/api/v1/session`)
+  const current = await getJson(`${base}/api/v1/documents/${id}`)
+  const response = await fetchLimited(`${base}/api/v1/documents/${id}/transactions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', [session.header]: session.token },
+    body: JSON.stringify({
+      request_id: 'sigterm-newest-edit',
+      expected_revision: current.document.revision,
+      commands: [{ op: 'add_atom', element: 'C', position: { x: 300, y: 300 } }],
+    }),
+  })
+  expectEqual(response.status, 200, 'POST transactions status')
+  const reply = await response.json()
+  expectEqual(countOf(reply.document.atoms), countOf(current.document.atoms) + 1, 'atoms after the API edit')
+  return {
+    revision: reply.document.revision,
+    atoms: countOf(reply.document.atoms),
+    bonds: countOf(reply.document.bonds),
+  }
+}
+
+/**
  * Unsaved work survives a clean stop. SIGTERM writes it as a draft, the next start offers it as
  * recoverable, and neither page reports a console error, page error or CSP violation.
+ *
+ * A draft may already exist before SIGTERM: the web editor autosaves about a second after an edit, and
+ * the service drafts two seconds after one. So the page is closed first, and one more edit goes through
+ * the API, which no client can draft. The service's own writer waits two seconds after that edit, and
+ * the stop follows within milliseconds. The draft after the stop must hold that edit, with the revision
+ * and counts the reply gave. If the draft read just before the stop already holds it, a note says the
+ * shutdown write is not distinguished from autosave, and only the draft's existence is checked.
  */
 async function checkSigtermRecovery(ctx) {
   const id = ctx.documentId
@@ -408,10 +465,24 @@ async function checkSigtermRecovery(ctx) {
   // The edit lives only in the server's session until it is saved or drafted.
   const session = await getJson(`${ctx.primary.baseUrl}/api/v1/documents/${id}`)
   expectEqual(session.session?.unsaved_changes, true, 'the server holds the unsaved edit before SIGTERM')
+  const newest = await addAtomThroughApi(ctx, id)
+  const draft = join(ctx.dataDir, 'drafts', `${id}.json`)
+  // Read right before the stop: the draft as it stands when SIGTERM is sent.
+  const beforeStop = readDraft(draft)
   const stopped = await stopServer(ctx.primary, 'SIGTERM')
   expectEqual(stopped.code, 0, 'exit status after SIGTERM')
-  const draft = join(ctx.dataDir, 'drafts', `${id}.json`)
-  if (!existsSync(draft)) throw new Error(`SIGTERM left no recovery draft at ${draft}`)
+  const afterStop = readDraft(draft)
+  if (afterStop === null) throw new Error(`SIGTERM left no recovery draft at ${draft}`)
+  if (beforeStop?.revision === newest.revision) {
+    console.log(
+      'note: the recovery draft already held the newest edit before SIGTERM, so the shutdown write is not ' +
+        'distinguished from autosave; only the draft existence was checked',
+    )
+  } else {
+    expectEqual(afterStop.revision, newest.revision, 'the recovery draft revision after SIGTERM')
+    expectEqual(afterStop.atoms, newest.atoms, 'atoms in the recovery draft after SIGTERM')
+    expectEqual(afterStop.bonds, newest.bonds, 'bonds in the recovery draft after SIGTERM')
+  }
 
   ctx.primary = await startServer(ctx, ctx.dataDir)
   await withPage(ctx, async (page) => {
@@ -508,12 +579,21 @@ async function closeBrowser(ctx) {
   }
 }
 
-/** Kills any server still running, closes the browser and removes the work directory. */
+/**
+ * Kills any server still running, closes the browser and removes the work directory. Returns what could
+ * not be done; a server still running after SIGKILL is one of those problems.
+ */
 async function cleanup(ctx) {
   const problems = []
   const survivors = [...ctx.servers]
   for (const server of survivors) server.child.kill('SIGKILL')
-  await Promise.all(survivors.map((server) => timeLimit(server.exited, EXIT_MS)))
+  const outcomes = await Promise.all(survivors.map((server) => timeLimit(server.exited, EXIT_MS)))
+  for (const [index, outcome] of outcomes.entries()) {
+    if (outcome === TIMED_OUT) {
+      const command = survivors[index].args.join(' ')
+      problems.push(`chemifree-api (${command}) did not exit within ${EXIT_MS / 1000} s after SIGKILL`)
+    }
+  }
   const browserProblem = await closeBrowser(ctx)
   if (browserProblem !== null) problems.push(browserProblem)
   if (ctx.workDir !== null) {
@@ -526,29 +606,35 @@ async function cleanup(ctx) {
   return problems
 }
 
-/** Cleanup runs once, whichever path asks for it first. */
+/**
+ * Runs cleanup once and prints what it could not do, once. Every path that ends the run awaits this one
+ * promise, so the problems are printed when it settles and never again. It does not reject.
+ */
 function cleanupOnce(ctx) {
   ctx.cleanup ??= cleanup(ctx)
+    .catch((error) => [`cleanup failed: ${messageOf(error)}`])
+    .then((problems) => {
+      for (const problem of problems) console.error(`cleanup: ${problem}`)
+      return problems
+    })
   return ctx.cleanup
 }
 
-/** Prints what cleanup could not do. Every path that ends the run reports it. */
-function reportCleanup(problems) {
-  for (const problem of problems) console.error(`cleanup: ${problem}`)
-}
-
-/** Failures outside a check, and signals to the check itself, clean up before the process ends. */
+/**
+ * Failures outside a check, and signals to the check itself, end the run with one status: 130 for SIGINT,
+ * 143 for SIGTERM, 1 for an unexpected error. The first such event sets it. The process exits once cleanup
+ * has run, with the same status that main returns.
+ */
 function installProcessHandlers(ctx) {
-  const abort = (cause, status) => {
+  const stopRun = (cause, status) => {
+    ctx.stopStatus ??= status
     reportFailure(ctx, ctx.current, cause)
-    cleanupOnce(ctx)
-      .then(reportCleanup, (error) => console.error(`cleanup failed: ${messageOf(error)}`))
-      .finally(() => process.exit(status))
+    void cleanupOnce(ctx).then(() => process.exit(ctx.stopStatus))
   }
-  process.on('uncaughtException', (error) => abort(error, 1))
-  process.on('unhandledRejection', (reason) => abort(reason, 1))
-  process.on('SIGINT', () => abort(new Error('interrupted by SIGINT'), 130))
-  process.on('SIGTERM', () => abort(new Error('terminated by SIGTERM'), 143))
+  process.on('uncaughtException', (error) => stopRun(error, 1))
+  process.on('unhandledRejection', (reason) => stopRun(reason, 1))
+  process.on('SIGINT', () => stopRun(new Error('interrupted by SIGINT'), 130))
+  process.on('SIGTERM', () => stopRun(new Error('terminated by SIGTERM'), 143))
 }
 
 async function main() {
@@ -561,7 +647,7 @@ async function main() {
   installProcessHandlers(ctx)
   const status = await run(ctx)
   const problems = await cleanupOnce(ctx)
-  for (const problem of problems) console.error(`cleanup: ${problem}`)
+  if (ctx.stopStatus !== null) return ctx.stopStatus
   return problems.length > 0 && status === 0 ? 1 : status
 }
 

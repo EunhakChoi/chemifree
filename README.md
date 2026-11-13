@@ -184,7 +184,7 @@ Settings are command-line flags or environment variables; there is no configurat
 - `--port <n>`: default **3001**. The address is always 127.0.0.1. `--port 0` picks a free port, and the startup line names it. There is no environment variable.
 - `--data-dir <dir>` or `CHEMIFREE_DATA_DIR`: default is the platform user-data directory described in [Run locally](#run-locally), so `npm start` uses your real documents unless you choose another directory.
 - `--compute-concurrency <n>` or `CHEMIFREE_COMPUTE_CONCURRENCY`: 1 to 64. The default is the smaller of the machine's cores and 4.
-- `--web-dir <dir>` or `CHEMIFREE_WEB_DIR`: the built web app to serve. `npm start` already passes `apps/web/dist`, so the variable matters only when you run `chemifree-api` directly.
+- `--web-dir <dir>` or `CHEMIFREE_WEB_DIR`: the built web app to serve. `npm start` already passes `--web-dir apps/web/dist`, so neither the flag nor the variable can be given through `npm start`; they matter only when you run `chemifree-api` directly. npm runs the script from the repository root, so a relative `--data-dir` given through `npm start` is resolved there, not in your current directory; prefer an absolute path.
 
 One server runs per data directory, held through `<data>/server.lock`. A second server on the same directory exits with status 4, and a busy port exits with status 3. `npm run dev` follows the same rule, so stop it before you run `npm start` (both default to port 3001). The exit statuses and messages are in [Local server lifecycle](docs/CONTRACT.md#local-server-lifecycle), and the cache and security headers of served files are in [Serving the web app](docs/CONTRACT.md#serving-the-web-app).
 
@@ -199,7 +199,7 @@ npm run build:product
 npm start
 ```
 
-`npm start` rebuilds the API when its sources changed, but only `npm run build:product` rebuilds the web app.
+`npm start` rebuilds the API when its sources changed (a release build that can take minutes and prints nothing, because it runs with `--quiet`), but only `npm run build:product` rebuilds the web app. Running `npm start` after `git pull` without `npm run build:product` serves the old web app against the new API, so always rebuild after an update.
 
 Verification: `npm run test:product` runs the end-to-end check against the release build, so run `npm run build:product` first. It needs Chromium, either Playwright's build (`npx playwright-core install chromium`) or the one named by `CHEMIFREE_BROWSER`, as for `npm run test:browser`. See the [product-server record](docs/verification/p87-product-server.md).
 

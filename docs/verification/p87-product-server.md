@@ -4,8 +4,8 @@ Date: 2026-11-14
 
 Scope: the local product path. `chemifree-api` serves the built web app on its own loopback
 origin, the browser saves a document through the UI, the CLI reads it from the same data
-directory, and the server lifecycle rules hold. This is a local Linux check. It does not change
-the status of the P87 roadmap row and does not claim scientific behavior.
+directory, and the server lifecycle rules hold. This is a local Linux check, also run by the CI browser job with debug binaries. It does not
+claim scientific behavior.
 
 ## What the check runs
 
@@ -71,7 +71,7 @@ cargo build --locked --package chemifree-api --package chemifree-cli
 npm run test:product -- --profile debug
 ```
 
-This command is not wired into `.github/workflows/ci.yml` in this slice.
+The CI `browser` job runs these commands (with Playwright's bundled Chromium).
 
 ## Results on 2026-11-14
 
@@ -139,12 +139,15 @@ These were faults in the check, not in the product. The product code was not cha
 ## Known limits
 
 - Linux only, on a WSL2 kernel. Windows and macOS are untested.
-- The release path was run locally. The debug form was also run locally, but CI does not run the
-  check yet.
-- The local runs used Google Chrome. The CI browser job uses Playwright's bundled Chromium, which
-  was not run here.
-- Recovery: the check covers the final draft that SIGTERM writes. It does not check autosave
-  timing, and after SIGKILL it checks only the restart, not recovery.
+- The release path was run locally; CI runs the debug form.
+- The local runs used Google Chrome; the CI browser job uses Playwright's bundled Chromium.
+- The check tests the binaries and `apps/web/dist` that exist; it does not check that they are
+  current. Run `npm run build:product` (or the debug build) after changing sources.
+- Recovery: after the page closes, one more edit goes through the API and SIGTERM follows at
+  once; the draft must then hold that edit's revision and counts, which neither the web autosave
+  (page closed) nor the server's 2 s quiet draft can have written first. This is a timing bound,
+  not a hard proof; if the draft already holds the edit before the stop, the check prints a note
+  and checks only that the draft exists. After SIGKILL it checks only the restart, not recovery.
 - Not packaged: no single binary (P88) and no installer.
 - `scripts/product-server-check.mjs` is covered by `node --check` and review. No repository lint
   gate covers `.mjs` files.
