@@ -20,6 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use crate::budget::{Interrupt, Interrupted, NEVER};
 use crate::document::{AtomId, BondId, Document, ObjectId};
 use crate::stereo::{CenterState, DoubleBondState, Slot, StereoError, StereoRecord};
 use crate::stereo_drawing::{DeriveError, Drawing, MisplacedMark, NotDerivable, WEAK_EVIDENCE};
@@ -291,6 +292,66 @@ pub fn inspect(
     plan: &Plan,
     instances: &[ObjectId],
 ) -> Result<Inspection, InspectError> {
+    inspect_with(document, plan, instances, &NEVER).expect("the never-interrupt cannot interrupt")
+}
+
+/// [`inspect`] that asks `interrupt` at its checkpoints: before each instance is drawn, before
+/// each center and double bond of each instance, and once before the closing findings. It
+/// returns exactly what [`inspect`] returns, or `Interrupted` and nothing else, never a partial
+/// inspection.
+///
+/// # Errors
+///
+/// `Interrupted` when `interrupt` stops the computation. Otherwise the inner `Result` holds the
+/// [`InspectError`] that [`inspect`] returns.
+pub fn inspect_with(
+    document: &Document,
+    plan: &Plan,
+    instances: &[ObjectId],
+    interrupt: &dyn Interrupt,
+) -> Result<Result<Inspection, InspectError>, Interrupted> {
+    match compare_items(document, plan, instances, interrupt) {
+        Ok(inspection) => Ok(Ok(inspection)),
+        Err(Halt::Refused(error)) => Ok(Err(error)),
+        Err(Halt::Interrupted(interrupted)) => Err(interrupted),
+    }
+}
+
+/// Why the comparison ends without an [`Inspection`]: the document is refused, or `interrupt`
+/// stopped it. A stop stays a `Halt` until [`inspect_with`] maps it, so it is never read as a
+/// refusal.
+enum Halt {
+    /// A broken document invariant; this does not depend on the machine.
+    Refused(InspectError),
+    /// The comparison was stopped before it finished; the inspection may well exist.
+    Interrupted(Interrupted),
+}
+
+impl From<StereoError> for Halt {
+    fn from(error: StereoError) -> Self {
+        Self::Refused(error.into())
+    }
+}
+
+impl From<DeriveError> for Halt {
+    fn from(error: DeriveError) -> Self {
+        Self::Refused(error.into())
+    }
+}
+
+impl From<Interrupted> for Halt {
+    fn from(interrupted: Interrupted) -> Self {
+        Self::Interrupted(interrupted)
+    }
+}
+
+/// The comparison behind [`inspect_with`], which asks `interrupt` at its checkpoints.
+fn compare_items(
+    document: &Document,
+    plan: &Plan,
+    instances: &[ObjectId],
+    interrupt: &dyn Interrupt,
+) -> Result<Inspection, Halt> {
     let mut stored_centers: BTreeMap<AtomId, CenterState> = BTreeMap::new();
     let mut stored_bonds: BTreeMap<BondId, DoubleBondState> = BTreeMap::new();
     for record in document.stereo().typed()? {
@@ -324,8 +385,10 @@ pub fn inspect(
         .collect();
 
     for &instance in instances {
+        interrupt.check()?;
         let drawing = Drawing::of_document(document, instance);
         for entry in &mut atoms {
+            interrupt.check()?;
             let (drawn, strength) = match drawing.derive_center_with_strength(entry.atom) {
                 Ok((state, strength)) => (Ok(state), strength),
                 Err(error) => (Err(Underivable::try_from(error)?), None),
@@ -342,6 +405,7 @@ pub fn inspect(
             });
         }
         for entry in &mut bonds {
+            interrupt.check()?;
             let drawn = match drawing.derive_double_bond(entry.bond) {
                 Ok(state) => Ok(state),
                 Err(error) => Err(Underivable::try_from(error)?),
@@ -360,6 +424,7 @@ pub fn inspect(
         }
     }
 
+    interrupt.check()?;
     // The graph and the marks are the same in every instance.
     let drawing = Drawing::of_document(document, document.first_instance());
     let aromatic_centers = atoms

@@ -5,7 +5,7 @@ Status: bounded. The web shows the server's `time_limit` and `cancelled` replies
 ## What the web does
 
 - `readComputeStop` (`apps/web/src/lib/compute-stop.ts`) reads a stop only from `outcome: "error"` with exactly one `error` diagnostic coded `time_limit` (with `details.limit_ms`, a non-negative integer, since a request may ask for 0) or `cancelled`, `path` null, `result` null, an empty `loss_report`, the operation's `model_id` and an integer `document_revision` (null accepted for `chem.aromaticity_convert`). A stop code in another shape is `incompatible_response`; other refusals are not stops.
-- `ComputeStopped` (in `document-contract.ts`, after `ApiError`) is thrown by `inspectProperties`, `inspectAromaticity`, `convertAromaticity`, `inspectIdentity`, `searchSubstructure`, `exportSmiles` and `inspectCip` before their own outcome checks.
+- `ComputeStopped` (in `document-contract.ts`, after `ApiError`) is thrown by `inspectProperties`, `inspectAromaticity`, `convertAromaticity`, `inspectIdentity`, `searchSubstructure`, `exportSmiles`, `inspectCip` and (since #106, 2026-11) `inspectStereo` before their own outcome checks. The automatic stereo check shows a stop as its failed check (the stop's message and "Check again"), not the stopped notice; `scripts/web-compute-stop-client-check.mjs` covers the `chem.stereo` time-limit, cancelled, missing-limit and wrong-model cases.
 - Display: `ComputeStopNotice` (default Alert variant, retry button) in the properties, aromaticity, identity, substructure and SMILES panels; the page-level notice for the convert stop (Dismiss; the Convert buttons retry); the Stereo panel's CIP sentence. Results are cleared; no partial result is shown.
 
 ## Tests

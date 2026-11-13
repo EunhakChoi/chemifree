@@ -1,7 +1,8 @@
-//! `chem.aromaticity`, `chem.identity`, `chem.substructure` and `chem.properties` run under a
-//! time limit and a cancel, as `chem.cip` does, but take no compute slot. The limit is read before
-//! the document is. A stop replies with no result, the analyzed snapshot's revision and the
-//! operation's model, and it changes nothing.
+//! `chem.aromaticity`, `chem.identity`, `chem.substructure`, `chem.properties` and `chem.stereo`
+//! run under a time limit and a cancel, as `chem.cip` does, but take no compute slot. The limit is
+//! read before the document is, and `chem.stereo` reads it before its instance too. A stop replies
+//! with no result, the analyzed snapshot's revision and the operation's model, and it changes
+//! nothing.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -66,6 +67,34 @@ fn benzene_document(app: &App, title: &str) -> String {
         &format!("draw-{title}"),
         "document.transaction",
         json!({"document_id": id, "expected_revision": 0, "commands": kekule_benzene()}),
+    );
+    assert_eq!(drawn["outcome"], "ok", "{drawn}");
+    id
+}
+
+/// A document whose `chem.stereo` plan holds one stored center and one stored double bond, so that
+/// the comparison asks its entry checkpoints. The center is `a1` with F `a2`, Cl `a3` and Br `a4`
+/// (clockwise over them, the hydrogen implicit). The double bond is `b4` between `a5` and `a6`,
+/// with `a7` on `a5` and `a8` on `a6` on opposite sides.
+fn stereo_document(app: &App, title: &str) -> String {
+    let id = app.create_document(None, Some(title)).unwrap().document.id;
+    let commands = json!([
+        {"op":"add_atom","element":"C","position":{"x":100,"y":100}},
+        {"op":"add_atom","element":"F","position":{"x":100,"y":70},"bond_to":{"atom":"$0","order":"single"}},
+        {"op":"add_atom","element":"Cl","position":{"x":126,"y":115},"bond_to":{"atom":"$0","order":"single"}},
+        {"op":"add_atom","element":"Br","position":{"x":74,"y":115},"bond_to":{"atom":"$0","order":"single"}},
+        {"op":"add_atom","element":"C","position":{"x":300,"y":100}},
+        {"op":"add_atom","element":"C","position":{"x":330,"y":100},"bond_to":{"atom":"$4","order":"double"}},
+        {"op":"add_atom","element":"C","position":{"x":270,"y":115},"bond_to":{"atom":"$4","order":"single"}},
+        {"op":"add_atom","element":"C","position":{"x":360,"y":85},"bond_to":{"atom":"$5","order":"single"}},
+        {"op":"set_atom_configuration","atom":"a1","configuration":{"kind":"tetrahedral","neighbors":["a2","a3","a4","implicit_hydrogen"],"turn":"clockwise"}},
+        {"op":"set_bond_configuration","bond":"b4","configuration":{"kind":"relative","begin_neighbor":"a7","end_neighbor":"a8","relation":"opposite_sides"}}
+    ]);
+    let drawn = call(
+        app,
+        &format!("draw-{title}"),
+        "document.transaction",
+        json!({"document_id": id, "expected_revision": 0, "commands": commands}),
     );
     assert_eq!(drawn["outcome"], "ok", "{drawn}");
     id
@@ -151,7 +180,7 @@ impl Row {
     }
 }
 
-/// The four operations, with the identity operation in both of its modes.
+/// The five operations, with the identity operation in both of its modes.
 fn rows() -> Vec<Row> {
     vec![
         Row {
@@ -179,7 +208,20 @@ fn rows() -> Vec<Row> {
             model_id: "chemifree-properties-1",
             without_limit: |subject, _| json!({"document_id": subject, "scope": "molecule", "property": "formula"}),
         },
+        Row {
+            operation: "chem.stereo",
+            model_id: "chemifree-stereo-1",
+            without_limit: |subject, _| json!({"document_id": subject}),
+        },
     ]
+}
+
+/// The `chem.stereo` row of [`rows`].
+fn stereo_row() -> Row {
+    rows()
+        .into_iter()
+        .find(|row| row.operation == "chem.stereo")
+        .unwrap()
 }
 
 /// Request IDs that no two calls of a test share, so that no call answers from another's record.
@@ -469,6 +511,120 @@ fn an_unreadable_limit_is_refused_without_naming_a_model() {
         assert!(
             reply["model_id"].is_null(),
             "{label}: unreadable parameters name no model: {reply}"
+        );
+    }
+}
+
+#[test]
+fn a_stop_at_any_checkpoint_of_the_stereo_entries_replies_the_stop() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = new_app(&directory);
+    let stereo = stereo_document(&app, "stereo");
+    let before = document(&app, &stereo);
+    let revision = before["document"]["revision"].as_u64().unwrap();
+    let row = stereo_row();
+    let parameters = || row.parameters(&stereo, &stereo, None);
+    let mut ids = RequestIds::default();
+
+    // The questions of a comparison without a stop: the computation's own check, one before the
+    // instance, one before the center, one before the double bond and one before the closing
+    // findings. Those before the center and the double bond are inside the entry loops, so a
+    // count of two or fewer would mean that the loops ask nothing.
+    let counting = CancelAt::new(usize::MAX, Interrupted::Cancelled);
+    let plain = call_with(&app, &ids.fresh(), row.operation, parameters(), &counting);
+    let questions = counting.asked();
+    assert_eq!(plain["outcome"], "ok", "{plain}");
+    assert_eq!(
+        plain["result"]["atoms"].as_array().unwrap().len(),
+        1,
+        "{plain}"
+    );
+    assert_eq!(
+        plain["result"]["bonds"].as_array().unwrap().len(),
+        1,
+        "{plain}"
+    );
+    assert!(
+        questions > 2,
+        "the comparison asked {questions} questions; its entry checkpoints ask nothing"
+    );
+
+    // A stop at each question replies the stop of the reason it names, as the first two do.
+    for stop_at in 1..=questions {
+        for (reason, code) in [
+            (Interrupted::TimeLimit, "time_limit"),
+            (Interrupted::Cancelled, "cancelled"),
+        ] {
+            let label = format!(
+                "chem.stereo on a stored center and double bond, {code} at question {stop_at} of {questions}"
+            );
+            let stopper = CancelAt::new(stop_at, reason);
+            let reply = call_with(&app, &ids.fresh(), row.operation, parameters(), &stopper);
+            assert_stopped(&reply, &row, code, revision, &label);
+            assert_eq!(stopper.asked(), stop_at, "{label}");
+            let details = match reason {
+                Interrupted::TimeLimit => json!({"limit_ms": DEFAULT_LIMIT_MS}),
+                Interrupted::Cancelled => json!({}),
+            };
+            assert_eq!(
+                reply["diagnostics"][0]["details"], details,
+                "{label}: {reply}"
+            );
+            assert_eq!(
+                document(&app, &stereo),
+                before,
+                "{label}: the document changed"
+            );
+        }
+    }
+}
+
+#[test]
+fn stereo_refuses_the_limit_before_it_reads_the_instance() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = new_app(&directory);
+    let documents = Documents::new(&app);
+    let row = stereo_row();
+    let mut ids = RequestIds::default();
+    for instance in [json!(7), json!("not an identifier")] {
+        let label = format!("chem.stereo with instance {instance}");
+
+        // The control: with a limit in range the instance alone is refused.
+        let mut in_range = row.parameters(
+            &documents.benzene,
+            &documents.other,
+            Some(json!(MAXIMUM_LIMIT_MS)),
+        );
+        in_range["instance"] = instance.clone();
+        let control = call(&app, &ids.fresh(), row.operation, in_range);
+        assert_eq!(
+            control["diagnostics"][0]["path"], "parameters.instance",
+            "{label}: {control}"
+        );
+
+        let mut above = row.parameters(&documents.benzene, &documents.other, Some(json!(9000)));
+        above["instance"] = instance;
+        let reply = call(&app, &ids.fresh(), row.operation, above);
+        assert_eq!(reply["outcome"], "error", "{label}: {reply}");
+        assert!(reply["result"].is_null(), "{label}: {reply}");
+        assert!(reply["document_revision"].is_null(), "{label}: {reply}");
+        assert_eq!(reply["model_id"], row.model_id, "{label}: {reply}");
+        assert_eq!(
+            reply["diagnostics"].as_array().unwrap().len(),
+            1,
+            "{label}: {reply}"
+        );
+        assert_eq!(
+            reply["diagnostics"][0]["code"], "invalid_request",
+            "{label}: {reply}"
+        );
+        assert_eq!(
+            reply["diagnostics"][0]["path"], "parameters.time_limit_ms",
+            "{label} with time_limit_ms 9000: the limit is read before the instance: {reply}"
+        );
+        assert_eq!(
+            reply["diagnostics"][0]["details"]["maximum_ms"], MAXIMUM_LIMIT_MS,
+            "{label}: {reply}"
         );
     }
 }

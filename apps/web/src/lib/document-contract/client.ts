@@ -1300,13 +1300,15 @@ export class DocumentClient {
   /**
    * Compares every stereo item of a drawing with each instance's picture (`chem.stereo`, every
    * instance). The reply is used only if it is exactly what the service sends for the snapshot
-   * it names; a refusal or limit is an `ApiError` carrying the service's message.
+   * it names. A time limit or a cancel is a `ComputeStopped`; any other refusal, a resource limit
+   * included, is an `ApiError` carrying the service's message.
    */
   async inspectStereo(id: string): Promise<StereoInspection> {
     const value = await this.write('/api/v1/operations', {
       contract: 1, request_id: requestId(), profile: 'preserve-semantics',
       operation: 'chem.stereo', parameters: { document_id: id },
     }, 'reload')
+    throwIfStopped(value, { models: ['chemifree-stereo-1'], revision: 'count' })
     if (!isRecord(value) || value.outcome !== 'ok') {
       throw new ApiError('stereo_unavailable', firstDiagnostic(value).message ?? 'The local service could not compare the stereo of the drawing.', 200)
     }

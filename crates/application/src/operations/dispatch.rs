@@ -438,7 +438,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Err(invalid) => known.invalid(invalid),
             },
             Op::ChemStereo => match parameters::<StereoParameters>(parameters_value) {
-                Ok(p) => self.stereo(known, p),
+                Ok(p) => self.stereo(known, p, cancel),
                 Err(invalid) => known.invalid(invalid),
             },
             Op::ChemInchi => match parameters::<InchiParameters>(parameters_value) {

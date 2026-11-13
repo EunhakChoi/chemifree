@@ -170,6 +170,7 @@ const CALLS = [
   { method: 'searchSubstructure', operation: 'chem.substructure', model: 'chemifree-substructure-1', revision: 3, call: (client) => client.searchSubstructure('q1', 'd1') },
   { method: 'exportSmiles', operation: 'document.export', model: 'chemifree-smiles-1', revision: 3, call: (client) => client.exportSmiles('d1', 'recorded') },
   { method: 'inspectCip', operation: 'chem.cip', model: 'chemifree-cip-1', revision: 3, call: (client) => client.inspectCip('d1', { scope: 'stored' }) },
+  { method: 'inspectStereo', operation: 'chem.stereo', model: 'chemifree-stereo-1', revision: 3, call: (client) => client.inspectStereo('d1') },
   { method: 'convertAromaticity', operation: 'chem.aromaticity_convert', model: 'chemifree-aromaticity-2', revision: null, call: (client) => client.convertAromaticity('d1', 3, 'aromatic', SELECTION) },
 ]
 
@@ -201,6 +202,20 @@ test('a cancelled operation is a ComputeStopped error of kind cancelled', async 
   const error = await rejectionOf(new DocumentClient().inspectAromaticity('d1'))
   assert.ok(error instanceof ComputeStopped)
   assert.deepEqual([error.code, error.stop, error.message], ['cancelled', { kind: 'cancelled' }, CANCEL_MESSAGE])
+})
+
+test('a cancelled chem.stereo is a ComputeStopped error of kind cancelled', async (t) => {
+  operations(t, () => json(stopReply({ operation: 'chem.stereo', model_id: 'chemifree-stereo-1', document_revision: 3, diagnostics: [cancelDiagnostic()] })))
+  const error = await rejectionOf(new DocumentClient().inspectStereo('d1'))
+  assert.ok(error instanceof ComputeStopped)
+  assert.deepEqual([error.code, error.stop, error.message], ['cancelled', { kind: 'cancelled' }, CANCEL_MESSAGE])
+})
+
+test('a stop that names another model is not the stop of chem.stereo', async (t) => {
+  operations(t, () => json(stopReply({ operation: 'chem.stereo', model_id: 'chemifree-aromaticity-2', document_revision: 3 })))
+  const error = await rejectionOf(new DocumentClient().inspectStereo('d1'))
+  assert.equal(error instanceof ComputeStopped, false)
+  assert.deepEqual([error.name, error.code], ['ApiError', 'incompatible_response'])
 })
 
 test('a canonical SMILES stop is a ComputeStopped error too', async (t) => {
