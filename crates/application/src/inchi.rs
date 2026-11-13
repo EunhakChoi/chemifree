@@ -3,6 +3,7 @@
 
 use std::fmt;
 
+use chemifree_domain::budget::{Interrupt, Interrupted};
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::stereo_group::StereoGroupTable;
 use serde::Serialize;
@@ -78,13 +79,19 @@ pub trait InchiProvider: Send + Sync {
     /// group semantics must be refused rather than silently converted to an absolute form.
     /// Every normalization or omission is reported in the returned losses.
     ///
+    /// `stop` is asked after any serialization the provider performs itself and right before
+    /// its uninterruptible native call. It is never asked after that call has begun.
+    ///
     /// # Errors
     ///
-    /// An [`InchiError`] identifies unavailable libraries, unsupported or invalid chemistry,
-    /// resource limits, or native failures. No identifier is returned for these cases.
+    /// `Err(Interrupted)` when `stop` ends the call before the native work begins; no identifier
+    /// is returned. Otherwise the inner [`InchiError`] identifies unavailable libraries,
+    /// unsupported or invalid chemistry, resource limits, or native failures. No identifier is
+    /// returned for these cases either.
     fn generate(
         &self,
         graph: &MoleculeGraph,
         groups: &StereoGroupTable,
-    ) -> Result<InchiOutput, InchiError>;
+        stop: &dyn Interrupt,
+    ) -> Result<Result<InchiOutput, InchiError>, Interrupted>;
 }

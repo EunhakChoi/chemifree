@@ -2312,7 +2312,7 @@
         },
         {
           "id": "API-01.5",
-          "summary": "chem.aromaticity_convert computes outside the session lock on a copy of the graph, under a time limit (default 5 s, at most 8 s, set per request by time_limit_ms); a stopped computation is the time_limit diagnostic (or cancelled when its host cancels it), changes nothing, and is not remembered for replay (a stop is honoured until the result is committed under the lock, and the requested time_limit_ms is part of the replay comparison once a request has completed); a result computed for a revision that is no longer current is refused with revision_conflict. A time-based refusal depends on the machine; time_limit carries only limit_ms. chem.cip, chem.aromaticity, chem.identity, chem.substructure, chem.properties, chem.stereo and SMILES export (document.export, format smiles) share this time limit and cancel (time_limit_ms, one deadline for the whole request; the inspections and the SMILES export commit nothing, keep their results unchanged below the limit and take no concurrency slot; only the conversion and chem.cip do); chem.inchi has no time limit or cancel yet. The web shows a time_limit or cancelled reply of the operations it calls (chem.cip, chem.aromaticity_convert, chem.aromaticity, chem.identity, chem.substructure, chem.properties and SMILES export) as a stopped notice with a retry and no partial result; it sends no time_limit_ms.",
+          "summary": "chem.aromaticity_convert computes outside the session lock on a copy of the graph, under a time limit (default 5 s, at most 8 s, set per request by time_limit_ms); a stopped computation is the time_limit diagnostic (or cancelled when its host cancels it), changes nothing, and is not remembered for replay (a stop is honoured until the result is committed under the lock, and the requested time_limit_ms is part of the replay comparison once a request has completed); a result computed for a revision that is no longer current is refused with revision_conflict. A time-based refusal depends on the machine; time_limit carries only limit_ms. chem.cip, chem.aromaticity, chem.identity, chem.substructure, chem.properties, chem.stereo, chem.inchi (asked before the call and again once the native-call lock is held) and SMILES export (document.export, format smiles) share this time limit and cancel (time_limit_ms, one deadline for the whole request; the inspections and the SMILES export commit nothing, keep their results unchanged below the limit and take no concurrency slot; only the conversion and chem.cip do). The web shows a time_limit or cancelled reply of the operations it calls (chem.cip, chem.aromaticity_convert, chem.aromaticity, chem.identity, chem.substructure, chem.properties and SMILES export) as a stopped notice with a retry and no partial result; it sends no time_limit_ms.",
           "status": "partial",
           "implementation": [
             "crates/domain/src/budget.rs",
@@ -2329,6 +2329,7 @@
             "crates/application/src/operations/chem_properties.rs",
             "crates/application/src/operations/substructure.rs",
             "crates/application/src/operations/stereo.rs",
+            "crates/application/src/operations/inchi.rs",
             "crates/application/src/properties.rs",
             "crates/application/src/error.rs",
             "apps/web/src/lib/compute-stop.ts",
@@ -2346,7 +2347,7 @@
         },
         {
           "id": "API-01.rest",
-          "summary": "Model identifiers from operations that use a model or method, resource errors and cancel for operations other than the aromaticity conversion, chem.cip, the four read-only inspections and SMILES export (chem.stereo and chem.inchi remain), reproducing observed behaviour under the legacy-observed profile, other adapters.",
+          "summary": "Model identifiers from operations that use a model or method, resource errors and cancel for operations other than the aromaticity conversion, chem.cip, the read-only inspections, chem.stereo, chem.inchi and SMILES export, reproducing observed behaviour under the legacy-observed profile, other adapters.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

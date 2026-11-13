@@ -1,4 +1,6 @@
-//! Read-only Standard InChI generation, with an exact snapshot and loss consent.
+//! Read-only Standard InChI generation, with an exact snapshot and loss consent. The request's
+//! time limit and the host cancel are asked before the native call and again once the provider
+//! holds its native lock; no compute slot is taken.
 
 use chemifree_domain::stereo_group::GroupKind;
 use serde::Deserialize;
@@ -12,6 +14,13 @@ pub(super) struct InchiParameters {
     document_id: String,
     #[serde(default)]
     accepted_losses: Option<String>,
+    /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
+    /// (so it may be above the server's default); above the maximum it is refused. It is asked
+    /// before the native call and again once the provider holds its native lock, right before the
+    /// call. The call is not interrupted, so a result that arrives after the limit is still
+    /// returned.
+    #[serde(default)]
+    time_limit_ms: Option<u64>,
 }
 
 /// Identifiers, diagnostics and the immutable drawing and provider registration they used.
@@ -49,7 +58,19 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
         &self,
         known: &Known,
         parameters: InchiParameters,
+        cancel: &dyn Interrupt,
     ) -> OperationResponse {
+        // The limit is read first, as the other read-only inspections read theirs: a limit above
+        // the maximum is refused even when no provider is registered.
+        let (budget, limit_ms) = match self.start_time_limit_or_refuse(
+            known,
+            parameters.time_limit_ms,
+            cancel,
+            crate::inchi::MODEL_ID,
+        ) {
+            Ok(started) => started,
+            Err(reply) => return *reply,
+        };
         let Some(provider) = &self.inchi_provider else {
             let mut details = Map::new();
             if let Some(error) = &self.inchi_provider_error {
@@ -112,9 +133,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 )],
             );
         }
-        let output = match provider.generate(&graph, &groups) {
-            Ok(output) => output,
-            Err(error) => {
+        // Asked before the call, and again by the provider once it holds its native lock, right
+        // before the native call. Nothing is asked after the call begins: it cannot be interrupted,
+        // so a call that runs past the limit still returns its result.
+        let generated =
+            self.compute_read_only(&budget, |stop| provider.generate(&graph, &groups, stop));
+        let output = match generated {
+            Ok(Ok(output)) => output,
+            Ok(Err(error)) => {
                 let outcome = match error.kind {
                     InchiErrorKind::Unavailable | InchiErrorKind::Unsupported => {
                         Outcome::Unsupported
@@ -128,6 +154,15 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                     Some(revision),
                     None,
                     vec![diagnostic(error.code, error.message, context)],
+                );
+            }
+            Err(interrupted) => {
+                return stopped_read_only(
+                    known,
+                    revision,
+                    interrupted,
+                    limit_ms,
+                    crate::inchi::MODEL_ID,
                 );
             }
         };

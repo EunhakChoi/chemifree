@@ -1094,6 +1094,14 @@ try {
       const withoutLimit = await both((id) => request(`op-limit-unset-${name}`, operation, inspection(id)))
       assert.deepEqual(atMaximum.result, withoutLimit.result, `${operation} returns the same result at time_limit_ms 8000 as without it`)
     }
+    // chem.inchi takes the same bound. Only its refusal of a limit above the maximum is asserted: CI has no InChI
+    // library, and the refusal comes before the provider is asked, so no computation is expected here.
+    const inchiTooLong = await both((id) => request('op-limit-max-inchi', 'chem.inchi', { document_id: id, time_limit_ms: 8001 }))
+    assert.deepEqual(
+      [inchiTooLong.outcome, inchiTooLong.model_id, inchiTooLong.diagnostics[0].code, inchiTooLong.diagnostics[0].path, inchiTooLong.diagnostics[0].details],
+      ['error', 'chemifree-standard-inchi-1', 'invalid_request', 'parameters.time_limit_ms', { maximum_ms: 8000 }],
+      'chem.inchi refuses time_limit_ms 8001',
+    )
     // SMILES export takes the same time_limit_ms and bounds in both styles, through both adapters with no CLI flag.
     // A drawing export is `partial`, so the maximum is compared with the unset request instead of being asserted `ok`.
     const smilesStyles = [

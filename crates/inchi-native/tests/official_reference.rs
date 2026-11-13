@@ -9,6 +9,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
+use chemifree_domain::budget::NEVER;
+
 use chemifree_inchi_native::{
     Atom, Bond, BondOrder, Hydrogens, Molecule, NativeInchi, Parity, Radical, Registration, Stereo,
     VERSION,
@@ -231,7 +233,10 @@ fn registered_native_output_matches_official_executable_exactly() {
                     fixture.name
                 )
             });
-        let result = native.generate(&fixture.molecule).unwrap();
+        let result = native
+            .generate(&fixture.molecule, &NEVER)
+            .expect("the never-interrupt cannot interrupt")
+            .unwrap();
         assert_eq!(
             result.inchi.as_bytes(),
             expected_inchi.as_bytes(),
