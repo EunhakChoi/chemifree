@@ -315,6 +315,10 @@ fn the_kekule_benzene_write_asks_questions_in_both_styles() {
     }
 }
 
+/// A weaker end-to-end check, not proof of the writer's own perception. The read-back parses of
+/// the aromatic text also ask the aromaticity model, so this passes even when the writer's own
+/// perception asks nothing. `the_writers_own_aromaticity_model_asks_questions` in writer.rs pins
+/// that count.
 #[test]
 fn the_aromaticity_model_asks_questions_in_the_recorded_style() {
     let (_, kekule) = counted(
@@ -327,7 +331,7 @@ fn the_aromaticity_model_asks_questions_in_the_recorded_style() {
     );
     assert!(
         aromatic > kekule,
-        "aromatic benzene must ask the aromaticity model's questions on top of those of Kekulé benzene: aromatic asked {aromatic}, Kekulé asked {kekule}"
+        "aromatic benzene must ask more questions than Kekulé benzene: aromatic asked {aromatic}, Kekulé asked {kekule}"
     );
 }
 

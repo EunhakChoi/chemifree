@@ -171,10 +171,13 @@ pub(super) fn parse(source: &str) -> Result<Parsed, Fail> {
     uninterrupted(parse_in(source, &NEVER))
 }
 
-/// Reads like [`parse`], asking `interrupt` at the reader's checkpoints: in the aromaticity model
-/// and in the analysis after it. A refusal comes back inside the result and a stop outside it, so
-/// a stop is never read as a refusal. A refusal found before the first checkpoint, such as an
-/// empty text or a grammar error, is returned without asking `interrupt`.
+/// Reads like [`parse`], asking `interrupt` at two checkpoints. Checkpoint A is inside
+/// `analysis::interpret_with`, the aromaticity model, and is asked only for a text with aromatic
+/// bonds. Checkpoint B is one check right after the interpretation block and before
+/// `analysis::analyse`. Neither the token pass nor the graph construction asks, and neither
+/// `analysis::analyse` nor anything after B does. A refusal comes back inside the result and a stop
+/// outside it, so a stop is never read as a refusal. A refusal found before the first checkpoint,
+/// such as an empty text or a grammar error, is returned without asking `interrupt`.
 pub(super) fn parse_with(
     source: &str,
     interrupt: &dyn Interrupt,
@@ -912,7 +915,7 @@ impl Reader<'_> {
                 })?;
             Some(found)
         };
-        // The analysis below does not ask the interrupt, so this is the last checkpoint before it.
+        // Checkpoint B, the last one: analysis::analyse and everything after it never ask.
         interrupt.check()?;
         let analysed = analysis::analyse(&graph, interpretation.as_ref()).map_err(|failure| {
             at(
@@ -1086,8 +1089,9 @@ mod tests {
         parse_with(text, interrupt).map(Result::err)
     }
 
+    /// An interrupt that is not [`NEVER`] but answers Ok reads what [`parse`] reads.
     #[test]
-    fn parse_with_never_returns_what_parse_returns() {
+    fn parse_with_an_ok_answer_returns_what_parse_returns() {
         for (text, reads) in [
             ("CCO", true),
             ("c1ccccc1", true),
@@ -1096,12 +1100,19 @@ mod tests {
         ] {
             let expected = parse(text).map(|parsed| parsed.read);
             assert_eq!(expected.is_ok(), reads, "whether {text:?} reads");
-            let actual = parse_with(text, &NEVER).expect("the never-interrupt cannot stop a read");
+            let answering = Answering::new(Ok(()));
+            let actual = parse_with(text, &answering).expect("an Ok answer cannot stop a read");
             assert_eq!(
                 actual.map(|parsed| parsed.read),
                 expected,
-                "parse_with under NEVER on {text:?}"
+                "parse_with with an Ok answer on {text:?}"
             );
+            if reads {
+                assert!(
+                    answering.asked.get() > 0,
+                    "a text that reads is asked at checkpoint B: {text:?}"
+                );
+            }
         }
     }
 
@@ -1146,7 +1157,7 @@ mod tests {
             .expect("benzene reads");
         assert!(
             benzene.asked.get() >= 2,
-            "benzene is asked by the aromaticity model and by the analysis, got {}",
+            "benzene is asked inside the aromaticity model and at checkpoint B, got {}",
             benzene.asked.get()
         );
 
@@ -1157,7 +1168,7 @@ mod tests {
         assert_eq!(
             ethanol.asked.get(),
             1,
-            "CCO has no aromatic bond, so only the analysis asks"
+            "CCO has no aromatic bond, so only checkpoint B asks"
         );
     }
 

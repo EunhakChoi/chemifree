@@ -1393,4 +1393,43 @@ mod tests {
             Some(SmilesCode::OutputTooLong)
         );
     }
+
+    /// Counts the questions asked and never stops.
+    struct Counting(std::cell::Cell<usize>);
+
+    impl Interrupt for Counting {
+        fn check(&self) -> Result<(), Interrupted> {
+            self.0.set(self.0.get() + 1);
+            Ok(())
+        }
+    }
+
+    /// The writer's own aromaticity model asks its questions before it refuses. A ring with an
+    /// aromatic bond that the model does not classify is refused before any text is emitted or
+    /// read back, so the questions counted here are the writer's own, with no read-back to share
+    /// them.
+    #[test]
+    fn the_writers_own_aromaticity_model_asks_questions() {
+        let mut graph = reader::parse("C1CCCCC1").unwrap().graph;
+        let aromatic_bond = BondId::from_serial(1).unwrap();
+        for (bond, data) in graph.bonds_mut() {
+            if bond == aromatic_bond {
+                data.order = BondOrder::Aromatic;
+            }
+        }
+        let counting = Counting(std::cell::Cell::new(0));
+        let error = uninterrupted(recorded(
+            &graph,
+            &StereoGroupTable::default(),
+            double_bond_write::place,
+            &counting,
+        ))
+        .expect_err("a ring that is not aromatic cannot carry an aromatic bond");
+        assert_eq!(error.code, SmilesCode::AromaticNotWritable);
+        let asked = counting.0.get();
+        assert!(
+            asked >= 1,
+            "the writer's aromaticity model must ask at least one question before it refuses, asked {asked}"
+        );
+    }
 }

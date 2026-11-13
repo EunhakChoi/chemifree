@@ -9,6 +9,9 @@ SMILES 내보내기는 쓴 글을 리더로 다시 읽어 확인한다(내보내
 - 쓰개: `render_with_turns`와 `recorded_stereo`의 읽어 돌려보기가 `parse_with`를 쓴다. 중단은 `Halt::Interrupted`로 올라가 기존 `time_limit`/`cancelled` 응답이 되며 `readback_mismatch`가 되지 않는다. 점검 전 거부(빈 입력, 문법 오류)는 그대로 거부다.
 - 시험: `reader.rs` 안 단위 시험 5개(`NEVER`이면 `parse`와 같음, 취소는 첫 점검에서 멈춤, 점검 전 거부는 취소 아래에서도 거부, 방향족 글이 더 많이 물음, 첫 질문의 시간 제한), `smiles_write_interrupt.rs`의 `the_cco_write_asks_the_writer_and_read_back_questions`(CCO 질문 수 recorded 4→6, canonical 6→7 고정; 기존 어느 질문에서든 멈추기 시험이 새 질문까지 덮음).
 - 변이: 지점 B 제거, 지점 A에 `NEVER`, 첫 점검 앞에 점검 추가, 시간 제한을 거부로 바꿈, 쓰개가 `NEVER`를 넘김 — 각각 해당 시험이 실패.
+- 리뷰에서 고친 것: 기존 `the_aromaticity_model_asks_questions_in_the_recorded_style`는 읽어 돌려보기 파싱도 방향족 질문을 하게 되어 쓰개 자신의 방향족 점검을 증명하지 못한다. 그래서 `writer.rs` 단위 시험 `the_writers_own_aromaticity_model_asks_questions`(쓰개의 방향족 단계에서 거부되어 읽어 돌려보기가 없는 경로)를 더했다(쓰개 쪽 `interpret_with`에 `NEVER`를 넘기는 변이를 잡음). `NEVER`와 같은지 보는 시험은 `NEVER`가 아닌 답하는 중단으로 비교하게 고쳤다(`parse_with_an_ok_answer_returns_what_parse_returns`). CONTRACT의 canonical 점검 목록과 점검 없는 구간 목록, 리더 주석을 코드에 맞췄다.
+- 그대로 둔 것(후속): 정확한 질문 수 고정(쓰개가 `NEVER`를 넘기는 실수를 잡는 장치라 유지), 같은 `Halt`/`interruptible`/`uninterrupted` 형태가 도메인·응용 일곱 곳에 반복되는 것(공용 `budget::Halt<E>`로 합칠 후보), 읽어 돌려보기 직전 쓰개 점검과 리더 점검의 겹침(옮기면 계약 문구가 바뀜).
+- 주의: 샌드박스 실행기는 작업 트리를 수정 시각을 보존해 복사하고 빌드 캐시를 공유하므로, 변이 후 `cp -p`로 되돌린 파일은 다시 컴파일되지 않을 수 있다(이번에 두 번 일어남). 되돌린 뒤 `touch`할 것.
 - 남은 #106 작은 항목: `chem.stereo`·`chem.inchi` 시간 제한.
 
 ## document_list_cap 시계 의존 시험 (T0, #106 작은 항목)
