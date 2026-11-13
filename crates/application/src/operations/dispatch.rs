@@ -442,7 +442,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Err(invalid) => known.invalid(invalid),
             },
             Op::ChemInchi => match parameters::<InchiParameters>(parameters_value) {
-                Ok(parameters) => self.generate_inchi(known, parameters),
+                Ok(parameters) => self.generate_inchi(known, parameters, cancel),
                 Err(error) => known.invalid(error),
             },
             Op::ChemCip => match parameters::<CipParameters>(parameters_value) {

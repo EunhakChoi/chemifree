@@ -4,15 +4,22 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chemifree_application::inchi::{
-    InchiError, InchiErrorKind, InchiOutput, InchiProvider, InchiProviderIdentity,
+    InchiError, InchiErrorKind, InchiOutput, InchiProvider, InchiProviderIdentity, MODEL_ID,
 };
-use chemifree_application::{Application, Loss, LossConsent, LossDisposition, SemanticImpact};
+use chemifree_application::{
+    Application, CancelFlag, Loss, LossConsent, LossDisposition, SemanticImpact,
+};
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::stereo_group::StereoGroupTable;
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities, OpenSmilesCodec};
 use serde_json::{Value, json};
 
 type App = Application<LocalCapabilities, FileDocumentRepository>;
+
+/// The limit a request that sets none has, in milliseconds.
+const DEFAULT_LIMIT_MS: u64 = 5_000;
+/// The largest limit a request may set, in milliseconds.
+const MAXIMUM_LIMIT_MS: u64 = 8_000;
 
 #[derive(Clone)]
 struct FixtureProvider {
@@ -55,10 +62,26 @@ fn fixture(losses: Vec<Loss>) -> FixtureProvider {
     }
 }
 
-fn call(app: &App, operation: &str, parameters: Value) -> Value {
+fn request_bytes(operation: &str, parameters: Value) -> Vec<u8> {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let request = json!({"contract":1,"request_id":format!("inchi-test-{}", NEXT.fetch_add(1, Ordering::Relaxed)),"profile":"preserve-semantics", "operation":operation,"parameters":parameters});
-    serde_json::to_value(app.execute(request.to_string().as_bytes())).unwrap()
+    let body = json!({"contract":1,"request_id":format!("inchi-test-{}", NEXT.fetch_add(1, Ordering::Relaxed)),"profile":"preserve-semantics", "operation":operation,"parameters":parameters});
+    body.to_string().into_bytes()
+}
+
+fn call(app: &App, operation: &str, parameters: Value) -> Value {
+    serde_json::to_value(app.execute(&request_bytes(operation, parameters))).unwrap()
+}
+
+/// Runs the request under a host cancel that is already set, as a host that stops it would.
+fn call_cancelled(app: &App, operation: &str, parameters: Value, cancel: &CancelFlag) -> Value {
+    serde_json::to_value(app.execute_with(&request_bytes(operation, parameters), cancel)).unwrap()
+}
+
+/// The reply without its request identifier, the one field that differs between two requests
+/// that are otherwise the same.
+fn without_request_id(mut reply: Value) -> Value {
+    reply.as_object_mut().unwrap().remove("request_id");
+    reply
 }
 
 fn methane(app: &App) -> String {
@@ -347,4 +370,215 @@ fn warning_consent_exposes_diagnostics_and_ignores_only_nonsemantic_log_changes(
         call(&app, "document.snapshot", json!({"document_id":id}))["result"],
         before["result"]
     );
+}
+
+#[test]
+fn a_zero_time_limit_stops_before_the_native_provider_is_called() {
+    let directory = tempfile::tempdir().unwrap();
+    let provider = fixture(Vec::new());
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    )
+    .with_inchi_provider(provider.clone());
+    let id = methane(&app);
+    let reply = call(
+        &app,
+        "chem.inchi",
+        json!({"document_id":id,"time_limit_ms":0}),
+    );
+    assert_eq!(reply["outcome"], "error", "{reply}");
+    assert_eq!(reply["document_revision"], 1, "{reply}");
+    assert_eq!(reply["result"], Value::Null, "{reply}");
+    assert_eq!(reply["model_id"], MODEL_ID, "{reply}");
+    assert_eq!(reply["diagnostics"].as_array().unwrap().len(), 1, "{reply}");
+    assert_eq!(reply["diagnostics"][0]["code"], "time_limit", "{reply}");
+    assert_eq!(
+        reply["diagnostics"][0]["details"],
+        json!({"limit_ms": 0}),
+        "{reply}"
+    );
+    assert_eq!(
+        provider.calls.load(Ordering::Relaxed),
+        0,
+        "the native provider ran after the time limit had passed"
+    );
+}
+
+#[test]
+fn a_host_cancel_stops_before_the_native_provider_is_called() {
+    let directory = tempfile::tempdir().unwrap();
+    let provider = fixture(Vec::new());
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    )
+    .with_inchi_provider(provider.clone());
+    let id = methane(&app);
+    let cancel = CancelFlag::new();
+    cancel.cancel();
+    for parameters in [
+        json!({"document_id":id}),
+        json!({"document_id":id,"time_limit_ms":0}),
+    ] {
+        let label = parameters.to_string();
+        let reply = call_cancelled(&app, "chem.inchi", parameters, &cancel);
+        assert_eq!(reply["outcome"], "error", "{label}: {reply}");
+        assert_eq!(reply["document_revision"], 1, "{label}: {reply}");
+        assert_eq!(reply["result"], Value::Null, "{label}: {reply}");
+        assert_eq!(reply["model_id"], MODEL_ID, "{label}: {reply}");
+        assert_eq!(
+            reply["diagnostics"].as_array().unwrap().len(),
+            1,
+            "{label}: {reply}"
+        );
+        assert_eq!(
+            reply["diagnostics"][0]["code"], "cancelled",
+            "{label}: {reply}"
+        );
+        assert_eq!(
+            reply["diagnostics"][0]["details"],
+            json!({}),
+            "{label}: {reply}"
+        );
+    }
+    assert_eq!(
+        provider.calls.load(Ordering::Relaxed),
+        0,
+        "the native provider ran after a host cancel"
+    );
+}
+
+#[test]
+fn a_time_limit_above_the_maximum_is_refused_before_the_document_and_the_provider() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    );
+    // The maximum itself is accepted, so the request reaches the unavailable check.
+    let accepted = call(
+        &app,
+        "chem.inchi",
+        json!({"document_id":"missing","time_limit_ms":MAXIMUM_LIMIT_MS}),
+    );
+    assert_eq!(
+        accepted["diagnostics"][0]["code"], "inchi_unavailable",
+        "{accepted}"
+    );
+    let refused = call(
+        &app,
+        "chem.inchi",
+        json!({"document_id":"missing","time_limit_ms":MAXIMUM_LIMIT_MS + 1}),
+    );
+    assert_eq!(refused["outcome"], "error", "{refused}");
+    assert_eq!(refused["result"], Value::Null, "{refused}");
+    assert!(refused["document_revision"].is_null(), "{refused}");
+    assert_eq!(refused["model_id"], MODEL_ID, "{refused}");
+    assert_eq!(
+        refused["diagnostics"].as_array().unwrap().len(),
+        1,
+        "{refused}"
+    );
+    assert_eq!(
+        refused["diagnostics"][0]["code"], "invalid_request",
+        "{refused}"
+    );
+    assert_eq!(
+        refused["diagnostics"][0]["path"], "parameters.time_limit_ms",
+        "{refused}"
+    );
+    assert_eq!(
+        refused["diagnostics"][0]["details"]["maximum_ms"], MAXIMUM_LIMIT_MS,
+        "{refused}"
+    );
+
+    // With a provider registered the limit still comes first: the missing document is not read
+    // and the provider is not called.
+    let provider = fixture(Vec::new());
+    let app = app.with_inchi_provider(provider.clone());
+    let refused = call(
+        &app,
+        "chem.inchi",
+        json!({"document_id":"missing","time_limit_ms":MAXIMUM_LIMIT_MS + 1}),
+    );
+    assert_eq!(
+        refused["diagnostics"][0]["code"], "invalid_request",
+        "{refused}"
+    );
+    assert_eq!(
+        provider.calls.load(Ordering::Relaxed),
+        0,
+        "the provider ran for a refused limit"
+    );
+}
+
+#[test]
+fn the_loss_consent_digest_is_the_same_with_and_without_a_time_limit() {
+    let directory = tempfile::tempdir().unwrap();
+    let provider = fixture(vec![Loss {
+        feature: "fixture_normalization".into(),
+        source_path: "atoms[a1]".into(),
+        disposition: LossDisposition::Normalized,
+        reason: "Explicit test-only normalization.".into(),
+        semantic_impact: SemanticImpact::Chemistry,
+        consent: LossConsent::Required,
+    }]);
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    )
+    .with_inchi_provider(provider);
+    let id = methane(&app);
+    let unlimited = call(&app, "chem.inchi", json!({"document_id":id}));
+    assert_eq!(
+        unlimited["diagnostics"][0]["code"], "loss_consent_required",
+        "{unlimited}"
+    );
+    let limited = call(
+        &app,
+        "chem.inchi",
+        json!({"document_id":id,"time_limit_ms":DEFAULT_LIMIT_MS}),
+    );
+    assert_eq!(
+        limited["diagnostics"], unlimited["diagnostics"],
+        "a time limit changed the loss refusal, its consent digest included: {limited}"
+    );
+    // Consent given to the request without a limit is accepted by the request with one.
+    let digest = &unlimited["diagnostics"][0]["details"]["loss_digest"];
+    let accepted = call(
+        &app,
+        "chem.inchi",
+        json!({"document_id":id,"time_limit_ms":DEFAULT_LIMIT_MS,"accepted_losses":digest}),
+    );
+    assert_eq!(accepted["outcome"], "partial", "{accepted}");
+    assert_eq!(
+        accepted["result"]["inchi"], "InChI=1S/CH4/h1H4",
+        "{accepted}"
+    );
+}
+
+#[test]
+fn a_time_limit_the_computation_meets_leaves_the_reply_unchanged() {
+    let directory = tempfile::tempdir().unwrap();
+    let app = Application::new(
+        LocalCapabilities,
+        FileDocumentRepository::new(directory.path()),
+    )
+    .with_inchi_provider(fixture(Vec::new()));
+    let id = methane(&app);
+    let plain = call(&app, "chem.inchi", json!({"document_id":id}));
+    assert_eq!(plain["outcome"], "ok", "{plain}");
+    for limit in [DEFAULT_LIMIT_MS, MAXIMUM_LIMIT_MS] {
+        let limited = call(
+            &app,
+            "chem.inchi",
+            json!({"document_id":id,"time_limit_ms":limit}),
+        );
+        assert_eq!(
+            without_request_id(limited.clone()),
+            without_request_id(plain.clone()),
+            "time_limit_ms {limit} changed the reply: {limited}"
+        );
+    }
 }

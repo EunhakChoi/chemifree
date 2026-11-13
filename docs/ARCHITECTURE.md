@@ -86,8 +86,9 @@ A new feature is a new operation or a new transaction command, not a new adapter
   reader has `parse_with` for the writer's read-back parses while import keeps the `NEVER`
   wrapper `parse`, because import has no time limit (CONTRACT.md lists the parts of a
   read-back parse that stay unchecked). `chem.stereo` has `stereo_inspection::inspect_with` and the same time limit and cancel as
-  the four inspections. The remaining read-only operation (`chem.inchi`) computes outside the
-  lock and keeps its work limits, but has no time limit or cancel, and `chem.validate` computes under the lock (its work
+  the four inspections. `chem.inchi` takes the same limit and cancel but asks only once, before
+  the native call, which cannot be interrupted (its bound is the registered `-W` timeout); a
+  real interruption would need process isolation, a separate decision. `chem.validate` computes under the lock (its work
   is linear in the document). Separately, creates, closes, copies and the file checks most
   requests make do storage I/O while holding `sessions`; draft writes do not (CONTRACT.md,
   "Slow storage"). What moved out of the table in T0 is the draft write's recovery lookup, and the analysis and save-as copies no longer copy undo and redo history (`Document::without_history`); the file store records its own commit in the stored-revision cache, so the first clean-copy check after a save is a stat. Left under the table, deliberately: the session refresh read, the first-open load, closed-document graph reads, the per-response draft lookup, and create/copy commits. Moving them needs new state (a generation for the sessions table, an epoch per document in the turns, a slot reservation against the cap), so they are a separate design-first change, started on the user's request. `chem.validate` stays under the lock: its copy would be as linear as its computation. A new
