@@ -3030,14 +3030,14 @@
     "P04",
     "P05"
    ],
-   "note": "트랙 T1의 첫 행이며 P42와 병행할 수 있다. 로컬 MCP(P82)는 실행 중인 이 서버의 클라이언트로 붙으므로 P87이 먼저다. 동시 계산 상한(#248) 같은 서버 설정을 노출하는 방법도 여기서 정한다. 완료(2026-11-14): S1 #268(--web-dir 같은 origin 제공·보안 헤더), S2 #269(--compute-concurrency, 포트 충돌 종료 3, <data>/server.lock 종료 4), S3 #270(build:product·start·test:product, 제품 서버 점검, README). 동시 계산 상한은 플래그·환경 변수로만 노출하고 capabilities 필드는 넣지 않는다(사용자 결정). 단일 실행 파일은 P88.",
+   "note": "트랙 T1의 첫 행이었다. 로컬 MCP(P82)는 실행 중인 이 서버의 클라이언트로 붙으므로 P87이 먼저다. 동시 계산 상한(#248) 같은 서버 설정의 노출 방법을 여기서 정했다. 완료(2026-11-14): S1 #268(--web-dir 같은 origin 제공·보안 헤더), S2 #269(--compute-concurrency, 포트 충돌 종료 3, <data>/server.lock 종료 4), S3 #270(build:product·start·test:product, 제품 서버 점검, README). 동시 계산 상한은 플래그·환경 변수로만 노출하고 capabilities 필드는 넣지 않는다(사용자 결정). 단일 실행 파일은 P88.",
    "delivered": {
     "prs": [
      268,
      269,
      270
     ],
-    "merge_commit": "7466befa",
+    "merge_commit": "7466befaf97ffeac2581fa5ae02f72a8ea6a1f9b",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/43483247545"
    }
   },
@@ -4566,7 +4566,7 @@
      "P34"
     ],
     "pr_estimate": "14–26",
-    "work": "제품 서버(P87)와 배치 준비·사슬·단순 고리(P42)를 먼저 하고 병행할 수 있다. 가져오기/내보내기 UX(P48), 진행 중인 M1 게이트 행(P17·P19·P34)의 제한된 범위 마감. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38 마감은 T3 맨 앞으로 옮겼다."
+    "work": "제품 서버(P87)는 끝났다(2026-11-14). 배치 준비·사슬·단순 고리(P42)를 먼저 한다. 가져오기/내보내기 UX(P48), 진행 중인 M1 게이트 행(P17·P19·P34)의 제한된 범위 마감. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38 마감은 T3 맨 앞으로 옮겼다."
    },
    {
     "id": "T2",
