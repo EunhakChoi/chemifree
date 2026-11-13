@@ -21,7 +21,7 @@ Nothing on this page marks a feature as implemented. "Planned" items below have 
 | `crates/providers` | application, domain, inchi-native | File store, codecs (MOL/SDF, CDXML, CDX, SMILES), PNG decoder, InChI provider, DATA directory source, capability catalog |
 | `crates/host` | application, providers | Assembly of the local `Application` for entry adapters: the file stores of a data directory, the PNG decoder, the codecs, file preferences, the user-selected DATA registry and the optional InChI selection (`InchiArgs`) |
 | `crates/conformance` | application, host | Conformance runner |
-| `apps/api` | application, host, providers | HTTP adapter (axum) |
+| `apps/api` | application, host, providers | HTTP adapter (axum); with `--web-dir` it also serves a built web app (tower-http `ServeDir`) on the same origin, under one security-header layer |
 | `apps/cli` | application, host, providers | CLI adapter |
 | `apps/web` | HTTP only | React/TypeScript editor |
 

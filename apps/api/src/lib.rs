@@ -7,19 +7,25 @@
 //! 3. Writes must carry the per-process session token in `x-chemifree-session`, a
 //!    `Content-Type: application/json` body, and at most [`MAX_BODY_BYTES`].
 //!
+//! Every answer, API or web file, carries the headers listed in `SECURITY_HEADERS`. With a web
+//! directory ([`ApiState::with_web_dir`]), the built web app is served from the same origin: its
+//! files pass the same `Host` guard, and no path outside `/api` falls back to `index.html`.
+//!
 //! This keeps other websites from driving the local API. It is not user authentication:
 //! any local process that can reach the loopback port can obtain the token.
 
 use std::collections::HashSet;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, Request, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{any, get, post, put};
 use axum::{Json, Router};
 use chemifree_application::{
     API_VERSION, ApplicationError, CancelFlag, CapabilitiesResponse, CloseRequest, CloseResponse,
@@ -33,12 +39,15 @@ use chemifree_application::{
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use http_body_util::LengthLimitError;
 use serde::Serialize;
+use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
 
 pub use chemifree_host::LocalApplication;
 
 pub const SESSION_HEADER: &str = "x-chemifree-session";
 pub const MAX_BODY_BYTES: usize = 256 * 1024;
-/// Development (Vite) and preview origins allowed when none are configured.
+/// Development (Vite) and preview origins. The API binary allows them when no origin is configured
+/// and it serves no web app.
 pub const DEFAULT_WEB_ORIGINS: [&str; 4] = [
     "http://127.0.0.1:5173",
     "http://localhost:5173",
@@ -46,11 +55,27 @@ pub const DEFAULT_WEB_ORIGINS: [&str; 4] = [
     "http://localhost:4173",
 ];
 
+/// Headers that every answer carries, API and web files alike.
+const SECURITY_HEADERS: [(HeaderName, &str); 4] = [
+    (
+        header::CONTENT_SECURITY_POLICY,
+        "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; \
+         connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    ),
+    (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+    (header::REFERRER_POLICY, "no-referrer"),
+    (
+        HeaderName::from_static("cross-origin-opener-policy"),
+        "same-origin",
+    ),
+];
+
 pub struct ApiState {
     application: Arc<LocalApplication>,
     token: String,
     allowed_hosts: HashSet<String>,
     allowed_origins: HashSet<String>,
+    web_dir: Option<WebDir>,
 }
 
 impl ApiState {
@@ -80,7 +105,22 @@ impl ApiState {
             token,
             allowed_hosts,
             allowed_origins,
+            web_dir: None,
         })
+    }
+
+    /// Also serves the built web app in `web_dir` from this origin, beside the API. Without it,
+    /// the API serves no web files.
+    #[must_use]
+    pub fn with_web_dir(mut self, web_dir: WebDir) -> Self {
+        self.web_dir = Some(web_dir);
+        self
+    }
+
+    /// The web directory served with the API, if any.
+    #[must_use]
+    pub fn web_dir(&self) -> Option<&WebDir> {
+        self.web_dir.as_ref()
     }
 
     /// Ends every running and waiting computation with `cancelled`, leaving its document
@@ -89,6 +129,43 @@ impl ApiState {
     /// their clients still receive `cancelled`.
     pub fn cancel_computations(&self) {
         self.application.cancel_computations();
+    }
+}
+
+/// A directory of built web assets, checked when it is opened: a directory that holds an
+/// `index.html` file. [`ApiState::with_web_dir`] serves it.
+#[derive(Clone, Debug)]
+pub struct WebDir(PathBuf);
+
+impl WebDir {
+    /// Opens `dir` as a web directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message naming `dir` when it cannot be read, is not a directory, or holds no
+    /// `index.html` file.
+    pub fn open(dir: &std::path::Path) -> Result<Self, String> {
+        let shown = dir.display();
+        let metadata = fs::metadata(dir)
+            .map_err(|error| format!("web directory {shown} cannot be read: {error}"))?;
+        if !metadata.is_dir() {
+            return Err(format!("web directory {shown} is not a directory"));
+        }
+        if !dir.join("index.html").is_file() {
+            return Err(format!(
+                "web directory {shown} has no index.html; pass the output directory of a web build"
+            ));
+        }
+        let root = dir
+            .canonicalize()
+            .map_err(|error| format!("web directory {shown} cannot be resolved: {error}"))?;
+        Ok(Self(root))
+    }
+
+    /// The canonical path of the directory.
+    #[must_use]
+    pub fn path(&self) -> &std::path::Path {
+        &self.0
     }
 }
 
@@ -201,7 +278,7 @@ pub fn router(state: Shared) -> Router {
             state.clone(),
             same_site_only,
         ));
-    Router::new()
+    let api = Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/capabilities", get(capabilities))
         .route("/api/v1/data", get(data_status))
@@ -211,11 +288,64 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/documents/{id}", get(document))
         .merge(writes)
         .merge(session)
-        .fallback(not_found)
-        .method_not_allowed_fallback(method_not_allowed)
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
-        .layer(middleware::from_fn_with_state(state.clone(), allowed_host))
-        .with_state(state)
+        .method_not_allowed_fallback(method_not_allowed);
+    let routes = match state.web_dir() {
+        // Without a web app, every path that matches no route is an unknown API route.
+        None => api.fallback(not_found),
+        // With one, unknown API paths keep their JSON answer, and every other path is a web file.
+        Some(web_dir) => api
+            .route("/api", any(not_found))
+            .route("/api/", any(not_found))
+            .route("/api/{*rest}", any(not_found))
+            .fallback_service(web_files(web_dir)),
+    };
+    with_security_headers(
+        routes
+            .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+            .layer(middleware::from_fn_with_state(state.clone(), allowed_host)),
+    )
+    .with_state(state)
+}
+
+/// The web app's files under `web_dir`, with the cache policy of [`web_cache_control`]. A path
+/// without a file answers 404, because the app has no client-side routes to fall back to.
+fn web_files(web_dir: &WebDir) -> Router {
+    Router::new()
+        // `ServeDir` answers a directory request, `/` included, with that directory's `index.html`.
+        .fallback_service(ServeDir::new(web_dir.path()))
+        .layer(middleware::from_fn(web_cache_control))
+}
+
+/// Sets how a web file may be cached. Vite names the files under `assets/` by content hash, so
+/// their names never change and they may be cached for a year; every other file, the index
+/// included, is revalidated on use. Only an answer that carries the file gets the long lifetime,
+/// so a missing asset is never cached as one.
+async fn web_cache_control(request: Request, next: Next) -> Response {
+    let hashed = request.uri().path().starts_with("/assets/");
+    let mut response = next.run(request).await;
+    let status = response.status();
+    let carries_file = status.is_success() || status == StatusCode::NOT_MODIFIED;
+    let policy = if hashed && carries_file {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static(policy));
+    response
+}
+
+/// Adds [`SECURITY_HEADERS`] to every answer of `router`, including the refusals made by the
+/// layers beneath it.
+fn with_security_headers(mut router: Router<Shared>) -> Router<Shared> {
+    for (name, value) in SECURITY_HEADERS {
+        router = router.layer(SetResponseHeaderLayer::overriding(
+            name,
+            HeaderValue::from_static(value),
+        ));
+    }
+    router
 }
 
 /// An HTTP error with the v1 envelope.
@@ -796,7 +926,8 @@ async fn method_not_allowed() -> ApiError {
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
-    use axum::http::StatusCode;
+    use axum::http::{Request, StatusCode};
+    use serde_json::Value;
 
     use super::*;
 
@@ -834,5 +965,336 @@ mod tests {
 
         let broken = axum::Error::new(std::io::Error::other("connection reset"));
         assert_eq!(unread_body(broken).status(), StatusCode::BAD_REQUEST);
+    }
+
+    const TEST_PORT: u16 = 3999;
+    const TEST_HOST: &str = "127.0.0.1:3999";
+    const TEST_TOKEN: &str = "web-test-token";
+
+    /// A router over a fresh data directory, serving `web` when given. The data directory is
+    /// returned as well, so that it lives as long as the test needs it.
+    fn router_for_test(web: Option<WebDir>, origins: &[String]) -> (Router, tempfile::TempDir) {
+        let data = tempfile::tempdir().unwrap();
+        let application =
+            chemifree_host::local_application(chemifree_host::LocalStores::new(data.path()));
+        let state = ApiState::new(application, TEST_TOKEN.into(), TEST_PORT, origins).unwrap();
+        let state = match web {
+            Some(web) => state.with_web_dir(web),
+            None => state,
+        };
+        (router(Arc::new(state)), data)
+    }
+
+    /// Writes what a Vite build leaves in a web directory: an index, a hashed asset and a favicon.
+    /// A secret file sits beside the web directory, where no request may reach it.
+    fn web_fixture(root: &std::path::Path) -> std::path::PathBuf {
+        let web = root.join("web");
+        fs::create_dir_all(web.join("assets")).unwrap();
+        fs::write(
+            web.join("index.html"),
+            "<!doctype html><title>Chemifree</title>",
+        )
+        .unwrap();
+        fs::write(web.join("assets/app-3f9c.js"), "console.log('app');").unwrap();
+        fs::write(
+            web.join("favicon.svg"),
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .unwrap();
+        fs::write(root.join("secret.txt"), "not for the web").unwrap();
+        web
+    }
+
+    fn get(uri: &str) -> Request<Body> {
+        Request::get(uri)
+            .header("host", TEST_HOST)
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    async fn ask(router: &Router, request: Request<Body>) -> Response {
+        use tower::ServiceExt;
+
+        router.clone().oneshot(request).await.unwrap()
+    }
+
+    async fn text_of(response: Response) -> String {
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    async fn json_of(response: Response) -> Value {
+        serde_json::from_str(&text_of(response).await).unwrap()
+    }
+
+    fn cache_control(response: &Response) -> &str {
+        response
+            .headers()
+            .get(header::CACHE_CONTROL)
+            .expect("the answer names its cache policy")
+            .to_str()
+            .unwrap()
+    }
+
+    fn assert_security_headers(response: &Response, answer: &str) {
+        for (name, value) in SECURITY_HEADERS {
+            assert_eq!(
+                response.headers().get(&name).map(|v| v.to_str().unwrap()),
+                Some(value),
+                "{answer} carries {}",
+                name.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn the_security_policy_is_the_documented_one() {
+        let actual: Vec<(String, &str)> = SECURITY_HEADERS
+            .into_iter()
+            .map(|(name, value)| (name.as_str().to_owned(), value))
+            .collect();
+        let expected: Vec<(String, &str)> = [
+            (
+                "content-security-policy",
+                "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+            ),
+            ("x-content-type-options", "nosniff"),
+            ("referrer-policy", "no-referrer"),
+            ("cross-origin-opener-policy", "same-origin"),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[tokio::test]
+    async fn the_web_app_is_served_with_its_cache_policy() {
+        let root = tempfile::tempdir().unwrap();
+        let web = WebDir::open(&web_fixture(root.path())).unwrap();
+        let (api, _data) = router_for_test(Some(web), &[]);
+
+        for uri in ["/", "/index.html"] {
+            let response = ask(&api, get(uri)).await;
+            assert_eq!(response.status(), StatusCode::OK, "{uri} is the index");
+            assert!(
+                response
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with("text/html"),
+                "{uri} is served as HTML"
+            );
+            assert_eq!(cache_control(&response), "no-cache", "{uri} is revalidated");
+            let body = text_of(response).await;
+            assert!(body.contains("<title>Chemifree</title>"), "{uri}: {body:?}");
+        }
+
+        let response = ask(&api, get("/assets/app-3f9c.js")).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            cache_control(&response),
+            "public, max-age=31536000, immutable",
+            "a hashed asset is cached for a year"
+        );
+
+        let response = ask(&api, get("/favicon.svg")).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            cache_control(&response),
+            "no-cache",
+            "a file at the root is revalidated"
+        );
+    }
+
+    #[tokio::test]
+    async fn paths_without_a_file_are_not_found_and_never_fall_back_to_the_index() {
+        let root = tempfile::tempdir().unwrap();
+        let web = WebDir::open(&web_fixture(root.path())).unwrap();
+        let (api, _data) = router_for_test(Some(web), &[]);
+
+        for uri in ["/documents/42", "/assets/missing-0000.js"] {
+            let response = ask(&api, get(uri)).await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+            assert_eq!(
+                cache_control(&response),
+                "no-cache",
+                "{uri}: a miss is never cached as a file"
+            );
+            let body = text_of(response).await;
+            assert!(!body.contains("<title>"), "{uri} answered with the index");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_not_modified_hashed_asset_keeps_its_long_lifetime() {
+        let root = tempfile::tempdir().unwrap();
+        let web = WebDir::open(&web_fixture(root.path())).unwrap();
+        let (api, _data) = router_for_test(Some(web), &[]);
+
+        let first = ask(&api, get("/assets/app-3f9c.js")).await;
+        let modified = first.headers()[header::LAST_MODIFIED].clone();
+        let conditional = Request::get("/assets/app-3f9c.js")
+            .header("host", TEST_HOST)
+            .header(header::IF_MODIFIED_SINCE, modified)
+            .body(Body::empty())
+            .unwrap();
+        let response = ask(&api, conditional).await;
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(
+            cache_control(&response),
+            "public, max-age=31536000, immutable",
+            "the revalidated answer keeps the asset's lifetime"
+        );
+    }
+
+    #[tokio::test]
+    async fn files_outside_the_web_directory_are_not_reachable() {
+        let root = tempfile::tempdir().unwrap();
+        let web = WebDir::open(&web_fixture(root.path())).unwrap();
+        let (api, _data) = router_for_test(Some(web), &[]);
+
+        for uri in [
+            "/secret.txt",
+            "/../secret.txt",
+            "/%2e%2e/secret.txt",
+            "/%2E%2E%2fsecret.txt",
+            "/assets/..%2f..%2fsecret.txt",
+            "/assets/%2e%2e/%2e%2e/secret.txt",
+            "/%00",
+        ] {
+            let response = ask(&api, get(uri)).await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+            let body = text_of(response).await;
+            assert!(
+                !body.contains("not for the web"),
+                "{uri} reached the secret"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn api_paths_without_a_route_keep_their_json_answer() {
+        let root = tempfile::tempdir().unwrap();
+        let web = WebDir::open(&web_fixture(root.path())).unwrap();
+        let (api, _data) = router_for_test(Some(web), &[]);
+
+        for uri in ["/api", "/api/", "/api/nope", "/api/v1/nope"] {
+            let response = ask(&api, get(uri)).await;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+            assert_eq!(json_of(response).await["code"], "not_found", "{uri}");
+        }
+
+        let response = ask(&api, get("/api/v1/health")).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let wrong_method = Request::post("/api/v1/health")
+            .header("host", TEST_HOST)
+            .body(Body::empty())
+            .unwrap();
+        let response = ask(&api, wrong_method).await;
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(json_of(response).await["code"], "method_not_allowed");
+    }
+
+    #[tokio::test]
+    async fn every_answer_carries_the_security_headers() {
+        let root = tempfile::tempdir().unwrap();
+        let web = WebDir::open(&web_fixture(root.path())).unwrap();
+        let (api, _data) = router_for_test(Some(web), &[]);
+        let (plain, _plain_data) = router_for_test(None, &[]);
+        let foreign_host = Request::get("/")
+            .header("host", "evil.example")
+            .body(Body::empty())
+            .unwrap();
+
+        let answers = [
+            ("GET / from the web app", ask(&api, get("/")).await),
+            (
+                "GET /documents/42 from the web app",
+                ask(&api, get("/documents/42")).await,
+            ),
+            ("GET /api/v1/health", ask(&api, get("/api/v1/health")).await),
+            ("GET /api/nope", ask(&api, get("/api/nope")).await),
+            ("GET with a foreign Host", ask(&api, foreign_host).await),
+            ("GET / without a web app", ask(&plain, get("/")).await),
+        ];
+        for (answer, response) in &answers {
+            assert_security_headers(response, answer);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_foreign_host_is_refused_for_web_files_as_for_the_api() {
+        let root = tempfile::tempdir().unwrap();
+        let web = WebDir::open(&web_fixture(root.path())).unwrap();
+        let (api, _data) = router_for_test(Some(web), &[]);
+
+        for uri in ["/", "/assets/app-3f9c.js"] {
+            let request = Request::get(uri)
+                .header("host", "evil.example")
+                .body(Body::empty())
+                .unwrap();
+            let response = ask(&api, request).await;
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
+            assert_eq!(json_of(response).await["code"], "forbidden_host", "{uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn without_a_web_directory_the_root_is_an_unknown_api_path() {
+        let (plain, _data) = router_for_test(None, &[]);
+        let response = ask(&plain, get("/")).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(json_of(response).await["code"], "not_found");
+    }
+
+    #[tokio::test]
+    async fn with_a_web_directory_only_the_own_origin_may_write() {
+        let root = tempfile::tempdir().unwrap();
+        let web = WebDir::open(&web_fixture(root.path())).unwrap();
+        let (api, _data) = router_for_test(Some(web), &[]);
+        let create = |origin: &str| {
+            Request::post("/api/v1/documents")
+                .header("host", TEST_HOST)
+                .header("origin", origin)
+                .header("sec-fetch-site", "same-origin")
+                .header("content-type", "application/json")
+                .header(SESSION_HEADER, TEST_TOKEN)
+                .body(Body::from(r#"{"request_id":"create-1"}"#))
+                .unwrap()
+        };
+
+        let response = ask(&api, create("http://127.0.0.1:5173")).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(json_of(response).await["code"], "forbidden_origin");
+
+        let response = ask(&api, create("http://127.0.0.1:3999")).await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    #[test]
+    fn a_web_directory_must_be_a_directory_with_an_index() {
+        let root = tempfile::tempdir().unwrap();
+
+        let error = WebDir::open(&root.path().join("missing")).unwrap_err();
+        assert!(error.contains("cannot be read"), "{error}");
+
+        let file = root.path().join("index.html");
+        fs::write(&file, "<!doctype html>").unwrap();
+        let error = WebDir::open(&file).unwrap_err();
+        assert!(error.contains("is not a directory"), "{error}");
+
+        let bare = root.path().join("bare");
+        fs::create_dir(&bare).unwrap();
+        let error = WebDir::open(&bare).unwrap_err();
+        assert!(error.contains("has no index.html"), "{error}");
+
+        let dir = web_fixture(root.path());
+        let web = WebDir::open(&dir).unwrap();
+        assert_eq!(web.path(), dir.canonicalize().unwrap());
     }
 }

@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use chemifree_api::{ApiState, DEFAULT_WEB_ORIGINS};
+use chemifree_api::{ApiState, DEFAULT_WEB_ORIGINS, WebDir};
 use chemifree_host::{InchiArgs, LocalStores, local_application, with_selected_providers};
 use chemifree_providers::default_data_dir;
 use clap::Parser;
@@ -19,6 +19,10 @@ struct Args {
     /// Directory for saved documents. Defaults to the platform user-data directory.
     #[arg(long, env = "CHEMIFREE_DATA_DIR")]
     data_dir: Option<PathBuf>,
+    /// Built web app to serve from this origin beside the API. The directory must hold an
+    /// `index.html`. Without it, the API serves no web files.
+    #[arg(long, env = "CHEMIFREE_WEB_DIR")]
+    web_dir: Option<PathBuf>,
     /// Optional native InChI registration; absent or rejected registration leaves the host usable.
     #[command(flatten)]
     inchi: InchiArgs,
@@ -29,7 +33,8 @@ struct Args {
     #[arg(long, env = "CHEMIFREE_MODEL_TRUSTED_REGISTRY")]
     model_trusted_registry: Option<PathBuf>,
     /// Loopback web origin allowed to use the API (repeatable). Defaults to the local
-    /// development and preview origins on ports 5173 and 4173.
+    /// development and preview origins on ports 5173 and 4173, or to none when `--web-dir`
+    /// serves the web app from this origin.
     #[arg(long = "allow-origin", value_name = "ORIGIN")]
     allow_origins: Vec<String>,
     /// Log one line per request to standard error (method, path, status, duration), for
@@ -42,6 +47,8 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
+    // Checked before anything is created or pruned, so a bad web directory changes nothing.
+    let web_dir = args.web_dir.as_deref().map(WebDir::open).transpose()?;
     let data_dir = args
         .data_dir
         .or_else(default_data_dir)
@@ -60,16 +67,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     getrandom::fill(&mut token).map_err(|error| format!("no system randomness: {error}"))?;
     let token: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
 
-    let origins = if args.allow_origins.is_empty() {
-        DEFAULT_WEB_ORIGINS.map(String::from).to_vec()
-    } else {
-        args.allow_origins
-    };
+    let origins = allowed_origins(args.allow_origins, web_dir.is_some());
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, args.port)).await?;
     let address = listener.local_addr()?;
     let state = ApiState::new(application, token, address.port(), &origins)?;
+    let state = match web_dir {
+        Some(web_dir) => state.with_web_dir(web_dir),
+        None => state,
+    };
 
     eprintln!("Chemifree API listening on http://{address}");
+    if let Some(web_dir) = state.web_dir() {
+        eprintln!("Web app: {}", web_dir.path().display());
+    }
     eprintln!("Documents: {}", documents.display());
     let state = Arc::new(state);
     let drafts = chemifree_api::DraftWriter::start(Arc::clone(&state));
@@ -91,6 +101,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     served?;
     Ok(())
+}
+
+/// The web origins the API accepts besides its own. `--allow-origin` replaces the defaults
+/// entirely. Without it, an API that serves its own web app accepts none, since that app is
+/// same-origin, and any other API accepts the development and preview origins.
+fn allowed_origins(allow_origins: Vec<String>, serves_web: bool) -> Vec<String> {
+    if !allow_origins.is_empty() {
+        allow_origins
+    } else if serves_web {
+        Vec::new()
+    } else {
+        DEFAULT_WEB_ORIGINS.map(String::from).to_vec()
+    }
 }
 
 async fn shutdown_signal() {
@@ -116,4 +139,35 @@ async fn shutdown_signal() {
 
     #[cfg(not(unix))]
     ctrl_c.await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_command_line_origins_replace_the_defaults() {
+        let given = vec!["http://localhost:8080".to_owned()];
+        assert_eq!(
+            allowed_origins(given.clone(), /* serves_web= */ false),
+            ["http://localhost:8080"]
+        );
+        assert_eq!(
+            allowed_origins(given, /* serves_web= */ true),
+            ["http://localhost:8080"]
+        );
+    }
+
+    #[test]
+    fn a_server_with_its_own_web_app_accepts_no_other_origin() {
+        assert!(allowed_origins(Vec::new(), /* serves_web= */ true).is_empty());
+    }
+
+    #[test]
+    fn a_server_without_its_web_app_accepts_the_development_origins() {
+        assert_eq!(
+            allowed_origins(Vec::new(), /* serves_web= */ false),
+            DEFAULT_WEB_ORIGINS
+        );
+    }
 }

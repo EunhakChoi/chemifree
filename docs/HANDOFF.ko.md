@@ -1,5 +1,14 @@
 # Chemifree 새 세션 인계
 
+## P87 S1: API가 빌드된 웹 앱을 같은 출처로 제공 (T1 시작)
+
+사용자 결정(2026-11-13): 웹 자산은 디렉터리에서 제공(`--web-dir`, 단일 실행 파일은 P88), 데이터 디렉터리당 서버 하나(`<data>/server.lock`, S2), 설정은 플래그와 환경 변수만, 기본 포트 3001 유지.
+
+- 구현: `chemifree-api --web-dir <dir>`/`CHEMIFREE_WEB_DIR`. `/`·`/index.html`은 `no-cache`, `/assets/*` 파일 응답(200·304)은 1년 `immutable`, 나머지 파일과 404는 `no-cache`. 파일 없는 경로는 404(인덱스로 돌리지 않음), 디렉터리 밖 경로 404, `/api`·`/api/`·모르는 `/api/...`는 JSON `not_found` 유지. 모든 응답에 CSP·nosniff·`Referrer-Policy: no-referrer`·COOP. 웹 디렉터리가 없거나 `index.html`이 없으면 데이터 디렉터리를 건드리기 전에 시작 실패(종료 1). `--web-dir`이고 `--allow-origin`이 없으면 자기 루프백 출처만 허용(Vite 5173/4173 제외).
+- 의존성: `tower-http` 0.6.11(`fs`, `set-header`)과 전이 crate 다섯(모두 MIT 또는 MIT/Apache).
+- 시험·변이: `lib.rs` 단위 11개, `main.rs` 3개, `apps/api/tests/static_assets.rs` 15개. 서버 단계 변이 13개, 시험 단계 변이 15개가 모두 잡혔다. `startup_assembly.rs`의 `SELECTION_ENV`에 `CHEMIFREE_WEB_DIR` 추가.
+- 남은 P87: S2(`--compute-concurrency`, 포트 충돌 메시지와 종료 코드, `server.lock`, 시작 줄, 프로세스 시험), S3(`build:product`/`start` 스크립트, `scripts/product-server-check.mjs`, CI, README "로컬 제품으로 실행", 검증 문서, 추적표 API-01).
+
 ## chem.inchi 시간 제한 (T0, #106 작은 항목, A안)
 
 `chem.inchi`가 `time_limit_ms`와 호스트 취소를 받는다(슬롯 없음, 응용만 변경). 제한을 맨 먼저 읽어 상한 초과는 제공자가 없어도 거부하고, `inchi_unavailable`·스냅숏·그룹·제공자 식별 거부 뒤 제공자 호출 전에 한 번, 그리고 네이티브 바인딩이 전역 호출 잠금(`NATIVE_CALL`)을 잡은 직후 C 호출 전에 한 번 더 묻는다(리뷰 지적: 잠금을 기다리는 사이 제한이 지난 요청도 끝까지 돌았다). `InchiProvider` 포트가 중단 신호를 받고 `Result<Result<_, InchiError>, Interrupted>`를 돌려준다. C 호출 자체는 중단하지 않으며(시작한 호출은 끝나고 그 응답이 선다), 상한은 등록된 `-W`뿐이다. `time_limit_ms`는 동의 요약값에 들어가지 않는다. 포트·동의 요약값·제한 아래 응답은 그대로다.

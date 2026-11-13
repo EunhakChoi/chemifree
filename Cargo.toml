@@ -36,6 +36,7 @@ sha2 = "0.10.9"
 tempfile = "3.27.0"
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
 tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.6.11", features = ["fs", "set-header"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
