@@ -2395,7 +2395,7 @@ impl<R: DocumentRepository> Documents<R> {
         Ok(response)
     }
 
-    /// Trashed documents, most recently trashed first.
+    /// Trashed documents, most recently trashed first; equal stamps by identifier.
     pub(crate) fn list_trash(&self) -> Result<TrashListResponse, ApplicationError> {
         let mut entries = self.repository.list_trash().map_err(storage_error)?;
         // The cap keeps the most recent deletions, which the stamps give without reading the

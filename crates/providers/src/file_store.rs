@@ -1814,7 +1814,7 @@ mod tests {
         let trashed = store.list_trash().unwrap();
         assert_eq!(trashed.len(), 1);
         assert_eq!(&trashed[0].id, id);
-        assert!(trashed[0].deleted_at_ms.is_some_and(|at| at > 0));
+        assert!(trashed[0].deleted_at_ms.is_some());
         assert_eq!(store.load_trashed(id), Ok(Some(document.clone())));
         assert_eq!(
             store.write_draft(&draft_of(&document, document.revision())),
@@ -1827,6 +1827,26 @@ mod tests {
         assert_eq!(store.load(id), Ok(Some(document.clone())));
         assert_eq!(store.list_trash(), Ok(Vec::new()));
         assert_eq!(store.restore(id), Err(StorageError::Missing));
+    }
+
+    #[test]
+    fn trash_stamps_are_wall_clock_milliseconds() {
+        let (_directory, store) = scratch();
+        let document = drawn(&store);
+        store.save(&document, None).unwrap();
+        let id = document.id();
+
+        let before = milliseconds_since_epoch(SystemTime::now()).unwrap();
+        assert_eq!(store.trash(id, document.revision()), Ok(()));
+        let after = milliseconds_since_epoch(SystemTime::now()).unwrap();
+
+        let trashed = store.list_trash().unwrap();
+        assert_eq!(trashed.len(), 1);
+        let stamp = trashed[0].deleted_at_ms;
+        assert!(
+            stamp.is_some_and(|at| (before..=after).contains(&at)),
+            "trash stamp should be wall-clock ms between {before} and {after}, but was {stamp:?}"
+        );
     }
 
     #[test]
