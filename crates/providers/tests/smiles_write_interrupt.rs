@@ -341,3 +341,24 @@ fn the_stereo_stage_asks_questions_in_the_recorded_style() {
         "the stored center and its group must add questions to the same skeleton without stereo: with stereo asked {stereo}, without asked {skeleton}"
     );
 }
+
+/// Writing CCO asks 6 questions in the recorded style and 7 in the canonical style. The writer
+/// asked 4 and 6 before its read-back parses asked questions. Each read-back parse of CCO asks
+/// one, since a text without aromatic bonds reaches one reader checkpoint: the recorded style
+/// reads back twice (the render and the stereo read-back), so 4 + 2 = 6, and the canonical style
+/// reads back once (the render), so 6 + 1 = 7.
+#[test]
+fn the_cco_write_asks_the_writer_and_read_back_questions() {
+    let cco = Input::of(&drawing("CCO", true));
+    for (style, expected) in [(SmilesStyle::Recorded, 6), (SmilesStyle::Canonical, 7)] {
+        let (outcome, asked) = counted(&cco, style);
+        assert!(
+            matches!(outcome, Ok(Ok(_))),
+            "CCO in {style:?} must be written: {outcome:?}"
+        );
+        assert_eq!(
+            asked, expected,
+            "CCO in {style:?} must ask the writer's questions and one per read-back parse"
+        );
+    }
+}

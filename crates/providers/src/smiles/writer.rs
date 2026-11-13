@@ -27,8 +27,7 @@ use super::double_bonds::{Linked, Topology};
 use super::emit::{self, Item, Link};
 use super::reader::{self, Parsed};
 use super::tables;
-
-type Fail = SmilesError;
+use super::{Fail, Halt, interruptible, uninterrupted};
 
 /// The most hydrogens a bracket atom states: one digit.
 const MAX_WRITTEN_HYDROGENS: u16 = 9;
@@ -78,49 +77,6 @@ impl Plan {
 
 fn fail(code: SmilesCode) -> Fail {
     SmilesError::new(code)
-}
-
-/// Why a write produced no text: the writer refused the drawing, or `interrupt` stopped it.
-#[derive(Debug)]
-enum Halt {
-    /// The writer refused the drawing; this does not depend on the machine.
-    Refused(Fail),
-    /// The write was stopped before it finished; the drawing may well be writable.
-    Interrupted(Interrupted),
-}
-
-impl From<Fail> for Halt {
-    fn from(error: Fail) -> Self {
-        Self::Refused(error)
-    }
-}
-
-impl From<Interrupted> for Halt {
-    fn from(interrupted: Interrupted) -> Self {
-        Self::Interrupted(interrupted)
-    }
-}
-
-/// Keeps a refusal inside the result and reports a stop outside it, so a stop is never read as a
-/// refusal.
-fn interruptible<T>(result: Result<T, Halt>) -> Result<Result<T, Fail>, Interrupted> {
-    match result {
-        Ok(value) => Ok(Ok(value)),
-        Err(Halt::Refused(error)) => Ok(Err(error)),
-        Err(Halt::Interrupted(interrupted)) => Err(interrupted),
-    }
-}
-
-/// Maps the result of a write given [`NEVER`], which cannot stop it. A stop would be a bug, so
-/// it panics rather than being read as a refusal.
-fn uninterrupted<T>(result: Result<T, Halt>) -> Result<T, Fail> {
-    match result {
-        Ok(value) => Ok(value),
-        Err(Halt::Refused(error)) => Err(error),
-        Err(Halt::Interrupted(interrupted)) => {
-            unreachable!("the never-interrupt cannot interrupt: {interrupted:?}")
-        }
-    }
 }
 
 fn check_ranges(atom: &Atom) -> Result<(), Fail> {
@@ -226,7 +182,7 @@ fn render_with_turns(
     // The first pass finds every bare atom that reads back differently; the second, with those
     // bracketed, must read back exactly.
     for repaired in [false, true] {
-        // Emission and read-back parse are unchecked: the 500-command and 16 KiB limits bound them.
+        // Emission is unchecked: the 500-command and 16 KiB limits bound it.
         interrupt.check()?;
         if let Some(plan) = plans
             .iter()
@@ -245,7 +201,7 @@ fn render_with_turns(
             return Err(fail(SmilesCode::OutputTooLong).into());
         }
         interrupt.check()?;
-        let parsed = reader::parse(&emitted.text).map_err(|error| {
+        let parsed = reader::parse_with(&emitted.text, interrupt)?.map_err(|error| {
             fail(SmilesCode::ReadbackMismatch)
                 .because(format!("the text is not read: {}", error.code.as_str()))
         })?;
@@ -795,7 +751,7 @@ fn recorded_stereo(
         return Err(fail(SmilesCode::OutputTooLong).into());
     }
     interrupt.check()?;
-    let parsed = reader::parse(&rendered.text).map_err(|error| {
+    let parsed = reader::parse_with(&rendered.text, interrupt)?.map_err(|error| {
         fail(SmilesCode::ReadbackMismatch)
             .because(format!("stereo readback: {}", error.code.as_str()))
     })?;

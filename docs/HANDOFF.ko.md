@@ -1,5 +1,16 @@
 # Chemifree 새 세션 인계
 
+## SMILES 읽어 돌려보기 파싱의 중단 (T0, #106 작은 항목)
+
+SMILES 내보내기는 쓴 글을 리더로 다시 읽어 확인한다(내보내기마다 최대 7번). 지금까지 이 파싱은 중단 신호를 묻지 않아 시간 제한·취소가 끝날 때까지 기다려야 했다. 이제 묻는다. 시간 제한 아래의 결과는 같고, 가져오기는 여전히 시간 제한이 없다.
+
+- 공급자: `Halt`·`interruptible`·`uninterrupted`·`Fail`을 `smiles/writer.rs`에서 `smiles/mod.rs`로 옮겨 리더와 쓰개가 함께 쓴다(순수 이동). `reader::parse_with(source, interrupt)`를 더했고 `parse`는 그 `NEVER` 감싸개다(가져오기가 쓴다). `analysis::interpret` 감싸개는 호출자가 없어져 지웠다.
+- 점검 지점: (A) 방향족 결합이 있는 글의 방향족 해석(`analysis::interpret_with`의 기존 점검), (B) 해석 직후 한 번. 토큰 처리·고리 인식·입체와 CX 읽기는 여전히 점검 없음(CONTRACT의 SMILES 내보내기 항목).
+- 쓰개: `render_with_turns`와 `recorded_stereo`의 읽어 돌려보기가 `parse_with`를 쓴다. 중단은 `Halt::Interrupted`로 올라가 기존 `time_limit`/`cancelled` 응답이 되며 `readback_mismatch`가 되지 않는다. 점검 전 거부(빈 입력, 문법 오류)는 그대로 거부다.
+- 시험: `reader.rs` 안 단위 시험 5개(`NEVER`이면 `parse`와 같음, 취소는 첫 점검에서 멈춤, 점검 전 거부는 취소 아래에서도 거부, 방향족 글이 더 많이 물음, 첫 질문의 시간 제한), `smiles_write_interrupt.rs`의 `the_cco_write_asks_the_writer_and_read_back_questions`(CCO 질문 수 recorded 4→6, canonical 6→7 고정; 기존 어느 질문에서든 멈추기 시험이 새 질문까지 덮음).
+- 변이: 지점 B 제거, 지점 A에 `NEVER`, 첫 점검 앞에 점검 추가, 시간 제한을 거부로 바꿈, 쓰개가 `NEVER`를 넘김 — 각각 해당 시험이 실패.
+- 남은 #106 작은 항목: `chem.stereo`·`chem.inchi` 시간 제한.
+
 ## document_list_cap 시계 의존 시험 (T0, #106 작은 항목)
 
 `crates/application/tests/document_list_cap.rs`의 휴지통 경우 둘이 WSL 호스트에서 자주 실패했다. 파일 저장소는 휴지통 이동 시각을 벽시계 밀리초로 찍는데(`file_store.rs`), 벽시계가 뒤로 감길 수 있다(측정: 40초 안에 2.9초 한 번). 시험은 1ms 쉬고 이동 순서와 목록 순서를 같다고 봤다.
@@ -10,7 +21,7 @@
 - 제품 동작은 바뀌지 않았다. CONTRACT의 휴지통 절에 같은 `deleted_at_ms`는 식별자 오름차순으로 나열·보존된다는 규칙(`list_trash`의 두 정렬과 같음)과, `deleted_at_ms`가 벽시계라 시계가 뒤로 가면 그 무렵 지운 문서는 일어난 순서가 아니라 시각 순서로 나열·보존된다는 설명을 더했다. 검증 기록 `docs/verification/list-truncated.md` 갱신.
 - 리뷰 권고였던 단조 증가 시각(B)은 하지 않았다(Opus 판단): 휴지통 이동은 문서별 잠금만 잡으므로 프로세스 간 단조성에는 저장소 전체 잠금과 최고 시각 파일이 필요하고, 사용자에게 보이는 `deleted_at_ms`가 지어낸 미래 시각이 될 수 있다. 필요하면 시각과 별도의 순번을 두는 별도 이슈로 다룬다.
 - 증거: 호스트에서 `document_list_cap` 10회 연속 통과, `npm run check` 전체 통과(2,578개, 이 호스트에서 처음으로 실패 없음).
-- 남은 #106 작은 항목: `reader::parse`·`analysis::interpret`까지 중단 신호 전달, `chem.stereo`·`chem.inchi` 시간 제한.
+- 남은 #106 작은 항목: `chem.stereo`·`chem.inchi` 시간 제한(읽어 돌려보기 파싱의 중단은 다음 PR에서 끝냈다).
 
 ## file_format.rs 분할 (T0, 열한째 PR)
 
@@ -119,7 +130,7 @@ API·CLI·conformance 실행기가 같은 구성 체인을 손으로 되풀이�
 
 - 순서: 매개변수 오류, `not_running`, 시간 제한 거절, 문서 읽기, 쓰기(중단 가능), 코덱 거절, 동의 거절. 중단은 `outcome: "error"`, `result: null`, 스냅숏 revision, style의 `model_id`, `time_limit` 또는 `cancelled`이고 `loss_report`·`loss_digest`가 없으며 `accepted_losses`를 보지 않는다(중단은 손실도 동의도 아니다). export의 다른 오류 응답은 `model_id`가 계속 null이다.
 - 포트: `SmilesCodec`에 필수 메서드 `write_interruptible(graph, style, groups, interrupt) -> Result<Result<SmilesWrite, SmilesError>, Interrupted>`가 생겼다. 기본 구현이 없어서 구현체가 한도를 조용히 무시할 수 없다. 저장소 안의 구현체는 `OpenSmilesCodec` 하나이고, 저장소 밖 구현체는 이 메서드를 추가해야 한다.
-- 제공자 쓰기: 모듈 안 `Halt`로 중단을 환불과 구분한다(`readback_mismatch`·`canonical_limit`은 중단이 만들지 않는다). 점검은 렌더 패스마다, 읽어 돌려보기 파싱 앞, 저장된 입체 기록마다, 방향 결합 배치 앞, 최종 입체 읽기 앞, 정규형의 정체성 검색(`identity::chemical_form_with`)과 방향족 인식(`analysis::interpret_with`)이다. 리더는 가져오기와 공유라 중단 불가이고 내보내기마다 최대 7번 파싱한다(CONTRACT에 적었다).
+- 제공자 쓰기: 모듈 안 `Halt`로 중단을 환불과 구분한다(`readback_mismatch`·`canonical_limit`은 중단이 만들지 않는다). 점검은 렌더 패스마다, 읽어 돌려보기 파싱 앞, 저장된 입체 기록마다, 방향 결합 배치 앞, 최종 입체 읽기 앞, 정규형의 정체성 검색(`identity::chemical_form_with`)과 방향족 인식(`analysis::interpret_with`)이다. 리더는 가져오기와 공유라 중단 불가이고 내보내기마다 최대 7번 파싱한다(CONTRACT에 적었다). (2026-11 갱신: 읽어 돌려보기 파싱은 이제 `reader::parse_with`로 중단된다. 맨 위 절 참고.)
 - 웹 SMILES 패널은 `time_limit_ms`를 보내지 않아 기본 한도를 받는다. 지금 상한 안에서는 걸릴 가능성이 아주 낮지만 느린 환경에서는 이론상 `time_limit`이 나올 수 있고, 웹은 그 코드를 구분해 보여 준다(위 "웹 중단 표시" 절).
 - 검증 기록: `verification/p41-read-only-time-limit.md`의 "SMILES export" 절.
 - 남은 P41 항목: 이슈 #106의 작은 항목. 그 뒤 T0의 구조 정리가 이어진다. (잠금 배치는 셋째 PR, 웹 표시는 넷째 PR에서 끝났다.)
