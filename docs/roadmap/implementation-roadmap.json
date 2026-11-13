@@ -3018,7 +3018,7 @@
    "acceptance": "깨끗한 환경에서 npm dev/Vite 없이 웹·API·CLI를 사용하고 loopback 쓰기 보호·복구·포트 충돌·정상 종료를 검사한다.",
    "kind": "core",
    "id": "P87",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "presentation",
     "logic",
@@ -3030,7 +3030,16 @@
     "P04",
     "P05"
    ],
-   "note": "트랙 T1의 첫 행이며 P42와 병행할 수 있다. 로컬 MCP(P82)는 실행 중인 이 서버의 클라이언트로 붙으므로 P87이 먼저다. 동시 계산 상한(#248) 같은 서버 설정을 노출하는 방법도 여기서 정한다. 구현(2026-11-14, 병합 뒤 완료 표시): S1 #268(--web-dir 같은 origin 제공·보안 헤더), S2 #269(--compute-concurrency, 포트 충돌 종료 3, <data>/server.lock 종료 4), S3(build:product·start·test:product, 제품 서버 점검, README). 동시 계산 상한은 플래그·환경 변수로만 노출하고 capabilities 필드는 넣지 않는다(사용자 결정). 단일 실행 파일은 P88."
+   "note": "트랙 T1의 첫 행이며 P42와 병행할 수 있다. 로컬 MCP(P82)는 실행 중인 이 서버의 클라이언트로 붙으므로 P87이 먼저다. 동시 계산 상한(#248) 같은 서버 설정을 노출하는 방법도 여기서 정한다. 완료(2026-11-14): S1 #268(--web-dir 같은 origin 제공·보안 헤더), S2 #269(--compute-concurrency, 포트 충돌 종료 3, <data>/server.lock 종료 4), S3 #270(build:product·start·test:product, 제품 서버 점검, README). 동시 계산 상한은 플래그·환경 변수로만 노출하고 capabilities 필드는 넣지 않는다(사용자 결정). 단일 실행 파일은 P88.",
+   "delivered": {
+    "prs": [
+     268,
+     269,
+     270
+    ],
+    "merge_commit": "7466befa",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/43483247545"
+   }
   },
   {
    "phase": "release",
