@@ -23,7 +23,8 @@ const ALL_CODECS_LABEL: &str = "MOL/SDF, CDXML, CDX, SMILES and SVG subsets";
 /// The stderr line for a partial optional InChI registration.
 const INCHI_REFUSAL: &str = "Optional InChI provider unavailable (inchi_registration_invalid): Optional InChI registration requires --inchi-library, --inchi-version (1.07.5), and --inchi-sha256 together.";
 /// Environment variables that select host settings. Each child starts without them.
-const SELECTION_ENV: [&str; 9] = [
+const SELECTION_ENV: [&str; 10] = [
+    "CHEMIFREE_COMPUTE_CONCURRENCY",
     "CHEMIFREE_DATA_DIR",
     "CHEMIFREE_MODEL_DATA_ROOT",
     "CHEMIFREE_MODEL_TRUSTED_REGISTRY",

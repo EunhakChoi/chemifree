@@ -1,5 +1,14 @@
 # Chemifree 새 세션 인계
 
+## P87 S2: 로컬 서버 수명 주기 (T1)
+
+- `--compute-concurrency <n>`/`CHEMIFREE_COMPUTE_CONCURRENCY`(1–64, 서버만). 이미 있던 `Application::with_compute_concurrency`에 넘기고, 없으면 기본값(코어 수와 4 중 작은 값)을 그대로 둔다. 범위 밖·정수 아님·빈 값은 clap 사용 오류(종료 2)로 데이터 디렉터리를 건드리기 전에 거부.
+- 포트 충돌은 한 줄 안내와 종료 3, `--port 0` 허용(시작 줄에 실제 포트).
+- 데이터 디렉터리당 서버 하나: `crates/host/src/server_lock.rs`의 `ServerLock`이 `<data>/server.lock`에 std `File::try_lock`(저장 잠금과 같은 OS 권고 잠금)을 건다. 두 번째 서버는 기록된 pid·URL을 한 줄로 알리고 종료 4. SIGKILL 뒤에도 다음 시작을 막지 않으며, 파일은 지우지 않는다(지우면 두 서버가 다른 파일을 잠글 수 있음). 잠금은 정리(prune)·서비스 전, 해제는 마지막 초안 쓰기 뒤. 데이터 디렉터리가 없으면 시작 때 만든다.
+- 종료 코드 표(0·1·2·3·4)는 CONTRACT "Local server lifecycle". 종료 1 오류는 이제 Display 형식 `Error: <메시지>`(S1 리뷰에서 미룬 따옴표 출력 해결).
+- 시험: `apps/api/tests/server_lifecycle.rs`(실제 바이너리), 잠금·포트 충돌·범위 검사 변이를 잡는다. `contract-smoke.mjs`의 요청 로그 서버는 자기 데이터 디렉터리를 쓴다.
+- 남은 것: Windows에서 `LockFileEx`는 강제 잠금이라 두 번째 서버가 기록을 못 읽어 "pid unknown"이 될 수 있다(미검증). S3(`build:product`/`start`, 제품 서버 점검 스크립트, CI, README, 검증 문서).
+
 ## P87 S1: API가 빌드된 웹 앱을 같은 출처로 제공 (T1 시작)
 
 사용자 결정(2026-11-13): 웹 자산은 디렉터리에서 제공(`--web-dir`, 단일 실행 파일은 P88), 데이터 디렉터리당 서버 하나(`<data>/server.lock`, S2), 설정은 플래그와 환경 변수만, 기본 포트 3001 유지.
