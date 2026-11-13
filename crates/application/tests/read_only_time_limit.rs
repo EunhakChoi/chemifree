@@ -1,7 +1,7 @@
-//! `chem.aromaticity`, `chem.identity`, `chem.substructure` and `chem.properties` run under a
-//! time limit and a cancel, as `chem.cip` does, but take no compute slot. The limit is read before
-//! the document is. A stop replies with no result, the analyzed snapshot's revision and the
-//! operation's model, and it changes nothing.
+//! `chem.aromaticity`, `chem.identity`, `chem.substructure`, `chem.properties` and `chem.stereo`
+//! run under a time limit and a cancel, as `chem.cip` does, but take no compute slot. The limit is
+//! read before the document is. A stop replies with no result, the analyzed snapshot's revision
+//! and the operation's model, and it changes nothing.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -151,7 +151,7 @@ impl Row {
     }
 }
 
-/// The four operations, with the identity operation in both of its modes.
+/// The five operations, with the identity operation in both of its modes.
 fn rows() -> Vec<Row> {
     vec![
         Row {
@@ -178,6 +178,11 @@ fn rows() -> Vec<Row> {
             operation: "chem.properties",
             model_id: "chemifree-properties-1",
             without_limit: |subject, _| json!({"document_id": subject, "scope": "molecule", "property": "formula"}),
+        },
+        Row {
+            operation: "chem.stereo",
+            model_id: "chemifree-stereo-1",
+            without_limit: |subject, _| json!({"document_id": subject}),
         },
     ]
 }

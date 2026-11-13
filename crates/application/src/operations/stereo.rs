@@ -1,9 +1,11 @@
 //! `chem.stereo`: what the document states about stereo against what each scene instance draws.
 //!
 //! Read-only and advisory. The document and its view are copied under one lock, so the reply
-//! names the exact snapshot the comparison is about; the comparison then runs outside the lock.
-//! Nothing is derived into the document, stored or edited, the outcome is `ok`, and a
-//! disagreement is a finding about a valid document, not a loss.
+//! names the exact snapshot the comparison is about; the comparison then runs outside the lock,
+//! under the request's time limit and the host cancel, and takes no compute slot. A stop replies
+//! `error` with `time_limit` or `cancelled`, the snapshot's revision and no result. Nothing is
+//! derived into the document, stored or edited, the outcome is `ok`, and a disagreement is a
+//! finding about a valid document, not a loss.
 
 use chemifree_domain::chemistry::VALENCE_MODEL;
 use chemifree_domain::document::{Document, ObjectId};
@@ -27,6 +29,10 @@ pub(super) struct StereoParameters {
     /// like a wrong or unknown identifier.
     #[serde(default)]
     instance: Option<Value>,
+    /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
+    /// (so it may be above the server's default); above the maximum it is refused.
+    #[serde(default)]
+    time_limit_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -315,7 +321,19 @@ fn general_diagnostics(document: &Document, inspection: &Inspection) -> Vec<Diag
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
-    pub(super) fn stereo(&self, known: &Known, p: StereoParameters) -> OperationResponse {
+    pub(super) fn stereo(
+        &self,
+        known: &Known,
+        p: StereoParameters,
+        cancel: &dyn Interrupt,
+    ) -> OperationResponse {
+        // The limit is read first, as the other read-only inspections read theirs: a limit above
+        // the maximum is refused before the instance or the document is read.
+        let (budget, limit_ms) =
+            match self.start_time_limit_or_refuse(known, p.time_limit_ms, cancel, MODEL_ID) {
+                Ok(started) => started,
+                Err(reply) => return *reply,
+            };
         let invalid_instance = |message: String| {
             let mut reply = known.invalid(Diagnostic {
                 code: ErrorCode::InvalidRequest.as_str(),
@@ -410,9 +428,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             reply.model_id = Some(MODEL_ID.into());
             return reply;
         }
-        let inspection = match stereo_inspection::inspect(&document, &plan, &instances) {
-            Ok(inspection) => inspection,
-            Err(error) => return unreadable(error),
+        let inspection = match self.compute_read_only(&budget, |interrupt| {
+            stereo_inspection::inspect_with(&document, &plan, &instances, interrupt)
+        }) {
+            Ok(Ok(inspection)) => inspection,
+            Ok(Err(error)) => return unreadable(error),
+            Err(interrupted) => {
+                return stopped_read_only(known, revision, interrupted, limit_ms, MODEL_ID);
+            }
         };
         let mut diagnostics = Vec::new();
         let atoms = inspection

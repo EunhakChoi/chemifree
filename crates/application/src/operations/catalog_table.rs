@@ -551,7 +551,7 @@ pub(super) fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         Op::ChemStereo => (
             runs(
                 id,
-                "Read-only comparison of the stored stereo configurations with what each scene instance's drawing shows, per center and double bond, with advisory findings. Nothing is derived into the document and nothing is judged: it computes no CIP label (chem.cip does), no stereogenicity, no ring or strain plausibility.",
+                "Read-only comparison of the stored stereo configurations with what each scene instance's drawing shows, per center and double bond, with advisory findings, under a time limit (time_limit_ms). Nothing is derived into the document and nothing is judged: it computes no CIP label (chem.cip does), no stereogenicity, no ring or strain plausibility.",
             ),
             &[],
         ),

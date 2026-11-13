@@ -1,6 +1,6 @@
 //! The read-only operations that run under a time limit take no compute slot: `chem.aromaticity`,
-//! `chem.identity` (recorded and chemical), `chem.substructure`, `chem.properties` and SMILES
-//! export (`document.export` with `format: "smiles"`, in both styles). Unlike
+//! `chem.identity` (recorded and chemical), `chem.substructure`, `chem.properties`, `chem.stereo`
+//! and SMILES export (`document.export` with `format: "smiles"`, in both styles). Unlike
 //! `chem.aromaticity_convert` and `chem.cip`, they never wait for a slot of
 //! `Application::with_compute_concurrency`, even when every slot is taken. Each runs under its
 //! request's time limit and the host's cancel, and `Application::cancel_computations` refuses it.
@@ -219,7 +219,7 @@ struct Row {
     parameters: fn(&str, &str) -> Value,
 }
 
-/// The four inspections, with the identity operation in both of its modes, and SMILES export in
+/// The five inspections, with the identity operation in both of its modes, and SMILES export in
 /// both of its styles. A drawing's export is `partial`: atom positions have no SMILES form.
 fn rows() -> Vec<Row> {
     vec![
@@ -252,6 +252,12 @@ fn rows() -> Vec<Row> {
             model_id: "chemifree-properties-1",
             outcome: "ok",
             parameters: |subject, _| json!({"document_id": subject, "scope": "molecule", "property": "formula"}),
+        },
+        Row {
+            operation: "chem.stereo",
+            model_id: "chemifree-stereo-1",
+            outcome: "ok",
+            parameters: |subject, _| json!({"document_id": subject}),
         },
         Row {
             operation: "document.export",

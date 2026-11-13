@@ -1060,15 +1060,22 @@ try {
     assert.equal(tooLong.diagnostics[0].code, 'invalid_request')
     assert.equal(tooLong.diagnostics[0].path, 'parameters.time_limit_ms')
     assert.deepEqual(tooLong.diagnostics[0].details, { maximum_ms: 8000 })
-    // The four inspections take the same time_limit_ms and bounds as the conversion above, through both adapters with no CLI flag.
+    // The four inspections and chem.stereo take the same time_limit_ms and bounds as the conversion above, through both adapters with no CLI flag.
     const timedInspections = [
       ['chem.aromaticity', (id) => ({ document_id: id }), 'chemifree-aromaticity-2'],
       ['chem.identity', (id) => ({ document_id: id, other_document_id: id, mode: 'recorded' }), 'chemifree-recorded-graph-1'],
       ['chem.substructure', (id) => ({ query_document_id: id, target_document_id: id }), 'chemifree-substructure-1'],
       ['chem.properties', (id) => ({ document_id: id, scope: 'molecule', property: 'formula' }), 'chemifree-properties-1'],
+      ['chem.stereo', (id) => ({ document_id: id }), 'chemifree-stereo-1'],
     ]
     for (const [operation, inspection, modelId] of timedInspections) {
       const name = operation.replace('chem.', '')
+      // The catalog note of each timed operation names the time limit.
+      assert.match(
+        catalog.result.operations.find((entry) => entry.id === operation).note,
+        /under a time limit \(time_limit_ms\)/,
+        `${operation} names its time limit in the catalog`,
+      )
       const atZero = await both((id) => request(`op-limit-${name}`, operation, { ...inspection(id), time_limit_ms: 0 }))
       assert.deepEqual(
         [atZero.outcome, atZero.model_id, atZero.result, atZero.diagnostics[0].code, atZero.diagnostics[0].details],

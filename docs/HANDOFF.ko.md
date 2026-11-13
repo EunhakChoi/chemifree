@@ -1,5 +1,14 @@
 # Chemifree 새 세션 인계
 
+## chem.stereo 시간 제한 (T0, #106 작은 항목)
+
+`chem.stereo`가 네 읽기 전용 검사와 같은 `time_limit_ms`와 취소를 받는다(계산 자리는 쓰지 않음). 제한 아래의 응답은 같다.
+
+- 도메인: `stereo_inspection::inspect_with`(`inspect`는 `NEVER` 감싸개, 비공개 `Halt`). 점검은 인스턴스 시작마다, 중심·이중결합 항목마다, 마지막 판정 앞에 한 번이다(n×(1+a+b)+1번).
+- 응용: 순서는 제한 → `instance` 읽기 → 스냅숏 → 장면에 없는 인스턴스·20,000 항목 `resource_limit` → 한 번 묻기 → 잠금 밖 계산. 따라서 제한 0이어도 너무 큰 요청은 `resource_limit`이다. 중단은 `chemifree-stereo-1`을 이름으로 하는 기존 중단 응답이다.
+- 시험·변이: `crates/domain/tests/stereo_inspection_interrupt.rs`, `read_only_time_limit.rs`·`read_only_without_slot.rs`의 `chem.stereo` 행. 점검 셋 제거, 응용이 `NEVER` 전달, 중단을 `document_unreadable`로, 스냅숏 뒤 제한 읽기, 자리 잡기 변이를 각각 잡는다.
+- 남은 #106 작은 항목: `chem.inchi` 시간 제한. Opus 권고는 A안(네이티브 호출 직전에 한 번만 묻고, 호출과 전역 잠금 대기는 점검 없음으로 문서화, `time_limit_ms`는 동의 요약값에 넣지 않음). 요청마다 `-W`를 줄이는 B안과 보조 프로세스로 실제 중단하는 D안은 사용자 결정 사항이다.
+
 ## SMILES 읽어 돌려보기 파싱의 중단 (T0, #106 작은 항목)
 
 SMILES 내보내기는 쓴 글을 리더로 다시 읽어 확인한다(내보내기마다 최대 7번). 지금까지 이 파싱은 중단 신호를 묻지 않아 시간 제한·취소가 끝날 때까지 기다려야 했다. 이제 묻는다. 시간 제한 아래의 결과는 같고, 가져오기는 여전히 시간 제한이 없다.
@@ -12,7 +21,7 @@ SMILES 내보내기는 쓴 글을 리더로 다시 읽어 확인한다(내보내
 - 리뷰에서 고친 것: 기존 `the_aromaticity_model_asks_questions_in_the_recorded_style`는 읽어 돌려보기 파싱도 방향족 질문을 하게 되어 쓰개 자신의 방향족 점검을 증명하지 못한다. 그래서 `writer.rs` 단위 시험 `the_writers_own_aromaticity_model_asks_questions`(쓰개의 방향족 단계에서 거부되어 읽어 돌려보기가 없는 경로)를 더했다(쓰개 쪽 `interpret_with`에 `NEVER`를 넘기는 변이를 잡음). `NEVER`와 같은지 보는 시험은 `NEVER`가 아닌 답하는 중단으로 비교하게 고쳤다(`parse_with_an_ok_answer_returns_what_parse_returns`). CONTRACT의 canonical 점검 목록과 점검 없는 구간 목록, 리더 주석을 코드에 맞췄다.
 - 그대로 둔 것(후속): 정확한 질문 수 고정(쓰개가 `NEVER`를 넘기는 실수를 잡는 장치라 유지), 같은 `Halt`/`interruptible`/`uninterrupted` 형태가 도메인·응용 일곱 곳에 반복되는 것(공용 `budget::Halt<E>`로 합칠 후보), 읽어 돌려보기 직전 쓰개 점검과 리더 점검의 겹침(옮기면 계약 문구가 바뀜).
 - 주의: 샌드박스 실행기는 작업 트리를 수정 시각을 보존해 복사하고 빌드 캐시를 공유하므로, 변이 후 `cp -p`로 되돌린 파일은 다시 컴파일되지 않을 수 있다(이번에 두 번 일어남). 되돌린 뒤 `touch`할 것.
-- 남은 #106 작은 항목: `chem.stereo`·`chem.inchi` 시간 제한.
+- 남은 #106 작은 항목: `chem.inchi` 시간 제한(`chem.stereo`는 다음 PR에서 끝냈다).
 
 ## document_list_cap 시계 의존 시험 (T0, #106 작은 항목)
 

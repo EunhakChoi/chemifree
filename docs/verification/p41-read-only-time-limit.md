@@ -1,6 +1,6 @@
 # P41: time limit and cancel for four read-only operations
 
-Status: bounded. `chem.aromaticity`, `chem.identity`, `chem.substructure` and `chem.properties` take the `time_limit_ms` of [CONTRACT.md "Computation time limit and cancel"](../CONTRACT.md#computation-time-limit-and-cancel) and the host cancel. They take no compute-gate slot. SMILES export, `chem.stereo` and `chem.inchi` do not have them yet. This is the first pull request of track T0; the plan, slicing and the lead's decision are in HANDOFF.ko.md ("T0 진행").
+Status: bounded. `chem.aromaticity`, `chem.identity`, `chem.substructure` and `chem.properties` take the `time_limit_ms` of [CONTRACT.md "Computation time limit and cancel"](../CONTRACT.md#computation-time-limit-and-cancel) and the host cancel. They take no compute-gate slot. SMILES export and (since #106, 2026-11) `chem.stereo` have them too (sections below); `chem.inchi` does not yet. This is the first pull request of track T0; the plan, slicing and the lead's decision are in HANDOFF.ko.md ("T0 진행").
 
 ## What changed
 
@@ -33,3 +33,11 @@ Status: bounded. `document.export` with `format: "smiles"` (recorded and canonic
 - Tests (new files): `crates/domain/tests/chemical_form_interrupt.rs`, `crates/providers/tests/smiles_write_interrupt.rs` (the interruptible write equals `write_with_groups` below the limit, a stop at the counted checkpoints, stop versus refusal), `crates/application/tests/smiles_export_time_limit.rs` (limit order, `model_id`, stop reply, no losses or digest, consent order, both styles, cancel), SMILES rows in `read_only_without_slot.rs` (no slot), a loop in `scripts/contract-smoke.mjs` (HTTP and CLI).
 - Mutations (private copies, observed failing assertions in the PR comment): the checkpoints removed, a stop returned as `CanonicalLimit`, the style ignored in `write_interruptible`, a stop returned as a result, no limit armed, the limit read after the document, the write given `NEVER`, losses or `model_id` on the stop reply, the consent refusal before or inside the stop.
 - Not covered: the token pass, ring perception and stereo/CX reading of each read-back parse (up to 7 per export) and the other stretches listed in CONTRACT have no checkpoint; no latency is promised.
+
+## chem.stereo (T0, #106)
+
+- Domain: `stereo_inspection::inspect_with(document, plan, instances, interrupt)`; `inspect` is its `NEVER` wrapper, with a private `Halt` (no public error type gains a variant). Checkpoints: the start of each instance, each center entry, each double-bond entry, once before the closing findings (n×(1+a+b)+1 questions).
+- Application: `time_limit_ms` on `StereoParameters`, the dispatcher passes the host cancel; order: limit, `instance` parse, snapshot, membership, plan, the 20,000-entry `resource_limit`, then `compute_read_only`; no compute slot; a stop is `stopped_read_only` with `chemifree-stereo-1`.
+- Tests: `crates/domain/tests/stereo_inspection_interrupt.rs` (an answering interrupt gives `inspect`'s result; a stop at every question for both reasons; the exact question count for 0, 1 and 2 instances). A `chem.stereo` row in `crates/application/tests/read_only_time_limit.rs` and `read_only_without_slot.rs` (unchanged below the limit, limit 0, cancel over an expired limit, an unknown document refused by an over-maximum limit, a stop inside, no slot, host cancel and `cancel_computations`). Catalog wording and `scripts/contract-smoke.mjs` include it.
+- Mutations, each caught: the per-instance, per-entry or final checkpoint removed; the application passing `NEVER`; a stop mapped to `document_unreadable`; the limit read after the snapshot; a slot taken with `compute_gate.enter`.
+- Not covered: the stretches named in CONTRACT ("`chem.stereo`" bullet); no latency is promised.
