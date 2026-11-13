@@ -2660,7 +2660,21 @@ The API binds `127.0.0.1` only and never sends CORS headers.
 3. Writes require the header returned by `GET /api/v1/session` (`x-chemifree-session: <token>`), otherwise `401 unauthorized`. The token is random per API process; a restarted API issues a new one.
 4. Writes require `Content-Type: application/json` (`415 unsupported_media_type`) and at most 256 KiB (`413 payload_too_large`).
 
-Allowed web origins default to `http://127.0.0.1:5173`, `http://localhost:5173`, and the same hosts on port 4173; `--allow-origin` replaces the list and accepts loopback origins only. This keeps other websites from driving the API. It is not user authentication: any local process that can reach the port can obtain the token, so it does not separate local OS users. `authentication` stays `not_implemented`.
+Allowed web origins default to `http://127.0.0.1:5173`, `http://localhost:5173`, and the same hosts on port 4173; `--allow-origin` replaces the list and accepts loopback origins only. With `--web-dir` and no `--allow-origin`, only the server's own loopback origins are allowed. This keeps other websites from driving the API. It is not user authentication: any local process that can reach the port can obtain the token, so it does not separate local OS users. `authentication` stays `not_implemented`.
+
+
+## Serving the web app
+
+`chemifree-api --web-dir <dir>` (or `CHEMIFREE_WEB_DIR`) serves a built web app from `<dir>` on the API's own origin. Without it the API serves no files. Startup fails (exit 1, naming the directory) before the data directory is touched when `<dir>` is not a readable directory or has no readable `index.html`.
+
+- `GET /` and `/index.html` answer the index with `Cache-Control: no-cache`; files under `/assets/` answer with `public, max-age=31536000, immutable` (also on `304`); other files use `no-cache`.
+- A path without a file is `404`; there is no fallback to the index. Paths are decided after percent-decoding. A path that leaves the directory (`..`, encoded or not), a segment that starts with `.` (for example `/.env`, `/.vite/…`, or `/./index.html`), and a link whose target lies outside the directory are `404`; links that stay inside it are followed.
+- The directory is resolved to its canonical path at startup; replacing a linked `--web-dir` takes effect on restart.
+- `/api`, `/api/` and unknown `/api/...` paths keep the JSON `not_found` envelope. A method other than `GET`/`HEAD` is `405` on an existing file and `404` on a path without one.
+- Write protection applies unchanged; the `Host` check covers file requests too.
+- Every answer, API or file, carries `Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Cross-Origin-Opener-Policy: same-origin`.
+
+This is the first slice of the local product server (P87). Compute concurrency, the data-directory server lock, port-conflict handling and the `build:product`/`start` scripts are not implemented yet.
 
 ## Errors
 

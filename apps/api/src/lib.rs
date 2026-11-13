@@ -7,19 +7,28 @@
 //! 3. Writes must carry the per-process session token in `x-chemifree-session`, a
 //!    `Content-Type: application/json` body, and at most [`MAX_BODY_BYTES`].
 //!
+//! Every answer, API or web file, carries the headers listed in `SECURITY_HEADERS`. With a web
+//! directory ([`ApiState::with_web_dir`]), the built web app is served from the same origin: its
+//! files pass the same `Host` guard, and no path outside `/api` falls back to `index.html`. Only
+//! files inside that directory are served: a dot-prefixed path, or a symlink that leads outside
+//! it, answers 404.
+//!
 //! This keeps other websites from driving the local API. It is not user authentication:
 //! any local process that can reach the loopback port can obtain the token.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::extract::rejection::{JsonRejection, QueryRejection};
 use axum::extract::{DefaultBodyLimit, FromRequest, Path, Query, Request, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{any, get, post, put};
 use axum::{Json, Router};
 use chemifree_application::{
     API_VERSION, ApplicationError, CancelFlag, CapabilitiesResponse, CloseRequest, CloseResponse,
@@ -33,12 +42,14 @@ use chemifree_application::{
 use chemifree_providers::{FileDocumentRepository, LocalCapabilities};
 use http_body_util::LengthLimitError;
 use serde::Serialize;
+use tower_http::services::ServeDir;
 
 pub use chemifree_host::LocalApplication;
 
 pub const SESSION_HEADER: &str = "x-chemifree-session";
 pub const MAX_BODY_BYTES: usize = 256 * 1024;
-/// Development (Vite) and preview origins allowed when none are configured.
+/// Development (Vite) and preview origins. The API binary allows them when no origin is configured
+/// and it serves no web app.
 pub const DEFAULT_WEB_ORIGINS: [&str; 4] = [
     "http://127.0.0.1:5173",
     "http://localhost:5173",
@@ -46,11 +57,27 @@ pub const DEFAULT_WEB_ORIGINS: [&str; 4] = [
     "http://localhost:4173",
 ];
 
+/// Headers that every answer carries, API and web files alike.
+const SECURITY_HEADERS: [(HeaderName, &str); 4] = [
+    (
+        header::CONTENT_SECURITY_POLICY,
+        "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; \
+         connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    ),
+    (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+    (header::REFERRER_POLICY, "no-referrer"),
+    (
+        HeaderName::from_static("cross-origin-opener-policy"),
+        "same-origin",
+    ),
+];
+
 pub struct ApiState {
     application: Arc<LocalApplication>,
     token: String,
     allowed_hosts: HashSet<String>,
     allowed_origins: HashSet<String>,
+    web_dir: Option<WebDir>,
 }
 
 impl ApiState {
@@ -80,7 +107,22 @@ impl ApiState {
             token,
             allowed_hosts,
             allowed_origins,
+            web_dir: None,
         })
+    }
+
+    /// Also serves the built web app in `web_dir` from this origin, beside the API. Without it,
+    /// the API serves no web files.
+    #[must_use]
+    pub fn with_web_dir(mut self, web_dir: WebDir) -> Self {
+        self.web_dir = Some(web_dir);
+        self
+    }
+
+    /// The web directory served with the API, if any.
+    #[must_use]
+    pub fn web_dir(&self) -> Option<&WebDir> {
+        self.web_dir.as_ref()
     }
 
     /// Ends every running and waiting computation with `cancelled`, leaving its document
@@ -89,6 +131,51 @@ impl ApiState {
     /// their clients still receive `cancelled`.
     pub fn cancel_computations(&self) {
         self.application.cancel_computations();
+    }
+}
+
+/// A directory of built web assets, checked when it is opened: a directory that holds an
+/// `index.html` file. [`ApiState::with_web_dir`] serves it.
+#[derive(Clone, Debug)]
+pub struct WebDir(PathBuf);
+
+impl WebDir {
+    /// Opens `dir` as a web directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message naming `dir` when it cannot be read, is not a directory, or holds no
+    /// `index.html` file that can be read.
+    pub fn open(dir: &std::path::Path) -> Result<Self, String> {
+        let shown = dir.display();
+        let metadata = fs::metadata(dir)
+            .map_err(|error| format!("web directory {shown} cannot be read: {error}"))?;
+        if !metadata.is_dir() {
+            return Err(format!("web directory {shown} is not a directory"));
+        }
+        let index = dir.join("index.html");
+        if !index.is_file() {
+            return Err(format!(
+                "web directory {shown} has no index.html; pass the output directory of a web build"
+            ));
+        }
+        // `is_file` reads only metadata, which a file the server cannot read still has. Opening it
+        // checks that `/` can be served before the data directory is created or pruned.
+        if let Err(error) = fs::File::open(&index) {
+            return Err(format!(
+                "web directory {shown} has an index.html that cannot be read: {error}"
+            ));
+        }
+        let root = dir
+            .canonicalize()
+            .map_err(|error| format!("web directory {shown} cannot be resolved: {error}"))?;
+        Ok(Self(root))
+    }
+
+    /// The canonical path of the directory.
+    #[must_use]
+    pub fn path(&self) -> &std::path::Path {
+        &self.0
     }
 }
 
@@ -201,7 +288,7 @@ pub fn router(state: Shared) -> Router {
             state.clone(),
             same_site_only,
         ));
-    Router::new()
+    let api = Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/capabilities", get(capabilities))
         .route("/api/v1/data", get(data_status))
@@ -211,11 +298,120 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/documents/{id}", get(document))
         .merge(writes)
         .merge(session)
-        .fallback(not_found)
-        .method_not_allowed_fallback(method_not_allowed)
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
-        .layer(middleware::from_fn_with_state(state.clone(), allowed_host))
-        .with_state(state)
+        .method_not_allowed_fallback(method_not_allowed);
+    let routes = match state.web_dir() {
+        // Without a web app, every path that matches no route is an unknown API route.
+        None => api.fallback(not_found),
+        // With one, unknown API paths keep their JSON answer, and every other path is a web file.
+        // The `/api` routes stay explicit rather than nested: `nest` sends `/api/` to the web
+        // fallback, and `nest_service` collapses `//` after the prefix.
+        Some(web_dir) => api
+            .route("/api", any(not_found))
+            .route("/api/", any(not_found))
+            .route("/api/{*rest}", any(not_found))
+            .fallback_service(web_files(web_dir)),
+    };
+    with_security_headers(
+        routes
+            .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+            .layer(middleware::from_fn_with_state(state.clone(), allowed_host)),
+    )
+    .with_state(state)
+}
+
+/// The web app's files under `web_dir`, with the cache policy of [`web_cache_control`]. A path
+/// without a file answers 404, because the app has no client-side routes to fall back to. A path
+/// that [`guard_web_files`] refuses gets the same answer.
+fn web_files(web_dir: &WebDir) -> Router {
+    Router::new()
+        // `ServeDir` answers a directory request, `/` included, with that directory's `index.html`.
+        .fallback_service(ServeDir::new(web_dir.path()))
+        .layer(middleware::from_fn_with_state(
+            web_dir.clone(),
+            guard_web_files,
+        ))
+        .layer(middleware::from_fn(web_cache_control))
+}
+
+/// Answers 404 before `ServeDir` runs, for a path that names a dotfile or a file outside the web
+/// directory. `ServeDir` would serve both: it does not hide dot-prefixed names, and it follows
+/// symlinks wherever they lead. The refusal is the answer a missing file gets, so it reveals
+/// nothing about what exists.
+async fn guard_web_files(State(web_dir): State<WebDir>, request: Request, next: Next) -> Response {
+    let raw_path = request.uri().path().to_owned();
+    // The check reads the file system, so it runs off the reactor, as `run` does for the API.
+    let checked =
+        tokio::task::spawn_blocking(move || web_file_is_served(web_dir.path(), &raw_path)).await;
+    match checked {
+        Ok(true) => next.run(request).await,
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        // A check that did not finish serves nothing, and says so rather than looking like a miss.
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// Whether `ServeDir` may serve the file that the raw request path names under `root`. No segment
+/// of the decoded path may start with `.`, and the file must resolve, through every symlink, to a
+/// path inside `root`. A symlink that stays inside `root` is served.
+fn web_file_is_served(root: &std::path::Path, raw_path: &str) -> bool {
+    let Some(decoded) = decoded_web_path(raw_path) else {
+        return false;
+    };
+    // Windows takes `\` as a separator too, so a segment may start after one there.
+    if decoded
+        .split(['/', '\\'])
+        .any(|segment| segment.starts_with('.'))
+    {
+        return false;
+    }
+    let mut file = root.to_path_buf();
+    file.extend(decoded.split('/').filter(|segment| !segment.is_empty()));
+    matches!(file.canonicalize(), Ok(resolved) if resolved.starts_with(root))
+}
+
+/// The request path with its percent-escapes decoded, as `ServeDir` decodes it. `None` when the
+/// decoded bytes are not UTF-8, which `ServeDir` refuses as well.
+fn decoded_web_path(raw_path: &str) -> Option<Cow<'_, str>> {
+    percent_encoding::percent_decode_str(raw_path)
+        .decode_utf8()
+        .ok()
+}
+
+/// Sets how a web file may be cached. Vite names the files under `assets/` by content hash, so
+/// their names never change and they may be cached for a year; every other file, the index
+/// included, is revalidated on use. The path is decoded first, so an escaped spelling of an asset
+/// path gets the policy of the plain one. Only an answer that carries the file gets the long
+/// lifetime, so a missing asset is never cached as one.
+async fn web_cache_control(request: Request, next: Next) -> Response {
+    let hashed =
+        decoded_web_path(request.uri().path()).is_some_and(|path| path.starts_with("/assets/"));
+    let mut response = next.run(request).await;
+    let status = response.status();
+    let carries_file = status.is_success() || status == StatusCode::NOT_MODIFIED;
+    let policy = if hashed && carries_file {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    };
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static(policy));
+    response
+}
+
+/// Adds [`SECURITY_HEADERS`] to every answer of `router`, including the refusals made by the
+/// layers beneath it.
+fn with_security_headers(router: Router<Shared>) -> Router<Shared> {
+    router.layer(middleware::map_response(set_security_headers))
+}
+
+/// Sets every [`SECURITY_HEADERS`] entry on `response`, replacing any value it already has.
+async fn set_security_headers(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    for (name, value) in SECURITY_HEADERS {
+        headers.insert(name, HeaderValue::from_static(value));
+    }
+    response
 }
 
 /// An HTTP error with the v1 envelope.
@@ -834,5 +1030,28 @@ mod tests {
 
         let broken = axum::Error::new(std::io::Error::other("connection reset"));
         assert_eq!(unread_body(broken).status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// Checks the whole list that every answer gets. The integration suite sees the four named
+    /// headers on an answer, but not an extra entry added to the list.
+    #[test]
+    fn the_security_policy_is_the_documented_one() {
+        let actual: Vec<(String, &str)> = SECURITY_HEADERS
+            .into_iter()
+            .map(|(name, value)| (name.as_str().to_owned(), value))
+            .collect();
+        let expected: Vec<(String, &str)> = [
+            (
+                "content-security-policy",
+                "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+            ),
+            ("x-content-type-options", "nosniff"),
+            ("referrer-policy", "no-referrer"),
+            ("cross-origin-opener-policy", "same-origin"),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect();
+        assert_eq!(actual, expected);
     }
 }

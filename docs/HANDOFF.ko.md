@@ -1,5 +1,15 @@
 # Chemifree 새 세션 인계
 
+## P87 S1: API가 빌드된 웹 앱을 같은 출처로 제공 (T1 시작)
+
+사용자 결정(2026-11-13): 웹 자산은 디렉터리에서 제공(`--web-dir`, 단일 실행 파일은 P88), 데이터 디렉터리당 서버 하나(`<data>/server.lock`, S2), 설정은 플래그와 환경 변수만, 기본 포트 3001 유지.
+
+- 구현: `chemifree-api --web-dir <dir>`/`CHEMIFREE_WEB_DIR`. `/`·`/index.html`은 `no-cache`, `/assets/*` 파일 응답(200·304)은 1년 `immutable`, 나머지 파일과 404는 `no-cache`. 파일 없는 경로는 404(인덱스로 돌리지 않음), 디렉터리 밖 경로 404, `/api`·`/api/`·모르는 `/api/...`는 JSON `not_found` 유지. 모든 응답에 CSP·nosniff·`Referrer-Policy: no-referrer`·COOP. 웹 디렉터리가 없거나 `index.html`이 없으면 데이터 디렉터리를 건드리기 전에 시작 실패(종료 1). `--web-dir`이고 `--allow-origin`이 없으면 자기 루프백 출처만 허용(Vite 5173/4173 제외).
+- 의존성: `tower-http` 0.6.11(`fs`, `set-header`)과 전이 crate 다섯(모두 MIT 또는 MIT/Apache).
+- 리뷰 반영: 퍼센트 해독 뒤 경로로 판정, `.`로 시작하는 조각과 디렉터리 밖을 가리키는 링크는 404(안쪽 링크는 허용), 보안 헤더는 한 계층, `lib.rs`의 중복 단위 시험을 통합 시험으로 옮김. 웹 디렉터리는 시작 때 정규 경로로 고정(재시작해야 바뀜), 시작 오류의 따옴표 출력은 기존 시작 오류와 같은 형식이라 S2(메시지·종료 코드)에서 다룬다. `/api`의 명시 경로 셋은 `nest`가 `/api/`와 `/api//v1/health` 응답을 바꿔 유지했다.
+- 시험·변이: `main.rs` 3개, `apps/api/tests/static_assets.rs` 26개, `lib.rs` 보안 헤더 목록 1개. 서버 단계 변이 13개, 시험 단계 변이 15개가 모두 잡혔다. `startup_assembly.rs`의 `SELECTION_ENV`에 `CHEMIFREE_WEB_DIR` 추가.
+- 남은 P87: S2(`--compute-concurrency`, 포트 충돌 메시지와 종료 코드, `server.lock`, 시작 줄, 프로세스 시험), S3(`build:product`/`start` 스크립트, `scripts/product-server-check.mjs`, CI, README "로컬 제품으로 실행", 검증 문서, 추적표 API-01).
+
 ## 공용 `budget::Halt<E>` 정리 (T0, 동작 변경 없음)
 
 #264·#265 리뷰에서 나온 후속이다. 중단과 거부를 가르는 사적 `Halt` 사본을 `crates/domain/src/budget.rs`의 `Halt<E>`·`interruptible`·`uninterrupted`로 합쳤다(Opus 계획).
