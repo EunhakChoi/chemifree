@@ -1,24 +1,27 @@
-//! `layout.structure` in preview mode: the coordinates a chain layout would give the selected
-//! atoms, with the sets, boundary and components they were derived from.
+//! `layout.structure`: the request both modes read, the preview of a chain layout, and the refusals
+//! and diagnostics both modes share. The apply, one undoable edit, is in `layout_apply`.
 //!
-//! Read-only. The document is copied under one lock, so the reply names the exact snapshot the
-//! preview is about. The preparation runs outside the lock and is not interruptible; the placement
-//! runs under the request's time limit and the host cancel, and takes no compute slot. Nothing is
-//! changed: the document keeps its revision, history, selection and dirty state. A stop replies
-//! `error` with `time_limit` or `cancelled`, the snapshot's revision and no result. Ring layout,
-//! templates, scoring, collision resolution and applying a layout are not implemented.
+//! A preview is read-only. The document is copied under one lock, so the reply names the exact
+//! snapshot the preview is about. The preparation runs outside the lock and is not interruptible;
+//! the placement runs under the request's time limit and the host cancel, and takes no compute
+//! slot. Nothing is changed: the document keeps its revision, history, selection and dirty state.
+//! A stop replies `error` with `time_limit` or `cancelled`, the snapshot's revision and no result.
+//! Ring layout, templates, scoring and collision resolution are not implemented.
 
-use chemifree_domain::document::{ObjectId, Point};
+use chemifree_domain::document::{Document, ObjectId, Point};
 use chemifree_domain::layout::{
     self, LayoutError, MAX_LISTED_OVERLAPS, MODEL_ID, OVERLAP_FACTOR, PlacedComponent, Preparation,
     Preview, Scope,
 };
+use chemifree_domain::scene::Selection;
 
 use super::*;
 use crate::contract::PositionView;
 
-/// The only mode. A preview states that nothing is applied.
+/// A preview: nothing is applied.
 const PREVIEW: &str = "preview";
+/// An apply: the layout is committed as one undoable edit.
+const APPLY: &str = "apply";
 
 /// The reasons of a `layout_unsupported` refusal, as its `reason` detail names them. Only the
 /// unit test reads this list; it checks the list against `refusal_reply`.
@@ -33,25 +36,48 @@ pub const LAYOUT_REASONS: [&str; 7] = [
     "coordinate_out_of_range",
 ];
 
-/// The parameters of `layout.structure`. The handler checks the mode and the scope, so that a
-/// refusal names the parameter it concerns.
+/// The parameters of `layout.structure`. The handler checks the mode, the fields of the other mode
+/// and the scope, so that a refusal names the parameter it concerns.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct LayoutParameters {
-    document_id: String,
-    /// Must be `"preview"`, the only mode.
-    mode: String,
-    selection: SelectionDto,
+    pub(super) document_id: String,
+    /// `"preview"` or `"apply"`.
+    pub(super) mode: String,
+    pub(super) selection: SelectionDto,
     /// `"components"` (the default) or `"selection"`.
     #[serde(default)]
-    scope: Option<String>,
+    pub(super) scope: Option<String>,
     /// A scene instance. It may be omitted only while the document has exactly one.
     #[serde(default)]
-    instance: Option<String>,
+    pub(super) instance: Option<String>,
+    /// Required in mode "apply", refused in mode "preview".
+    #[serde(default)]
+    pub(super) expected_revision: Option<u64>,
+    /// Apply only: the history entry's before-selection; without it the current selection.
+    #[serde(default)]
+    pub(super) selection_before: Option<SelectionDto>,
+    /// Apply only: the selection after the edit; without it the surviving selection is kept.
+    #[serde(default)]
+    pub(super) selection_after: Option<SelectionDto>,
     /// The time limit this request asks for, in milliseconds: any value up to the server's maximum
     /// (so it may be above the server's default); above the maximum it is refused.
     #[serde(default)]
-    time_limit_ms: Option<u64>,
+    pub(super) time_limit_ms: Option<u64>,
+}
+
+/// The parts of a request that both modes read before the document: the scope, the requested
+/// instance and the selection that decides which atoms move.
+pub(super) struct LayoutRequest {
+    pub(super) scope: Scope,
+    pub(super) requested: Option<ObjectId>,
+    pub(super) selection: Selection,
+}
+
+/// What the request's mode asks for, with the revision an apply is bound to.
+enum Mode {
+    Preview,
+    Apply { expected_revision: u64 },
 }
 
 /// The atoms and bonds that the layout moves, ascending.
@@ -124,98 +150,70 @@ pub struct LayoutResult {
 }
 
 impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
-    /// Previews the layout that `p` asks for. `Ok` carries the result, the snapshot's revision and
-    /// the diagnostics. `Err` is the complete reply of a refusal or a stop, with `model_id` set.
-    pub(super) fn layout_preview(
+    /// Runs `layout.structure` in the mode that `p` names and returns its complete reply. The
+    /// checks run in the contract's order: the time limit, the mode, the fields of the other mode,
+    /// then the scope, the instance and the selection.
+    pub(super) fn layout_structure(
         &self,
         known: &Known,
         p: LayoutParameters,
         cancel: &dyn Interrupt,
-    ) -> Result<(LayoutResult, u64, Vec<Diagnostic>), Box<OperationResponse>> {
+    ) -> OperationResponse {
         // The limit is read first, so a limit above the maximum is refused before anything else.
         let (budget, limit_ms) =
-            self.start_time_limit_or_refuse(known, p.time_limit_ms, cancel, MODEL_ID)?;
-        if p.mode != PREVIEW {
-            let message = format!(
-                "mode {:?} is not supported: the only mode is \"preview\", and applying a layout is not implemented.",
-                p.mode
-            );
-            let details = fields([("supported", Value::from(vec![PREVIEW]))]);
-            let diagnostic = invalid_request("parameters.mode", message, details);
-            return Err(model_reply(known, Outcome::Error, None, diagnostic));
+            match self.start_time_limit_or_refuse(known, p.time_limit_ms, cancel, MODEL_ID) {
+                Ok(started) => started,
+                Err(reply) => return *reply,
+            };
+        let mode = match read_mode(known, &p) {
+            Ok(mode) => mode,
+            Err(reply) => return *reply,
+        };
+        let request = match read_request(known, &p) {
+            Ok(request) => request,
+            Err(reply) => return *reply,
+        };
+        match mode {
+            Mode::Preview => self.layout_preview(known, &p.document_id, request, &budget, limit_ms),
+            Mode::Apply { expected_revision } => {
+                self.layout_apply(known, p, request, expected_revision, &budget, limit_ms)
+            }
         }
-        let scope = match p.scope.as_deref() {
-            None | Some("components") => Scope::Components,
-            Some("selection") => Scope::Selection,
-            Some(other) => {
-                let message = format!(
-                    "scope {other:?} is not supported: use \"components\" or \"selection\"."
-                );
-                let diagnostic = invalid_request("parameters.scope", message, Map::new());
-                return Err(model_reply(known, Outcome::Error, None, diagnostic));
-            }
-        };
-        let requested = match p
-            .instance
-            .as_deref()
-            .map(crate::contract::instance_id)
-            .transpose()
-        {
-            Ok(requested) => requested,
-            Err(message) => {
-                let diagnostic = invalid_request("parameters.instance", message, Map::new());
-                return Err(model_reply(known, Outcome::Error, None, diagnostic));
-            }
-        };
-        let selection = match crate::contract::exact_selection(&p.selection) {
-            Ok(selection) => selection,
-            Err(message) => {
-                let details = fields([("reason", "selection_unknown".into())]);
-                let diagnostic = invalid_request("parameters.selection", message, details);
-                return Err(model_reply(known, Outcome::Error, None, diagnostic));
-            }
-        };
-        let (snapshot, document) = match self.documents.analysis_snapshot(&p.document_id) {
+    }
+
+    /// Previews the layout of `request` in the document `document_id`. Its reply is complete: a
+    /// refusal or a stop is the reply too, with `model_id` set.
+    fn layout_preview(
+        &self,
+        known: &Known,
+        document_id: &str,
+        request: LayoutRequest,
+        budget: &Budget<'_>,
+        limit_ms: u64,
+    ) -> OperationResponse {
+        let (snapshot, document) = match self.documents.analysis_snapshot(document_id) {
             Ok(captured) => captured,
             Err(error) => {
                 let diagnostic = failure(&error);
-                return Err(model_reply(
-                    known,
-                    Outcome::Error,
-                    error.current_revision,
-                    diagnostic,
-                ));
+                return *model_reply(known, Outcome::Error, error.current_revision, diagnostic);
             }
         };
         let revision = snapshot.document.revision;
-        let instances: Vec<ObjectId> = document.instances().collect();
-        let instance = match (requested, instances.as_slice()) {
-            (Some(id), _) if instances.contains(&id) => id,
-            (Some(id), _) => {
-                let message = format!("{id} is not a scene instance of this document.");
-                let diagnostic = invalid_request("parameters.instance", message, Map::new());
-                return Err(model_reply(known, Outcome::Error, None, diagnostic));
-            }
-            (None, [only]) => *only,
-            (None, _) => {
-                let message = format!(
-                    "instance is required: the document has {} scene instances.",
-                    instances.len()
-                );
-                let diagnostic = invalid_request("parameters.instance", message, Map::new());
-                return Err(model_reply(known, Outcome::Error, None, diagnostic));
-            }
+        let instance = match resolve_instance(known, request.requested, &document) {
+            Ok(instance) => instance,
+            Err(reply) => return *reply,
         };
-        let prep = layout::prepare(&document, instance, &selection, scope)
-            .map_err(|error| refusal_reply(known, revision, &error))?;
+        let prep = match layout::prepare(&document, instance, &request.selection, request.scope) {
+            Ok(prep) => prep,
+            Err(error) => return *refusal_reply(known, revision, &error),
+        };
         let placed =
-            self.compute_read_only(&budget, |interrupt| layout::place_with(&prep, interrupt));
+            self.compute_read_only(budget, |interrupt| layout::place_with(&prep, interrupt));
         let preview = match placed {
             Ok(Ok(preview)) => preview,
-            Ok(Err(error)) => return Err(refusal_reply(known, revision, &error)),
+            Ok(Err(error)) => return *refusal_reply(known, revision, &error),
             Err(interrupted) => {
-                let reply = stopped_read_only(known, revision, interrupted, limit_ms, MODEL_ID);
-                return Err(Box::new(reply));
+                return stopped_read_only(known, revision, interrupted, limit_ms, MODEL_ID);
             }
         };
         let diagnostics = preview_diagnostics(&prep, &preview);
@@ -223,7 +221,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             snapshot: snapshot.into(),
             mode: PREVIEW,
             instance: instance.to_string(),
-            scope: scope_name(scope),
+            scope: scope_name(request.scope),
             bond_length_pt: prep.bond_length_pt,
             layout: LayoutSetView {
                 atoms: ids(&prep.layout_atoms),
@@ -251,7 +249,14 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 })
                 .collect(),
         };
-        Ok((result, revision, diagnostics))
+        let mut reply = known.reply(
+            Outcome::Ok,
+            Some(revision),
+            Some(OperationResult::Layout(Box::new(result))),
+            diagnostics,
+        );
+        reply.model_id = Some(MODEL_ID.into());
+        reply
     }
 }
 
@@ -280,10 +285,124 @@ fn invalid_request(path: &str, message: String, details: Map<String, Value>) -> 
     }
 }
 
+/// Reads `mode` and refuses a field of the other mode: a preview refuses
+/// `expected_revision`, `selection_before` and `selection_after`, checked in that order, and an
+/// apply requires `expected_revision`. Each refusal names no revision.
+fn read_mode(known: &Known, p: &LayoutParameters) -> Result<Mode, Box<OperationResponse>> {
+    match p.mode.as_str() {
+        PREVIEW => {
+            let forbidden = [
+                ("expected_revision", p.expected_revision.is_some()),
+                ("selection_before", p.selection_before.is_some()),
+                ("selection_after", p.selection_after.is_some()),
+            ];
+            if let Some((field, _)) = forbidden.into_iter().find(|(_, sent)| *sent) {
+                let message = format!(
+                    "{field} is only read in mode \"apply\": a preview changes nothing and \
+                     binds to no revision."
+                );
+                let details = fields([("mode", Value::from(PREVIEW))]);
+                let diagnostic = invalid_request(&format!("parameters.{field}"), message, details);
+                return Err(model_reply(known, Outcome::Error, None, diagnostic));
+            }
+            Ok(Mode::Preview)
+        }
+        APPLY => match p.expected_revision {
+            Some(expected_revision) => Ok(Mode::Apply { expected_revision }),
+            None => {
+                let message = "expected_revision is required in mode \"apply\".".to_owned();
+                let diagnostic =
+                    invalid_request("parameters.expected_revision", message, Map::new());
+                Err(model_reply(known, Outcome::Error, None, diagnostic))
+            }
+        },
+        other => {
+            let message = format!("mode {other:?} is not supported: use \"preview\" or \"apply\".");
+            let details = fields([("supported", Value::from(vec![PREVIEW, APPLY]))]);
+            let diagnostic = invalid_request("parameters.mode", message, details);
+            Err(model_reply(known, Outcome::Error, None, diagnostic))
+        }
+    }
+}
+
+/// Reads the scope, the requested instance and the selection, which both modes share. Each
+/// refusal names no revision.
+fn read_request(
+    known: &Known,
+    p: &LayoutParameters,
+) -> Result<LayoutRequest, Box<OperationResponse>> {
+    let scope = match p.scope.as_deref() {
+        None | Some("components") => Scope::Components,
+        Some("selection") => Scope::Selection,
+        Some(other) => {
+            let message =
+                format!("scope {other:?} is not supported: use \"components\" or \"selection\".");
+            let diagnostic = invalid_request("parameters.scope", message, Map::new());
+            return Err(model_reply(known, Outcome::Error, None, diagnostic));
+        }
+    };
+    let requested = match p
+        .instance
+        .as_deref()
+        .map(crate::contract::instance_id)
+        .transpose()
+    {
+        Ok(requested) => requested,
+        Err(message) => {
+            let diagnostic = invalid_request("parameters.instance", message, Map::new());
+            return Err(model_reply(known, Outcome::Error, None, diagnostic));
+        }
+    };
+    let selection = match crate::contract::exact_selection(&p.selection) {
+        Ok(selection) => selection,
+        Err(message) => {
+            let details = fields([("reason", "selection_unknown".into())]);
+            let diagnostic = invalid_request("parameters.selection", message, details);
+            return Err(model_reply(known, Outcome::Error, None, diagnostic));
+        }
+    };
+    Ok(LayoutRequest {
+        scope,
+        requested,
+        selection,
+    })
+}
+
+/// The scene instance the layout reads: the named one, which must be in `document`, or its
+/// only one. A refusal names no revision.
+pub(super) fn resolve_instance(
+    known: &Known,
+    requested: Option<ObjectId>,
+    document: &Document,
+) -> Result<ObjectId, Box<OperationResponse>> {
+    let instances: Vec<ObjectId> = document.instances().collect();
+    match (requested, instances.as_slice()) {
+        (Some(id), _) if instances.contains(&id) => Ok(id),
+        (Some(id), _) => {
+            let message = format!("{id} is not a scene instance of this document.");
+            let diagnostic = invalid_request("parameters.instance", message, Map::new());
+            Err(model_reply(known, Outcome::Error, None, diagnostic))
+        }
+        (None, [only]) => Ok(*only),
+        (None, _) => {
+            let message = format!(
+                "instance is required: the document has {} scene instances.",
+                instances.len()
+            );
+            let diagnostic = invalid_request("parameters.instance", message, Map::new());
+            Err(model_reply(known, Outcome::Error, None, diagnostic))
+        }
+    }
+}
+
 /// The reply to a refused layout, at the snapshot's `revision`. A selection that is missing or
 /// empty is `invalid_request`, a layout set over the size limit is `resource_limit`, an atom
 /// without a position is `document_unreadable`, and every other refusal is `layout_unsupported`.
-fn refusal_reply(known: &Known, revision: u64, error: &LayoutError) -> Box<OperationResponse> {
+pub(super) fn refusal_reply(
+    known: &Known,
+    revision: u64,
+    error: &LayoutError,
+) -> Box<OperationResponse> {
     let (outcome, code, path) = match error {
         LayoutError::UnknownSelection | LayoutError::EmptySelection => (
             Outcome::Error,
@@ -413,16 +532,28 @@ fn advice(
     }
 }
 
-/// What a successful preview says beyond its result, in the order it is reported. Every preview
-/// says that nothing was applied and what is not implemented; an overlap and a layout set with no
-/// bonds are reported when they hold.
+/// What a successful preview says beyond its result, in the order it is reported: that nothing
+/// was changed, then the diagnostics of the placement.
 fn preview_diagnostics(prep: &Preparation, preview: &Preview) -> Vec<Diagnostic> {
     let mut diagnostics = vec![advice(
         Severity::Info,
         "layout_preview_only",
-        "Nothing was changed; applying a layout is not implemented.",
+        "Nothing was changed; mode \"apply\" applies this layout as one undoable edit.",
         Map::new(),
     )];
+    diagnostics.extend(placement_diagnostics(prep, preview, false));
+    diagnostics
+}
+
+/// The diagnostics of a placement, in the order they are reported: an overlap and a layout set
+/// with no bonds when they hold, `layout_unchanged` when `unchanged` (an apply that moved no
+/// atom), and what is not implemented. A preview passes `unchanged: false`.
+pub(super) fn placement_diagnostics(
+    prep: &Preparation,
+    preview: &Preview,
+    unchanged: bool,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
     if !preview.overlaps.is_empty() {
         let pairs: Vec<Value> = preview
             .overlaps
@@ -448,6 +579,14 @@ fn preview_diagnostics(prep: &Preparation, preview: &Preview) -> Vec<Diagnostic>
             Severity::Info,
             "layout_no_bonds",
             "The layout set has no bonds: a free atom keeps its position, and an atom bonded to a fixed atom is placed one bond length from it.",
+            Map::new(),
+        ));
+    }
+    if unchanged {
+        diagnostics.push(advice(
+            Severity::Info,
+            "layout_unchanged",
+            "Every layout atom is already at its proposed position; nothing was changed.",
             Map::new(),
         ));
     }

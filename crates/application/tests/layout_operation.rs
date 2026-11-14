@@ -394,19 +394,19 @@ fn a_request_without_a_mode_is_refused_as_unreadable_parameters() {
 }
 
 #[test]
-fn a_mode_other_than_preview_is_refused_with_the_supported_modes() {
+fn a_mode_other_than_preview_or_apply_is_refused_with_the_supported_modes() {
     let directory = tempfile::tempdir().unwrap();
     let app = new_app(&directory);
     let id = draw(&app, "butane", butane());
     let mut ids = RequestIds::default();
     let mut parameters = preview_parameters(&id, &["a2"]);
-    parameters["mode"] = json!("apply");
+    parameters["mode"] = json!("rotate");
     let reply = call(&app, &ids.fresh(), "layout.structure", parameters);
 
     let diagnostic = sole_diagnostic(&reply, "invalid_request", "parameters.mode");
     assert_eq!(
         diagnostic["details"]["supported"],
-        json!(["preview"]),
+        json!(["preview", "apply"]),
         "{reply}"
     );
     assert_eq!(reply["model_id"], MODEL_ID, "{reply}");

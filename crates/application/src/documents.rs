@@ -28,11 +28,12 @@ use crate::contract::{
     self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
     DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse,
     DraftFailureView, ListQuery, ListSort, RecoveryState, RecoveryView, RestoreResponse,
-    SettingsSource, TransactionSelections, TrashListResponse, TrashedSummary, UnreadableDocument,
+    SelectionDto, SettingsSource, TransactionSelections, TrashListResponse, TrashedSummary,
+    UnreadableDocument,
 };
 use crate::draft_schedule::DraftSchedule;
 use crate::error::{ApplicationError, ErrorCode, RingRefusal, StorageReason};
-use crate::operations::{Loss, LossConsent, LossDisposition, SemanticImpact};
+use crate::operations::{Diagnostic, Loss, LossConsent, LossDisposition, SemanticImpact};
 use crate::repository::{
     DocumentRepository, Draft, DraftRecoveryTarget, DraftStatus, StorageError,
 };
@@ -75,19 +76,29 @@ enum Mutation {
         expected_revision: u64,
         payload: String,
         offset: crate::contract::PointDto,
-        selection_before: Option<crate::contract::SelectionDto>,
+        selection_before: Option<SelectionDto>,
     },
     ClipboardScenePaste {
         expected_revision: u64,
         payload: String,
         // Signed zero changes translated graphic coordinates and binds the replay request.
         offset_bits: [u64; 2],
-        selection_before: Option<crate::contract::SelectionDto>,
+        selection_before: Option<SelectionDto>,
     },
     AromaticityConversion {
         expected_revision: u64,
         conversion: AromaticityConversion,
         selection: TransactionSelections,
+        /// The time limit as the request stated it (not the resolved one), so that the same
+        /// request ID with another limit is a different request.
+        time_limit_ms: Option<u64>,
+    },
+    LayoutApply {
+        expected_revision: u64,
+        selection: SelectionDto,
+        scope: Option<String>,
+        instance: Option<String>,
+        selections: TransactionSelections,
         /// The time limit as the request stated it (not the resolved one), so that the same
         /// request ID with another limit is a different request.
         time_limit_ms: Option<u64>,
@@ -1084,6 +1095,92 @@ impl<R: DocumentRepository> Documents<R> {
                 .apply_reporting(&commands, &domain_selection);
             conversion_notes(&session.document, result)
         })
+    }
+
+    /// Applies a chain layout as one ordinary undoable edit (`layout.structure` with
+    /// `mode: "apply"`), like [`Self::convert_aromaticity`]. Under one lock a completed request is
+    /// answered from the replay log, a held document is refused, and a document that is not at
+    /// `expected_revision` is refused with `revision_conflict`, before any layout refusal; then the
+    /// document is copied without its history. `prepare` reads the copy with no lock held, and its
+    /// refusal is the caller's own reply, so a deterministic refusal never waits for a slot. A
+    /// compute slot is then taken with the request's budget, and the budget is asked once; `place`
+    /// computes the commands and diagnostics, and the slot is given back. The edit is committed
+    /// under the lock only if the replay, the hold and the revision still allow it and no stop came
+    /// at the last question. A refused edit names no command index, because its commands are
+    /// generated. An edit with no commands changes nothing and is still recorded for replay.
+    pub(crate) fn apply_layout<P, E>(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        request: LayoutApply,
+        compute: Compute<'_>,
+        prepare: impl FnOnce(&Document) -> Result<P, E>,
+        place: impl FnOnce(P, &dyn Interrupt) -> Result<Result<LayoutEdit, E>, Interrupted>,
+    ) -> Result<DocumentResponse, LayoutHalt<E>> {
+        let domain_selection = contract::to_selection(&request.selections)?;
+        let expected_revision = request.expected_revision;
+        let mutation = Mutation::LayoutApply {
+            expected_revision,
+            selection: request.selection,
+            scope: request.scope,
+            instance: request.instance,
+            selections: request.selections,
+            time_limit_ms: compute.requested_ms,
+        };
+        validate_request_id(request_id)?;
+        let document_id = parse_id(id)?;
+        let _running = self.start(Some(&document_id), request_id)?;
+        // Under the lock: answer a completed request, refuse a held document or a stale revision
+        // before any layout refusal, and copy the document. Nothing else happens there.
+        let document = {
+            let mut sessions = self.lock();
+            let session = self.session(&mut sessions, id)?;
+            if let Some(response) = session.replays.find(request_id, &mutation)? {
+                return Ok(response);
+            }
+            if let Some(hold) = session.hold {
+                return Err(held(id, hold).into());
+            }
+            session.expect_revision(expected_revision)?;
+            session.document.without_history()
+        };
+        let prepared = prepare(&document).map_err(LayoutHalt::Refused)?;
+        let stopped = |interrupted: Interrupted| interruption(interrupted, compute.limit_ms);
+        let permit = compute.gate.enter(compute.interrupt).map_err(stopped)?;
+        compute.interrupt.check().map_err(stopped)?;
+        let LayoutEdit {
+            commands,
+            diagnostics,
+        } = place(prepared, compute.interrupt)
+            .map_err(stopped)?
+            .map_err(LayoutHalt::Refused)?;
+        // The slot is given back before the session lock is taken again, so that waiting for
+        // the lock does not keep another computation out.
+        drop(permit);
+        // The lock is taken again, which checks the replay, the hold and the revision again: an
+        // edit made while the layout was computed refuses its result. A stop that came after the
+        // last checkpoint is honoured here, immediately before the edit is committed.
+        let response = self.mutate_running_reporting(
+            id,
+            request_id,
+            expected_revision,
+            mutation,
+            diagnostics,
+            |session| {
+                compute.interrupt.check().map_err(stopped)?;
+                if commands.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let result = session
+                    .document
+                    .apply_reporting(&commands, &domain_selection);
+                edit_notes(&session.document, result).map_err(|refused| ApplicationError {
+                    command_index: None,
+                    ..refused
+                })
+            },
+        )?;
+        Ok(response)
     }
 
     pub(crate) fn transact(
@@ -2716,6 +2813,27 @@ impl<R: DocumentRepository> Documents<R> {
         mutation: Mutation,
         change: impl FnOnce(&mut Session) -> Result<Vec<Loss>, ApplicationError>,
     ) -> Result<DocumentResponse, ApplicationError> {
+        self.mutate_running_reporting(
+            id,
+            request_id,
+            expected_revision,
+            mutation,
+            Vec::new(),
+            change,
+        )
+    }
+
+    /// Like [`Self::mutate_running`], and records `diagnostics` with the reply, so that a replay
+    /// returns them too.
+    fn mutate_running_reporting(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        expected_revision: u64,
+        mutation: Mutation,
+        diagnostics: Vec<Diagnostic>,
+        change: impl FnOnce(&mut Session) -> Result<Vec<Loss>, ApplicationError>,
+    ) -> Result<DocumentResponse, ApplicationError> {
         let mut sessions = self.lock();
         let session = self.session(&mut sessions, id)?;
         if let Some(response) = session.replays.find(request_id, &mutation)? {
@@ -2734,6 +2852,7 @@ impl<R: DocumentRepository> Documents<R> {
         // replay returns them, and no later reply repeats them.
         let response = DocumentResponse {
             notes,
+            diagnostics,
             ..self.respond(session)
         };
         session.replays.record(request_id, mutation, &response);
@@ -2928,6 +3047,40 @@ pub(crate) struct Compute<'a> {
     pub requested_ms: Option<u64>,
     /// The gate the computation takes a slot from before it runs.
     pub gate: &'a ComputeGate,
+}
+
+/// What a `layout.structure` apply asked for, as sent. With the time limit the request stated it
+/// is the replay key, so another `selection`, `scope` or `instance` is another request.
+pub(crate) struct LayoutApply {
+    pub expected_revision: u64,
+    /// The selection the layout reads; it alone decides which atoms move.
+    pub selection: SelectionDto,
+    pub scope: Option<String>,
+    pub instance: Option<String>,
+    /// The history entry's selections, with ordinary transaction meaning.
+    pub selections: TransactionSelections,
+}
+
+/// The edit a layout apply commits and the diagnostics its reply carries. The diagnostics are
+/// recorded with the reply, so a replay returns them.
+pub(crate) struct LayoutEdit {
+    pub commands: Vec<Command>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Why a layout apply ended without an edit.
+pub(crate) enum LayoutHalt<R> {
+    /// A refusal or stop of the session layer: an unreadable selection, the request ID, the
+    /// document, its hold or revision, the slot wait, a stop, or the refused edit.
+    Failed(ApplicationError),
+    /// A refusal of the layout itself, as the caller's complete reply.
+    Refused(R),
+}
+
+impl<R> From<ApplicationError> for LayoutHalt<R> {
+    fn from(error: ApplicationError) -> Self {
+        Self::Failed(error)
+    }
 }
 
 /// A computation stopped before it finished: `limit_ms` is the time limit that was in force.

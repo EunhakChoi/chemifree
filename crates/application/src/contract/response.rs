@@ -8,7 +8,7 @@ use chemifree_domain::states::AtomKind;
 use serde::Serialize;
 
 use crate::API_VERSION;
-use crate::operations::Loss;
+use crate::operations::{Diagnostic, Loss};
 
 use super::chemistry::query_label;
 use super::request::SelectionDto;
@@ -48,6 +48,11 @@ pub struct DocumentResponse {
     /// Added within v1; always present. It describes this request only: `get`, undo, redo and
     /// later replies never repeat it, and a replayed `request_id` returns it again.
     pub notes: Vec<Loss>,
+    /// The operation diagnostics recorded with this reply, so that a replayed `request_id` returns
+    /// them again. Only a `layout.structure` apply sets them. Never serialized, so the REST and
+    /// operation document replies do not change.
+    #[serde(skip)]
+    pub(crate) diagnostics: Vec<Diagnostic>,
 }
 
 /// An abandoned recovery draft: unsaved work of a session whose process ended.
@@ -317,6 +322,7 @@ impl DocumentResponse {
             },
             recovery: None,
             notes: Vec::new(),
+            diagnostics: Vec::new(),
         }
     }
 }

@@ -4,6 +4,7 @@
 //! This is the deterministic core of the preview. It reads a document and states the layout set,
 //! the fixed set, the boundary and the layout components. [`prepare`] returns a [`Preparation`]
 //! only when every refusal below passes, and [`place`] or [`place_with`] lays it out.
+//! [`move_commands`] turns a placed layout into the `MoveAtoms` commands that apply it.
 //!
 //! # Sets
 //!
@@ -66,7 +67,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::budget::{self, Interrupt, Interrupted, NEVER};
-use crate::document::{Atom, AtomId, Bond, BondId, BondOrder, Document, ObjectId, Point};
+use crate::document::{
+    Atom, AtomId, Bond, BondId, BondOrder, Command, Document, MAX_COMMANDS, ObjectId, Point, Vector,
+};
 use crate::graph::MoleculeGraph;
 use crate::rings;
 use crate::scene::Selection;
@@ -83,6 +86,11 @@ pub const MAX_LAYOUT_ATOMS: usize = 500;
 /// cells of this size, so two such points on opposite sides of a cell edge can be ordered apart;
 /// see `placement_order`.
 pub const COINCIDENT_PT: f64 = 1e-6;
+/// The tolerance, in pt on each axis, of a move. A committed move lands on the before position
+/// plus the difference of after minus before, both computed in binary64, so the committed position
+/// can differ from its proposal in the last bits. An atom within this tolerance of its proposal on
+/// both axes is not moved by [`move_commands`], so applying the same layout again commits nothing.
+pub const MOVE_TOLERANCE_PT: f64 = 1e-9;
 /// The distance, in bond lengths, below which two non-bonded atoms count as overlapping.
 pub const OVERLAP_FACTOR: f64 = 0.5;
 /// The most overlapping pairs a [`Preview`] lists. Its `overlap_count` counts every pair.
@@ -514,6 +522,40 @@ pub fn place_with(
 /// outside the coordinate limits.
 pub fn place(prep: &Preparation) -> Result<Preview, LayoutError> {
     budget::uninterrupted(place_halting(prep, &NEVER))
+}
+
+// One command per layout atom at most, so a prepared layout never exceeds a transaction's command
+// limit and needs no refusal of its own.
+const _: () = assert!(MAX_LAYOUT_ATOMS <= MAX_COMMANDS);
+
+/// The edit that applies `preview` in scene instance `instance`: one [`Command::MoveAtoms`] for
+/// each layout atom that moves, ascending by atom as [`Preview::positions`] is. An atom does not
+/// move when its before position is within [`MOVE_TOLERANCE_PT`] of its proposal on both axes, so
+/// an atom already at its place gets no command, a free single atom never gets one, and a layout
+/// already in place commits nothing. Each command translates that one atom by `after - before`,
+/// computed in binary64, in the named instance. Atoms are not grouped by equal delta. At most
+/// [`MAX_LAYOUT_ATOMS`] commands result.
+#[must_use]
+pub fn move_commands(preview: &Preview, instance: ObjectId) -> Vec<Command> {
+    preview
+        .positions
+        .iter()
+        .filter(|placement| !within_move_tolerance(placement))
+        .map(|placement| Command::MoveAtoms {
+            atoms: vec![placement.atom],
+            delta: Vector {
+                dx: placement.after.x() - placement.before.x(),
+                dy: placement.after.y() - placement.before.y(),
+            },
+            instance: Some(instance),
+        })
+        .collect()
+}
+
+/// Whether `placement`'s atom is within [`MOVE_TOLERANCE_PT`] of its proposal on both axes.
+fn within_move_tolerance(placement: &Placement) -> bool {
+    (placement.after.x() - placement.before.x()).abs() <= MOVE_TOLERANCE_PT
+        && (placement.after.y() - placement.before.y()).abs() <= MOVE_TOLERANCE_PT
 }
 
 /// A component with its root and tree chosen, ready to be placed in rank order.
