@@ -4,6 +4,7 @@
 //! This is the deterministic core of the preview. It reads a document and states the layout set,
 //! the fixed set, the boundary and the layout components. [`prepare`] returns a [`Preparation`]
 //! only when every refusal below passes, and [`place`] or [`place_with`] lays it out.
+//! [`move_commands`] turns a placed layout into the `MoveAtoms` commands that apply it.
 //!
 //! # Sets
 //!
@@ -66,7 +67,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::budget::{self, Interrupt, Interrupted, NEVER};
-use crate::document::{Atom, AtomId, Bond, BondId, BondOrder, Document, ObjectId, Point};
+use crate::document::{
+    Atom, AtomId, Bond, BondId, BondOrder, Command, Document, MAX_COMMANDS, ObjectId, Point, Vector,
+};
 use crate::graph::MoleculeGraph;
 use crate::rings;
 use crate::scene::Selection;
@@ -514,6 +517,33 @@ pub fn place_with(
 /// outside the coordinate limits.
 pub fn place(prep: &Preparation) -> Result<Preview, LayoutError> {
     budget::uninterrupted(place_halting(prep, &NEVER))
+}
+
+// One command per layout atom at most, so a prepared layout never exceeds a transaction's command
+// limit and needs no refusal of its own.
+const _: () = assert!(MAX_LAYOUT_ATOMS <= MAX_COMMANDS);
+
+/// The edit that applies `preview` in scene instance `instance`: one [`Command::MoveAtoms`] for
+/// each layout atom whose placed position differs from its before position, ascending by atom as
+/// [`Preview::positions`] is. Each command translates that one atom by `after - before`, computed
+/// in binary64, in the named instance. An atom with `after == before` (exact equality on both
+/// coordinates, so `-0.0 == 0.0`) gets no command, so a free single atom never gets one. Atoms are
+/// not grouped by equal delta. At most [`MAX_LAYOUT_ATOMS`] commands result.
+#[must_use]
+pub fn move_commands(preview: &Preview, instance: ObjectId) -> Vec<Command> {
+    preview
+        .positions
+        .iter()
+        .filter(|placement| placement.after != placement.before)
+        .map(|placement| Command::MoveAtoms {
+            atoms: vec![placement.atom],
+            delta: Vector {
+                dx: placement.after.x() - placement.before.x(),
+                dy: placement.after.y() - placement.before.y(),
+            },
+            instance: Some(instance),
+        })
+        .collect()
 }
 
 /// A component with its root and tree chosen, ready to be placed in rank order.

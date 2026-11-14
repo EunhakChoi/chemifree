@@ -564,19 +564,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
                 Err(invalid) => known.invalid(invalid),
             },
             Op::LayoutStructure => match parameters::<LayoutParameters>(parameters_value) {
-                Ok(p) => match self.layout_preview(known, p, cancel) {
-                    Ok((result, revision, diagnostics)) => {
-                        let mut reply = known.reply(
-                            Outcome::Ok,
-                            Some(revision),
-                            Some(OperationResult::Layout(Box::new(result))),
-                            diagnostics,
-                        );
-                        reply.model_id = Some(chemifree_domain::layout::MODEL_ID.into());
-                        reply
-                    }
-                    Err(reply) => *reply,
-                },
+                Ok(p) => self.layout_structure(known, p, cancel),
                 Err(invalid) => known.invalid(invalid),
             },
             Op::ChemNameToStructure

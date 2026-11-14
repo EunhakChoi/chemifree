@@ -1,5 +1,16 @@
 # Chemifree 새 세션 인계
 
+## P42 S2: 사슬 배치 적용 (T1)
+
+사용자 결정(2026-11-15): Opus 추천대로 P42 두 번째 조각으로 미리보기를 편집으로 적용한다. 사양은 Opus가 정했다(규칙 A1–A48, CONTRACT "Chain layout preview and apply").
+
+- 연산: 새 연산 없이 `layout.structure`에 `mode: "apply"`(카탈로그 40개 유지). `expected_revision` 필수, `selection_before`/`selection_after` 선택. 미리보기에서 이 셋을 보내면 `invalid_request`.
+- 편집: 미리보기와 같은 준비·배치로 계산한 뒤, 위치가 바뀐 원자마다 `MoveAtoms` 하나(원자 오름차순, instance 명시)를 한 트랜잭션으로 커밋한다. 배치 집합 500원자 상한이라 명령 500개 상한을 넘지 않는다(컴파일 시 단언). 아무것도 움직이지 않으면 `ok`와 `layout_unchanged`, 새 revision·이력 없음.
+- 응답: 보통의 문서 응답(미리보기 결과 필드 없음). 겹침은 적용한 뒤 `layout_overlap` 경고. 실행 취소/다시 실행은 위치를 비트 단위로 되돌린다.
+- 계산: `chem.aromaticity_convert`처럼 계산 슬롯을 쓰고(미리보기는 여전히 안 씀), 잠금 밖에서 계산하고, 커밋 때 revision과 시간 제한·취소를 다시 확인한다. 멈춤의 `document_revision`은 null. 같은 request_id 재전송은 진단까지 원래 응답 그대로(`DocumentResponse`의 직렬화하지 않는 진단 필드).
+- 웹 클라이언트는 아직 이 연산을 부르지 않는다.
+- 남은 것: 웹 UI(미리보기 표시와 적용), 단순 고리, 템플릿, 점수, 충돌 해결. 다음 조각은 사용자 요청으로 정한다.
+
 ## P42 S1: 사슬 배치 미리보기 (T1)
 
 사용자 결정(2026-11-14): P42 첫 조각, 결과는 읽기 전용 미리보기(문서 불변, 편집 적용은 다음 조각), P41은 `in_progress`로 두고 현 범위를 선행 조건으로 삼는다.

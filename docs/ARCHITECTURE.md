@@ -14,7 +14,7 @@ Nothing on this page marks a feature as implemented. "Planned" items below have 
 
 | Crate or app | Depends on | Holds |
 | --- | --- | --- |
-| `crates/domain` | nothing | Document model, commands, transactions, undo/redo, chemistry rules (valence, aromaticity, identity, substructure, stereo, CIP), layout (bounded chain preview), scene objects |
+| `crates/domain` | nothing | Document model, commands, transactions, undo/redo, chemistry rules (valence, aromaticity, identity, substructure, stereo, CIP), layout (bounded chain preview and apply), scene objects |
 | `crates/numerics` | `num-bigint`, `num-integer` | Exact rationals and stored number formats |
 | `crates/application` | domain, numerics | Sessions, revisions, request replay, the operation surface, ports, the SVG layout, DATA registry and typed loaders |
 | `crates/inchi-native` | domain | Optional native InChI binding |
@@ -72,10 +72,10 @@ A new feature is a new operation or a new transaction command, not a new adapter
   a per-document turn. The lock order is the document turn, then `sessions`.
 - The rule for heavy computation is: outside the lock on a copy of the graph, with a request
   time limit, a host cancel signal and a cap on concurrent computations, and a result that
-  is applied only if the revision is unchanged. Today `chem.aromaticity_convert` and
-  `chem.cip` follow all of it, and `chem.aromaticity`, `chem.identity`,
-  `chem.substructure`, `chem.properties`, `chem.stereo` and `layout.structure` (preview) follow it
-  except the cap on concurrent computations (CONTRACT.md, "Computation time limit and cancel"); those six
+  is applied only if the revision is unchanged. Today `chem.aromaticity_convert`,
+  `layout.structure` (`mode: "apply"`) and `chem.cip` follow all of it, and `chem.aromaticity`,
+  `chem.identity`, `chem.substructure`, `chem.properties`, `chem.stereo` and `layout.structure`
+  (`mode: "preview"`) follow it except the cap on concurrent computations (CONTRACT.md, "Computation time limit and cancel"); those six
   commit nothing, so the revision rule does not apply to them. In the domain
   an interruptible computation is a `_with(…, interrupt)` function returning
   `Result<Result<T, ModelError>, Interrupted>`, and the existing function is its wrapper
