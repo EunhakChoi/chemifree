@@ -1683,7 +1683,7 @@
    "acceptance": "분기·경계 원자·사슬 membership·결합 길이·후보 순서·재번호와 입력 퇴화를 공개 사례로 검사한다.",
    "kind": "core",
    "id": "P42",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1695,7 +1695,8 @@
     "P14",
     "P15",
     "P41"
-   ]
+   ],
+   "note": "S1(2026-11-14, 사용자 결정: 읽기 전용 미리보기, P41은 현 범위로 선행 충족): layout.structure mode preview — 고정/배치 집합·경계·사슬 membership 준비와 비고리 사슬 좌표 생성기(문서 결합 길이, 120° 지그재그, 결정적 후보 순서·동점 규칙, 재번호 불변). 고리·템플릿·점수·충돌 탐색·편집 적용은 후속."
   },
   {
    "phase": "layout",
@@ -4078,7 +4079,7 @@
     "phase3-design-v3/operations.json",
     "phase2-layout-selection-contracts.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P42",
     "P47",
@@ -4098,7 +4099,7 @@
     "phase3-design-v3/operations.json",
     "deep-behavior-contracts.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P42",
     "P45",
@@ -4149,7 +4150,7 @@
     "phase7-ring-catalog-producer-clarification.md",
     "rust-backend-handoff.md"
    ],
-   "current_status": "not_implemented",
+   "current_status": "partial",
    "planned_prs": [
     "P14",
     "P15",

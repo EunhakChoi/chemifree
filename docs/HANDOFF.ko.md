@@ -1,5 +1,14 @@
 # Chemifree 새 세션 인계
 
+## P42 S1: 사슬 배치 미리보기 (T1)
+
+사용자 결정(2026-11-14): P42 첫 조각, 결과는 읽기 전용 미리보기(문서 불변, 편집 적용은 다음 조각), P41은 `in_progress`로 두고 현 범위를 선행 조건으로 삼는다.
+
+- 연산: 예약돼 있던 `layout.structure`를 `mode: "preview"`로 실행 가능하게 했다(카탈로그 40개 유지, model `chemifree-chain-layout-1`). 도메인 `crates/domain/src/layout.rs`(준비: 배치/고정 집합, 경계, 구성요소, 거절)와 `layout/chain.rs`(비고리 사슬 좌표), 응용 `operations/layout.rs`. 시간 제한·취소는 있고 계산 슬롯은 쓰지 않는다.
+- 규칙: 결합 길이는 문서 설정 `bond_length_pt`, 120° 지그재그, 가지 순서는 (높이, 크기, 정규 코드, id), 고정 원자는 움직이지 않는다. 고정 부분에 붙은 구성요소는 부착점 위치 순서로 놓는다(리드 결정: id 순서는 재번호 불변을 깨므로). id로 동점을 깨는 경우(동형 형제, 같은 코드의 자유 루트 끝, 한 부착점의 동형 구성요소, 위치가 같은 서로 다른 고정 원자)는 좌표 집합만 같고 원자 대응은 자기동형만큼 바뀔 수 있다(CONTRACT "Chain layout preview"). 미리보기는 입력의 방향·쪽을 보존하지 않는다.
+- 거절: 고리 원자, 입체 기록, 표시(약어·조각), 부착 결합 둘 이상, 겹친 고정 이웃, 좌표 범위 초과, 객체 선택은 `layout_unsupported`; 빈 선택·모르는 id는 `invalid_request`; 500 원자 초과는 `resource_limit`.
+- 남은 것: 고리·템플릿·점수·충돌 탐색, 편집으로 적용, 웹 UI.
+
 ## P87 S3: 로컬 제품 실행 (T1, P87 마지막 조각)
 
 - npm 스크립트(`package.json`): `build:product`는 `npm run build:web`(출력 `apps/web/dist`) 뒤 `cargo build --release --locked`로 `chemifree-api`와 `chemifree`(CLI)를 만든다. `start`는 `cargo run --release --locked --quiet --package chemifree-api -- --web-dir apps/web/dist`이며 `--` 뒤 인자를 그대로 넘긴다(`npm start -- --port 8080`). `cargo run`은 `build:product`의 바이너리를 재사용하고, 소스가 바뀌었으면 다시 빌드한다. Vite는 띄우지 않는다. `test:product`는 `node scripts/product-server-check.mjs`이며 `check` 체인에는 넣지 않는다(`check` 잡에는 Chromium이 없다).
@@ -1104,9 +1113,9 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 114개(implemented 65, partial 13, unverified 3, not_implemented 33) · conformance 사례 119개(passed 119: accept 87·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 65, partial 16, unverified 3, not_implemented 33) · conformance 사례 119개(passed 119: accept 87·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
-이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, MODEL-03, CODEC-01, CODEC-02, CODEC-03, CODEC-05, CODEC-06, OPS-01, OPS-02, CHEM-01, CHEM-02, STEREO-01, RENDER-01, STYLE-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
+이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, MODEL-03, CODEC-01, CODEC-02, CODEC-03, CODEC-05, CODEC-06, OPS-01, OPS-02, CHEM-01, CHEM-02, STEREO-01, LAYOUT-01, LAYOUT-02, LAYOUT-03, RENDER-01, STYLE-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 
 ## 다음 구현 단위 제안
 

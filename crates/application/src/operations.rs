@@ -25,6 +25,7 @@ mod dispatch;
 mod import;
 mod inchi;
 mod interchange;
+mod layout;
 mod molfile;
 mod reply;
 mod scene_clipboard;

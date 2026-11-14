@@ -412,6 +412,7 @@ fn the_catalog_says_exactly_which_operations_run() {
         "chem.properties" => json!({"document_id": id, "scope": "molecule", "property": "formula"}),
         "chem.identity" => json!({"document_id": id, "mode": "recorded"}),
         "chem.substructure" => json!({"query_document_id": id, "target_document_id": id}),
+        "layout.structure" => json!({"document_id": id, "mode": "preview", "selection": {}}),
         "document.snapshot" | "document.close" | "chem.validate" | "chem.aromaticity"
         | "chem.stereo" | "chem.cip" | "chem.inchi" => {
             json!({"document_id": id})
@@ -501,6 +502,7 @@ fn the_catalog_says_exactly_which_operations_run() {
             "chem.stereo",
             "chem.cip",
             "chem.properties",
+            "layout.structure",
         ]
     );
     assert_eq!(

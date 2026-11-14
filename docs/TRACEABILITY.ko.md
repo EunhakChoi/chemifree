@@ -91,7 +91,7 @@ P33k의 `test:browser:clipboard-integration`은 production panel/hook/client→�
 
 Instance 복제·enhanced-stereo-group graph 복사·global shortcut·custom MIME·external Cut·Windows/OLE는 bounded P33 밖이다. 이 완료는 형식 전체/모든 내부 객체의 clipboard 지원을 뜻하지 않는다. 기존 conformance 보고서 집계는 재실행 없이 유지한다. CODEC-06.rest·OPS-01.rest·OPS-02.rest의 open follow-up에서는 완료된 P33을 제거한다. 고급 형식/통합 파일·text UX는 기존 codec 후속과 P48, 전문 객체의 포함/선택은 P72, 정리·키보드 UI는 P47/P85, 전문 scene/reaction 변경 집합은 해당 기존 후속에 남긴다. 선언된 native 복제/shortcut 제한에 새 구현 약속을 임의로 부여하지 않는다.
 
-현재 집계: 요구사항 33개(partial 18, not_implemented 15) · 부분 114개(implemented 65, partial 13, unverified 3, not_implemented 33) · conformance 사례 119개(passed 119: accept 87·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 65, partial 16, unverified 3, not_implemented 33) · conformance 사례 119개(passed 119: accept 87·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
