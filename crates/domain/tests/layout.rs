@@ -18,6 +18,9 @@ use chemifree_domain::layout::{
 };
 use chemifree_domain::scene::Selection;
 use chemifree_domain::settings::Settings;
+use chemifree_domain::states::{
+    AtomKind, BondQuery, Hydrogens, QueryAtom, QueryBondOrder, Radical,
+};
 use chemifree_domain::stereo::{AtomConfiguration, BondEnd, SlotRef, StereoMark};
 
 /// The tolerance, in pt, of every comparison of a computed position.
@@ -170,6 +173,47 @@ fn assert_centroid_kept(preview: &Preview) {
     );
 }
 
+/// The cosine of the angle at `apex` between the directions to `first` and to `second`. A straight
+/// angle has cosine -1, and an angle of 120 degrees has cosine -1/2.
+fn cosine_at(apex: Point, first: Point, second: Point) -> f64 {
+    let (ux, uy) = (first.x() - apex.x(), first.y() - apex.y());
+    let (vx, vy) = (second.x() - apex.x(), second.y() - apex.y());
+    (ux * vx + uy * vy) / (ux.hypot(uy) * vx.hypot(vy))
+}
+
+/// A document of three atoms in a row 30 pt apart, with atom 2 bonded to atoms 1 and 3 by `order`.
+fn row_of_three(atoms: [Atom; 3], order: BondOrder) -> Document {
+    let mut document =
+        Document::new(DocumentId::parse("row-of-three").unwrap(), "Row of three").unwrap();
+    let [first, middle, last] = atoms;
+    document
+        .apply(&[
+            Command::AddAtom {
+                atom: first,
+                positions: NewAtomPositions::Single(point(0.0, 0.0)),
+                bond_to: None,
+            },
+            Command::AddAtom {
+                atom: middle,
+                positions: NewAtomPositions::Single(point(30.0, 0.0)),
+                bond_to: Some(BondTo {
+                    atom: AtomRef::Created(0),
+                    order: order.clone(),
+                }),
+            },
+            Command::AddAtom {
+                atom: last,
+                positions: NewAtomPositions::Single(point(60.0, 0.0)),
+                bond_to: Some(BondTo {
+                    atom: AtomRef::Created(1),
+                    order,
+                }),
+            },
+        ])
+        .unwrap();
+    document
+}
+
 /// A regular hexagon of carbons 1 to 6 centred on the origin, and carbon 7 apart from it.
 fn ring_and_free_carbon() -> Document {
     let mut document = Document::new(DocumentId::parse("ring").unwrap(), "Ring").unwrap();
@@ -186,6 +230,28 @@ fn ring_and_free_carbon() -> Document {
         ])
         .unwrap();
     document
+}
+
+/// A ring of `count` carbons on the circle through them, one 30 pt bond apart, centred at (x, y).
+/// Carbon `index` is command `index` of the transaction; the last command closes the ring.
+fn large_ring(count: usize, x: f64, y: f64) -> Vec<Command> {
+    let radius = 30.0 / (2.0 * (std::f64::consts::PI / count as f64).sin());
+    let mut commands: Vec<Command> = (0..count)
+        .map(|index| {
+            let angle = std::f64::consts::TAU * index as f64 / count as f64;
+            add_carbon(
+                x + radius * angle.cos(),
+                y + radius * angle.sin(),
+                index.checked_sub(1),
+            )
+        })
+        .collect();
+    commands.push(Command::AddBond {
+        begin: AtomRef::Created(0),
+        end: AtomRef::Created(count - 1),
+        order: BondOrder::Single,
+    });
+    commands
 }
 
 /// Carbons 1 to `count` in a row 30 pt apart, each bonded to the one before. Each transaction
@@ -441,7 +507,7 @@ fn a_component_of_501_atoms_is_refused_and_one_of_500_is_laid_out() {
 }
 
 #[test]
-fn ring_atoms_in_the_layout_set_are_refused_and_a_fixed_ring_is_only_counted() {
+fn ring_atoms_in_the_layout_set_are_refused_and_a_ring_elsewhere_is_not_counted() {
     let document = ring_and_free_carbon();
     assert_eq!(
         prepare_of(&document, &[1]).unwrap_err(),
@@ -458,8 +524,35 @@ fn ring_atoms_in_the_layout_set_are_refused_and_a_fixed_ring_is_only_counted() {
     );
     let prepared = prepare_of(&document, &[7]).unwrap();
     assert_eq!(prepared.layout_atoms, BTreeSet::from([atom(7)]));
-    assert_eq!(prepared.fixed_ring_systems, 1);
+    // The hexagon lies in a component with no layout atom, so it is not counted.
+    assert_eq!(prepared.fixed_ring_systems, 0);
     assert_eq!(prepared.fixed_atom_count, 6);
+}
+
+#[test]
+fn a_large_ring_in_another_component_is_not_counted_and_leaves_the_layout_unchanged() {
+    // The butane row is one component. A 40-carbon ring, atoms 5 to 44, lies 1000 pt away in
+    // another component, so no atom of the row is near it.
+    let alone = butane_row();
+    let mut with_ring = butane_row();
+    with_ring.apply(&large_ring(40, 1000.0, 1000.0)).unwrap();
+    // Carbon 5 is refused when it is laid out, which shows that the ring is a ring system.
+    assert_eq!(
+        prepare_of(&with_ring, &[5]).unwrap_err(),
+        LayoutError::RingInLayoutSet {
+            atoms: vec![atom(5)],
+        }
+    );
+    let prepared = prepare_of(&with_ring, &[1, 2, 3, 4]).unwrap();
+    let plain = prepare_of(&alone, &[1, 2, 3, 4]).unwrap();
+    assert_eq!(prepared.fixed_atom_count, 40);
+    assert_eq!(prepared.fixed_ring_systems, 0);
+    assert_eq!(prepared.layout_atoms, plain.layout_atoms);
+    assert_eq!(prepared.boundary, plain.boundary);
+    assert_eq!(
+        layout::place(&prepared).unwrap(),
+        layout::place(&plain).unwrap()
+    );
 }
 
 #[test]
@@ -491,6 +584,7 @@ fn a_substituent_on_a_fixed_ring_atom_points_away_from_the_ring() {
         }])
         .unwrap();
     let prepared = prepare_of(&document, &[8]).unwrap();
+    // The hexagon shares a component with carbon 8, so it is counted.
     assert_eq!(prepared.fixed_ring_systems, 1);
     let preview = layout::place(&prepared).unwrap();
     // The vertex's ring neighbours lie at 120 and 240 degrees from it, and the widest gap runs
@@ -552,7 +646,7 @@ fn a_stated_center_next_to_the_layout_set_is_refused() {
 }
 
 #[test]
-fn an_abbreviation_keyed_at_a_layout_atom_is_refused_and_one_keyed_at_a_fixed_atom_is_not() {
+fn an_abbreviation_covering_a_layout_atom_is_refused_and_one_covering_fixed_atoms_is_not() {
     // An oxygen (1) and an ethyl group (2 and 3), drawn as one display keyed at carbon 2.
     let mut document = Document::new(DocumentId::parse("ethyl").unwrap(), "Ethyl").unwrap();
     let instance = document.first_instance();
@@ -574,15 +668,73 @@ fn an_abbreviation_keyed_at_a_layout_atom_is_refused_and_one_keyed_at_a_fixed_at
             terminal: atom(3),
         }])
         .unwrap();
+    // Carbon 2 is the key and carbon 3 the hidden terminal, so both are covered.
     let error = prepare_of(&document, &[2, 3]).unwrap_err();
     assert_eq!(
         error,
         LayoutError::DisplayInLayoutSet {
-            atoms: vec![atom(2)],
+            atoms: vec![atom(2), atom(3)],
         }
     );
     assert_eq!(error.reason(), "display_in_layout_set");
-    // With carbon 2 fixed, the display it keys does not block the oxygen.
+    // The hidden terminal alone is refused under the selection scope. The components scope takes
+    // the key along with it.
+    assert_eq!(
+        prepare_of(&document, &[3]).unwrap_err(),
+        LayoutError::DisplayInLayoutSet {
+            atoms: vec![atom(3)],
+        }
+    );
+    assert_eq!(
+        layout::prepare(&document, instance, &selection(&[3]), Scope::Components).unwrap_err(),
+        LayoutError::DisplayInLayoutSet {
+            atoms: vec![atom(2), atom(3)],
+        }
+    );
+    // The display covers carbons 2 and 3 only, so the oxygen is laid out.
+    let prepared = prepare_of(&document, &[1]).unwrap();
+    assert_eq!(prepared.layout_atoms, BTreeSet::from([atom(1)]));
+}
+
+#[test]
+fn a_member_of_a_fragment_display_in_the_layout_set_is_refused_and_a_fixed_member_is_not() {
+    // An oxygen (1) bonded to carbon 2, which carries carbons 3 and 4. The three carbons are
+    // contracted to one fragment display keyed at carbon 2.
+    let mut document = Document::new(DocumentId::parse("fragment").unwrap(), "Fragment").unwrap();
+    let instance = document.first_instance();
+    document
+        .apply(&[
+            Command::AddAtom {
+                atom: Atom::from(Element::from_symbol("O").unwrap()),
+                positions: NewAtomPositions::Single(point(0.0, 0.0)),
+                bond_to: None,
+            },
+            add_carbon(30.0, 0.0, Some(0)),
+            add_carbon(45.0, 25.0, Some(1)),
+            add_carbon(45.0, -25.0, Some(1)),
+        ])
+        .unwrap();
+    document
+        .apply(&[Command::ContractFragment {
+            instance,
+            anchor: atom(2),
+            members: vec![atom(2), atom(3), atom(4)],
+            text: "iPr".into(),
+        }])
+        .unwrap();
+    assert_eq!(
+        prepare_of(&document, &[3]).unwrap_err(),
+        LayoutError::DisplayInLayoutSet {
+            atoms: vec![atom(3)],
+        }
+    );
+    assert_eq!(
+        prepare_of(&document, &[3, 4]).unwrap_err(),
+        LayoutError::DisplayInLayoutSet {
+            atoms: vec![atom(3), atom(4)],
+        }
+    );
+    // The oxygen is not a member, so it is laid out although its neighbour is the display's key.
     let prepared = prepare_of(&document, &[1]).unwrap();
     assert_eq!(prepared.layout_atoms, BTreeSet::from([atom(1)]));
 }
@@ -712,6 +864,42 @@ fn a_triple_bond_keeps_the_chain_straight() {
             (3, 2.0 * dx(), -30.0),
             (4, 3.0 * dx(), -45.0),
         ],
+    );
+}
+
+#[test]
+fn a_free_sulfur_with_two_double_bonds_is_bent_at_120_degrees() {
+    // O=S=O: the sulfur is not a carbon, so its two double bonds do not make it linear. Its other
+    // neighbour turns 60 degrees away from the bond to the root oxygen, which leaves 120 degrees.
+    let oxygen = Atom::from(Element::from_symbol("O").unwrap());
+    let sulfur = Atom::from(Element::from_symbol("S").unwrap());
+    let document = row_of_three([oxygen.clone(), sulfur, oxygen], BondOrder::Double);
+    let preview = preview_of(&document, &[1, 2, 3]).unwrap();
+    let cosine = cosine_at(
+        placement_of(&preview, 2).after,
+        placement_of(&preview, 1).after,
+        placement_of(&preview, 3).after,
+    );
+    assert!(
+        (cosine + 0.5).abs() < TOLERANCE,
+        "the angle at the sulfur is 120 degrees, with cosine -0.5, got cosine {cosine}"
+    );
+}
+
+#[test]
+fn a_free_allene_stays_straight() {
+    // C=C=C: the central carbon has two double bonds and is linear, so the three carbons lie on one
+    // line.
+    let document = row_of_three([carbon(), carbon(), carbon()], BondOrder::Double);
+    let preview = preview_of(&document, &[1, 2, 3]).unwrap();
+    let cosine = cosine_at(
+        placement_of(&preview, 2).after,
+        placement_of(&preview, 1).after,
+        placement_of(&preview, 3).after,
+    );
+    assert!(
+        (cosine + 1.0).abs() < TOLERANCE,
+        "the angle at the central carbon is straight, with cosine -1, got cosine {cosine}"
     );
 }
 
@@ -861,6 +1049,256 @@ fn renumbering_the_atoms_leaves_each_placement_unchanged() {
     }
 }
 
+/// A fixed carbon (1) and carbon 2 bonded to it, with two siblings bonded to carbon 2: `first` at
+/// (60, 30) and `second` at (30, 30), each joined to carbon 2 by the bond order given with it. With
+/// `swapped`, `second` is created first, so the identifiers of the two siblings trade places while
+/// each keeps its place.
+fn siblings(first: (Atom, BondOrder), second: (Atom, BondOrder), swapped: bool) -> Document {
+    let mut document = Document::new(DocumentId::parse("siblings").unwrap(), "Siblings").unwrap();
+    let mut pair = [(first, (60.0, 30.0)), (second, (30.0, 30.0))];
+    if swapped {
+        pair.reverse();
+    }
+    let mut commands = vec![add_carbon(0.0, 0.0, None), add_carbon(30.0, 0.0, Some(0))];
+    commands.extend(
+        pair.into_iter()
+            .map(|((sibling, order), (x, y))| Command::AddAtom {
+                atom: sibling,
+                positions: NewAtomPositions::Single(point(x, y)),
+                bond_to: Some(BondTo {
+                    atom: AtomRef::Created(1),
+                    order,
+                }),
+            }),
+    );
+    document.apply(&commands).unwrap();
+    document
+}
+
+#[test]
+fn siblings_that_differ_in_one_recorded_state_keep_their_places_when_renumbered() {
+    // Each pair of siblings differs only in the state named. A tie left to identifiers would give
+    // the swapped document the other places, so the code must decide the order of the pair.
+    let pairs = [
+        (
+            "radical",
+            Atom {
+                radical: Radical::None,
+                ..carbon()
+            },
+            Atom {
+                radical: Radical::Doublet,
+                ..carbon()
+            },
+        ),
+        (
+            "explicit hydrogens",
+            Atom {
+                hydrogens: Hydrogens::Specified(1),
+                ..carbon()
+            },
+            Atom {
+                hydrogens: Hydrogens::Specified(2),
+                ..carbon()
+            },
+        ),
+        (
+            "query kind",
+            Atom::new(AtomKind::Query(QueryAtom::Any)),
+            Atom::new(AtomKind::Query(QueryAtom::Halogen)),
+        ),
+    ];
+    for (state, first, second) in pairs {
+        let plain = siblings(
+            (first.clone(), BondOrder::Single),
+            (second.clone(), BondOrder::Single),
+            /* swapped= */ false,
+        );
+        let swapped = siblings(
+            (first, BondOrder::Single),
+            (second, BondOrder::Single),
+            /* swapped= */ true,
+        );
+        assert_same_places(&plain, &swapped, &[2, 3, 4], state);
+    }
+}
+
+/// Asserts that `swapped` places each atom of `serials` where `plain` places it, matched by before
+/// position. `swapped` lays out the same atoms with their identifiers exchanged, so a tie that is
+/// left to identifiers would move some atom. `state` names the case in a failure.
+fn assert_same_places(plain: &Document, swapped: &Document, serials: &[u32], state: &str) {
+    let before = preview_of(plain, serials).unwrap();
+    let renumbered = preview_of(swapped, serials).unwrap();
+    assert_eq!(before.positions.len(), serials.len(), "{state}");
+    for placement in &before.positions {
+        let twin = placement_before(&renumbered, placement.before.x(), placement.before.y());
+        assert_at(
+            twin.after,
+            placement.after.x(),
+            placement.after.y(),
+            &format!("{state}, atom at {:?}", placement.before),
+        );
+    }
+}
+
+/// A fixed carbon (1) with two single carbons bonded to it: `first` at (0, 30) and `second` at
+/// (0, -30), each joined to carbon 1 by the bond order given with it. With `swapped`, `second` is
+/// created first, so the identifiers of the two carbons trade places while each keeps its place.
+fn hanging_pair(first: BondOrder, second: BondOrder, swapped: bool) -> Document {
+    let mut document = Document::new(DocumentId::parse("hanging").unwrap(), "Hanging").unwrap();
+    let mut pair = [(first, (0.0, 30.0)), (second, (0.0, -30.0))];
+    if swapped {
+        pair.reverse();
+    }
+    let mut commands = vec![add_carbon(0.0, 0.0, None)];
+    commands.extend(pair.into_iter().map(|(order, (x, y))| Command::AddAtom {
+        atom: carbon(),
+        positions: NewAtomPositions::Single(point(x, y)),
+        bond_to: Some(BondTo {
+            atom: AtomRef::Created(0),
+            order,
+        }),
+    }));
+    document.apply(&commands).unwrap();
+    document
+}
+
+#[test]
+fn siblings_that_differ_only_in_their_query_bond_keep_their_places_when_renumbered() {
+    // Each pair of siblings is joined to carbon 2 by a query bond, and the bonds differ only in
+    // what the query names: any kind, or a list of kinds, which the code compares in stored order.
+    let list = |orders: Vec<QueryBondOrder>| BondOrder::Query(BondQuery::OneOf(orders));
+    let pairs = [
+        (
+            "any and a list",
+            BondOrder::Query(BondQuery::Any),
+            list(vec![QueryBondOrder::Single]),
+        ),
+        (
+            "lists of different kinds",
+            list(vec![QueryBondOrder::Single]),
+            list(vec![QueryBondOrder::Double]),
+        ),
+        (
+            "one list in two stored orders",
+            list(vec![QueryBondOrder::Single, QueryBondOrder::Double]),
+            list(vec![QueryBondOrder::Double, QueryBondOrder::Single]),
+        ),
+    ];
+    for (state, first, second) in pairs {
+        let plain = siblings(
+            (carbon(), first.clone()),
+            (carbon(), second.clone()),
+            /* swapped= */ false,
+        );
+        let swapped = siblings(
+            (carbon(), first),
+            (carbon(), second),
+            /* swapped= */ true,
+        );
+        assert_same_places(&plain, &swapped, &[2, 3, 4], state);
+    }
+}
+
+#[test]
+fn components_hung_from_one_fixed_atom_by_query_bonds_of_different_kinds_keep_their_places() {
+    // A component's rank compares its height, size and code before its boundary bond, so two single
+    // carbons that differ only in the query of their boundary bond are ordered by that query.
+    let first = BondOrder::Query(BondQuery::Any);
+    let second = BondOrder::Query(BondQuery::OneOf(vec![QueryBondOrder::Single]));
+    let plain = hanging_pair(first.clone(), second.clone(), /* swapped= */ false);
+    let swapped = hanging_pair(first, second, /* swapped= */ true);
+    assert_same_places(&plain, &swapped, &[2, 3], "query boundary bonds");
+}
+
+/// A dative bond between two carbons of one transaction. It begins at the carbon at index `from`
+/// when `forward`, and at the carbon at index `to` otherwise, so only its direction differs.
+fn dative_bond(from: usize, to: usize, forward: bool) -> Command {
+    let (begin, end) = if forward { (from, to) } else { (to, from) };
+    Command::AddBond {
+        begin: AtomRef::Created(begin),
+        end: AtomRef::Created(end),
+        order: BondOrder::Dative,
+    }
+}
+
+/// A fixed carbon (1) and carbon 2 bonded to it, with two siblings bonded to carbon 2 by dative
+/// bonds: `first` at (60, 30) and `second` at (30, 30). A set flag makes its bond begin at carbon 2
+/// and a clear flag makes it end there. With `swapped`, `second` is created first, so the
+/// identifiers of the two siblings trade places while each keeps its place and its bond.
+fn dative_siblings(first: bool, second: bool, swapped: bool) -> Document {
+    let mut document = Document::new(
+        DocumentId::parse("dative-siblings").unwrap(),
+        "Dative siblings",
+    )
+    .unwrap();
+    let mut pair = [(first, (60.0, 30.0)), (second, (30.0, 30.0))];
+    if swapped {
+        pair.reverse();
+    }
+    let mut commands = vec![add_carbon(0.0, 0.0, None), add_carbon(30.0, 0.0, Some(0))];
+    commands.extend(pair.iter().map(|&(_, (x, y))| add_carbon(x, y, None)));
+    commands.extend(
+        pair.iter()
+            .enumerate()
+            .map(|(slot, &(forward, _))| dative_bond(1, 2 + slot, forward)),
+    );
+    document.apply(&commands).unwrap();
+    document
+}
+
+/// A fixed carbon (1) at the origin with two carbons bonded to it by dative bonds: `first` at
+/// (0, 30) and `second` at (0, -30). A set flag makes its bond begin at the fixed carbon and a
+/// clear flag makes it end there. With `swapped`, `second` is created first.
+fn dative_hanging(first: bool, second: bool, swapped: bool) -> Document {
+    let mut document = Document::new(
+        DocumentId::parse("dative-hanging").unwrap(),
+        "Dative hanging",
+    )
+    .unwrap();
+    let mut pair = [(first, (0.0, 30.0)), (second, (0.0, -30.0))];
+    if swapped {
+        pair.reverse();
+    }
+    let mut commands = vec![add_carbon(0.0, 0.0, None)];
+    commands.extend(pair.iter().map(|&(_, (x, y))| add_carbon(x, y, None)));
+    commands.extend(
+        pair.iter()
+            .enumerate()
+            .map(|(slot, &(forward, _))| dative_bond(0, 1 + slot, forward)),
+    );
+    document.apply(&commands).unwrap();
+    document
+}
+
+#[test]
+fn dative_siblings_differing_only_in_direction_keep_their_places_when_renumbered() {
+    // One sibling's dative bond begins at carbon 2 and the other's ends there. Only the code
+    // states the direction, so the code must decide the order of the pair.
+    for (state, first, second) in [
+        ("first begins at carbon 2", true, false),
+        ("first ends at carbon 2", false, true),
+    ] {
+        let plain = dative_siblings(first, second, /* swapped= */ false);
+        let swapped = dative_siblings(first, second, /* swapped= */ true);
+        assert_same_places(&plain, &swapped, &[2, 3, 4], state);
+    }
+}
+
+#[test]
+fn components_hung_by_dative_bonds_of_opposite_direction_keep_their_places_when_renumbered() {
+    // Two carbons hang from one fixed carbon, one dative bond beginning at it and one ending at
+    // it. The components tie on height, size and code, so the boundary bond's code decides.
+    for (state, first, second) in [
+        ("first begins at the fixed carbon", true, false),
+        ("first ends at the fixed carbon", false, true),
+    ] {
+        let plain = dative_hanging(first, second, /* swapped= */ false);
+        let swapped = dative_hanging(first, second, /* swapped= */ true);
+        assert_same_places(&plain, &swapped, &[2, 3], state);
+    }
+}
+
 #[test]
 fn placing_twice_gives_the_same_preview_and_a_laid_out_chain_stays_put() {
     let prepared = prepare_of(&butane_row(), &[1, 2, 3, 4]).unwrap();
@@ -916,6 +1354,77 @@ fn anchored_components_are_placed_in_the_order_of_their_anchors() {
     assert_at(placement_of(&preview, 3).after, 100.0 + dx(), -15.0, "a3");
 }
 
+/// The anchors of the components of a preview of carbons 2 and 4, in placement order. Carbon 1 is
+/// fixed at (`double_x`, 0) with a double bond to carbon 2, and carbon 3 is fixed at (`single_x`,
+/// 0) with a single bond to carbon 4. Each layout carbon hangs from its own anchor, so the anchors
+/// alone decide the order of the two components.
+fn anchor_order(double_x: f64, single_x: f64) -> Vec<Option<AtomId>> {
+    let mut document = Document::new(DocumentId::parse("anchors").unwrap(), "Anchors").unwrap();
+    document
+        .apply(&[
+            add_carbon(double_x, 0.0, None),
+            Command::AddAtom {
+                atom: carbon(),
+                positions: NewAtomPositions::Single(point(double_x, 30.0)),
+                bond_to: Some(BondTo {
+                    atom: AtomRef::Created(0),
+                    order: BondOrder::Double,
+                }),
+            },
+            add_carbon(single_x, 0.0, None),
+            add_carbon(single_x, 30.0, Some(2)),
+        ])
+        .unwrap();
+    let preview = preview_of(&document, &[2, 4]).unwrap();
+    preview
+        .components
+        .iter()
+        .map(|component| component.anchor.map(|anchor| anchor.fixed_atom))
+        .collect()
+}
+
+#[test]
+fn anchors_that_differ_only_in_the_sign_of_zero_are_ranked_as_one_place() {
+    // Carbon 1 is at (-0, 0) and carbon 3 at (0, 0): one place, so the rank decides, and the
+    // single bond of carbon 3 ranks before the double bond of carbon 1.
+    assert_eq!(
+        anchor_order(-0.0, 0.0),
+        vec![Some(atom(3)), Some(atom(1))],
+        "anchors at (-0, 0) and (0, 0) are one place"
+    );
+}
+
+#[test]
+fn anchors_less_than_a_coincidence_tolerance_apart_are_ranked_as_one_place() {
+    // Carbon 3 is at (1e-12, 0), in the same grid cell as carbon 1 at (0, 0).
+    assert_eq!(
+        anchor_order(0.0, 1e-12),
+        vec![Some(atom(3)), Some(atom(1))],
+        "anchors 1e-12 pt apart are one place"
+    );
+}
+
+#[test]
+fn anchors_at_the_same_place_are_ordered_by_rank() {
+    // The identifiers would put carbon 1 first, so this is the rank at work.
+    assert_eq!(
+        anchor_order(0.0, 0.0),
+        vec![Some(atom(3)), Some(atom(1))],
+        "anchors at one place are ordered by rank, not by identifier"
+    );
+}
+
+#[test]
+fn anchors_a_point_apart_are_ordered_by_position_before_rank() {
+    // Carbon 3 is at (1, 0), beyond carbon 1 at (0, 0), so carbon 1 is placed first although the
+    // single bond of carbon 3 ranks first.
+    assert_eq!(
+        anchor_order(0.0, 1.0),
+        vec![Some(atom(1)), Some(atom(3))],
+        "anchors 1 pt apart are ordered by x before rank"
+    );
+}
+
 #[test]
 fn a_pair_closer_than_half_a_bond_is_reported_once_and_a_pair_at_exactly_half_is_not() {
     // Carbon 2 is laid out between the fixed carbons 1 and 3: 10 pt from carbon 1 and 15 pt from
@@ -923,6 +1432,74 @@ fn a_pair_closer_than_half_a_bond_is_reported_once_and_a_pair_at_exactly_half_is
     let document = carbons(&[(0.0, 0.0, None), (10.0, 0.0, None), (25.0, 0.0, None)]);
     let preview = preview_of(&document, &[2]).unwrap();
     assert_eq!(preview.overlaps, vec![(atom(1), atom(2))]);
+}
+
+/// A document of `count` carbons that all stand at the origin and are not bonded.
+fn coincident_carbons(count: usize) -> Document {
+    let places: Vec<(f64, f64, Option<usize>)> = vec![(0.0, 0.0, None); count];
+    carbons(&places)
+}
+
+/// The pairs `first < second` of carbons `1..=count` that have a carbon in `layout`, ascending.
+/// When all the carbons stand at one place and none is bonded, these are the overlaps of a preview
+/// that lays out `layout`.
+fn expected_overlaps(count: u32, layout: &[u32]) -> Vec<(AtomId, AtomId)> {
+    let mut pairs = Vec::new();
+    for first in 1..=count {
+        for second in first + 1..=count {
+            if layout.contains(&first) || layout.contains(&second) {
+                pairs.push((atom(first), atom(second)));
+            }
+        }
+    }
+    pairs
+}
+
+#[test]
+fn overlaps_up_to_the_listing_limit_are_all_listed() {
+    // Fourteen laid out carbons at one place make 91 overlapping pairs, and all are listed.
+    let layout: Vec<u32> = (1..=14).collect();
+    let preview = preview_of(&coincident_carbons(14), &layout).unwrap();
+    let expected = expected_overlaps(14, &layout);
+    assert_eq!(expected.len(), 91, "fourteen carbons make 91 pairs");
+    assert_eq!(preview.overlap_count, 91, "every pair is counted");
+    assert_eq!(preview.overlaps, expected, "every pair is listed");
+}
+
+#[test]
+fn overlaps_past_the_listing_limit_are_counted_and_the_first_hundred_listed() {
+    // Fifteen laid out carbons at one place make 105 overlapping pairs. The first 100 in ascending
+    // order are listed.
+    let layout: Vec<u32> = (1..=15).collect();
+    let preview = preview_of(&coincident_carbons(15), &layout).unwrap();
+    let expected = expected_overlaps(15, &layout);
+    assert_eq!(expected.len(), 105, "fifteen carbons make 105 pairs");
+    assert_eq!(preview.overlap_count, 105, "every pair is counted");
+    assert_eq!(
+        preview.overlaps,
+        expected[..100].to_vec(),
+        "the first 100 pairs in ascending order are listed"
+    );
+}
+
+#[test]
+fn the_listed_overlaps_are_the_smallest_pairs_when_some_carbons_stay_fixed() {
+    // Carbons 1 to 10 stay fixed and carbons 11 to 30 are laid out, all at one place and none
+    // bonded. Each pair with a laid out carbon overlaps: 390 pairs. The first 100 in ascending
+    // order run from (1, 11) to (5, 30), the pairs of carbons 1 to 5 with carbons 11 to 30.
+    let layout: Vec<u32> = (11..=30).collect();
+    let preview = preview_of(&coincident_carbons(30), &layout).unwrap();
+    let expected = expected_overlaps(30, &layout);
+    assert_eq!(expected.len(), 390, "the pairs with a laid out carbon");
+    assert_eq!(preview.overlap_count, 390, "every pair is counted");
+    assert_eq!(preview.overlaps.len(), 100, "only 100 pairs are listed");
+    assert_eq!(preview.overlaps[0], (atom(1), atom(11)));
+    assert_eq!(preview.overlaps[99], (atom(5), atom(30)));
+    assert_eq!(
+        preview.overlaps,
+        expected[..100].to_vec(),
+        "the listed pairs are the first 100 in ascending order"
+    );
 }
 
 #[test]

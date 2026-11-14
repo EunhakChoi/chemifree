@@ -23,10 +23,12 @@
 //! 3. no atom and no bond: [`LayoutError::EmptySelection`];
 //! 4. more than [`MAX_LAYOUT_ATOMS`] layout atoms: [`LayoutError::TooLarge`];
 //! 5. a layout atom in a ring system: [`LayoutError::RingInLayoutSet`]. A ring system with no
-//!    layout atom keeps its positions and is only counted;
+//!    layout atom keeps its positions and is only counted when it lies in a graph-connected
+//!    component that holds a layout atom;
 //! 6. stated stereo or a bond mark on the layout set or a boundary fixed atom:
 //!    [`LayoutError::StereoInLayout`];
-//! 7. an abbreviation or fragment display keyed at a layout atom:
+//! 7. a layout atom that an abbreviation or fragment display of the instance covers: its key, the
+//!    hidden terminal of an abbreviation, or a member of a fragment display:
 //!    [`LayoutError::DisplayInLayoutSet`];
 //! 8. a layout component with two or more boundary bonds: [`LayoutError::MultipleAttachments`];
 //! 9. a layout atom, or an anchor, without a position: [`LayoutError::MissingPosition`];
@@ -38,23 +40,24 @@
 //! # Placement
 //!
 //! Each layout component is laid out as a tree whose bonds are one bond length long, in points
-//! with y growing down. Anchored components come first, ordered by the position of their fixed
-//! anchor and then by rank. Free components follow, and each keeps the centroid of its before
-//! positions. The rules are in the private `chain` module.
+//! with y growing down. Anchored components come first, ordered by the grid cell of their fixed
+//! anchor and then by rank (see `placement_order`). Free components follow, and each keeps the
+//! centroid of its before positions. The rules are in the private `chain` module.
 //!
 //! [`place`] refuses a placed position outside the coordinate limits, naming the lowest such layout
 //! atom in [`LayoutError::CoordinateOutOfRange`]. [`place_with`] also stops when its interrupt asks
 //! it to.
 //!
 //! An overlap is a pair of atoms, one of them laid out, that are not bonded and lie closer than
-//! [`OVERLAP_FACTOR`] bond lengths after placement. Overlaps are reported, not refused.
+//! [`OVERLAP_FACTOR`] bond lengths after placement. Overlaps are reported, not refused: the preview
+//! counts every one and lists the first [`MAX_LISTED_OVERLAPS`] in ascending order.
 //!
 //! Renumbering the atoms leaves each placed position unchanged, except at ties that the rules leave
 //! to identifiers: isomorphic siblings, the two ends of a free component with equal codes, and
 //! isomorphic components at one anchor. At such a tie the atoms trade places under an automorphism,
 //! so the set of positions is the same. One case is not covered: components anchored at two
-//! distinct fixed atoms that share one place are ordered by identifier when their ranks tie, so
-//! renumbering can change the result there.
+//! distinct fixed atoms in one grid cell (see `placement_order`) are ordered by identifier when
+//! their ranks tie, so renumbering can change the result there.
 
 mod chain;
 
@@ -64,10 +67,10 @@ use std::fmt;
 
 use crate::budget::{self, Interrupt, Interrupted, NEVER};
 use crate::document::{Atom, AtomId, Bond, BondId, BondOrder, Document, ObjectId, Point};
-use crate::element::Element;
 use crate::graph::MoleculeGraph;
 use crate::rings;
 use crate::scene::Selection;
+use crate::states::{AtomKind, AttachmentPoints, Hydrogens, QueryAtom, Radical};
 use crate::stereo::StereoKey;
 
 use chain::{Coord, Rooted};
@@ -76,10 +79,14 @@ use chain::{Coord, Rooted};
 pub const MODEL_ID: &str = "chemifree-chain-layout-1";
 /// The most atoms a layout set may hold. A larger set is refused before any placement.
 pub const MAX_LAYOUT_ATOMS: usize = 500;
-/// Two points at most this far apart, in pt, are one place.
+/// Two points at most this far apart, in pt, are one place. The anchor order compares points in
+/// cells of this size, so two such points on opposite sides of a cell edge can be ordered apart;
+/// see `placement_order`.
 pub const COINCIDENT_PT: f64 = 1e-6;
 /// The distance, in bond lengths, below which two non-bonded atoms count as overlapping.
 pub const OVERLAP_FACTOR: f64 = 0.5;
+/// The most overlapping pairs a [`Preview`] lists. Its `overlap_count` counts every pair.
+pub const MAX_LISTED_OVERLAPS: usize = 100;
 
 /// Which atoms a layout set takes from the selection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -125,9 +132,9 @@ type Adjacency = BTreeMap<AtomId, Vec<(AtomId, BondId)>>;
 /// What a layout of one selection would move and keep, ready for placement.
 ///
 /// The public fields state the sets and the boundary. The private fields hold what placement
-/// reads: the instance's positions, the canonical label of each layout atom, the order of each
-/// bond at a layout atom, and every atom's neighbours. A preparation holds no reference to the
-/// document.
+/// reads: the instance's positions, the canonical label of each layout atom, the order and the
+/// beginning atom of each bond at a layout atom, and every atom's neighbours. A preparation holds
+/// no reference to the document.
 // Not `PartialEq`: nothing compares preparations, and a derived impl would compare private maps.
 #[derive(Clone, Debug)]
 pub struct Preparation {
@@ -141,7 +148,9 @@ pub struct Preparation {
     pub layout_bonds: BTreeSet<BondId>,
     /// How many atoms are fixed: every atom outside the layout set.
     pub fixed_atom_count: usize,
-    /// How many ring systems contain no layout atom. Such systems keep their positions.
+    /// How many ring systems contain no layout atom and lie in a graph-connected component that
+    /// holds a layout atom. Such systems keep their positions. Ring systems in other components are
+    /// not searched for and not counted.
     pub fixed_ring_systems: usize,
     /// Every bond between a layout atom and a fixed atom, ascending by layout atom, then by fixed
     /// atom, then by bond.
@@ -150,11 +159,14 @@ pub struct Preparation {
     pub components: Vec<Component>,
     /// The position of every atom the instance places.
     positions: BTreeMap<AtomId, Point>,
-    /// The canonical label of each layout atom: element symbol (`*` for a query atom), charge and
-    /// isotope. See [`atom_label`].
+    /// The canonical label of each layout atom, which states every atom state the document
+    /// records. See [`atom_label`].
     labels: BTreeMap<AtomId, String>,
     /// The order of each bond that has a layout atom at either end.
     bond_orders: BTreeMap<BondId, BondOrder>,
+    /// The atom that each of those bonds begins at. The direction of a dative bond is part of its
+    /// code.
+    bond_begins: BTreeMap<BondId, AtomId>,
     adjacency: Adjacency,
 }
 
@@ -177,7 +189,9 @@ pub enum LayoutError {
         atoms: Vec<AtomId>,
         bonds: Vec<BondId>,
     },
-    /// These layout atoms key an abbreviation or a fragment display.
+    /// These layout atoms are covered by an abbreviation or fragment display of the instance: each
+    /// is a display's key, the hidden terminal of an abbreviation, or a member of a fragment
+    /// display.
     DisplayInLayoutSet { atoms: Vec<AtomId> },
     /// A layout component has two or more boundary bonds, listed in `bonds`. `atoms` are the
     /// component's atoms.
@@ -236,7 +250,7 @@ impl fmt::Display for LayoutError {
                 formatter.write_str("stated stereo or a bond mark touches the layout set")
             }
             Self::DisplayInLayoutSet { .. } => {
-                formatter.write_str("an abbreviation or display is keyed at a layout atom")
+                formatter.write_str("an abbreviation or display covers a layout atom")
             }
             Self::MultipleAttachments { atoms, .. } => write!(
                 formatter,
@@ -310,8 +324,12 @@ pub struct Preview {
     pub components: Vec<PlacedComponent>,
     /// One placement for every layout atom, ascending by atom.
     pub positions: Vec<Placement>,
-    /// Each overlapping pair of atoms once, smaller identifier first, sorted. See the module
-    /// documentation for what counts as an overlap.
+    /// How many pairs of atoms overlap, each pair once. See the module documentation for what
+    /// counts as an overlap.
+    pub overlap_count: usize,
+    /// The first [`MAX_LISTED_OVERLAPS`] overlapping pairs in ascending order, each once, with the
+    /// smaller identifier first. The list holds every pair when `overlap_count` is at most that
+    /// limit.
     pub overlaps: Vec<(AtomId, AtomId)>,
 }
 
@@ -365,7 +383,7 @@ pub fn prepare(
             anchor: None,
         })
         .collect();
-    let fixed_ring_systems = ring_check(document, &layout_atoms)?;
+    let fixed_ring_systems = ring_check(&atoms, &bonds, &adjacency, &layout_atoms)?;
     let boundary_fixed: BTreeSet<AtomId> = boundary.iter().map(|entry| entry.fixed_atom).collect();
     stereo_check(document, &bonds, &layout_atoms, &boundary_fixed)?;
     display_check(document, instance, &layout_atoms)?;
@@ -383,6 +401,11 @@ pub fn prepare(
         .filter(|(_, bond)| layout_atoms.contains(&bond.begin) || layout_atoms.contains(&bond.end))
         .map(|(id, bond)| (*id, bond.order.clone()))
         .collect();
+    let bond_begins: BTreeMap<BondId, AtomId> = bonds
+        .iter()
+        .filter(|(_, bond)| layout_atoms.contains(&bond.begin) || layout_atoms.contains(&bond.end))
+        .map(|(id, bond)| (*id, bond.begin))
+        .collect();
     let preparation = Preparation {
         instance,
         bond_length_pt: document.settings().bond_length_pt,
@@ -395,6 +418,7 @@ pub fn prepare(
         positions,
         labels,
         bond_orders,
+        bond_begins,
         adjacency,
     };
     preparation.check_positions()?;
@@ -544,10 +568,11 @@ fn place_halting(prep: &Preparation, interrupt: &dyn Interrupt) -> Result<Previe
             after,
         });
     }
-    let overlaps = overlap_pairs(prep, &placed, interrupt)?;
+    let (overlap_count, overlaps) = overlap_pairs(prep, &placed, interrupt)?;
     Ok(Preview {
         components,
         positions,
+        overlap_count,
         overlaps,
     })
 }
@@ -560,15 +585,15 @@ fn placed_at(placed: &BTreeMap<AtomId, Coord>, atom: AtomId) -> Coord {
         .expect("every layout atom belongs to a component, and every component is placed")
 }
 
-/// The order in which components are placed. Anchored components come first, by the position of
-/// their anchor (x, then y). Components that share an anchor position, and the free components, are
-/// ordered by rank.
+/// The order in which components are placed. Anchored components come first, by the grid cell of
+/// their anchor (x, then y), where a cell is [`COINCIDENT_PT`] wide. Components whose anchors share
+/// a cell, and the free components, are ordered by rank. Two anchors at most [`COINCIDENT_PT`]
+/// apart can fall in different cells when they lie on opposite sides of a cell edge, and then the
+/// cells decide instead of the rank.
 fn placement_order(left: &Ranked<'_>, right: &Ranked<'_>) -> Ordering {
     match (left.rooted.origin(), right.rooted.origin()) {
-        (Some(first), Some(second)) => first
-            .x
-            .total_cmp(&second.x)
-            .then(first.y.total_cmp(&second.y))
+        (Some(first), Some(second)) => grid_cell(first)
+            .cmp(&grid_cell(second))
             .then_with(|| component_rank(left, right)),
         (Some(_), None) => Ordering::Less,
         (None, Some(_)) => Ordering::Greater,
@@ -576,7 +601,18 @@ fn placement_order(left: &Ranked<'_>, right: &Ranked<'_>) -> Ordering {
     }
 }
 
-/// The rank of a component: taller first, then larger, then by code, then by the order of its
+/// The cell of `at` in the grid of [`COINCIDENT_PT`]-wide cells, as its index in x and in y.
+fn grid_cell(at: Coord) -> (i64, i64) {
+    (grid_index(at.x), grid_index(at.y))
+}
+
+/// The index of the cell that holds `value`, in pt. Anchors are document positions, at most
+/// `MAX_COORDINATE` in magnitude, so the index stays far inside `i64`. Negative zero has index 0.
+fn grid_index(value: f64) -> i64 {
+    (value / COINCIDENT_PT).round() as i64
+}
+
+/// The rank of a component: taller first, then larger, then by code, then by the code of its
 /// boundary bond, then by its smallest identifier.
 fn component_rank(left: &Ranked<'_>, right: &Ranked<'_>) -> Ordering {
     right
@@ -588,15 +624,16 @@ fn component_rank(left: &Ranked<'_>, right: &Ranked<'_>) -> Ordering {
         .then(
             left.rooted
                 .boundary_order()
-                .cmp(&right.rooted.boundary_order()),
+                .cmp(right.rooted.boundary_order()),
         )
         .then(left.smallest.cmp(&right.smallest))
 }
 
 /// The pairs of atoms that overlap in the placed layout. A pair has at least one layout atom, is
 /// not bonded, and lies closer than [`OVERLAP_FACTOR`] bond lengths. A layout atom takes its placed
-/// position, and any other atom its before position. Each pair is listed once, smaller identifier
-/// first, and the list is sorted.
+/// position, and any other atom its before position. Each pair is visited once, so the count is the
+/// number of pairs. The result is that count and the first [`MAX_LISTED_OVERLAPS`] pairs in
+/// ascending order, each with the smaller identifier first.
 ///
 /// # Errors
 ///
@@ -605,9 +642,13 @@ fn overlap_pairs(
     prep: &Preparation,
     placed: &BTreeMap<AtomId, Coord>,
     interrupt: &dyn Interrupt,
-) -> Result<Vec<(AtomId, AtomId)>, Halt> {
+) -> Result<(usize, Vec<(AtomId, AtomId)>), Halt> {
     let limit = OVERLAP_FACTOR * prep.bond_length_pt;
-    let mut pairs = Vec::new();
+    let mut count: usize = 0;
+    // The smallest pairs found so far, at most MAX_LISTED_OVERLAPS of them. Pairs do not arrive in
+    // ascending order; dropping the largest one past the limit keeps the smallest pairs, whichever
+    // order they arrive in.
+    let mut listed = BTreeSet::new();
     for &atom in &prep.layout_atoms {
         interrupt.check()?;
         let here = placed_at(placed, atom);
@@ -625,12 +666,15 @@ fn overlap_pairs(
                 Coord::from(point)
             };
             if here.distance(there) < limit && !bonded(prep, atom, other) {
-                pairs.push((atom.min(other), atom.max(other)));
+                count += 1;
+                listed.insert((atom.min(other), atom.max(other)));
+                if listed.len() > MAX_LISTED_OVERLAPS {
+                    listed.pop_last();
+                }
             }
         }
     }
-    pairs.sort_unstable();
-    Ok(pairs)
+    Ok((count, listed.into_iter().collect()))
 }
 
 /// Whether a bond joins `first` and `second`.
@@ -771,13 +815,41 @@ fn boundary_bonds(
 }
 
 /// Refuses a layout atom that lies in a ring system, and returns how many ring systems hold no
-/// layout atom.
+/// layout atom. Only the graph-connected components that hold a layout atom are searched, so the
+/// count covers those components alone. A ring system lies inside one component, so each ring
+/// that holds a layout atom is found, and a ring system in any other component is neither refused
+/// nor counted.
 ///
 /// # Errors
 ///
 /// [`LayoutError::RingInLayoutSet`] naming every layout atom in a ring system.
-fn ring_check(document: &Document, layout_atoms: &BTreeSet<AtomId>) -> Result<usize, LayoutError> {
-    let systems = rings::perceive(&MoleculeGraph::from_document(document));
+fn ring_check(
+    atoms: &BTreeMap<AtomId, &Atom>,
+    bonds: &BTreeMap<BondId, &Bond>,
+    adjacency: &Adjacency,
+    layout_atoms: &BTreeSet<AtomId>,
+) -> Result<usize, LayoutError> {
+    let mut systems = Vec::new();
+    let mut searched = BTreeSet::new();
+    for &start in layout_atoms {
+        if searched.contains(&start) {
+            continue;
+        }
+        let (component, component_bonds) = explore(start, |_| true, adjacency);
+        searched.extend(component.iter().copied());
+        // Every member is reached through the document's bonds, so each lookup holds.
+        let graph = MoleculeGraph::from_parts(
+            component
+                .iter()
+                .map(|atom| (*atom, atoms[atom].clone()))
+                .collect(),
+            component_bonds
+                .iter()
+                .map(|bond| (*bond, bonds[bond].clone()))
+                .collect(),
+        );
+        systems.extend(rings::perceive(&graph));
+    }
     let ring_atoms: BTreeSet<AtomId> = systems
         .iter()
         .flat_map(|system| system.atoms.iter().copied())
@@ -786,10 +858,8 @@ fn ring_check(document: &Document, layout_atoms: &BTreeSet<AtomId>) -> Result<us
     if !in_rings.is_empty() {
         return Err(LayoutError::RingInLayoutSet { atoms: in_rings });
     }
-    Ok(systems
-        .iter()
-        .filter(|system| system.atoms.iter().all(|atom| !layout_atoms.contains(atom)))
-        .count())
+    // No system holds a layout atom, because a system that did was refused above.
+    Ok(systems.len())
 }
 
 /// Refuses stated stereo and bond marks that touch the layout set or a boundary fixed atom.
@@ -840,30 +910,35 @@ fn stereo_check(
     })
 }
 
-/// Refuses an abbreviation or fragment display keyed at a layout atom in this instance.
+/// Refuses a layout atom that an abbreviation or fragment display covers in this instance. An
+/// abbreviation covers its key and its hidden terminal. A fragment display covers its key and every
+/// member. A display in another instance covers nothing here.
 ///
 /// # Errors
 ///
-/// [`LayoutError::DisplayInLayoutSet`] listing the keyed layout atoms.
+/// [`LayoutError::DisplayInLayoutSet`] listing the covered layout atoms, in ascending order.
 fn display_check(
     document: &Document,
     instance: ObjectId,
     layout_atoms: &BTreeSet<AtomId>,
 ) -> Result<(), LayoutError> {
-    let keys = document
-        .abbreviations()
-        .map(|(key, _)| key)
-        .chain(document.fragment_displays().map(|(key, _)| key));
-    let atoms: BTreeSet<AtomId> = keys
-        .filter(|key| key.instance == instance && layout_atoms.contains(&key.atom))
-        .map(|key| key.atom)
-        .collect();
+    let mut covered: BTreeSet<AtomId> = BTreeSet::new();
+    for (key, terminal) in document.abbreviations() {
+        if key.instance == instance {
+            covered.extend([key.atom, terminal]);
+        }
+    }
+    for (key, display) in document.fragment_displays() {
+        if key.instance == instance {
+            covered.insert(key.atom);
+            covered.extend(display.members.iter().copied());
+        }
+    }
+    let atoms: Vec<AtomId> = layout_atoms.intersection(&covered).copied().collect();
     if atoms.is_empty() {
         Ok(())
     } else {
-        Err(LayoutError::DisplayInLayoutSet {
-            atoms: atoms.into_iter().collect(),
-        })
+        Err(LayoutError::DisplayInLayoutSet { atoms })
     }
 }
 
@@ -902,11 +977,65 @@ fn anchors_of(
         .collect()
 }
 
-/// The canonical label of an atom: its element symbol (`*` for a query atom), its charge, and its
-/// isotope mass number (`0` for natural abundance), joined by `|`.
+/// The canonical label of an atom, which starts the canonical code of its subtree. It has six
+/// fields joined by `|`: the kind, the charge, the isotope, the hydrogens, the radical and the
+/// attachment points. Together they state every atom state the document records, so two atoms
+/// with one label differ in no recorded way. No field holds `|`, `(`, `)` or `;`, so the fields
+/// can be read back.
 fn atom_label(atom: &Atom) -> String {
-    let symbol = atom.kind.element().map_or("*", Element::symbol);
-    format!("{symbol}|{}|{}", atom.charge, atom.isotope.unwrap_or(0))
+    format!(
+        "{}|{}|{}|{}|{}|{}",
+        kind_label(&atom.kind),
+        atom.charge,
+        // Validation keeps an isotope at 1 or more, so 0 can mean natural abundance.
+        atom.isotope.unwrap_or(0),
+        hydrogens_label(atom.hydrogens),
+        radical_label(atom.radical),
+        attachments_label(atom.attachment_points),
+    )
+}
+
+/// The kind of an atom: its element symbol, or a query named after `?`. A list names its elements
+/// after `?in=`, or `?notin=` when negated, comma-separated and in the order the list records them.
+fn kind_label(kind: &AtomKind) -> String {
+    match kind {
+        AtomKind::Element(element) => element.symbol().to_owned(),
+        AtomKind::Query(QueryAtom::Any) => "?any".to_owned(),
+        AtomKind::Query(QueryAtom::AnyHeavy) => "?anyheavy".to_owned(),
+        AtomKind::Query(QueryAtom::Heteroatom) => "?heteroatom".to_owned(),
+        AtomKind::Query(QueryAtom::Halogen) => "?halogen".to_owned(),
+        AtomKind::Query(QueryAtom::List { elements, negated }) => {
+            let symbols: Vec<&str> = elements.iter().map(|element| element.symbol()).collect();
+            let keyword = if *negated { "?notin=" } else { "?in=" };
+            format!("{keyword}{}", symbols.join(","))
+        }
+    }
+}
+
+/// The recorded hydrogens: `inferred`, `unknown`, or the stated count.
+fn hydrogens_label(hydrogens: Hydrogens) -> String {
+    match hydrogens {
+        Hydrogens::Inferred => "inferred".to_owned(),
+        Hydrogens::Unknown => "unknown".to_owned(),
+        Hydrogens::Specified(count) => count.to_string(),
+    }
+}
+
+/// The recorded radical.
+fn radical_label(radical: Radical) -> &'static str {
+    match radical {
+        Radical::None => "none",
+        Radical::Singlet => "singlet",
+        Radical::Doublet => "doublet",
+        Radical::Triplet => "triplet",
+        Radical::Unknown => "unknown",
+    }
+}
+
+/// The attachment points in ascending order, comma-separated. Empty when there are none.
+fn attachments_label(points: AttachmentPoints) -> String {
+    let values: Vec<String> = points.values().map(|value| value.to_string()).collect();
+    values.join(",")
 }
 
 /// The straight-line distance between two points, in pt.
@@ -923,8 +1052,8 @@ mod tests {
     use crate::document::{
         AtomRef, BondRef, BondTo, Command, DocumentId, NewAtomPositions, RingPattern, RingSize,
     };
+    use crate::element::Element;
     use crate::settings::Settings;
-    use crate::states::{AtomKind, QueryAtom};
     use crate::stereo::{AtomConfiguration, BondEnd, SlotRef, StereoMark};
 
     fn atom(serial: u32) -> AtomId {
@@ -945,6 +1074,10 @@ mod tests {
 
     fn carbon() -> Atom {
         Atom::from(Element::CARBON)
+    }
+
+    fn element(symbol: &str) -> Element {
+        Element::from_symbol(symbol).unwrap()
     }
 
     fn selection(serials: &[u32]) -> Selection {
@@ -1186,7 +1319,7 @@ mod tests {
     }
 
     #[test]
-    fn ring_atoms_in_the_layout_set_are_refused_while_a_fixed_ring_is_only_counted() {
+    fn ring_atoms_in_the_layout_set_are_refused_while_a_ring_elsewhere_is_not_counted() {
         let document = ring_and_free_carbon();
         assert_eq!(
             prepare(&document, instance(), &selection(&[1]), Scope::Selection).unwrap_err(),
@@ -1208,7 +1341,8 @@ mod tests {
         );
         let prepared = prepare(&document, instance(), &selection(&[7]), Scope::Selection).unwrap();
         assert_eq!(prepared.layout_atoms, BTreeSet::from([atom(7)]));
-        assert_eq!(prepared.fixed_ring_systems, 1);
+        // The hexagon lies in a component with no layout atom, so it is not counted.
+        assert_eq!(prepared.fixed_ring_systems, 0);
         assert_eq!(prepared.fixed_atom_count, 6);
     }
 
@@ -1278,15 +1412,23 @@ mod tests {
     }
 
     #[test]
-    fn an_abbreviation_keyed_at_a_layout_atom_is_refused_and_one_keyed_at_a_fixed_atom_is_not() {
+    fn an_abbreviation_covering_a_layout_atom_is_refused_and_one_covering_fixed_atoms_is_not() {
         let document = ethyl();
+        // Atom 2 is the key and atom 3 the hidden terminal, so both are covered.
         assert_eq!(
             prepare(&document, instance(), &selection(&[2, 3]), Scope::Selection).unwrap_err(),
             LayoutError::DisplayInLayoutSet {
-                atoms: vec![atom(2)],
+                atoms: vec![atom(2), atom(3)],
             }
         );
-        // The display is keyed at atom 2, which is fixed when only atom 1 is laid out.
+        // The hidden terminal alone is covered too.
+        assert_eq!(
+            prepare(&document, instance(), &selection(&[3]), Scope::Selection).unwrap_err(),
+            LayoutError::DisplayInLayoutSet {
+                atoms: vec![atom(3)],
+            }
+        );
+        // The display covers atoms 2 and 3 only, so the oxygen is laid out.
         assert!(prepare(&document, instance(), &selection(&[1]), Scope::Selection).is_ok());
     }
 
@@ -1365,20 +1507,110 @@ mod tests {
     }
 
     #[test]
-    fn atom_labels_state_element_charge_and_isotope() {
-        assert_eq!(atom_label(&carbon()), "C|0|0");
+    fn atom_labels_state_the_kind_charge_isotope_hydrogens_radical_and_attachment_points() {
+        assert_eq!(atom_label(&carbon()), "C|0|0|inferred|none|");
         assert_eq!(
             atom_label(&Atom {
                 charge: -1,
                 isotope: Some(13),
                 ..carbon()
             }),
-            "C|-1|13"
+            "C|-1|13|inferred|none|"
+        );
+        assert_eq!(
+            atom_label(&Atom {
+                hydrogens: Hydrogens::Specified(2),
+                radical: Radical::Doublet,
+                attachment_points: AttachmentPoints::new(&[1, 3]).unwrap(),
+                ..carbon()
+            }),
+            "C|0|0|2|doublet|1,3"
         );
         assert_eq!(
             atom_label(&Atom::new(AtomKind::Query(QueryAtom::Any))),
-            "*|0|0"
+            "?any|0|0|inferred|none|"
         );
+        assert_eq!(
+            atom_label(&Atom::new(AtomKind::Query(QueryAtom::List {
+                elements: vec![element("N"), element("O")],
+                negated: true,
+            }))),
+            "?notin=N,O|0|0|inferred|none|"
+        );
+    }
+
+    #[test]
+    fn atom_labels_tell_apart_every_recorded_state_and_hold_six_delimited_fields() {
+        let list = |elements: Vec<Element>, negated| {
+            Atom::new(AtomKind::Query(QueryAtom::List { elements, negated }))
+        };
+        let (nitrogen, oxygen) = (element("N"), element("O"));
+        let states = [
+            carbon(),
+            Atom {
+                charge: 1,
+                ..carbon()
+            },
+            Atom {
+                isotope: Some(1),
+                ..carbon()
+            },
+            Atom {
+                hydrogens: Hydrogens::Unknown,
+                ..carbon()
+            },
+            Atom {
+                hydrogens: Hydrogens::Specified(0),
+                ..carbon()
+            },
+            Atom {
+                hydrogens: Hydrogens::Specified(1),
+                ..carbon()
+            },
+            Atom {
+                radical: Radical::Singlet,
+                ..carbon()
+            },
+            Atom {
+                radical: Radical::Doublet,
+                ..carbon()
+            },
+            Atom {
+                radical: Radical::Triplet,
+                ..carbon()
+            },
+            Atom {
+                radical: Radical::Unknown,
+                ..carbon()
+            },
+            Atom {
+                attachment_points: AttachmentPoints::new(&[1]).unwrap(),
+                ..carbon()
+            },
+            Atom {
+                attachment_points: AttachmentPoints::new(&[2]).unwrap(),
+                ..carbon()
+            },
+            Atom {
+                attachment_points: AttachmentPoints::new(&[1, 2]).unwrap(),
+                ..carbon()
+            },
+            Atom::from(nitrogen),
+            Atom::new(AtomKind::Query(QueryAtom::Any)),
+            Atom::new(AtomKind::Query(QueryAtom::AnyHeavy)),
+            Atom::new(AtomKind::Query(QueryAtom::Heteroatom)),
+            Atom::new(AtomKind::Query(QueryAtom::Halogen)),
+            list(vec![nitrogen], false),
+            list(vec![nitrogen], true),
+            list(vec![nitrogen, oxygen], false),
+            list(vec![oxygen, nitrogen], false),
+        ];
+        let labels: BTreeSet<String> = states.iter().map(atom_label).collect();
+        assert_eq!(labels.len(), states.len(), "labels: {labels:?}");
+        for label in &labels {
+            assert_eq!(label.split('|').count(), 6, "{label}");
+            assert!(!label.contains(['(', ')', ';']), "{label}");
+        }
     }
 
     #[test]

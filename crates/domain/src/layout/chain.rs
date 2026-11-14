@@ -16,8 +16,9 @@
 //! An atom placed with incoming angle `a`, the direction from its parent to it, and turn sign `s`
 //! (+1 or -1) places its `k` children as follows.
 //!
-//! - One child at a linear atom, one with a triple bond or with two double bonds: at `a`, with
-//!   sign `s`.
+//! - One child at a linear atom, one with a triple bond or a carbon with two double bonds: at `a`,
+//!   with sign `s`. Two double bonds at another atom, as at the sulfur of O=S=O, do not make it
+//!   linear.
 //! - One child at any other atom: at `a - 60 s`, with sign `-s`. A run of such atoms zigzags at
 //!   120 degrees between bonds.
 //! - Two or more children: at `a + o` for the offsets `o = -180 + 360 j / (k + 1)`, `j = 1..=k`.
@@ -29,11 +30,23 @@
 //!
 //! # Codes and rank
 //!
-//! The canonical code of a rooted subtree is `(`, its label, `;`, the order of the bond to its
-//! parent, the codes of its children in byte order, and `)`. The label is the element symbol (`*`
-//! for a query atom), the charge and the isotope mass number (`0` when there is none), joined by
-//! `|`, as `atom_label` in the layout module builds it. The order is `1`, `2`, `3`, `a`, `d`, `q`
-//! or `u` for the bond order, and `-` at a root. Equal codes mean the subtrees are isomorphic.
+//! The canonical code of a rooted subtree is `(`, its label, `;`, the code of the bond to its
+//! parent, the codes of its children in byte order, and `)`. Equal codes mean the subtrees are
+//! isomorphic.
+//!
+//! The label is `atom_label` in the layout module: six fields joined by `|`, namely the kind, the
+//! charge, the isotope, the hydrogens, the radical and the attachment points. The kind is an
+//! element symbol, `?any`, `?anyheavy`, `?heteroatom` or `?halogen`, or `?in=` or `?notin=`
+//! followed by the element symbols of a list, comma-separated. The isotope is `0` for natural
+//! abundance. The hydrogens are `inferred`, `unknown` or a count, and the attachment points are
+//! comma-separated.
+//!
+//! The bond code is `1`, `2`, `3`, `a` or `u` for a single, double, aromatic or unknown bond. A
+//! dative bond is `d>` when it begins at the atom the walk comes from, and `d<` when it ends there.
+//! A boundary bond is read from its fixed anchor. A query bond is `q*` for a query of any kind, or
+//! `q[`, the kinds of its list in stored order separated by `,`, and `]`, where a kind is `1`, `2`,
+//! `3` or `a`. A root has no bond to its parent, so its code is `-`. No label or bond code holds
+//! `(`, `;` or `)`, which delimit the code, so every code reads back unambiguously.
 //!
 //! Children are ranked by height (the most bonds from the child down to a leaf) descending, then by
 //! atom count descending, then by code ascending, then by identifier ascending. The identifier is
@@ -72,7 +85,7 @@
 //!   `s = +1`. Within 1e-9 degrees, the gap that starts at the smaller direction is taken.
 //!
 //! Anchored components are placed first, ordered by the position of their anchor (x, then y), then
-//! by rank: height, atom count, code, the order of the boundary bond, and the smallest identifier of
+//! by rank: height, atom count, code, the code of the boundary bond, and the smallest identifier of
 //! the component. Free components follow in the same rank order, without an anchor position.
 //!
 //! # Renumbering
@@ -90,10 +103,12 @@
 //! each component, and once per layout atom of its overlap scan.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 use crate::budget::Interrupt;
 use crate::document::{AtomId, BondId, BondOrder, Point};
+use crate::element::Element;
+use crate::states::{BondQuery, QueryBondOrder};
 
 use super::{Chain, Component, Halt, LayoutError, Preparation, neighbours};
 
@@ -160,8 +175,8 @@ pub(super) struct Rooted {
     /// free one.
     pub(super) root: AtomId,
     anchored: Option<Anchored>,
-    /// The order of the boundary bond as its code character, `-` for a free component.
-    boundary_order: char,
+    /// The code of the boundary bond, `-` for a free component. See the module documentation.
+    boundary_order: String,
     tree: Node,
 }
 
@@ -186,9 +201,9 @@ impl Rooted {
         &self.tree.code
     }
 
-    /// The order of the boundary bond as its code character, `-` for a free component.
-    pub(super) fn boundary_order(&self) -> char {
-        self.boundary_order
+    /// The code of the boundary bond, `-` for a free component.
+    pub(super) fn boundary_order(&self) -> &str {
+        &self.boundary_order
     }
 }
 
@@ -228,7 +243,7 @@ pub(super) fn root(prep: &Preparation, component: &Component) -> Result<Rooted, 
                     fixed_atom: anchor.fixed_atom,
                     origin,
                 }),
-                boundary_order: order_char(order_of(prep, anchor.bond)),
+                boundary_order: code_from(prep, anchor.bond, anchor.fixed_atom),
                 tree: build(prep, boundary_atom, None),
             })
         }
@@ -237,7 +252,7 @@ pub(super) fn root(prep: &Preparation, component: &Component) -> Result<Rooted, 
             Ok(Rooted {
                 root,
                 anchored: None,
-                boundary_order: '-',
+                boundary_order: "-".to_owned(),
                 tree,
             })
         }
@@ -436,7 +451,8 @@ impl Placer<'_> {
         fixed_atoms.chain(laid_out).fold(f64::INFINITY, f64::min)
     }
 
-    /// Whether `atom` is linear: one of its bonds is triple, or two of them are double.
+    /// Whether `atom` is linear: one of its bonds is triple, or, at a carbon, two of them are
+    /// double. Two double bonds at another atom, as at the sulfur of O=S=O, leave its angle free.
     fn is_linear(&self, atom: AtomId) -> bool {
         let mut doubles = 0;
         for &(_, bond) in neighbours(&self.prep.adjacency, atom) {
@@ -446,7 +462,7 @@ impl Placer<'_> {
                 _ => {}
             }
         }
-        doubles >= 2
+        doubles >= 2 && is_carbon(self.prep, atom)
     }
 }
 
@@ -474,7 +490,10 @@ fn build(prep: &Preparation, atom: AtomId, parent: Option<(AtomId, BondId)>) -> 
         .labels
         .get(&atom)
         .expect("prepare labels every layout atom");
-    let order = parent.map_or('-', |(_, bond)| order_char(order_of(prep, bond)));
+    let order = match parent {
+        Some((from, bond)) => code_from(prep, bond, from),
+        None => "-".to_owned(),
+    };
     let code = format!("({label};{order}{})", codes.concat());
     children.sort_by(rank);
     Node {
@@ -500,17 +519,8 @@ fn rank(left: &Node, right: &Node) -> Ordering {
 /// The root and tree of a free component: the end of a longest path with the smallest code, then
 /// the smallest identifier.
 fn free_root(prep: &Preparation, component: &Component) -> (AtomId, Node) {
-    let reaches: Vec<(AtomId, usize)> = component
-        .atoms
-        .iter()
-        .map(|&atom| (atom, eccentricity(prep, atom)))
-        .collect();
-    let diameter = reaches.iter().map(|&(_, reach)| reach).max().unwrap_or(0);
     let mut best: Option<Node> = None;
-    for &(atom, reach) in &reaches {
-        if reach != diameter {
-            continue;
-        }
+    for atom in diameter_ends(prep, component) {
         let tree = build(prep, atom, None);
         let replaces = best.as_ref().is_none_or(|current| {
             (tree.code.as_str(), tree.atom) < (current.code.as_str(), current.atom)
@@ -523,20 +533,54 @@ fn free_root(prep: &Preparation, component: &Component) -> (AtomId, Node) {
     (tree.atom, tree)
 }
 
-/// The greatest number of bonds from `start` to an atom of its component.
-fn eccentricity(prep: &Preparation, start: AtomId) -> usize {
-    let mut seen = BTreeSet::from([start]);
+/// The ends of the longest paths of `component`, ascending.
+///
+/// The component is a tree, so the eccentricity of an atom is the greater of its distances to the
+/// two ends `a` and `b` of any one longest path, and the ends are the atoms whose eccentricity is
+/// the diameter. Three breadth-first searches find them: one from the first atom, which reaches `a`
+/// at its greatest distance; one from `a`, which gives `b` and the diameter; and one from `b`. Each
+/// search visits every atom and bond of the component once.
+fn diameter_ends(prep: &Preparation, component: &Component) -> Vec<AtomId> {
+    let first = *component
+        .atoms
+        .first()
+        .expect("a layout component has at least one atom");
+    let (a, _) = farthest(&distances(prep, first));
+    let from_a = distances(prep, a);
+    let (b, diameter) = farthest(&from_a);
+    let from_b = distances(prep, b);
+    component
+        .atoms
+        .iter()
+        .copied()
+        .filter(|atom| from_a[atom].max(from_b[atom]) == diameter)
+        .collect()
+}
+
+/// The atom at the greatest distance in `depths`, and that distance. Any of the farthest atoms is an
+/// end of a longest path, so a tie does not change the ends that `diameter_ends` finds.
+fn farthest(depths: &BTreeMap<AtomId, usize>) -> (AtomId, usize) {
+    depths
+        .iter()
+        .map(|(&atom, &depth)| (atom, depth))
+        .max_by_key(|&(_, depth)| depth)
+        .expect("a search reaches its start atom")
+}
+
+/// The number of bonds from `start` to each atom of its component, by breadth-first search over
+/// the layout atoms.
+fn distances(prep: &Preparation, start: AtomId) -> BTreeMap<AtomId, usize> {
+    let mut depths = BTreeMap::from([(start, 0)]);
     let mut queue: VecDeque<(AtomId, usize)> = VecDeque::from([(start, 0)]);
-    let mut farthest = 0;
     while let Some((atom, depth)) = queue.pop_front() {
-        farthest = farthest.max(depth);
         for &(other, _) in neighbours(&prep.adjacency, atom) {
-            if prep.layout_atoms.contains(&other) && seen.insert(other) {
+            if prep.layout_atoms.contains(&other) && !depths.contains_key(&other) {
+                depths.insert(other, depth + 1);
                 queue.push_back((other, depth + 1));
             }
         }
     }
-    farthest
+    depths
 }
 
 /// The slots of `count` children of an atom with incoming angle `incoming` and turn sign `turn`,
@@ -693,16 +737,32 @@ fn mean(points: impl Iterator<Item = Coord>) -> Coord {
     }
 }
 
-/// The order of a bond as its canonical code character.
-fn order_char(order: &BondOrder) -> char {
+/// The code of a bond order, as the canonical code of a subtree states it. `forward` says whether
+/// a dative bond begins at the atom the walk comes from: `d>` if it does, `d<` if it ends there.
+/// The other kinds ignore it. See the module documentation.
+fn bond_code(order: &BondOrder, forward: bool) -> String {
     match order {
-        BondOrder::Single => '1',
-        BondOrder::Double => '2',
-        BondOrder::Triple => '3',
-        BondOrder::Aromatic => 'a',
-        BondOrder::Dative => 'd',
-        BondOrder::Query(_) => 'q',
-        BondOrder::Unknown => 'u',
+        BondOrder::Single => "1".to_owned(),
+        BondOrder::Double => "2".to_owned(),
+        BondOrder::Triple => "3".to_owned(),
+        BondOrder::Aromatic => "a".to_owned(),
+        BondOrder::Dative => String::from(if forward { "d>" } else { "d<" }),
+        BondOrder::Unknown => "u".to_owned(),
+        BondOrder::Query(BondQuery::Any) => "q*".to_owned(),
+        BondOrder::Query(BondQuery::OneOf(kinds)) => {
+            let codes: Vec<&str> = kinds.iter().map(|kind| query_kind_code(*kind)).collect();
+            format!("q[{}]", codes.join(","))
+        }
+    }
+}
+
+/// The code of a bond kind that a query names.
+fn query_kind_code(kind: QueryBondOrder) -> &'static str {
+    match kind {
+        QueryBondOrder::Single => "1",
+        QueryBondOrder::Double => "2",
+        QueryBondOrder::Triple => "3",
+        QueryBondOrder::Aromatic => "a",
     }
 }
 
@@ -713,9 +773,37 @@ fn order_of(prep: &Preparation, bond: BondId) -> &BondOrder {
         .expect("prepare records the order of every bond at a layout atom")
 }
 
+/// Whether the layout atom `atom` is a carbon. The first field of its label is its kind: the element
+/// symbol of an element, and a query kind begins with `?`, so the field is exactly `C` for carbon.
+fn is_carbon(prep: &Preparation, atom: AtomId) -> bool {
+    let label = prep
+        .labels
+        .get(&atom)
+        .expect("prepare labels every layout atom");
+    label.split('|').next() == Some(Element::CARBON.symbol())
+}
+
+/// The atom that `bond` begins at, for a bond that has a layout atom at one end.
+fn begin_of(prep: &Preparation, bond: BondId) -> AtomId {
+    *prep
+        .bond_begins
+        .get(&bond)
+        .expect("prepare records the beginning atom of every bond at a layout atom")
+}
+
+/// The code of `bond` as a walk that comes to it from `from`, one of its two atoms, states it.
+fn code_from(prep: &Preparation, bond: BondId, from: AtomId) -> String {
+    bond_code(order_of(prep, bond), begin_of(prep, bond) == from)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
+    use crate::document::{Atom, AtomRef, BondTo, Command, Document, DocumentId, NewAtomPositions};
+    use crate::layout::{Scope, prepare};
+    use crate::scene::Selection;
 
     /// Asserts that `child_slots` gives `expected` as (angle, turn) pairs, in order.
     fn assert_slots(count: usize, linear: bool, incoming: f64, turn: i8, expected: &[(f64, i8)]) {
@@ -881,6 +969,152 @@ mod tests {
                 entry.y,
                 radians.cos(),
                 radians.sin()
+            );
+        }
+    }
+
+    #[test]
+    fn bond_codes_tell_apart_every_bond_kind_and_keep_the_stored_order_of_a_list() {
+        let kinds = [
+            BondOrder::Single,
+            BondOrder::Double,
+            BondOrder::Triple,
+            BondOrder::Aromatic,
+            BondOrder::Dative,
+            BondOrder::Unknown,
+            BondOrder::Query(BondQuery::Any),
+            BondOrder::Query(BondQuery::OneOf(vec![QueryBondOrder::Single])),
+            BondOrder::Query(BondQuery::OneOf(vec![QueryBondOrder::Double])),
+            BondOrder::Query(BondQuery::OneOf(vec![
+                QueryBondOrder::Single,
+                QueryBondOrder::Double,
+            ])),
+            BondOrder::Query(BondQuery::OneOf(vec![
+                QueryBondOrder::Double,
+                QueryBondOrder::Single,
+            ])),
+        ];
+        let mut codes: Vec<String> = kinds.iter().map(|order| bond_code(order, true)).collect();
+        // A dative bond that ends at the atom the walk comes from is the one other dative code.
+        codes.push(bond_code(&BondOrder::Dative, false));
+        let distinct: BTreeSet<String> = codes.iter().cloned().collect();
+        assert_eq!(
+            distinct.len(),
+            codes.len(),
+            "two bond kinds share a code: {distinct:?}"
+        );
+        let reversed = BondOrder::Query(BondQuery::OneOf(vec![
+            QueryBondOrder::Double,
+            QueryBondOrder::Single,
+        ]));
+        assert_eq!(bond_code(&reversed, true), "q[2,1]");
+        assert_eq!(bond_code(&BondOrder::Dative, true), "d>");
+        assert_eq!(bond_code(&BondOrder::Dative, false), "d<");
+    }
+
+    /// The next value of a linear congruential generator, below `bound`. `state` is its seed.
+    fn lcg_next(state: &mut u64, bound: usize) -> usize {
+        *state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        ((*state >> 33) as usize) % bound
+    }
+
+    /// A tree of `count` atoms from `seed`. Atom k bonds to a random earlier atom, by a single or a
+    /// double bond, and each atom is a carbon, a nitrogen or an oxygen at random, so the codes vary.
+    fn random_tree(seed: u64, count: usize) -> Document {
+        let mut state = seed;
+        let symbols = ["C", "N", "O"];
+        let mut commands = Vec::with_capacity(count);
+        for index in 0..count {
+            let element = Element::from_symbol(symbols[lcg_next(&mut state, symbols.len())])
+                .expect("C, N and O are elements");
+            let bond_to = if index == 0 {
+                None
+            } else {
+                let parent = lcg_next(&mut state, index);
+                let order = if lcg_next(&mut state, 2) == 0 {
+                    BondOrder::Single
+                } else {
+                    BondOrder::Double
+                };
+                Some(BondTo {
+                    atom: AtomRef::Created(parent),
+                    order,
+                })
+            };
+            commands.push(Command::AddAtom {
+                atom: Atom::from(element),
+                positions: NewAtomPositions::Single(
+                    Point::new(index as f64 * 30.0, 0.0).expect("a finite position"),
+                ),
+                bond_to,
+            });
+        }
+        let mut document = Document::new(DocumentId::parse("tree").unwrap(), "Tree").unwrap();
+        document.apply(&commands).unwrap();
+        document
+    }
+
+    /// The eccentricity of every atom of `component`, from a breadth-first search from each atom.
+    fn all_pairs_eccentricities(prep: &Preparation, component: &Component) -> Vec<(AtomId, usize)> {
+        component
+            .atoms
+            .iter()
+            .map(|&atom| {
+                let reach = distances(prep, atom).values().copied().max().unwrap_or(0);
+                (atom, reach)
+            })
+            .collect()
+    }
+
+    /// The root under the all-pairs rule: among the atoms whose eccentricity is the diameter, the one
+    /// whose tree has the smallest code, then the smallest identifier.
+    fn all_pairs_root(prep: &Preparation, component: &Component) -> AtomId {
+        let reach = all_pairs_eccentricities(prep, component);
+        let diameter = reach.iter().map(|&(_, depth)| depth).max().unwrap_or(0);
+        reach
+            .iter()
+            .filter(|&&(_, depth)| depth == diameter)
+            .map(|&(atom, _)| build(prep, atom, None))
+            .min_by(|left, right| left.code.cmp(&right.code).then(left.atom.cmp(&right.atom)))
+            .expect("a component has at least one end of a longest path")
+            .atom
+    }
+
+    #[test]
+    fn the_ends_and_the_root_of_random_trees_follow_the_all_pairs_rule() {
+        for seed in 0..300_u64 {
+            let count = 1 + (seed as usize) % 30;
+            let document = random_tree(seed, count);
+            let selection = Selection {
+                atoms: document.atoms().map(|(atom, _)| atom).collect(),
+                ..Selection::default()
+            };
+            let prepared = prepare(
+                &document,
+                document.first_instance(),
+                &selection,
+                Scope::Selection,
+            )
+            .expect("a tree of elements with no ring and no stated stereo is a layout set");
+            let component = &prepared.components[0];
+            let reach = all_pairs_eccentricities(&prepared, component);
+            let diameter = reach.iter().map(|&(_, depth)| depth).max().unwrap_or(0);
+            let expected_ends: Vec<AtomId> = reach
+                .iter()
+                .filter(|&&(_, depth)| depth == diameter)
+                .map(|&(atom, _)| atom)
+                .collect();
+            assert_eq!(
+                diameter_ends(&prepared, component),
+                expected_ends,
+                "seed {seed}, {count} atoms: the ends of a longest path"
+            );
+            assert_eq!(
+                free_root(&prepared, component).0,
+                all_pairs_root(&prepared, component),
+                "seed {seed}, {count} atoms: the root"
             );
         }
     }

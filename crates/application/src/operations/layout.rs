@@ -10,7 +10,8 @@
 
 use chemifree_domain::document::{ObjectId, Point};
 use chemifree_domain::layout::{
-    self, LayoutError, MODEL_ID, OVERLAP_FACTOR, PlacedComponent, Preparation, Preview, Scope,
+    self, LayoutError, MAX_LISTED_OVERLAPS, MODEL_ID, OVERLAP_FACTOR, PlacedComponent, Preparation,
+    Preview, Scope,
 };
 
 use super::*;
@@ -18,8 +19,6 @@ use crate::contract::PositionView;
 
 /// The only mode. A preview states that nothing is applied.
 const PREVIEW: &str = "preview";
-/// The most overlapping pairs one reply lists. The count it reports is the whole count.
-const MAX_OVERLAP_PAIRS: usize = 100;
 
 /// The reasons of a `layout_unsupported` refusal, as its `reason` detail names them. Only the
 /// unit test reads this list; it checks the list against `refusal_reply`.
@@ -428,18 +427,18 @@ fn preview_diagnostics(prep: &Preparation, preview: &Preview) -> Vec<Diagnostic>
         let pairs: Vec<Value> = preview
             .overlaps
             .iter()
-            .take(MAX_OVERLAP_PAIRS)
+            .take(MAX_LISTED_OVERLAPS)
             .map(|(first, second)| Value::from(vec![first.to_string(), second.to_string()]))
             .collect();
         let mut details = Map::new();
         details.insert("pairs".into(), Value::Array(pairs));
-        details.insert("count".into(), preview.overlaps.len().into());
+        details.insert("count".into(), preview.overlap_count.into());
         diagnostics.push(advice(
             Severity::Warning,
             "layout_overlap",
             format!(
                 "{} pairs of atoms that are not bonded lie closer than {OVERLAP_FACTOR} bond lengths after placement; collisions are not resolved.",
-                preview.overlaps.len()
+                preview.overlap_count
             ),
             details,
         ));
@@ -477,65 +476,69 @@ mod tests {
         BondId::from_serial(serial).unwrap()
     }
 
-    /// The reason of each variant, listed explicitly. The match has no wildcard, so a variant
-    /// added to `LayoutError` does not compile until it has a reason here.
-    fn listed_reason(error: &LayoutError) -> &'static str {
-        match error {
-            LayoutError::ObjectSelection => "object_selection",
-            LayoutError::UnknownSelection => "selection_unknown",
-            LayoutError::EmptySelection => "layout_selection_empty",
-            LayoutError::TooLarge { .. } => "too_large",
-            LayoutError::RingInLayoutSet { .. } => "ring_in_layout_set",
-            LayoutError::StereoInLayout { .. } => "stereo_in_layout",
-            LayoutError::DisplayInLayoutSet { .. } => "display_in_layout_set",
-            LayoutError::MultipleAttachments { .. } => "multiple_attachments",
-            LayoutError::CoincidentFixedAtoms { .. } => "coincident_fixed_atoms",
-            LayoutError::CoordinateOutOfRange { .. } => "coordinate_out_of_range",
-            LayoutError::MissingPosition { .. } => "missing_position",
-        }
-    }
-
-    /// One refusal of every variant, with the field values it needs.
-    fn one_refusal_per_variant() -> Vec<LayoutError> {
+    /// One refusal of every variant with its expected code, written as literals so the
+    /// expectation does not restate `LayoutError::reason`.
+    fn expected_codes() -> Vec<(LayoutError, &'static str)> {
         vec![
-            LayoutError::ObjectSelection,
-            LayoutError::UnknownSelection,
-            LayoutError::EmptySelection,
-            LayoutError::TooLarge { atoms: 3, limit: 2 },
-            LayoutError::RingInLayoutSet {
-                atoms: vec![atom(1)],
-            },
-            LayoutError::StereoInLayout {
-                atoms: vec![atom(1)],
-                bonds: vec![bond(1)],
-            },
-            LayoutError::DisplayInLayoutSet {
-                atoms: vec![atom(1)],
-            },
-            LayoutError::MultipleAttachments {
-                atoms: vec![atom(1)],
-                bonds: vec![bond(1), bond(2)],
-            },
-            LayoutError::CoincidentFixedAtoms {
-                atom: atom(1),
-                other: atom(2),
-            },
-            LayoutError::CoordinateOutOfRange { atom: atom(1) },
-            LayoutError::MissingPosition { atom: atom(1) },
+            (LayoutError::ObjectSelection, "object_selection"),
+            (LayoutError::UnknownSelection, "selection_unknown"),
+            (LayoutError::EmptySelection, "layout_selection_empty"),
+            (LayoutError::TooLarge { atoms: 3, limit: 2 }, "too_large"),
+            (
+                LayoutError::RingInLayoutSet {
+                    atoms: vec![atom(1)],
+                },
+                "ring_in_layout_set",
+            ),
+            (
+                LayoutError::StereoInLayout {
+                    atoms: vec![atom(1)],
+                    bonds: vec![bond(1)],
+                },
+                "stereo_in_layout",
+            ),
+            (
+                LayoutError::DisplayInLayoutSet {
+                    atoms: vec![atom(1)],
+                },
+                "display_in_layout_set",
+            ),
+            (
+                LayoutError::MultipleAttachments {
+                    atoms: vec![atom(1)],
+                    bonds: vec![bond(1), bond(2)],
+                },
+                "multiple_attachments",
+            ),
+            (
+                LayoutError::CoincidentFixedAtoms {
+                    atom: atom(1),
+                    other: atom(2),
+                },
+                "coincident_fixed_atoms",
+            ),
+            (
+                LayoutError::CoordinateOutOfRange { atom: atom(1) },
+                "coordinate_out_of_range",
+            ),
+            (
+                LayoutError::MissingPosition { atom: atom(1) },
+                "missing_position",
+            ),
         ]
     }
 
     #[test]
-    fn every_variant_has_its_listed_reason() {
-        for error in one_refusal_per_variant() {
-            assert_eq!(error.reason(), listed_reason(&error), "{error:?}");
+    fn every_variant_has_its_expected_reason() {
+        for (error, code) in expected_codes() {
+            assert_eq!(error.reason(), code, "{error:?}");
         }
     }
 
     #[test]
     fn reason_codes_are_distinct() {
-        let samples = one_refusal_per_variant();
-        let codes: BTreeSet<&str> = samples.iter().map(listed_reason).collect();
+        let samples = expected_codes();
+        let codes: BTreeSet<&str> = samples.iter().map(|(error, _)| error.reason()).collect();
         assert_eq!(codes.len(), samples.len(), "each variant has its own code");
         let layout: BTreeSet<&str> = LAYOUT_REASONS.into_iter().collect();
         assert_eq!(
@@ -553,7 +556,7 @@ mod tests {
             profile: CompatibilityProfile::PreserveSemantics,
         };
         let mut unsupported = BTreeSet::new();
-        for error in one_refusal_per_variant() {
+        for (error, _) in expected_codes() {
             let reply = refusal_reply(&known, 1, &error);
             if reply.outcome == Outcome::Unsupported {
                 let diagnostic = &reply.diagnostics[0];
