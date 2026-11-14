@@ -411,9 +411,9 @@ test('the handoff partial list names a partial requirement it leaves out', () =>
 
 test('the handoff partial list names an id that is not partial', () => {
   const inputs = base()
-  assert.notEqual(requirement(inputs, 'LAYOUT-01').status, 'partial')
-  setHandoff(inputs, partialSentence([...partialIds(inputs), 'LAYOUT-01']))
-  expectProblem(inputs, /docs\/HANDOFF\.ko\.md: .*\(missing: none; extra: LAYOUT-01\)/)
+  assert.notEqual(requirement(inputs, 'REACTION-01').status, 'partial')
+  setHandoff(inputs, partialSentence([...partialIds(inputs), 'REACTION-01']))
+  expectProblem(inputs, /docs\/HANDOFF\.ko\.md: .*\(missing: none; extra: REACTION-01\)/)
 })
 
 test('the handoff has exactly one partial list sentence', () => {

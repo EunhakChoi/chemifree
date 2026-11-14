@@ -1696,11 +1696,27 @@
       "operations": [
         "layout.structure"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "LAYOUT-01.chain-preview",
+          "summary": "The chain layout preview gives proposed coordinates for exactly the layout set; fixed atoms get none and never move, and the preview changes nothing. Applying a layout is not implemented.",
+          "status": "partial",
+          "implementation": [
+            "crates/domain/src/layout.rs",
+            "crates/domain/src/layout/chain.rs",
+            "crates/application/src/operations/layout.rs"
+          ],
+          "evidence": [
+            "check:check:rust"
+          ],
+          "followups": [
+            "P42"
+          ]
+        },
+        {
           "id": "LAYOUT-01.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Everything of this requirement outside the chain layout preview (P42 S1): nothing of it is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1720,11 +1736,29 @@
       "operations": [
         "layout.structure"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "LAYOUT-02.chain-preview",
+          "summary": "The chain layout preview uses the document bond length, refuses stated stereo and bond marks instead of moving them, and gives the same proposal for the same document and selection. It changes no bond style. Applying a layout and stereo-preserving placement are not implemented.",
+          "status": "partial",
+          "implementation": [
+            "crates/domain/src/layout.rs",
+            "crates/domain/src/layout/chain.rs",
+            "crates/application/src/operations/layout.rs"
+          ],
+          "evidence": [
+            "check:check:rust"
+          ],
+          "followups": [
+            "P42",
+            "P45",
+            "P47"
+          ]
+        },
+        {
           "id": "LAYOUT-02.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Everything of this requirement outside the chain layout preview (P42 S1): nothing of it is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1745,11 +1779,32 @@
       "operations": [
         "layout.structure"
       ],
-      "status": "not_implemented",
+      "status": "partial",
       "parts": [
         {
+          "id": "LAYOUT-03.chain-tie",
+          "summary": "The chain layout's candidate order and tie rule are applied; placement finishes for every accepted set and can be stopped at its checkpoints. Ring, template, search and score rules are not implemented.",
+          "status": "partial",
+          "implementation": [
+            "crates/domain/src/layout.rs",
+            "crates/domain/src/layout/chain.rs",
+            "crates/application/src/operations/layout.rs"
+          ],
+          "evidence": [
+            "check:check:rust"
+          ],
+          "followups": [
+            "P42",
+            "P43",
+            "P44",
+            "P45",
+            "P46",
+            "P47"
+          ]
+        },
+        {
           "id": "LAYOUT-03.rest",
-          "summary": "All of this requirement: nothing of it is implemented.",
+          "summary": "Everything of this requirement outside the chain layout preview (P42 S1): nothing of it is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

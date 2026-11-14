@@ -12,6 +12,7 @@ pub mod graph;
 pub mod identity;
 pub mod image;
 pub mod interchange;
+pub mod layout;
 pub mod mass;
 pub mod operation;
 pub mod rings;

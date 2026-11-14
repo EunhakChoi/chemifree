@@ -15,9 +15,9 @@
       "call": "operation",
       "request": {
         "contract": 1,
-        "request_id": "op-layout",
+        "request_id": "op-layout-reaction",
         "profile": "preserve-semantics",
-        "operation": "layout.structure",
+        "operation": "layout.reaction",
         "parameters": {}
       },
       "expect": {
@@ -30,7 +30,7 @@
             "code": "operation_not_implemented",
             "details": {
               "execution": "not_implemented",
-              "followup": "P42"
+              "followup": "P51"
             }
           }
         ]

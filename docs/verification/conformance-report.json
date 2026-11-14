@@ -355,7 +355,7 @@
       "outcome": "passed",
       "pending": null,
       "failure": null,
-      "case_sha256": "83f18707d6811f6da8d3a0301aa5242f879b18164c9400258a856d0941591964"
+      "case_sha256": "09863105758833dbb62ce70320915936c66e005914081ce636ab6e9497ae7ba9"
     },
     {
       "id": "operation-version-refused",

@@ -12,6 +12,7 @@ use super::inchi::InchiResult;
 use super::interchange::{
     InterchangeExportResult, InterchangeMapping, InterchangePreviewResult, InterchangeReadResult,
 };
+use super::layout::LayoutResult;
 use super::scene_clipboard::{ClipboardSceneCopyResult, ClipboardScenePasteResult};
 use super::selection_scope::SelectionScopeResult;
 use super::smiles::{SmilesExportResult, SmilesPreviewResult};
@@ -198,6 +199,8 @@ pub enum OperationResult {
     Stereo(Box<StereoResult>),
     /// `chem.cip`: CIP descriptors of the stored configurations, per center and double bond.
     Cip(Box<CipResult>),
+    /// `layout.structure`: a read-only chain layout preview at an exact snapshot.
+    Layout(Box<LayoutResult>),
     /// `chem.inchi`: Standard identifiers from an explicitly configured optional provider.
     Inchi(Box<InchiResult>),
 }
