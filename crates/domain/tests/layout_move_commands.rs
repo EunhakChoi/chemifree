@@ -177,6 +177,31 @@ fn an_atom_at_its_place_gets_no_command() -> TestResult {
 }
 
 #[test]
+fn only_moves_beyond_the_move_tolerance_get_a_command() -> TestResult {
+    let instance = layout_instance()?;
+    let preview = hand_built_preview(vec![
+        // Within the tolerance on both axes: the rounding of a committed move, not a move.
+        placement(1, (0.0, 0.0), (1e-10, 0.0))?,
+        // Beyond the tolerance on x.
+        placement(2, (0.0, 0.0), (1e-6, 0.0))?,
+        // Within the tolerance on x but beyond it on y, so the atom moves by both differences.
+        placement(3, (0.0, 0.0), (1e-10, 1e-6))?,
+        // Exactly at the tolerance, which still counts as within it.
+        placement(4, (0.0, 0.0), (layout::MOVE_TOLERANCE_PT, 0.0))?,
+    ]);
+    let commands = layout::move_commands(&preview, instance);
+    let expected = vec![
+        move_atom(2, (1e-6, 0.0), instance)?,
+        move_atom(3, (1e-10, 1e-6), instance)?,
+    ];
+    assert_eq!(
+        commands, expected,
+        "an atom within MOVE_TOLERANCE_PT on both axes gets no command, one beyond it gets one"
+    );
+    Ok(())
+}
+
+#[test]
 fn one_command_per_moved_atom_ascending_with_its_exact_delta_and_instance() -> TestResult {
     let instance = layout_instance()?;
     let preview = hand_built_preview(vec![

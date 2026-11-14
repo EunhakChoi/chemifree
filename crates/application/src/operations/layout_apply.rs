@@ -61,7 +61,7 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
             |document: &Document| {
                 let instance = resolve_instance(known, requested, document)?;
                 layout::prepare(document, instance, &selection, scope)
-                    .map_err(|error| refusal_reply(known, document.revision(), &error))
+                    .map_err(|error| refusal_reply(known, expected_revision, &error))
             },
             |prep: Preparation, interrupt: &dyn Interrupt| {
                 let preview = match layout::place_with(&prep, interrupt)? {

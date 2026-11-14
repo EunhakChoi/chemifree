@@ -2,7 +2,8 @@
 //! proposal as one undoable edit at the revision it names. The tests check the committed positions
 //! against the worked examples and against the preview at the same revision, the shape of the
 //! document reply and the diagnostics of a success, the move of the named instance alone, the
-//! overlap warning, and the 500-atom limit of one edit.
+//! overlap warning, a second apply of a committed layout as a no-op, and the 500-atom limit of
+//! one edit.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -361,6 +362,59 @@ fn the_anchored_example_moves_only_a4() -> TestResult {
         "an atom other than a4 changed its position"
     );
     assert_at(stored_position(&after, "a4")?, [75.0, -dx()], "a4");
+    Ok(())
+}
+
+#[test]
+fn applying_the_committed_layout_again_is_a_no_op() -> TestResult {
+    let directory = tempfile::tempdir()?;
+    let app = new_app(&directory);
+    // The butane off the integer grid, drawn right to left. Its first carbon moves about 84 pt
+    // to a proposed x of about 6 pt, so the committed move rounds and the committed x lies some
+    // units in the last place from the proposal. The second proposal is the first one again, so
+    // only the move tolerance keeps the second apply from moving that carbon. On the integer
+    // butane the second apply sees no difference even under exact equality.
+    let id = draw(
+        &app,
+        "butane-off-grid",
+        json!([
+            {"op": "add_atom", "element": "C", "position": {"x": 90.1, "y": 0.7}},
+            {"op": "add_atom", "element": "C", "position": {"x": 60.1, "y": 0.7}, "bond_to": {"atom": "$0", "order": "single"}},
+            {"op": "add_atom", "element": "C", "position": {"x": 30.1, "y": 0.7}, "bond_to": {"atom": "$1", "order": "single"}},
+            {"op": "add_atom", "element": "C", "position": {"x": 0.1, "y": 0.7}, "bond_to": {"atom": "$2", "order": "single"}}
+        ]),
+    )?;
+    let mut ids = RequestIds::default();
+    let first = call(
+        &app,
+        &ids.fresh(),
+        "layout.structure",
+        apply_parameters(&id, 1, &["a2"]),
+    )?;
+    assert_eq!(first["outcome"], "ok", "{first}");
+    assert_eq!(first["document_revision"], 2, "{first}");
+    let committed = atom_positions(&app, &id)?;
+
+    // The same layout again: each atom is within the move tolerance of its proposal, so none moves.
+    let again = call(
+        &app,
+        &ids.fresh(),
+        "layout.structure",
+        apply_parameters(&id, 2, &["a2"]),
+    )?;
+    assert_eq!(again["outcome"], "ok", "{again}");
+    assert_eq!(again["document_revision"], 2, "{again}");
+    assert_eq!(again["result"]["session"]["undo_depth"], 2, "{again}");
+    assert_eq!(
+        codes(&again),
+        ["layout_unchanged", "layout_not_implemented"],
+        "{again}"
+    );
+    let after = atom_positions(&app, &id)?;
+    assert_eq!(
+        after, committed,
+        "an apply that moves nothing must leave every position bit for bit"
+    );
     Ok(())
 }
 

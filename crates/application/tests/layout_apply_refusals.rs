@@ -215,7 +215,7 @@ struct Case {
     expected: Expected,
 }
 
-/// The refusals of the preview that the apply shares, one case each (A38). The apply of each case
+/// The refusals of the preview that the apply shares, one case each. The apply of each case
 /// names the refusal that the preview names, and a refused apply changes nothing. No case covers
 /// `missing_position`: an atom has a position in every instance, so commands cannot leave one without.
 fn refusals() -> Vec<Case> {
@@ -522,7 +522,7 @@ fn refusals() -> Vec<Case> {
     ]
 }
 
-/// The stale-revision cases (A39): a layout that the document would refuse on its own terms, and a
+/// The stale-revision cases: a layout that the document would refuse on its own terms, and a
 /// ring layout, which the layout would refuse as unsupported if it were checked first.
 fn stale_cases() -> Vec<Case> {
     const STALE: Expected = Expected {

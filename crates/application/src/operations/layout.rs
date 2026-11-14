@@ -285,7 +285,7 @@ fn invalid_request(path: &str, message: String, details: Map<String, Value>) -> 
     }
 }
 
-/// Reads `mode` and refuses a field of the other mode (A3, A4, A5): a preview refuses
+/// Reads `mode` and refuses a field of the other mode: a preview refuses
 /// `expected_revision`, `selection_before` and `selection_after`, checked in that order, and an
 /// apply requires `expected_revision`. Each refusal names no revision.
 fn read_mode(known: &Known, p: &LayoutParameters) -> Result<Mode, Box<OperationResponse>> {
@@ -325,7 +325,7 @@ fn read_mode(known: &Known, p: &LayoutParameters) -> Result<Mode, Box<OperationR
     }
 }
 
-/// Reads the scope, the requested instance and the selection, which both modes share (A7.4). Each
+/// Reads the scope, the requested instance and the selection, which both modes share. Each
 /// refusal names no revision.
 fn read_request(
     known: &Known,
@@ -368,7 +368,7 @@ fn read_request(
     })
 }
 
-/// The scene instance the layout reads (A7.8): the named one, which must be in `document`, or its
+/// The scene instance the layout reads: the named one, which must be in `document`, or its
 /// only one. A refusal names no revision.
 pub(super) fn resolve_instance(
     known: &Known,

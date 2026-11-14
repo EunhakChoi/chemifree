@@ -86,6 +86,11 @@ pub const MAX_LAYOUT_ATOMS: usize = 500;
 /// cells of this size, so two such points on opposite sides of a cell edge can be ordered apart;
 /// see `placement_order`.
 pub const COINCIDENT_PT: f64 = 1e-6;
+/// The tolerance, in pt on each axis, of a move. A committed move lands on the before position
+/// plus the difference of after minus before, both computed in binary64, so the committed position
+/// can differ from its proposal in the last bits. An atom within this tolerance of its proposal on
+/// both axes is not moved by [`move_commands`], so applying the same layout again commits nothing.
+pub const MOVE_TOLERANCE_PT: f64 = 1e-9;
 /// The distance, in bond lengths, below which two non-bonded atoms count as overlapping.
 pub const OVERLAP_FACTOR: f64 = 0.5;
 /// The most overlapping pairs a [`Preview`] lists. Its `overlap_count` counts every pair.
@@ -524,17 +529,18 @@ pub fn place(prep: &Preparation) -> Result<Preview, LayoutError> {
 const _: () = assert!(MAX_LAYOUT_ATOMS <= MAX_COMMANDS);
 
 /// The edit that applies `preview` in scene instance `instance`: one [`Command::MoveAtoms`] for
-/// each layout atom whose placed position differs from its before position, ascending by atom as
-/// [`Preview::positions`] is. Each command translates that one atom by `after - before`, computed
-/// in binary64, in the named instance. An atom with `after == before` (exact equality on both
-/// coordinates, so `-0.0 == 0.0`) gets no command, so a free single atom never gets one. Atoms are
-/// not grouped by equal delta. At most [`MAX_LAYOUT_ATOMS`] commands result.
+/// each layout atom that moves, ascending by atom as [`Preview::positions`] is. An atom does not
+/// move when its before position is within [`MOVE_TOLERANCE_PT`] of its proposal on both axes, so
+/// an atom already at its place gets no command, a free single atom never gets one, and a layout
+/// already in place commits nothing. Each command translates that one atom by `after - before`,
+/// computed in binary64, in the named instance. Atoms are not grouped by equal delta. At most
+/// [`MAX_LAYOUT_ATOMS`] commands result.
 #[must_use]
 pub fn move_commands(preview: &Preview, instance: ObjectId) -> Vec<Command> {
     preview
         .positions
         .iter()
-        .filter(|placement| placement.after != placement.before)
+        .filter(|placement| !within_move_tolerance(placement))
         .map(|placement| Command::MoveAtoms {
             atoms: vec![placement.atom],
             delta: Vector {
@@ -544,6 +550,12 @@ pub fn move_commands(preview: &Preview, instance: ObjectId) -> Vec<Command> {
             instance: Some(instance),
         })
         .collect()
+}
+
+/// Whether `placement`'s atom is within [`MOVE_TOLERANCE_PT`] of its proposal on both axes.
+fn within_move_tolerance(placement: &Placement) -> bool {
+    (placement.after.x() - placement.before.x()).abs() <= MOVE_TOLERANCE_PT
+        && (placement.after.y() - placement.before.y()).abs() <= MOVE_TOLERANCE_PT
 }
 
 /// A component with its root and tree chosen, ready to be placed in rank order.

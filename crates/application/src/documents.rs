@@ -28,7 +28,8 @@ use crate::contract::{
     self, CloseResponse, CommandDto, CopyResponse, CopySource, DeleteResponse,
     DocumentListResponse, DocumentResponse, DocumentSummary, DocumentView, DraftDiscardResponse,
     DraftFailureView, ListQuery, ListSort, RecoveryState, RecoveryView, RestoreResponse,
-    SettingsSource, TransactionSelections, TrashListResponse, TrashedSummary, UnreadableDocument,
+    SelectionDto, SettingsSource, TransactionSelections, TrashListResponse, TrashedSummary,
+    UnreadableDocument,
 };
 use crate::draft_schedule::DraftSchedule;
 use crate::error::{ApplicationError, ErrorCode, RingRefusal, StorageReason};
@@ -75,14 +76,14 @@ enum Mutation {
         expected_revision: u64,
         payload: String,
         offset: crate::contract::PointDto,
-        selection_before: Option<crate::contract::SelectionDto>,
+        selection_before: Option<SelectionDto>,
     },
     ClipboardScenePaste {
         expected_revision: u64,
         payload: String,
         // Signed zero changes translated graphic coordinates and binds the replay request.
         offset_bits: [u64; 2],
-        selection_before: Option<crate::contract::SelectionDto>,
+        selection_before: Option<SelectionDto>,
     },
     AromaticityConversion {
         expected_revision: u64,
@@ -94,7 +95,7 @@ enum Mutation {
     },
     LayoutApply {
         expected_revision: u64,
-        selection: crate::contract::SelectionDto,
+        selection: SelectionDto,
         scope: Option<String>,
         instance: Option<String>,
         selections: TransactionSelections,
@@ -3053,7 +3054,7 @@ pub(crate) struct Compute<'a> {
 pub(crate) struct LayoutApply {
     pub expected_revision: u64,
     /// The selection the layout reads; it alone decides which atoms move.
-    pub selection: crate::contract::SelectionDto,
+    pub selection: SelectionDto,
     pub scope: Option<String>,
     pub instance: Option<String>,
     /// The history entry's selections, with ordinary transaction meaning.

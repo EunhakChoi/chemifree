@@ -26,6 +26,12 @@ const WAIT: Duration = Duration::from_secs(30);
 /// The model that every reply of `layout.structure` names.
 const MODEL_ID: &str = "chemifree-chain-layout-1";
 
+/// The questions that a successful apply of butane asks, counted in a passing run: one once the
+/// compute slot is taken, the layout's own checkpoints, and the last one, asked under the session
+/// lock just before the edit is committed. A change to the layout's checkpoints changes this
+/// count; then count again and check that the last question is still the one under the lock.
+const APPLY_QUESTIONS: usize = 11;
+
 fn new_app(directory: &tempfile::TempDir) -> App {
     Application::new(
         LocalCapabilities,
@@ -197,28 +203,37 @@ fn finishes<T: Send>(label: &str, release: &Release, work: impl FnOnce() -> T + 
     })
 }
 
-/// Clean while the session lock is free, and stops at the first question asked while it is held.
-/// Another thread reads the document to find out: that read waits for a held lock.
-struct StopUnderTheLock {
-    pings: Mutex<Option<Sender<Sender<()>>>>,
-    reason: Interrupted,
-    calls: AtomicUsize,
-    stopped: AtomicUsize,
+/// The reply to `request` when `interrupt` is asked at the computation's checkpoints.
+fn reply_with(app: &App, request: &[u8], interrupt: &dyn Interrupt) -> Value {
+    serde_json::to_value(app.execute_with(request, interrupt)).unwrap()
 }
 
-impl Interrupt for StopUnderTheLock {
+/// Counts the questions that an apply asks, and stops question `stop.0` (numbered from 1) with
+/// reason `stop.1`. No other question is stopped.
+struct Questions {
+    stop: Option<(usize, Interrupted)>,
+    count: AtomicUsize,
+}
+
+impl Questions {
+    fn new(stop: Option<(usize, Interrupted)>) -> Self {
+        Self {
+            stop,
+            count: AtomicUsize::new(0),
+        }
+    }
+
+    fn asked(&self) -> usize {
+        self.count.load(Ordering::SeqCst)
+    }
+}
+
+impl Interrupt for Questions {
     fn check(&self) -> Result<(), Interrupted> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        let (reply, answered) = mpsc::channel();
-        let pings = self.pings.lock().unwrap();
-        pings.as_ref().unwrap().send(reply).unwrap();
-        drop(pings);
-        match answered.recv_timeout(Duration::from_millis(300)) {
-            Ok(()) => Ok(()),
-            Err(_) => {
-                self.stopped.fetch_add(1, Ordering::SeqCst);
-                Err(self.reason)
-            }
+        let number = self.count.fetch_add(1, Ordering::SeqCst) + 1;
+        match self.stop {
+            Some((stop_at, reason)) if stop_at == number => Err(reason),
+            _ => Ok(()),
         }
     }
 }
@@ -317,52 +332,50 @@ fn a_zero_limit_changes_nothing_and_a_retry_computes() {
 }
 
 #[test]
-fn a_stop_at_the_question_under_the_lock_changes_nothing() {
+fn a_stop_at_the_last_question_under_the_lock_changes_nothing() {
     let directory = tempfile::tempdir().unwrap();
     let app = new_app(&directory);
+    // The count comes from a successful apply of the same fixture. The stop is at that same
+    // question number, so it lands on the last question of an apply, the one under the lock.
+    let counted = butane_document(&app, "counted");
+    let counting = Questions::new(None);
+    let applied = reply_with(
+        &app,
+        &apply_request("counted", &counted, 1, &["a2"]),
+        &counting,
+    );
+    assert_eq!(applied["outcome"], "ok", "{applied}");
+    assert_eq!(
+        counting.asked(),
+        APPLY_QUESTIONS,
+        "a successful apply asks this many questions"
+    );
     for (reason, code) in [
         (Interrupted::Cancelled, "cancelled"),
         (Interrupted::TimeLimit, "time_limit"),
     ] {
-        let id = butane_document(&app, &format!("late-{code}"));
+        let id = butane_document(&app, &format!("last-{code}"));
         let before = document(&app, &id);
-        let (ping, pings) = mpsc::channel::<Sender<()>>();
-        let stop = StopUnderTheLock {
-            pings: Mutex::new(Some(ping)),
-            reason,
-            calls: AtomicUsize::new(0),
-            stopped: AtomicUsize::new(0),
-        };
-        let reply = thread::scope(|scope| {
-            scope.spawn(|| {
-                for reply in pings {
-                    app.document(&id).unwrap();
-                    let _ = reply.send(());
-                }
-            });
-            let reply = serde_json::to_value(
-                app.execute_with(&apply_request("late", &id, 1, &["a2"]), &stop),
-            )
-            .unwrap();
-            // Ends the reader, which the scope waits for.
-            stop.pings.lock().unwrap().take();
-            reply
-        });
-        // Every question asked while the layout was computed found the lock free. The one asked
-        // under the lock, just before the edit would be committed, is the one that stopped.
-        let calls = stop.calls.load(Ordering::SeqCst);
-        assert!(calls >= 2, "{code}: the apply asked {calls} times");
-        assert_eq!(stop.stopped.load(Ordering::SeqCst), 1, "{code}");
-        assert_stopped(&reply, code);
+        let stop = Questions::new(Some((APPLY_QUESTIONS, reason)));
+        let reply = reply_with(&app, &apply_request("last", &id, 1, &["a2"]), &stop);
         assert_eq!(
-            document(&app, &id),
-            before,
-            "{code}: no revision, no undo entry"
+            stop.asked(),
+            APPLY_QUESTIONS,
+            "{code}: the apply asked a different number of questions"
         );
+        assert_stopped(&reply, code);
+        let after = document(&app, &id);
+        assert_eq!(after["document"]["revision"], 1, "{code}: {after}");
+        assert_eq!(
+            atom_bits(&after),
+            atom_bits(&before),
+            "{code}: a stopped apply moved an atom: {after}"
+        );
+        assert_eq!(after, before, "{code}: no revision, no undo entry");
         // Nothing was recorded for replay, so the same request ID computes and applies.
         let retried = call(
             &app,
-            "late",
+            "last",
             "layout.structure",
             apply_parameters(&id, 1, &["a2"]),
         );

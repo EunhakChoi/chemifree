@@ -1704,7 +1704,7 @@
     "P15",
     "P41"
    ],
-   "note": "S1(2026-11-14, 사용자 결정: 읽기 전용 미리보기, P41은 현 범위로 선행 충족): layout.structure mode preview — 고정/배치 집합·경계·사슬 membership 준비와 비고리 사슬 좌표 생성기(문서 결합 길이, 120° 지그재그, 결정적 후보 순서·동점 규칙, 재번호 불변). 고리·템플릿·점수·충돌 탐색·편집 적용은 후속. S2(2026-11-15): layout.structure mode apply — 한 번의 실행 취소 가능한 편집(이동한 원자마다 MoveAtoms, 0-Δ 생략), expected_revision·계산 슬롯·커밋 시 재검사, 같은 request_id 재전송은 원래 응답, 겹침은 적용 후 경고. 웹 UI·고리·템플릿·점수·충돌 해결은 후속."
+   "note": "S1(2026-11-14, 사용자 결정: 읽기 전용 미리보기, P41은 현 범위로 선행 충족): layout.structure mode preview — 고정/배치 집합·경계·사슬 membership 준비와 비고리 사슬 좌표 생성기(문서 결합 길이, 120° 지그재그, 결정적 후보 순서·동점 규칙, 재번호 불변). 고리·템플릿·점수·충돌 탐색은 후속(편집 적용은 S2). S2(2026-11-15): layout.structure mode apply — 한 번의 실행 취소 가능한 편집(이동한 원자마다 MoveAtoms, 0-Δ 생략), expected_revision·계산 슬롯·커밋 시 재검사, 같은 request_id 재전송은 원래 응답, 겹침은 적용 후 경고. 웹 UI·고리·템플릿·점수·충돌 해결은 후속."
   },
   {
    "phase": "layout",
