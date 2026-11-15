@@ -18,20 +18,29 @@ import { AromaticityPanel } from '/src/components/aromaticity-panel.tsx'
 import { IdentityPanel } from '/src/components/identity-panel.tsx'
 import { SubstructurePanel } from '/src/components/substructure-panel.tsx'
 import { SmilesPanel } from '/src/components/smiles-panel.tsx'
+import { LayoutPanel } from '/src/components/layout-panel.tsx'
+import { useLayoutPreview } from '/src/hooks/use-layout-preview.ts'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
 import '/src/index.css'
+function LayoutHarness({ shown, editor }) {
+  const layout = useLayoutPreview({ document: shown, editor, activePlacement: 's1' })
+  return <LayoutPanel layout={layout} busy={editor.busy} />
+}
 function Harness() {
   const editor = useDocumentEditor()
-  useEffect(() => { void editor.open('drawing') }, [])
+  useEffect(() => { void editor.open('drawing').then(() => editor.setSelection(new Set(['a2']))) }, [])
   const shown = editor.current?.document
   return <>
     <output aria-label="Current document">{shown?.id ?? 'loading'}</output>
+    <output aria-label="Editor error">{editor.error?.message ?? 'none'}</output>
+    <button type="button" onClick={() => void editor.open('other')}>Show second drawing</button>
     {shown && <main>
       <PropertiesPanel document={shown} editor={editor} />
       <AromaticityPanel document={shown} editor={editor} />
       <IdentityPanel document={shown} editor={editor} />
       <SubstructurePanel document={shown} editor={editor} />
       <SmilesPanel document={shown} editor={editor} />
+      <LayoutHarness shown={shown} editor={editor} />
     </main>}
   </>
 }
@@ -62,6 +71,7 @@ const SCRIPT = {
   'chem.identity': ['cancelled', 'ok'],
   'chem.substructure': ['ok', 'time_limit', 'ok'],
   'document.export': ['time_limit', 'time_limit', 'ok'],
+  'layout.structure': ['time_limit', 'ok', 'ok'],
 }
 
 const settings = { bond_length_pt: 30, line_width_pt: 1.2, label_font: 'sans-serif', label_weight: 'normal', label_style: 'normal', label_underline: false, label_outline: false, label_shadow: false, label_size_pt: 12, carbon_labels: 'default', display_unit: 'pt' }
@@ -90,6 +100,9 @@ const STATE = {
   notes: [],
 }
 
+// A second drawing with the same atoms, opened by the check to switch the shown document.
+const OTHER = { ...STATE, document: { ...STATE.document, id: 'other', title: 'Second drawing' } }
+
 /** The model an operation's reply names; a stop of the same request names it too. */
 function modelOf({ operation, parameters }) {
   if (operation === 'chem.properties') return 'chemifree-properties-1'
@@ -97,6 +110,7 @@ function modelOf({ operation, parameters }) {
   if (operation === 'chem.identity') return parameters.mode === 'recorded' ? 'chemifree-recorded-graph-1' : 'chemifree-chemical-graph-2'
   if (operation === 'chem.substructure') return 'chemifree-substructure-1'
   if (operation === 'document.export') return parameters.style === 'canonical' ? 'chemifree-smiles-canonical-1' : 'chemifree-smiles-1'
+  if (operation === 'layout.structure') return 'chemifree-chain-layout-2'
   throw new Error(`The check names no model for ${operation}`)
 }
 
@@ -130,6 +144,19 @@ function okResult({ operation, parameters }) {
   if (operation === 'document.export') {
     return { content: parameters.style === 'canonical' ? 'OCC' : 'CCO', style: parameters.style, snapshot: structuredClone(STATE) }
   }
+  if (operation === 'layout.structure') {
+    // A preview of the chain: the three atoms of ethanol, each moved to its proposed point.
+    return {
+      snapshot: structuredClone(STATE), mode: 'preview', instance: 's1', scope: 'components', bond_length_pt: 30,
+      layout: { atoms: ['a1', 'a2', 'a3'], bonds: ['b1', 'b2'] }, fixed_atom_count: 0, fixed_ring_systems: 0, boundary: [],
+      components: [{ atoms: ['a1', 'a2', 'a3'], bonds: ['b1', 'b2'], anchor: null, root: 'a1', chains: [{ atoms: ['a1', 'a2', 'a3'], branch_from: null }], rings: [] }],
+      positions: [
+        { atom: 'a1', before: { x: 0, y: 0 }, after: { x: 0, y: 0 } },
+        { atom: 'a2', before: { x: 26, y: 15 }, after: { x: 25.98, y: 15 } },
+        { atom: 'a3', before: { x: 52, y: 0 }, after: { x: 51.96, y: 0 } },
+      ],
+    }
+  }
   throw new Error(`The check has no ok result for ${operation}`)
 }
 
@@ -141,9 +168,15 @@ function envelope(request, outcome, result, diagnostics) {
   }
 }
 
+/** What a layout preview reply says about its limits and its apply, as the service sends it. */
+const LAYOUT_DIAGNOSTICS = [
+  { code: 'layout_preview_only', severity: 'info', message: 'Nothing was changed; mode "apply" applies this layout as one undoable edit.', path: null, details: {} },
+  { code: 'layout_not_implemented', severity: 'info', message: 'Fused, bridged and spiro ring layout, rings of more than 12 atoms, templates, scoring and search, and collision resolution are not implemented.', path: null, details: {} },
+]
+
 /** The operation reply for one request, given the outcome the script gives it. */
 function replyFor(request, outcome) {
-  if (outcome === 'ok') return envelope(request, 'ok', okResult(request), [])
+  if (outcome === 'ok') return envelope(request, 'ok', okResult(request), request.operation === 'layout.structure' ? LAYOUT_DIAGNOSTICS : [])
   return envelope(request, 'error', null, [STOPS[outcome]])
 }
 
@@ -152,6 +185,8 @@ const respond = (route, value, status = 200) => route.fulfill({ status, contentT
 const server = await createServer({
   root,
   configFile: fileURLToPath(new URL('../apps/web/vite.config.ts', import.meta.url)),
+  // The default bundle loader writes node_modules/.vite-temp, which a read-only node_modules refuses.
+  configLoader: 'runner',
   server: { host: '127.0.0.1', port: 0, strictPort: false },
   plugins: [{
     name: 'compute-stop-check-fixture',
@@ -179,12 +214,15 @@ try {
   page.on('pageerror', (error) => errors.push(error.message))
   const requests = []
   const unexpected = []
+  // Set by the layout step: the next preview request is held until the check releases it.
+  let holdLayout = null
   const outcomesLeft = new Map(Object.entries(SCRIPT).map(([operation, outcomes]) => [operation, [...outcomes]]))
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     if (path === '/api/v1/session') return respond(route, { header: 'x-chemifree-session', token: 'compute-stop' })
     if (path === '/api/v1/documents' || path === '/api/v1/trash') return respond(route, { api_version: 'v1', documents: [], unreadable: [] })
     if (path === '/api/v1/documents/drawing') return respond(route, STATE)
+    if (path === '/api/v1/documents/other') return respond(route, OTHER)
     const request = path === '/api/v1/operations' ? route.request().postDataJSON() : null
     const outcome = outcomesLeft.get(request?.operation)?.shift()
     if (outcome === undefined) {
@@ -192,6 +230,13 @@ try {
       return respond(route, { api_version: 'v1', code: 'unexpected_request', message: 'The check did not script this request.' }, 500)
     }
     requests.push(request)
+    if (holdLayout !== null && request.operation === 'layout.structure') {
+      // The reply stays in flight until the check releases it, as a slow service would. The handler
+      // must stay pending: returning without an answer would let the request fall through to the server.
+      const arrive = holdLayout
+      holdLayout = null
+      await new Promise((release) => arrive(release))
+    }
     return respond(route, replyFor(request, outcome))
   })
   await page.goto(`http://127.0.0.1:${address.port}/compute-stop-check`)
@@ -288,11 +333,39 @@ try {
   assert.equal(sent('document.export').length, 3)
   assert.equal(await smiles.locator('p[role="alert"]').count(), 0)
 
+  // Chain and ring layout: a preview's time limit stays in the panel, with no result, no alert and no
+  // page notice; the notice's own retry is a second preview, and its result replaces the notice.
+  const layout = region('Chain and ring layout')
+  await layout.getByRole('button', { name: 'Preview layout', exact: true }).click()
+  const layoutStop = await showsStop(layout, 'compute-stop', LIMIT_TITLE)
+  assert.equal(await layout.getByTestId('layout-result').count(), 0)
+  assert.equal(await layout.locator('p[role="alert"]').count(), 0)
+  assert.equal(await page.getByLabel('Editor error', { exact: true }).innerText(), 'none')
+  await layoutStop.getByRole('button', { name: 'Try again', exact: true }).click()
+  await layoutStop.waitFor({ state: 'detached' })
+  await layout.getByTestId('layout-result').getByText('Model: chemifree-chain-layout-2', { exact: true }).waitFor()
+  const layoutPreview = { document_id: 'drawing', mode: 'preview', selection: { objects: [], atoms: ['a2'], bonds: [] }, scope: 'components', instance: 's1' }
+  assert.deepEqual(sent('layout.structure').map((request) => request.parameters), [layoutPreview, layoutPreview])
+
+  // A preview still in flight for this drawing must not show "Previewing…" on another drawing: the press
+  // belongs to the drawing it was made for. The held reply is released only after the switch.
+  const held = new Promise((arrive) => { holdLayout = arrive })
+  await layout.getByRole('button', { name: 'Preview layout', exact: true }).click()
+  const releaseReply = await held
+  await layout.getByRole('button', { name: 'Previewing…', exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Show second drawing', exact: true }).click()
+  await page.getByLabel('Current document').filter({ hasText: 'other' }).waitFor()
+  assert.equal(await layout.getByText('Previewing…', { exact: true }).count(), 0, 'another drawing shows no preview in flight')
+  assert.equal(await layout.getByRole('button', { name: 'Preview layout', exact: true }).count(), 1)
+  const replied = page.waitForResponse((response) => response.request().postDataJSON()?.operation === 'layout.structure')
+  releaseReply()
+  await replied
+
   assert.deepEqual(unexpected, [])
   assert.deepEqual([...outcomesLeft].filter(([, left]) => left.length > 0).map(([operation]) => operation), [])
   assert.equal(JSON.stringify(requests).includes('time_limit_ms'), false, 'the web sends no time limit of its own')
   assert.deepEqual(errors, [])
-  console.log('Compute stop display checks passed for the five panels: time-limit and cancel notices, retries, and the SMILES form change.')
+  console.log('Compute stop display checks passed for the six panels: time-limit and cancel notices, retries, and the SMILES form change.')
 } finally {
   await browser?.close()
   await server.close()

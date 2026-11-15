@@ -2209,7 +2209,7 @@ Example (L-alanine: N `a1`, the center `a2` with the stored turn `clockwise` ove
 <a id="chain-and-simple-ring-layout-p42-s1-s3"></a>
 ## Chain and simple ring layout (P42 S1–S3)
 
-`layout.structure` proposes 2D coordinates for the atoms of one selection in one scene instance. The selection may hold acyclic chains and isolated single rings of 3 to 12 atoms that lie wholly in the layout set. With `mode: "preview"` it is read-only: no atom, bond, selection, revision, history entry, dirty state or draft changes, and nothing is replayed. With `mode: "apply"` it commits the same proposal as one undoable edit (see [Apply](#apply)). Any other mode is refused. HTTP and the CLI pass the request to the same `Application::execute`; there is no separate adapter path. This is a bounded chain and simple ring layout, not general clean-up. The model is `chemifree-chain-layout-2`. The rules are in `crates/domain/src/layout.rs` (sets, refusals, placement and overlaps), `crates/domain/src/layout/chain.rs` (rooting, ranking and chain geometry) and `crates/domain/src/layout/ring.rs` (ring walks, codes and geometry); the parameters and replies are in `crates/application/src/operations/layout.rs`.
+`layout.structure` proposes 2D coordinates for the atoms of one selection in one scene instance. The selection may hold acyclic chains and isolated single rings of 3 to 12 atoms that lie wholly in the layout set. With `mode: "preview"` it is read-only: no atom, bond, selection, revision, history entry, dirty state or draft changes, and nothing is replayed. With `mode: "apply"` it commits the same proposal as one undoable edit (see [Apply](#apply)). Any other mode is refused. HTTP and the CLI pass the request to the same `Application::execute`; there is no separate adapter path. The web "Chain and ring layout" panel sends the same request (see [Web panel](#web-panel-p42-s4)). This is a bounded chain and simple ring layout, not general clean-up. The model is `chemifree-chain-layout-2`. The rules are in `crates/domain/src/layout.rs` (sets, refusals, placement and overlaps), `crates/domain/src/layout/chain.rs` (rooting, ranking and chain geometry) and `crates/domain/src/layout/ring.rs` (ring walks, codes and geometry); the parameters and replies are in `crates/application/src/operations/layout.rs`.
 
 ### Parameters
 
@@ -2368,12 +2368,17 @@ A successful apply has these diagnostics, in this order, and never `layout_previ
 
 The diagnostics of an apply are recorded with its reply, so a replay returns the same list.
 
+### Web panel (P42 S4)
+
+The web editor's "Chain and ring layout" panel lays out the atoms and bonds selected in the active placement. It sends `objects: []` (scene objects in a mixed selection are left out), always sends `instance` and `scope`, and never sends `time_limit_ms`, so the server default applies. Preview is disabled, with a hint, when no placement is active or no atom or bond is selected. The switch "Move only the selected atoms" sends `scope: "selection"`; off, it sends `components`. **Preview layout** shows the counts, the refusal (with its reason as a sentence, the atoms and the limit) or a time-limit or cancel stop in the panel, and draws the proposed positions as a dashed overlay on the canvas. The overlay is never part of the document or an export. The preview is current only while the same service process shows the same document content at the same revision and the request (selection, placement and switch) is unchanged; otherwise the panel says it is out of date and the overlay is hidden. **Apply layout** sends the previewed request with `mode: "apply"` and `expected_revision` set to the previewed revision, as one undoable edit; its failures and stops show in the page notice, like the aromaticity conversion. The client checks that a `layout_unchanged` reply keeps the revision and that an edit adds one. An overlap warning is shown with its count. Code: `apps/web/src/components/layout-panel.tsx`, `apps/web/src/hooks/use-layout-preview.ts`, `apps/web/src/lib/document-contract/layout.ts`, `apps/web/src/editor/layout-ghost-layer.tsx`.
+
 ### Not implemented
 
 - Fused, bridged and spiro ring layout, and rings of more than 12 atoms: a layout atom in such a ring system is refused (followups P43, P44). A ring system with no layout atom keeps its positions. A simple ring of 3 to 12 atoms is drawn as a regular polygon, and a ring is not drawn in the orientation or on the side it had before.
 - Templates, scoring and search: the proposal is the one that the rules give. No alternative is scored.
 - Collision resolution: overlaps are reported, not resolved.
-- The web client: it calls neither the preview nor the apply, so there is no button and no undo label. Applying is reached through `chemifree operations` and `POST /api/v1/operations`; there is no CLI subcommand for it.
+- An undo label for the web apply: the history entry has no label. There is no CLI subcommand for applying; it is reached through `chemifree operations` and `POST /api/v1/operations`.
+- Laying out everything when nothing is selected: the web panel lays out the selection only (P42 S4).
 - Binding an apply to a reviewed preview: there is no preview digest (see Apply).
 - Reaction layout: `layout.reaction` stays unsupported (followup P51).
 - Stereo-preserving placement: a layout that touches stated stereo or a bond mark is refused, not moved.

@@ -101,6 +101,7 @@ import { SceneClipboardPanel } from '@/components/scene-clipboard-panel'
 import { SmilesPanel } from '@/components/smiles-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
+import { LayoutPanel } from '@/components/layout-panel'
 import { StereoPanel } from '@/components/stereo-panel'
 import { groupMarks, groupRefusalSentence } from '@/editor/stereo-groups'
 import { IdentityPanel } from '@/components/identity-panel'
@@ -110,6 +111,7 @@ import { useDocumentEditor, type CopiedFrom, type CopyNotice, type DocumentEdito
 import { usePreferences } from '@/hooks/use-preferences'
 import { useCipLabels } from '@/hooks/use-cip-labels'
 import { useStereoAgreement } from '@/hooks/use-stereo-agreement'
+import { useLayoutPreview } from '@/hooks/use-layout-preview'
 import { cipMarks } from '@/editor/cip-labels'
 import { agreementRings, agreementRows, viewSentence, type AgreementView } from '@/editor/stereo-agreement'
 import { stereoCounts, type StereoMark, type StereoNote } from '@/lib/stereo-contract'
@@ -618,6 +620,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
   if (movementContext.document !== document.id) setMovementContext({ document: document.id, instance: firstPlacement })
   const requestedPlacement = movementContext.document === document.id ? movementContext.instance : firstPlacement
   const activePlacement = document.scene?.instances.some((instance) => instance.id === requestedPlacement) ? requestedPlacement : null
+  const layoutController = useLayoutPreview({ document, editor, activePlacement })
 
   const [automatic, setAutomatic] = useState(true)
   // Label switches mirror the public ShowAtomStereo / ShowBondStereo settings: off by default and, like the
@@ -922,6 +925,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
             rings={rings}
             cipLabels={labels}
             groupLabels={groupMarkList}
+            layoutGhost={layoutController.ghost}
             onDragging={setDragging}
             disabled={editor.busy}
           />
@@ -957,6 +961,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <SmilesPanel key={`smiles-${document.id}`} document={document} editor={editor} />
           <PropertiesPanel document={document} editor={editor} />
           <AromaticityPanel document={document} editor={editor} />
+          <LayoutPanel layout={layoutController} busy={editor.busy} />
           <IdentityPanel document={document} editor={editor} />
           <SubstructurePanel document={document} editor={editor} />
           <SceneControls document={document} editor={editor} activePlacement={activePlacement} />

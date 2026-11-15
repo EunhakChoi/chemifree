@@ -1,14 +1,24 @@
 # Chemifree 새 세션 인계
 
+## P42 S4: 배치 웹 UI (T1)
+
+사용자 결정(2026-11-15): Opus 추천대로 P42 마지막 조각으로 `layout.structure` 웹 UI를 만든다. 사양은 Opus가 정했다(규칙 W1–W33). Opus 추천(Q1–Q3)대로 이 조각으로 P42를 문서화된 범위 안에서 `done`으로 두고(LAYOUT-01~03은 `partial`, 후속 P43/P44), 빈 선택은 "전체 배치"로 해석하지 않으며, 적용 실패·중단은 페이지 알림에, 미리보기 거절·중단은 패널에 보인다.
+
+- 패널 "Chain and ring layout": 활성 배치의 원자·결합 선택을 보낸다(`objects: []`, `instance`·`scope` 항상, `time_limit_ms` 없음). 스위치 "Move only the selected atoms"가 `scope: "selection"`. 버튼 Preview layout / Apply layout / Clear preview.
+- 미리보기: 개수·고리·겹침 경고, 거절은 이유 문장·원자·한도, 중단은 compute-stop 알림. 캔버스에 점선 겹침 표시(`data-editor-overlay`, 내보내기 제외). 같은 서비스 프로세스·같은 내용·같은 revision·같은 요청일 때만 현재이고, 아니면 "out of date"로 표시하고 겹침을 숨긴다(렌더 중 계산, effect 없음).
+- 적용: `editor.mutate`로 미리본 요청을 `expected_revision`과 함께 보낸다(한 번의 실행 취소 단위). `layout_unchanged`면 revision 그대로, 편집이면 +1인지 클라이언트가 검사한다.
+- 코드: `apps/web/src/lib/document-contract/layout.ts`, `hooks/use-layout-preview.ts`, `components/layout-panel.tsx`, `lib/layout-refusals.ts`, `editor/layout-ghost.ts`, `editor/layout-ghost-layer.tsx`. 검사: `scripts/web-layout-client-check.mjs`(test:client), `web-compute-stop-check.mjs`의 배치 단계, 브라우저 스모크 결과 키 6개(`layout_*`).
+- 남은 것: 융합·스피로·다리·거대 고리(P43/P44), 템플릿, 점수, 충돌 해결, 실행 취소 라벨, 미리보기 위치로 화면 이동. #273·#274 리뷰의 후속 리팩터는 아직이다. 샌드박스 러너는 `apps/web/node_modules`를 바인드하지 않아 그 안에서는 `npm run lint`가 `@eslint/js`를 못 찾는다(러너 밖에서는 통과).
+
 ## P42 S3: 단순 고리 배치 (T1)
 
-사용자 결정(2026-11-15): Opus 추천대로 P42 세 번째 조각으로 단순 고리를 배치한다. 사양은 Opus가 정했다(규칙 R1–R27, CONTRACT "Chain and simple ring layout"). P42는 웹 UI 조각까지 `in_progress`로 둔다(Opus 추천, 현 상태 유지).
+사용자 결정(2026-11-15): Opus 추천대로 P42 세 번째 조각으로 단순 고리를 배치한다. 사양은 Opus가 정했다(규칙 R1–R27, CONTRACT "Chain and simple ring layout"). 당시 P42는 웹 UI 조각까지 `in_progress`로 두었다(S4에서 `done`).
 
 - 범위: 배치 집합에 온전히 들고, 단일 고리(cycle rank 1)이며 다른 고리계와 원자를 공유하지 않는 3~12원자 고리. 문서 결합 길이의 정다각형으로 놓는다. 방향족 결합은 모양에 영향이 없다.
 - 거절: 기존 `ring_in_layout_set`을 넷으로 나눴다(이 순서로 검사): `ring_partly_in_layout_set`, `fused_ring_in_layout_set`(융합·다리), `spiro_ring_in_layout_set`, `large_ring_in_layout_set`(`limit: 12`). 고정 고리계는 전처럼 움직이지 않는다.
 - 배치: 고리는 사슬 트리의 한 단위다. 부모에서 들어온 고리는 부모 결합을 곧게 잇고, 치환기는 바깥 이등분선으로, 한 원자에 둘 이상이면 바깥 각을 고르게 나눈다(육각형에 둘이면 ±40°). 자유 고리는 첫 원자를 오른쪽 끝에 두고 시계 방향으로 돈다(편집기 고리 템플릿과 같아 갓 넣은 5·6원자 고리는 그대로다). 도는 방향과 시작 원자는 고리 정규 코드로 정하고, 동점이면 작은 id. 고리 없는 그림은 S1과 비트 단위로 같다.
 - 응답: `components[].rings`(`chains`와 같은 모양) 추가, model `chemifree-chain-layout-2`. 적용(S2)은 그대로다. 케쿨레 벤젠 템플릿은 거울상으로 나와 네 원자가 자리를 바꾸므로 적용하면 움직인다(방향족 벤젠은 그대로).
-- 남은 것: 융합·스피로·다리·거대 고리(P43/P44), 템플릿, 점수, 충돌 해결, 웹 UI. #273 리뷰의 후속 리팩터 둘(계산 후 커밋 공용 도우미, 진단을 담는 재전송 기록)은 아직이다.
+- 남은 것: 융합·스피로·다리·거대 고리(P43/P44), 템플릿, 점수, 충돌 해결(웹 UI는 S4). #273 리뷰의 후속 리팩터 둘(계산 후 커밋 공용 도우미, 진단을 담는 재전송 기록)은 아직이다.
 
 ## P42 S2: 사슬 배치 적용 (T1)
 

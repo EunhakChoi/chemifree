@@ -1683,15 +1683,16 @@
    "acceptance": "분기·경계 원자·사슬 membership·결합 길이·후보 순서·재번호와 입력 퇴화를 공개 사례로 검사한다.",
    "kind": "core",
    "id": "P42",
-   "status": "in_progress",
+   "status": "done",
    "delivered": {
     "prs": [
      272,
-     273
+     273,
+     274
     ],
-    "merge_commit": "75f8edb5af26dcdeb498d48cea54f17a7a64243d",
-    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/43637729718",
-    "note": "S1 읽기 전용 사슬 배치 미리보기(#272)와 S2 편집 적용(#273)의 부분 납품이다. merge_commit·main_ci는 마지막 납품(#273) 기준이다. S3 단순 고리는 이 PR 병합 뒤 기록하고, 융합·스피로·다리·거대 고리, 템플릿, 웹 UI는 후속 범위다."
+    "merge_commit": "670ad0f222bb8931c8127137b395889fd9fbd1c7",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/43704110462",
+    "note": "S1 읽기 전용 사슬 배치 미리보기(#272), S2 편집 적용(#273), S3 단순 고리(#274)를 납품했다. merge_commit·main_ci는 #274 기준이다. S4 웹 UI는 이 PR 병합 뒤 기록한다. 문서화된 범위(비고리 사슬과 3~12원자 단일 고리) 안에서 done이고, 융합·스피로·다리·거대 고리(P43/P44), 템플릿, 점수, 충돌 해결은 후속이다."
    },
    "layers": [
     "presentation",
@@ -1705,7 +1706,7 @@
     "P15",
     "P41"
    ],
-   "note": "S1(2026-11-14, 사용자 결정: 읽기 전용 미리보기, P41은 현 범위로 선행 충족): layout.structure mode preview — 고정/배치 집합·경계·사슬 membership 준비와 비고리 사슬 좌표 생성기(문서 결합 길이, 120° 지그재그, 결정적 후보 순서·동점 규칙, 재번호 불변). 고리·템플릿·점수·충돌 탐색은 후속(편집 적용은 S2). S2(2026-11-15): layout.structure mode apply — 한 번의 실행 취소 가능한 편집(이동한 원자마다 MoveAtoms, 0-Δ 생략), expected_revision·계산 슬롯·커밋 시 재검사, 같은 request_id 재전송은 원래 응답, 겹침은 적용 후 경고. 웹 UI·고리·템플릿·점수·충돌 해결은 후속. S3(2026-11-15): 단순 고리 — 배치 집합에 온전히 든 3~12원자 단일 고리를 정다각형(문서 결합 길이)으로 놓고, 치환기는 바깥 이등분선(둘 이상은 바깥 각 균등 분배), 고리는 사슬 트리의 한 단위로 정규 코드·순위에 들어간다. 일부만 선택·융합/다리·스피로·13원자 이상은 각각 거절 코드로 나눴고, model chemifree-chain-layout-2, 응답에 components[].rings 추가. 융합·스피로·다리·거대 고리(P43/P44), 템플릿, 웹 UI는 후속."
+   "note": "S1(2026-11-14, 사용자 결정: 읽기 전용 미리보기, P41은 현 범위로 선행 충족): layout.structure mode preview — 고정/배치 집합·경계·사슬 membership 준비와 비고리 사슬 좌표 생성기(문서 결합 길이, 120° 지그재그, 결정적 후보 순서·동점 규칙, 재번호 불변). 고리·템플릿·점수·충돌 탐색은 후속(편집 적용은 S2). S2(2026-11-15): layout.structure mode apply — 한 번의 실행 취소 가능한 편집(이동한 원자마다 MoveAtoms, 0-Δ 생략), expected_revision·계산 슬롯·커밋 시 재검사, 같은 request_id 재전송은 원래 응답, 겹침은 적용 후 경고. 웹 UI·고리·템플릿·점수·충돌 해결은 후속. S3(2026-11-15): 단순 고리 — 배치 집합에 온전히 든 3~12원자 단일 고리를 정다각형(문서 결합 길이)으로 놓고, 치환기는 바깥 이등분선(둘 이상은 바깥 각 균등 분배), 고리는 사슬 트리의 한 단위로 정규 코드·순위에 들어간다. 일부만 선택·융합/다리·스피로·13원자 이상은 각각 거절 코드로 나눴고, model chemifree-chain-layout-2, 응답에 components[].rings 추가. 융합·스피로·다리·거대 고리(P43/P44), 템플릿, 웹 UI는 후속. S4(2026-11-15, 사용자 결정: Opus 추천대로 P42 마감): 웹 \"Chain and ring layout\" 패널 — 활성 배치의 원자·결합 선택을 미리보기(캔버스 점선 겹침, 내보내기 제외, 같은 프로세스·내용·revision·요청일 때만 현재)하고 미리본 요청을 expected_revision으로 한 번의 실행 취소 가능한 편집으로 적용한다. 거절 이유 문장, 계산 중단 알림, 겹침 경고. 이 조각으로 P42는 문서화된 범위 안에서 done."
   },
   {
    "phase": "layout",

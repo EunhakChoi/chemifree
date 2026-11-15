@@ -1700,30 +1700,34 @@
       "parts": [
         {
           "id": "LAYOUT-01.chain-preview",
-          "summary": "The chain and simple-ring layout preview (P42 S1 to S3) gives proposed coordinates for exactly the layout set, with isolated rings of 3 to 12 atoms drawn as regular polygons; fixed atoms get none and never move, and the preview changes nothing. The apply mode commits the same proposal as one undoable edit. Fused, bridged, spiro and larger rings are refused, not laid out.",
+          "summary": "The chain and simple-ring layout preview (P42 S1 to S4) gives proposed coordinates for exactly the layout set, with isolated rings of 3 to 12 atoms drawn as regular polygons; fixed atoms get none and never move, and the preview changes nothing. The apply mode commits the same proposal as one undoable edit. The web Chain and ring layout panel previews the selection as a canvas overlay and applies it. Fused, bridged, spiro and larger rings are refused, not laid out.",
           "status": "partial",
           "implementation": [
             "crates/domain/src/layout.rs",
             "crates/domain/src/layout/chain.rs",
             "crates/domain/src/layout/ring.rs",
-            "crates/application/src/operations/layout.rs"
+            "crates/application/src/operations/layout.rs",
+            "apps/web/src/lib/document-contract/layout.ts",
+            "apps/web/src/hooks/use-layout-preview.ts",
+            "apps/web/src/components/layout-panel.tsx"
           ],
           "evidence": [
-            "check:check:rust"
+            "check:check:rust",
+            "check:test:client"
           ],
           "followups": [
-            "P42"
+            "P43"
           ]
         },
         {
           "id": "LAYOUT-01.rest",
-          "summary": "Everything of this requirement outside the chain and simple-ring layout (P42 S1–S3): nothing of it is implemented.",
+          "summary": "Everything of this requirement outside the chain and simple-ring layout (P42 S1–S4): nothing of it is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P42",
+            "P43",
             "P47",
             "P51"
           ]
@@ -1741,7 +1745,7 @@
       "parts": [
         {
           "id": "LAYOUT-02.chain-preview",
-          "summary": "The chain and simple-ring layout (P42 S1 to S3) uses the document bond length, refuses stated stereo and bond marks instead of moving them, and gives the same proposal for the same document and selection, in preview and apply. It changes no bond style. Stereo-preserving placement is not implemented.",
+          "summary": "The chain and simple-ring layout (P42 S1 to S4) uses the document bond length, refuses stated stereo and bond marks instead of moving them, and gives the same proposal for the same document and selection, in preview and apply. It changes no bond style. Stereo-preserving placement is not implemented.",
           "status": "partial",
           "implementation": [
             "crates/domain/src/layout.rs",
@@ -1753,20 +1757,20 @@
             "check:check:rust"
           ],
           "followups": [
-            "P42",
+            "P43",
             "P45",
             "P47"
           ]
         },
         {
           "id": "LAYOUT-02.rest",
-          "summary": "Everything of this requirement outside the chain and simple-ring layout (P42 S1–S3): nothing of it is implemented.",
+          "summary": "Everything of this requirement outside the chain and simple-ring layout (P42 S1–S4): nothing of it is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
           "evidence": [],
           "followups": [
-            "P42",
+            "P43",
             "P45",
             "P47",
             "P51"
@@ -1797,7 +1801,6 @@
             "check:check:rust"
           ],
           "followups": [
-            "P42",
             "P43",
             "P44",
             "P45",
@@ -1807,7 +1810,7 @@
         },
         {
           "id": "LAYOUT-03.rest",
-          "summary": "Everything of this requirement outside the chain and simple-ring layout (P42 S1–S3): nothing of it is implemented.",
+          "summary": "Everything of this requirement outside the chain and simple-ring layout (P42 S1–S4): nothing of it is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1815,7 +1818,6 @@
           "followups": [
             "P17",
             "P37",
-            "P42",
             "P43",
             "P44",
             "P45",

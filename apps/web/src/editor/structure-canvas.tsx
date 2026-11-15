@@ -22,6 +22,8 @@ import { placements, sameDrawnContent, settingsOf, type AtomView, type Command, 
 import { placeNewAtoms, placedView, placementAt } from '@/editor/placement'
 import { clickBond, drawBond, type BondEnd, type DrawnOrder } from '@/editor/bond-gestures'
 import { AgreementRings } from '@/editor/agreement-rings'
+import { LayoutGhostLayer } from '@/editor/layout-ghost-layer'
+import { layoutGhostSegments, type LayoutGhost } from '@/editor/layout-ghost'
 import { isMarkKind, type MarkIntent } from '@/editor/mark-gestures'
 import { CipLabelLayer } from '@/editor/cip-label-layer'
 import { GroupLabelLayer } from '@/editor/group-label-layer'
@@ -181,6 +183,8 @@ interface StructureCanvasProps {
   cipLabels?: readonly CipMark[]
   /** Group labels to draw beside the members of enhanced stereo groups; an overlay, never part of the document. */
   groupLabels?: readonly GroupMark[]
+  /** Proposed layout positions to draw over one placement; an overlay, never part of the document. */
+  layoutGhost?: LayoutGhost | null
   /** Called when a pointer gesture starts (true) and ends (false). */
   onDragging?: (dragging: boolean) => void
   disabled: boolean
@@ -219,6 +223,7 @@ export function StructureCanvas({
   rings = [],
   cipLabels = [],
   groupLabels = NO_GROUP_LABELS,
+  layoutGhost = null,
   onDragging,
   disabled,
 }: StructureCanvasProps) {
@@ -963,6 +968,10 @@ export function StructureCanvas({
         several={drawings.length > 1}
         moved={preview?.kind === 'move' ? { atoms: preview.scope.positions.get(drawing.id) ?? new Set<string>(), delta: preview.delta } : null}
       />
+      {layoutGhost && layoutGhost.instance === drawing.id && <LayoutGhostLayer
+        atoms={[...layoutGhost.positions].filter(([id]) => drawing.atoms.has(id)).map(([atom, at]) => ({ atom, at }))}
+        segments={layoutGhostSegments(document.bonds, layoutGhost.positions, (id) => drawing.atoms.has(id) ? position(drawing, id) : null)}
+        lineWidth={drawing.lineWidth} unitsPerPixel={unitsPerPixel} />}
       <AgreementRings rings={ringsAt(drawing)} />
       <CipLabelLayer labels={cipAt(drawing)} />
       <GroupLabelLayer labels={groupAt(drawing)} />
