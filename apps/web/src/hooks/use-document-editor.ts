@@ -23,6 +23,9 @@ import {
   type DocumentView,
   type InterchangeFormat,
   type InterchangeInput,
+  type LayoutApplied,
+  type LayoutPreview,
+  type LayoutRequest,
   type ListQuery,
   type NativeClipboardCopy,
   type NativeClipboardCutAttempt,
@@ -1014,6 +1017,24 @@ export function useDocumentEditor() {
             !sameContent(inspected, document.document) || inspected.revision !== document.document.revision) return null
         const selected = selectionSnapshot(pressed, document.document)
         return client.convertAromaticity(inspected.id, inspected.revision, to, selected)
+      })
+    }, [mutate]),
+    previewLayout: useCallback((request: LayoutRequest) => client.previewLayout(request), []),
+    applyLayout: useCallback((previewed: LayoutPreview, generation: number, onApplied: (applied: LayoutApplied) => void) => {
+      const pressed = new Set(selectionRef.current)
+      let applied: LayoutApplied | null = null
+      // onApplied runs only once mutate has shown the reply, so a reply it drops keeps the preview.
+      return mutate((document, restartedFrom) => {
+        if (restartedFrom || generation !== serviceGenerationRef.current ||
+            !sameContent(previewed.snapshot, document.document) ||
+            previewed.snapshot.revision !== document.document.revision) return null
+        const selected = selectionSnapshot(pressed, document.document)
+        return client.applyLayout(previewed.request, previewed.snapshot.revision, selected).then((reply) => {
+          applied = reply
+          return reply.response
+        })
+      }, (response) => {
+        if (applied !== null && applied.response === response) onApplied(applied)
       })
     }, [mutate]),
     error,

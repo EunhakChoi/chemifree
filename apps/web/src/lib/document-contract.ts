@@ -40,6 +40,12 @@ export type {
   PropertyComponent, PropertiesInspection,
 } from '@/lib/document-contract/inspection'
 export {
+  LAYOUT_MODEL, LayoutRefusal, sameLayoutRequest, readLayoutPreview, readLayoutApplyDiagnostics, layoutMovedCount,
+} from '@/lib/document-contract/layout'
+export type {
+  LayoutScope, LayoutRequest, LayoutOverlap, LayoutPreview, LayoutApplied,
+} from '@/lib/document-contract/layout'
+export {
   MAX_NATIVE_CLIPBOARD_BYTES, MAX_CLIPBOARD_SMILES_BYTES, MAX_CLIPBOARD_MOL_BYTES, placements,
 } from '@/lib/document-contract/editing'
 export type {

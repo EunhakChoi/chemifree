@@ -31,6 +31,10 @@ import {
   type ValenceAtom, type ValenceInspection,
 } from '@/lib/document-contract/inspection'
 import {
+  LAYOUT_MODEL, LayoutRefusal, readLayoutApplyDiagnostics, readLayoutPreview,
+  type LayoutApplied, type LayoutPreview, type LayoutRequest,
+} from '@/lib/document-contract/layout'
+import {
   MAX_CLIPBOARD_MOL_BYTES, MAX_CLIPBOARD_SMILES_BYTES, clipboardIncompatible, clipboardId, clipboardMappings,
   clipboardPayloadIds, clipboardReply, clipboardSelection, clipboardTextFits, operationDataReply, sameClipboardIds,
   type Command, type NativeClipboardCopy, type NativeClipboardCutAttempt, type NativeClipboardMolImportAttempt,
@@ -1563,6 +1567,61 @@ export class DocumentClient {
       throw new ApiError('incompatible_response', 'The local service returned an incompatible conversion.', 200)
     }
     return response
+  }
+
+  /** `layout.structure` preview: read-only proposed positions for the request (CONTRACT "Chain and simple ring layout"). */
+  async previewLayout(request: LayoutRequest): Promise<LayoutPreview> {
+    const sent: LayoutRequest = { ...request, atoms: [...request.atoms], bonds: [...request.bonds] }
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'layout.structure',
+      parameters: {
+        document_id: sent.documentId, mode: 'preview',
+        selection: { objects: [], atoms: [...sent.atoms], bonds: [...sent.bonds] },
+        scope: sent.scope, instance: sent.instance,
+      },
+    }, 'reload')
+    throwIfStopped(value, { models: [LAYOUT_MODEL], revision: 'count' })
+    const { code, message, details } = firstDiagnostic(value)
+    if (isRecord(value) && value.outcome === 'unsupported' && code === 'layout_unsupported' &&
+        value.model_id === LAYOUT_MODEL && typeof details.reason === 'string') {
+      throw new LayoutRefusal(details.reason, message ?? 'The local service could not lay out the selection.', details)
+    }
+    if (!isRecord(value) || value.outcome !== 'ok') {
+      throw new ApiError(code ?? 'layout_unavailable', message ?? 'The local service could not lay out the selection.', 200)
+    }
+    const preview = readLayoutPreview(value, sent)
+    if (preview === null) throw new ApiError('incompatible_response', 'The local service returned an incompatible layout.', 200)
+    return preview
+  }
+
+  /** `layout.structure` apply of a previewed request under its revision: one undoable edit, or a no-op. */
+  async applyLayout(request: LayoutRequest, expectedRevision: number, selection: SelectionView): Promise<LayoutApplied> {
+    const value = await this.write('/api/v1/operations', {
+      contract: 1, request_id: requestId(), profile: 'preserve-semantics', operation: 'layout.structure',
+      parameters: {
+        document_id: request.documentId, mode: 'apply',
+        selection: { objects: [], atoms: [...request.atoms], bonds: [...request.bonds] },
+        scope: request.scope, instance: request.instance,
+        expected_revision: expectedRevision, selection_before: selection, selection_after: selection,
+      },
+    }, 'reload')
+    throwIfStopped(value, { models: [LAYOUT_MODEL], revision: 'count_or_null' })
+    if (!isRecord(value) || value.outcome !== 'ok' || !isRecord(value.result)) {
+      const { code, message, details } = firstDiagnostic(value)
+      throw new ApiError(code ?? 'layout_unavailable', message ?? 'The local service could not apply the layout.', 200, {
+        currentRevision: isCount(details.current_revision) ? details.current_revision : undefined,
+        stateReason: typeof details.reason === 'string' ? details.reason : undefined,
+      })
+    }
+    const response = DocumentClient.document({ api_version: API_VERSION, ...value.result })
+    const read = readLayoutApplyDiagnostics(value.diagnostics, response.document)
+    const revision = response.document.revision
+    if (value.model_id !== LAYOUT_MODEL || response.document.id !== request.documentId ||
+        revision !== value.document_revision || read === null ||
+        revision !== (read.unchanged ? expectedRevision : expectedRevision + 1)) {
+      throw new ApiError('incompatible_response', 'The local service returned an incompatible layout edit.', 200)
+    }
+    return { response, unchanged: read.unchanged, overlap: read.overlap }
   }
 
   async list(query?: ListQuery): Promise<DocumentListResponse> {

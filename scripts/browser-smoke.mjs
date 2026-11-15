@@ -3993,6 +3993,177 @@ step = 'after short_wide_bond_is_selectable'
   results.aromaticity_inspection_and_atomic_conversion = true
 }
 
+// Chain and ring layout: butane a1 to a4 and a separate hexagon a5 to a10 share one placement. The
+// preview draws the CONTRACT worked example as a dashed ghost and changes nothing; Apply is one
+// undoable edit of the previewed proposal; a selection change makes the preview stale; a refusal and
+// a stopped apply leave the drawing and the history as they were.
+{
+  step = 'layout preview'
+  const panel = page.getByRole('region', { name: 'Chain and ring layout' })
+  const ghost = canvas.locator('[data-layout-ghost]')
+  const previewButton = panel.getByRole('button', { name: 'Preview layout', exact: true })
+  const applyButton = panel.getByRole('button', { name: 'Apply layout', exact: true })
+  const scope = panel.getByRole('switch', { name: 'Move only the selected atoms', exact: true })
+  const positionsS1 = (doc) => Object.fromEntries(doc.document.scene.instances.find((i) => i.id === 's1').positions.map((p) => [p.atom, { x: p.x, y: p.y }]))
+  const workedExample = { a1: { x: 6.03, y: 7.5 }, a2: { x: 32.01, y: -7.5 }, a3: { x: 57.99, y: 7.5 }, a4: { x: 83.97, y: -7.5 } }
+  const assertWorkedExample = (positions, message) => {
+    for (const [atom, point] of Object.entries(workedExample)) {
+      const at = positions[atom]
+      assert.ok(at !== undefined && Math.abs(at.x - point.x) < 0.01 && Math.abs(at.y - point.y) < 0.01, `${message}: ${atom} is at ${JSON.stringify(at)}`)
+    }
+  }
+  const ghostAtoms = () => ghost.locator('[data-layout-ghost-atom]').evaluateAll((nodes) =>
+    Object.fromEntries(nodes.map((node) => [node.getAttribute('data-layout-ghost-atom'), { x: Number(node.getAttribute('cx')), y: Number(node.getAttribute('cy')) }])))
+  const operationReply = (marker) => page.waitForResponse((response) => response.url().endsWith('/api/v1/operations') && response.request().postData()?.includes(marker))
+  // A panel action can scroll the page, so the canvas is brought into view before each atom is pressed.
+  const clickAtom = async (doc, atom) => {
+    await canvas.scrollIntoViewIfNeeded()
+    const point = await atomScreen(doc, atom)
+    await page.mouse.click(point.x, point.y)
+  }
+
+  const created = await apiWrite('/api/v1/documents', { request_id: 'layout-create', title: 'Layout' })
+  const id = created.body.document.id
+  const commands = []
+  for (const x of [0, 30, 60, 90]) commands.push({ op: 'add_atom', element: 'C', position: { x, y: 0 } })
+  for (let k = 0; k < 6; k += 1) commands.push({ op: 'add_atom', element: 'C', position: { x: 200 + 30 * Math.cos(k * Math.PI / 3), y: 30 * Math.sin(k * Math.PI / 3) } })
+  for (let i = 0; i < 3; i += 1) commands.push({ op: 'add_bond', begin: `$${i}`, end: `$${i + 1}`, order: 'single' })
+  for (let k = 0; k < 6; k += 1) commands.push({ op: 'add_bond', begin: `$${4 + k}`, end: `$${4 + ((k + 1) % 6)}`, order: 'single' })
+  const drawn = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'layout-draw', expected_revision: 0, commands })
+  assert.equal(drawn.status, 200)
+  assert.deepEqual(drawn.body.document.atoms.map((atom) => atom.id), Array.from({ length: 10 }, (_, i) => `a${i + 1}`))
+  assert.deepEqual(drawn.body.document.bonds.map((bond) => bond.id), Array.from({ length: 9 }, (_, i) => `b${i + 1}`))
+  assert.deepEqual(drawn.body.document.scene.instances.map((instance) => instance.id), ['s1'])
+  await page.reload()
+  await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  await tool('Select and move')
+  const before = await api(`/api/v1/documents/${id}`)
+  await clickAtom(drawn.body, 'a2')
+  await previewButton.click()
+  await panel.getByTestId('layout-result').waitFor()
+  assert.equal(await panel.getByTestId('layout-counts').textContent(), '4 atoms in 1 component, 0 rings; 4 atoms move.')
+  assert.equal(await ghost.locator('[data-layout-ghost-atom]').count(), 4)
+  assert.equal(await ghost.locator('[data-layout-ghost-bond]').count(), 3, 'only the chain bonds have a moved end')
+  assertWorkedExample(await ghostAtoms(), 'the ghost shows the worked example')
+  const dashes = await ghost.locator('[data-layout-ghost-bond]').evaluateAll((nodes) => nodes.map((node) => node.getAttribute('stroke-dasharray')))
+  assert.equal(dashes.filter((dash) => dash !== null && dash !== '').length, 3, 'every ghost bond is dashed')
+  assert.notEqual(await ghost.getAttribute('data-editor-overlay'), null, 'the ghost is an editor overlay, which exports leave out')
+  const previewed = await api(`/api/v1/documents/${id}`)
+  assert.equal(previewed.document.revision, before.document.revision, 'a preview changes no revision')
+  assert.equal(previewed.session.undo_depth, before.session.undo_depth, 'and adds no history')
+  assert.deepEqual(positionsS1(previewed), positionsS1(drawn.body), 'and moves no atom')
+  await page.screenshot({ path: join(outDir, 'editor-layout.png') })
+  results.layout_preview_overlay = true
+
+  step = 'layout preview stale'
+  await clickAtom(drawn.body, 'a3')
+  await panel.getByTestId('layout-stale').waitFor()
+  assert.equal(await ghost.count(), 0, 'a stale preview draws no ghost')
+  await clickAtom(drawn.body, 'a2')
+  await panel.getByTestId('layout-result').waitFor()
+  assert.equal(await panel.getByTestId('layout-stale').count(), 0)
+  assert.equal(await ghost.locator('[data-layout-ghost-atom]').count(), 4, 'reselecting the same atoms makes the preview current again')
+  results.layout_preview_stale = true
+
+  step = 'layout apply and undo'
+  const applying = operationReply('"mode":"apply"')
+  await applyButton.click()
+  assert.equal((await applying).status(), 200)
+  await waitIdle()
+  const applied = await api(`/api/v1/documents/${id}`)
+  assert.equal(applied.document.revision, before.document.revision + 1, 'apply is one revision')
+  assert.equal(applied.session.undo_depth, before.session.undo_depth + 1, 'and one undo step')
+  assertWorkedExample(positionsS1(applied), 'the applied positions are the worked example')
+  assert.equal(await panel.getByTestId('layout-applied').getAttribute('data-layout-unchanged'), 'false')
+  assert.equal(await ghost.count(), 0, 'the applied preview leaves no ghost')
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await waitIdle()
+  assert.deepEqual(positionsS1(await api(`/api/v1/documents/${id}`)), positionsS1(drawn.body), 'one undo restores the drawn positions')
+  await page.getByRole('button', { name: 'Redo', exact: true }).click()
+  await waitIdle()
+  const redone = await api(`/api/v1/documents/${id}`)
+  assertWorkedExample(positionsS1(redone), 'redo restores the applied positions')
+  assert.equal(redone.session.undo_depth, applied.session.undo_depth, 'and the same undo depth')
+  results.layout_apply_undo = true
+
+  step = 'layout apply unchanged'
+  await clickAtom(redone, 'a2')
+  await previewButton.click()
+  await panel.getByTestId('layout-result').waitFor()
+  assert.equal(await panel.getByTestId('layout-counts').textContent(), '4 atoms in 1 component, 0 rings; 0 atoms move.')
+  const unchangedApply = operationReply('"mode":"apply"')
+  await applyButton.click()
+  assert.equal((await unchangedApply).status(), 200)
+  await waitIdle()
+  assert.equal(await panel.getByTestId('layout-applied').getAttribute('data-layout-unchanged'), 'true')
+  const noop = await api(`/api/v1/documents/${id}`)
+  assert.equal(noop.document.revision, redone.document.revision, 'a no-op apply makes no revision')
+  assert.equal(noop.session.undo_depth, redone.session.undo_depth, 'and adds no history')
+  results.layout_apply_unchanged = true
+
+  step = 'layout refusal'
+  await clickAtom(noop, 'a5')
+  await scope.click()
+  assert.equal(await scope.getAttribute('aria-checked'), 'true')
+  await previewButton.click()
+  const refusal = panel.getByTestId('layout-refusal')
+  await refusal.waitFor()
+  assert.equal(await refusal.getAttribute('data-layout-reason'), 'ring_partly_in_layout_set')
+  await refusal.getByText('A ring is only partly in the layout. Select the whole ring, or turn off "Move only the selected atoms".', { exact: true }).waitFor()
+  await refusal.getByText('Atoms: a5', { exact: true }).waitFor()
+  await scope.click()
+  assert.equal(await scope.getAttribute('aria-checked'), 'false')
+  results.layout_refusal = true
+
+  // A time limit stops the apply: the page shows the stop as a notice in the default look, with Dismiss.
+  // Apply is mocked once, so nothing changes; the preview and its ghost stay and Apply stays enabled.
+  step = 'layout apply time limit stop'
+  await clickAtom(noop, 'a2')
+  await previewButton.click()
+  await panel.getByTestId('layout-result').waitFor()
+  const beforeStop = await api(`/api/v1/documents/${id}`)
+  const serviceMessage = 'The computation did not finish within the time limit of 5000 ms; nothing was changed.'
+  const timedOut = {
+    envelope: 'operation_result', contract: 1, outcome: 'error', model_id: 'chemifree-chain-layout-2', document_revision: null, loss_report: [], result: null,
+    diagnostics: [{ code: 'time_limit', severity: 'error', message: serviceMessage, path: null, details: { limit_ms: 5000 } }],
+  }
+  let stopOnce = true
+  const stopping = async (route) => {
+    const body = route.request().postDataJSON()
+    if (stopOnce && body?.operation === 'layout.structure' && body?.parameters?.mode === 'apply') {
+      stopOnce = false
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(timedOut) })
+    }
+    return route.continue()
+  }
+  await page.route('**/api/v1/operations', stopping)
+  try {
+    const stopped = operationReply('"mode":"apply"')
+    await applyButton.click()
+    assert.equal((await stopped).status(), 200)
+    await waitIdle()
+    const notice = page.getByRole('alert').filter({ hasText: 'Stopped at the time limit (5000 ms)' })
+    await notice.waitFor()
+    assert.equal(await notice.count(), 1, 'one page notice for the stop')
+    assert.equal(await notice.locator('[data-slot="alert-title"]').textContent(), 'Stopped at the time limit (5000 ms)')
+    assert.equal(await notice.locator('[data-slot="alert-description"]').textContent(), serviceMessage)
+    // ui/alert exposes no variant attribute: the destructive look is the text-destructive class on its root.
+    assert.deepEqual(await notice.evaluate((node) => ({ destructive: node.classList.contains('text-destructive'), standard: node.classList.contains('text-card-foreground') })), { destructive: false, standard: true }, 'a stop is not drawn as an error')
+    assert.equal(await panel.getByTestId('layout-result').count(), 1, 'the preview stays')
+    assert.equal(await ghost.locator('[data-layout-ghost-atom]').count(), 4, 'with its ghost')
+    assert.equal(await applyButton.isEnabled(), true, 'and Apply stays enabled')
+    const afterStop = await api(`/api/v1/documents/${id}`)
+    assert.equal(afterStop.document.revision, beforeStop.document.revision, 'a stopped apply keeps the revision')
+    assert.deepEqual(positionsS1(afterStop), positionsS1(beforeStop), 'and the positions')
+    assert.deepEqual([afterStop.session.undo_depth, afterStop.session.redo_depth], [beforeStop.session.undo_depth, beforeStop.session.redo_depth], 'and adds no history')
+    await notice.getByRole('button', { name: 'Dismiss', exact: true }).click()
+    await notice.waitFor({ state: 'detached' })
+  } finally {
+    await page.unroute('**/api/v1/operations', stopping)
+  }
+  results.layout_apply_time_limit_stop = true
+}
+
 // Substructure search: the two drawings' IDs overlap, the result describes the snapshots it
 // searched, survives a refresh of state that is not the graph, and is hidden (not dropped)
 // when this drawing or the service changes. A refusal appears in the panel's own error area.
