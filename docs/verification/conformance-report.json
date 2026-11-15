@@ -221,6 +221,19 @@
       "case_sha256": "4a4da3bc023704a047d1e2bae08a2d9e8110c50eedab7f8ea09455ca93b7cdf0"
     },
     {
+      "id": "molfile-coordinate-free-layout",
+      "title": "A coordinate-free 2D MOL record is laid out below an empty drawing and reports generated_layout",
+      "requirements": [
+        "CODEC-03"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "00138721c2c70e6ad59d6189549703e119a798fd46b43e7d4c58011e6789667d"
+    },
+    {
       "id": "graph-scene-separation",
       "title": "Chemical graph and scene positions are kept and compared separately: a second scene instance of the same graph moves independently, chemistry and the first instance stay, and undo restores each step",
       "requirements": [
@@ -1628,7 +1641,7 @@
   ],
   "counts": {
     "accept": {
-      "passed": 87,
+      "passed": 88,
       "failed": 0,
       "not_run": 0
     },
@@ -1638,7 +1651,7 @@
       "not_run": 0
     },
     "total": {
-      "passed": 119,
+      "passed": 120,
       "failed": 0,
       "not_run": 0
     }

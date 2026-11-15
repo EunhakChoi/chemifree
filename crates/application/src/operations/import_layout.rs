@@ -256,7 +256,7 @@ pub(super) fn not_covered_losses(plans: &[ComponentPlan], path_prefix: &str) -> 
                 layout::MODEL_ID
             ),
             Fallback::SourcePoint(code) => format!(
-                "The chain and simple ring layout ({}) does not cover this component ({code}): its atoms keep their source coordinates, one shared point, so its bond marks show no configuration the file does not state.",
+                "The chain and simple ring layout ({}) does not cover this component ({code}): its atoms keep their source coordinates, one shared point moved to its packing position, so its bond marks show no configuration the file does not state.",
                 layout::MODEL_ID
             ),
         };

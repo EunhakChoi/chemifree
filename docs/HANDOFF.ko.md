@@ -2,7 +2,7 @@
 
 ## P48 S2: 좌표 없는 MOL/SDF 배치 (T1)
 
-사용자 결정(2026-11-16): Opus 추천대로 헤더 2행 21–22바이트가 `2D`이고 모든 좌표가 0인 레코드만 배치하고 손실을 보고한다. 사양은 Opus가 정했고 기준 문서는 CONTRACT "Layout of coordinate-free records (P48 S2)"다. Opus 추천(Q1–Q4)대로 결합 표시가 있는 성분은 엔진에 넘기지 않고 원본의 한 점(0,0)으로 두어 한 점으로 쌓고, 0,0의 원자 하나도 배치하며, MOL의 "모든 손실은 `accept_loss`" 규칙은 그대로 두고, 표시 없는 이중결합의 생성 기하는 S1처럼 받아들인다.
+사용자 결정(2026-11-16): Opus 추천대로 헤더 2행 21–22바이트가 `2D`이고 모든 좌표가 0인 레코드만 배치하고 손실을 보고한다. 사양은 Opus가 정했고 기준 문서는 CONTRACT "Layout of coordinate-free records (P48 S2)"다. 사양의 열린 질문 Q1–Q4는 사용자의 상시 지시(결정이 필요하면 Opus에게 묻고 진행)에 따라 리드가 Opus 추천대로 정했다: 결합 표시가 있는 성분은 엔진에 넘기지 않고 원본의 한 점(0,0)으로 두어 한 점으로 쌓고, 0,0의 원자 하나도 배치하며, MOL의 "모든 손실은 `accept_loss`" 규칙은 그대로 두고, 표시 없는 이중결합의 생성 기하는 S1처럼 받아들인다.
 
 - 범위: 선택한 레코드만 검사한다. 그 밖의 레코드(3D, 0이 아닌 좌표 하나라도, 다른 차원 코드)는 오늘과 같은 명령·좌표·손실이다. Chemifree가 쓴 MOL은 헤더 2행이 비어 있어 해당하지 않는다.
 - 배치: S1과 같은 원점·결합 길이·성분 분할·임시 문서·쌓기·격자 대체(`operations/import_layout.rs`로 공통화, `molfile_layout.rs` 새로). SMILES는 비트 단위로 그대로다(`smiles_import_layout_digest.rs` 통과). 같은 그래프면 MOL과 SMILES 좌표가 비트 단위로 같다.
@@ -1166,7 +1166,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 65, partial 16, unverified 3, not_implemented 33) · conformance 사례 119개(passed 119: accept 87·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 65, partial 16, unverified 3, not_implemented 33) · conformance 사례 120개(passed 120: accept 88·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, MODEL-03, CODEC-01, CODEC-02, CODEC-03, CODEC-05, CODEC-06, OPS-01, OPS-02, CHEM-01, CHEM-02, STEREO-01, LAYOUT-01, LAYOUT-02, LAYOUT-03, RENDER-01, STYLE-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

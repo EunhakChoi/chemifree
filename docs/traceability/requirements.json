@@ -710,6 +710,7 @@
             "crates/application/src/operations/backend.rs"
           ],
           "evidence": [
+            "case:molfile-coordinate-free-layout",
             "case:molfile-round-trip",
             "check:check:rust",
             "check:test:contracts"
