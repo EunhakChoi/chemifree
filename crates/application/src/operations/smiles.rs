@@ -6,7 +6,7 @@
 use chemifree_domain::chemistry::VALENCE_MODEL;
 use std::collections::HashSet;
 
-use chemifree_domain::document::{AtomRef, BondRef, Command, NewAtomPositions, Point};
+use chemifree_domain::document::{AtomRef, BondRef, Command};
 use chemifree_domain::graph::MoleculeGraph;
 use chemifree_domain::identity::CHEMICAL_MODEL_ID;
 use chemifree_domain::states::AttachmentPoints;
@@ -14,7 +14,7 @@ use chemifree_domain::stereo::{AtomConfiguration, BondConfiguration, SlotRef};
 
 use super::import::{ImportFormat, ImportRequest, Staged};
 use super::interchange::{consent_diagnostic, export_consent_refusal, needs_consent};
-use super::smiles_layout::{self, ComponentPlan};
+use super::smiles_layout::{self, ComponentPlan, PlacedCommands};
 use super::*;
 use crate::contract::{BondOrderDto, HydrogensDto, RadicalDto, SceneObjectView};
 use crate::smiles::{
@@ -22,11 +22,8 @@ use crate::smiles::{
 };
 use crate::stereo_projection::{self, GroupFault, GroupInput};
 
-/// The grid of the components the layout does not cover, and of a whole import whose layout could
-/// not be computed: 10 columns, 30 pt apart, in input order. New atoms go below whatever the
-/// drawing already holds.
-pub(super) const GRID_SPACING: f64 = 30.0;
-pub(super) const GRID_COLUMNS: usize = 10;
+/// New atoms go below whatever the drawing already holds, from its leftmost point; an empty drawing
+/// starts them at (40, 40).
 const GAP_BELOW_DRAWING: f64 = 60.0;
 const EMPTY_DRAWING_ORIGIN: f64 = 40.0;
 
@@ -214,10 +211,10 @@ fn import_commands(
     plans: Option<&[ComponentPlan]>,
     losses: &mut Vec<Loss>,
 ) -> Result<Vec<Command>, Diagnostic> {
-    let GridCommands {
+    let PlacedCommands {
         mut commands,
         first_bond,
-    } = grid_commands(read, target, plans)?;
+    } = placed_commands(read, target, plans)?;
     commands.extend(configuration_commands(read, first_bond));
     let groups = group_inputs(read);
     let centers: HashSet<usize> = read.stereo.centers.iter().map(|c| c.atom).collect();
@@ -327,21 +324,14 @@ fn replayed_group_losses(read: &SmilesRead, committed: &DocumentView) -> Vec<Los
     })
 }
 
-/// The commands that make the graph of a read, and where its bonds start among them: a created
-/// bond is named by the index of its command, so `first_bond + n` names the n-th bond of the read.
-struct GridCommands {
-    commands: Vec<Command>,
-    first_bond: usize,
-}
-
 /// Positions for new atoms, below `target`'s atoms, and the bonds between them; fails when a
 /// position is out of range. The positions are packed from `plans`; without them the whole
-/// import is on the grid.
-fn grid_commands(
+/// import is one box on the grid.
+fn placed_commands(
     read: &SmilesRead,
     target: &DocumentView,
     plans: Option<&[ComponentPlan]>,
-) -> Result<GridCommands, Diagnostic> {
+) -> Result<PlacedCommands, Diagnostic> {
     // Everything the drawing holds that has a position: atoms and the points of graphics.
     let graphic_points = target.scene.objects.iter().flat_map(|object| match object {
         SceneObjectView::Graphic { points, .. } => points.clone(),
@@ -372,48 +362,21 @@ fn grid_commands(
             (EMPTY_DRAWING_ORIGIN, EMPTY_DRAWING_ORIGIN),
             |(left, bottom)| (left, bottom + GAP_BELOW_DRAWING),
         );
-    let positions: Vec<(f64, f64)> = match plans {
-        Some(plans) => smiles_layout::pack(
-            plans,
-            read.atoms.len(),
-            (left, bottom),
-            target.settings.bond_length_pt,
-        ),
-        // The layout could not be computed: the whole import stays on the grid, as before.
-        None => smiles_layout::grid_shape(read.atoms.len())
-            .into_iter()
-            .map(|(x, y)| (left + x, bottom + y))
-            .collect(),
-    };
-    let mut commands = Vec::with_capacity(read.atoms.len() + read.bonds.len());
-    for (index, (source, (x, y))) in read.atoms.iter().zip(positions).enumerate() {
-        let point = Point::new(x, y).map_err(|_| {
-            diagnostic(
-                "coordinate_out_of_range",
-                format!(
-                    "Atom {} cannot be placed below the existing drawing.",
-                    index + 1
-                ),
-                Map::new(),
-            )
-        })?;
-        commands.push(Command::AddAtom {
-            atom: source.atom.clone(),
-            positions: NewAtomPositions::Single(point),
-            bond_to: None,
-        });
-    }
-    let first_bond = commands.len();
-    for bond in &read.bonds {
-        commands.push(Command::AddBond {
-            begin: AtomRef::Created(bond.begin),
-            end: AtomRef::Created(bond.end),
-            order: bond.order.clone(),
-        });
-    }
-    Ok(GridCommands {
-        commands,
-        first_bond,
+    let positions = smiles_layout::positions(
+        plans,
+        read.atoms.len(),
+        (left, bottom),
+        target.settings.bond_length_pt,
+    );
+    smiles_layout::graph_commands(read, positions).map_err(|index| {
+        diagnostic(
+            "coordinate_out_of_range",
+            format!(
+                "Atom {} cannot be placed below the existing drawing.",
+                index + 1
+            ),
+            Map::new(),
+        )
     })
 }
 
@@ -880,7 +843,7 @@ mod command_index_tests {
     fn a_configuration_names_the_command_that_made_its_double_bond() {
         let read = trans_difluoroethene();
         let view = empty_view();
-        let grid = grid_commands(&read, &view, None).expect("a grid");
+        let grid = placed_commands(&read, &view, None).expect("a grid");
         assert!(
             grid.commands[..grid.first_bond]
                 .iter()

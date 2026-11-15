@@ -1870,6 +1870,14 @@
    "kind": "core",
    "id": "P48",
    "status": "in_progress",
+   "delivered": {
+    "prs": [
+     277
+    ],
+    "merge_commit": "d7ea7da5c236c2fc360d861ec36ba99d36a5f5f3",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/43744569328",
+    "note": "S1 SMILES 가져오기의 성분별 P42 배치(#277)의 부분 납품이다. 통합 가져오기/내보내기 UI, 다른 형식, 겹침 보고는 후속이다."
+   },
    "layers": [
     "presentation",
     "logic",
