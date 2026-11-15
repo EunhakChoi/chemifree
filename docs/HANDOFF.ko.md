@@ -8,6 +8,7 @@
 - 미리보기: 개수·고리·겹침 경고, 거절은 이유 문장·원자·한도, 중단은 compute-stop 알림. 캔버스에 점선 겹침 표시(`data-editor-overlay`, 내보내기 제외). 같은 서비스 프로세스·같은 내용·같은 revision·같은 요청일 때만 현재이고, 아니면 "out of date"로 표시하고 겹침을 숨긴다(렌더 중 계산, effect 없음).
 - 적용: `editor.mutate`로 미리본 요청을 `expected_revision`과 함께 보낸다(한 번의 실행 취소 단위). `layout_unchanged`면 revision 그대로, 편집이면 +1인지 클라이언트가 검사한다.
 - 코드: `apps/web/src/lib/document-contract/layout.ts`, `hooks/use-layout-preview.ts`, `components/layout-panel.tsx`, `lib/layout-refusals.ts`, `editor/layout-ghost.ts`, `editor/layout-ghost-layer.tsx`. 검사: `scripts/web-layout-client-check.mjs`(test:client), `web-compute-stop-check.mjs`의 배치 단계, 브라우저 스모크 결과 키 6개(`layout_*`).
+- 납품: #275(병합 `e17d7b9e`, main CI 성공). P42는 #272–#275로 문서화된 범위 안에서 `done`이다.
 - 남은 것: 융합·스피로·다리·거대 고리(P43/P44), 템플릿, 점수, 충돌 해결, 실행 취소 라벨, 미리보기 위치로 화면 이동. #273·#274 리뷰의 후속 리팩터는 아직이다. 샌드박스 러너는 `apps/web/node_modules`를 바인드하지 않아 그 안에서는 `npm run lint`가 `@eslint/js`를 못 찾는다(러너 밖에서는 통과).
 
 ## P42 S3: 단순 고리 배치 (T1)
