@@ -1,5 +1,14 @@
 # Chemifree 새 세션 인계
 
+## P48 S2: 좌표 없는 MOL/SDF 배치 (T1)
+
+사용자 결정(2026-11-16): Opus 추천대로 헤더 2행 21–22바이트가 `2D`이고 모든 좌표가 0인 레코드만 배치하고 손실을 보고한다. 사양은 Opus가 정했고 기준 문서는 CONTRACT "Layout of coordinate-free records (P48 S2)"다. Opus 추천(Q1–Q4)대로 결합 표시가 있는 성분은 엔진에 넘기지 않고 원본의 한 점(0,0)으로 두어 한 점으로 쌓고, 0,0의 원자 하나도 배치하며, MOL의 "모든 손실은 `accept_loss`" 규칙은 그대로 두고, 표시 없는 이중결합의 생성 기하는 S1처럼 받아들인다.
+
+- 범위: 선택한 레코드만 검사한다. 그 밖의 레코드(3D, 0이 아닌 좌표 하나라도, 다른 차원 코드)는 오늘과 같은 명령·좌표·손실이다. Chemifree가 쓴 MOL은 헤더 2행이 비어 있어 해당하지 않는다.
+- 배치: S1과 같은 원점·결합 길이·성분 분할·임시 문서·쌓기·격자 대체(`operations/import_layout.rs`로 공통화, `molfile_layout.rs` 새로). SMILES는 비트 단위로 그대로다(`smiles_import_layout_digest.rs` 통과). 같은 그래프면 MOL과 SMILES 좌표가 비트 단위로 같다.
+- 손실: `generated_layout`(`records[N].atoms`)과 성분마다 `layout_not_covered`(표시 있는 성분은 "원본 좌표의 한 점"), 순서는 판독기·미선택 레코드 손실 다음, 투영 손실 앞. 재전송도 같다.
+- 검사: `crates/application/tests/molfile_import_layout.rs`(9), `molfile_import_layout_guards.rs`(8: 3D 전부 0, x 하나·z 하나 0 아님, 헤더 변형, 원자 없음, 원자 하나, 표시 성분, V3000 collection). 가드 변이 9개 모두 잡힘.
+
 ## P48 S1: SMILES 가져오기 배치 (T1)
 
 사용자 결정(2026-11-16): Opus 추천대로 P48 첫 조각으로 좌표 없는 SMILES 가져오기에 P42 배치를 쓴다. 사양은 Opus가 정했고, 기준 문서는 CONTRACT "Layout of imported components (P48 S1)"이다. Opus 추천(Q1–Q4)대로 응답에 배치 모델 필드를 더하지 않고(손실 사유에 이름이 있다), 사면체 중심만 있는 성분도 격자에 두며, 겹침은 보고하지 않고, 간격 2b·줄 폭 20b로 한다.
@@ -10,7 +19,7 @@
 - 코드: `crates/application/src/operations/smiles_layout.rs`(새), `smiles.rs`. 검사: `crates/application/tests/smiles_import_layout.rs`, `smiles_import_layout_fallback.rs`, `smiles_stereo_import.rs` 갱신, 웹 모의 좌표(`web-smiles-clipboard-check.mjs`).
 - 납품: #277(병합 `d7ea7da5`, main CI 성공).
 - 정리(#278, 동작 불변): 격자 경로 하나로 합침, 그래프 명령 생성기 공유, 격자 상수를 `smiles_layout.rs`로, 성분마다 그 성분만 담은 임시 문서에서 배치. `smiles_import_layout_equivalence.rs`(합쳐 가져온 성분과 따로 가져온 성분의 모양이 같다, 1e-9)는 main 코드와 이 코드 모두에서 통과하고, main과의 비트 단위 동일성은 main(`d7ea7da5`)에서 기록한 다이제스트 `smiles_import_layout_digest.rs`가 보인다(다시 기록하려면 세 생산 파일을 main 것으로 되돌린 복사본에서 실행해 출력된 값을 쓴다), 방향족 변환과 배치 적용이 계산 전 잠금(`copy_for_compute`)과 잠금 아래 커밋(`commit_computed`)을 공유한다. 진단을 담는 재전송 기록(#273 후속)은 아직이다.
-- 남은 것(P48): 통합 가져오기/내보내기 UI, 다른 형식, 겹침 보고, 입체 성분 배치.
+- 남은 것(P48): 통합 가져오기/내보내기 UI, CDXML·CDX, 겹침 보고, 입체 성분 배치(MOL은 S2에서 처리).
 
 ## P42 S4: 배치 웹 UI (T1)
 

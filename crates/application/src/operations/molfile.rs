@@ -16,6 +16,7 @@ use super::reply::{
     OperationResult, Severity,
 };
 use super::{Known, converted, parameters};
+use super::{import_layout, molfile_layout};
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -189,13 +190,44 @@ impl ImportFormat for CtImportFormat<'_> {
         &self,
         (input, selected): &Self::Parsed,
         target: &DocumentView,
-        _replayed: bool,
+        replayed: bool,
     ) -> Result<Staged, Diagnostic> {
         let record = &input.value[*selected];
         let mut losses = input.losses.clone();
         ct_projection::unselected_losses(&input.value, self.p.record, &mut losses);
-        let commands = ct_projection::import_commands(record, self.p.record, target, &mut losses)
-            .map_err(ct_failure)?;
+        let bond_length_pt = target.settings.bond_length_pt;
+        // Only a 2D record whose coordinates are all 0 is laid out; every other record keeps its
+        // file coordinates. The plans depend only on the record and the bond length, which an
+        // import never changes, so a replay reports the same layout losses.
+        let plans = molfile_layout::coordinate_free(record)
+            .then(|| molfile_layout::placements(record, bond_length_pt))
+            .flatten();
+        let mut positions = None;
+        if let Some(plans) = &plans {
+            losses.push(molfile_layout::generated_layout(self.p.record));
+            losses.extend(import_layout::not_covered_losses(
+                plans,
+                &format!("records[{}].", self.p.record),
+            ));
+            // A replay's commands are discarded, so it places nothing: the committed document's
+            // extent cannot refuse it with coordinate_out_of_range.
+            if !replayed {
+                positions = Some(import_layout::positions(
+                    Some(plans),
+                    record.atoms.len(),
+                    import_layout::origin(target),
+                    bond_length_pt,
+                ));
+            }
+        }
+        let commands = ct_projection::import_commands(
+            record,
+            self.p.record,
+            target,
+            positions.as_deref(),
+            &mut losses,
+        )
+        .map_err(ct_failure)?;
         Ok(Staged {
             commands,
             losses,
