@@ -6,12 +6,13 @@
 //! the placement runs under the request's time limit and the host cancel, and takes no compute
 //! slot. Nothing is changed: the document keeps its revision, history, selection and dirty state.
 //! A stop replies `error` with `time_limit` or `cancelled`, the snapshot's revision and no result.
-//! Ring layout, templates, scoring and collision resolution are not implemented.
+//! Fused, bridged and spiro ring layout, rings of more than 12 atoms, templates, scoring and
+//! collision resolution are not implemented.
 
 use chemifree_domain::document::{Document, ObjectId, Point};
 use chemifree_domain::layout::{
-    self, LayoutError, MAX_LISTED_OVERLAPS, MODEL_ID, OVERLAP_FACTOR, PlacedComponent, Preparation,
-    Preview, Scope,
+    self, Chain, LayoutError, MAX_LISTED_OVERLAPS, MODEL_ID, OVERLAP_FACTOR, PlacedComponent,
+    Preparation, Preview, Scope,
 };
 use chemifree_domain::scene::Selection;
 
@@ -26,9 +27,12 @@ const APPLY: &str = "apply";
 /// The reasons of a `layout_unsupported` refusal, as its `reason` detail names them. Only the
 /// unit test reads this list; it checks the list against `refusal_reply`.
 #[cfg(test)]
-pub const LAYOUT_REASONS: [&str; 7] = [
+pub const LAYOUT_REASONS: [&str; 10] = [
     "object_selection",
-    "ring_in_layout_set",
+    "ring_partly_in_layout_set",
+    "fused_ring_in_layout_set",
+    "spiro_ring_in_layout_set",
+    "large_ring_in_layout_set",
     "stereo_in_layout",
     "display_in_layout_set",
     "multiple_attachments",
@@ -106,7 +110,7 @@ pub struct AnchorView {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ChainView {
     pub atoms: Vec<String>,
-    /// The fixed anchor, the parent atom, or `null` for the first chain of a free component.
+    /// The fixed anchor, the parent atom, or `null` for the root run of a free component.
     pub branch_from: Option<String>,
 }
 
@@ -120,6 +124,9 @@ pub struct LayoutComponentView {
     /// The atom that placement started from.
     pub root: String,
     pub chains: Vec<ChainView>,
+    /// The simple rings, in the order their entry atoms were placed, each with its members in
+    /// walk order from the entry. Empty when the component has no ring.
+    pub rings: Vec<ChainView>,
 }
 
 /// Where one layout atom stands before and after placement, in pt with y growing down.
@@ -418,7 +425,10 @@ pub(super) fn refusal_reply(
             (Outcome::Error, ErrorCode::DocumentUnreadable.as_str(), None)
         }
         LayoutError::ObjectSelection
-        | LayoutError::RingInLayoutSet { .. }
+        | LayoutError::RingPartlyInLayoutSet { .. }
+        | LayoutError::FusedRingInLayoutSet { .. }
+        | LayoutError::SpiroRingInLayoutSet { .. }
+        | LayoutError::LargeRingInLayoutSet { .. }
         | LayoutError::StereoInLayout { .. }
         | LayoutError::DisplayInLayoutSet { .. }
         | LayoutError::MultipleAttachments { .. }
@@ -450,9 +460,17 @@ fn refusal_details(error: &LayoutError) -> Map<String, Value> {
             fields([("atoms", (*atoms).into()), ("limit", (*limit).into())])
         }
         LayoutError::MissingPosition { atom } => fields([("atom", atom.to_string().into())]),
-        LayoutError::RingInLayoutSet { atoms } | LayoutError::DisplayInLayoutSet { atoms } => {
+        LayoutError::RingPartlyInLayoutSet { atoms }
+        | LayoutError::FusedRingInLayoutSet { atoms }
+        | LayoutError::SpiroRingInLayoutSet { atoms }
+        | LayoutError::DisplayInLayoutSet { atoms } => {
             fields([("reason", reason), ("atoms", ids(atoms).into())])
         }
+        LayoutError::LargeRingInLayoutSet { atoms, limit } => fields([
+            ("reason", reason),
+            ("atoms", ids(atoms).into()),
+            ("limit", (*limit).into()),
+        ]),
         LayoutError::StereoInLayout { atoms, bonds }
         | LayoutError::MultipleAttachments { atoms, bonds } => fields([
             ("reason", reason),
@@ -506,15 +524,19 @@ fn component_view(component: &PlacedComponent) -> LayoutComponentView {
             bond: anchor.bond.to_string(),
         }),
         root: component.root.to_string(),
-        chains: component
-            .chains
-            .iter()
-            .map(|chain| ChainView {
-                atoms: ids(&chain.atoms),
-                branch_from: chain.branch_from.map(|atom| atom.to_string()),
-            })
-            .collect(),
+        chains: run_views(&component.chains),
+        rings: run_views(&component.rings),
     }
+}
+
+/// The runs of atoms as their wire views, in the order given.
+fn run_views(runs: &[Chain]) -> Vec<ChainView> {
+    runs.iter()
+        .map(|chain| ChainView {
+            atoms: ids(&chain.atoms),
+            branch_from: chain.branch_from.map(|atom| atom.to_string()),
+        })
+        .collect()
 }
 
 fn advice(
@@ -593,7 +615,7 @@ pub(super) fn placement_diagnostics(
     diagnostics.push(advice(
         Severity::Info,
         "layout_not_implemented",
-        "Ring layout, templates, scoring and search, and collision resolution are not implemented.",
+        "Fused, bridged and spiro ring layout, rings of more than 12 atoms, templates, scoring and search, and collision resolution are not implemented.",
         Map::new(),
     ));
     diagnostics
@@ -624,10 +646,29 @@ mod tests {
             (LayoutError::EmptySelection, "layout_selection_empty"),
             (LayoutError::TooLarge { atoms: 3, limit: 2 }, "too_large"),
             (
-                LayoutError::RingInLayoutSet {
+                LayoutError::RingPartlyInLayoutSet {
                     atoms: vec![atom(1)],
                 },
-                "ring_in_layout_set",
+                "ring_partly_in_layout_set",
+            ),
+            (
+                LayoutError::FusedRingInLayoutSet {
+                    atoms: vec![atom(1)],
+                },
+                "fused_ring_in_layout_set",
+            ),
+            (
+                LayoutError::SpiroRingInLayoutSet {
+                    atoms: vec![atom(1)],
+                },
+                "spiro_ring_in_layout_set",
+            ),
+            (
+                LayoutError::LargeRingInLayoutSet {
+                    atoms: vec![atom(1)],
+                    limit: 12,
+                },
+                "large_ring_in_layout_set",
             ),
             (
                 LayoutError::StereoInLayout {

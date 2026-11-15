@@ -16,7 +16,7 @@ type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 type Draw = fn(&App, &mut RequestIds) -> TestResult<String>;
 
 /// The model that every reply of `layout.structure` names.
-const MODEL_ID: &str = "chemifree-chain-layout-1";
+const MODEL_ID: &str = "chemifree-chain-layout-2";
 /// The largest limit a request may set, in milliseconds.
 const MAXIMUM_LIMIT_MS: u64 = 8_000;
 
@@ -406,7 +406,7 @@ fn refusals() -> Vec<Case> {
             },
         },
         Case {
-            name: "a ring atom in the layout set",
+            name: "a partly selected ring",
             draw: ring_document,
             request: |id: &str| {
                 json!({
@@ -420,7 +420,7 @@ fn refusals() -> Vec<Case> {
                 outcome: "unsupported",
                 code: "layout_unsupported",
                 path: None,
-                reason: Some("ring_in_layout_set"),
+                reason: Some("ring_partly_in_layout_set"),
                 names_revision: true,
             },
         },
@@ -523,7 +523,8 @@ fn refusals() -> Vec<Case> {
 }
 
 /// The stale-revision cases: a layout that the document would refuse on its own terms, and a
-/// ring layout, which the layout would refuse as unsupported if it were checked first.
+/// partly selected ring, which the layout would refuse as `ring_partly_in_layout_set` if it were
+/// checked first.
 fn stale_cases() -> Vec<Case> {
     const STALE: Expected = Expected {
         outcome: "error",
@@ -546,7 +547,7 @@ fn stale_cases() -> Vec<Case> {
             expected: STALE,
         },
         Case {
-            name: "a ring atom in the layout set",
+            name: "a partly selected ring",
             draw: ring_document,
             request: |id: &str| {
                 json!({

@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 type App = Application<LocalCapabilities, FileDocumentRepository>;
 
 /// The model that the preview's replies name.
-const MODEL_ID: &str = "chemifree-chain-layout-1";
+const MODEL_ID: &str = "chemifree-chain-layout-2";
 /// The limit of a request that sets none, in milliseconds.
 const DEFAULT_LIMIT_MS: u64 = 5_000;
 /// The largest limit a request may set, in milliseconds.
@@ -276,6 +276,7 @@ fn a_free_chain_is_laid_out_on_the_zigzag_in_the_components_scope_by_default() {
             "anchor": null,
             "root": "a1",
             "chains": [{"atoms": ["a1", "a2", "a3", "a4"], "branch_from": null}],
+            "rings": [],
         }]),
         "{reply}"
     );
@@ -574,7 +575,7 @@ fn a_selection_of_scene_objects_is_unsupported() {
 }
 
 #[test]
-fn a_ring_atom_in_the_layout_set_is_unsupported() {
+fn a_partly_selected_ring_is_unsupported() {
     let directory = tempfile::tempdir().unwrap();
     let app = new_app(&directory);
     let id = draw(
@@ -593,7 +594,7 @@ fn a_ring_atom_in_the_layout_set_is_unsupported() {
         "{reply}"
     );
     assert_eq!(
-        reply["diagnostics"][0]["details"]["reason"], "ring_in_layout_set",
+        reply["diagnostics"][0]["details"]["reason"], "ring_partly_in_layout_set",
         "{reply}"
     );
     assert_eq!(

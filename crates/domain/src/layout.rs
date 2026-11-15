@@ -23,9 +23,15 @@
 //! 2. an atom or bond the document does not have: [`LayoutError::UnknownSelection`];
 //! 3. no atom and no bond: [`LayoutError::EmptySelection`];
 //! 4. more than [`MAX_LAYOUT_ATOMS`] layout atoms: [`LayoutError::TooLarge`];
-//! 5. a layout atom in a ring system: [`LayoutError::RingInLayoutSet`]. A ring system with no
-//!    layout atom keeps its positions and is only counted when it lies in a graph-connected
-//!    component that holds a layout atom;
+//!    5a. a ring system with a layout atom and a fixed member:
+//!    [`LayoutError::RingPartlyInLayoutSet`];
+//!    5b. a ring system with a layout atom and more than one ring (fused or bridged):
+//!    [`LayoutError::FusedRingInLayoutSet`];
+//!    5c. a ring system with a layout atom that shares an atom with another ring system (spiro):
+//!    [`LayoutError::SpiroRingInLayoutSet`];
+//!    5d. a ring system with a layout atom and more than [`MAX_RING_SIZE`] atoms:
+//!    [`LayoutError::LargeRingInLayoutSet`]. A ring system with no layout atom keeps its positions
+//!    and is only counted when it lies in a graph-connected component that holds a layout atom;
 //! 6. stated stereo or a bond mark on the layout set or a boundary fixed atom:
 //!    [`LayoutError::StereoInLayout`];
 //! 7. a layout atom that an abbreviation or fragment display of the instance covers: its key, the
@@ -41,9 +47,11 @@
 //! # Placement
 //!
 //! Each layout component is laid out as a tree whose bonds are one bond length long, in points
-//! with y growing down. Anchored components come first, ordered by the grid cell of their fixed
-//! anchor and then by rank (see `placement_order`). Free components follow, and each keeps the
-//! centroid of its before positions. The rules are in the private `chain` module.
+//! with y growing down. A simple layout ring is one unit of that tree, drawn as a regular polygon,
+//! and every other atom is a unit of its own. Anchored components come first, ordered by the grid
+//! cell of their fixed anchor and then by rank (see `placement_order`). Free components follow, and
+//! each keeps the centroid of its before positions. The rules are in the private `chain` module,
+//! and those for rings in the private `ring` module.
 //!
 //! [`place`] refuses a placed position outside the coordinate limits, naming the lowest such layout
 //! atom in [`LayoutError::CoordinateOutOfRange`]. [`place_with`] also stops when its interrupt asks
@@ -54,13 +62,15 @@
 //! counts every one and lists the first [`MAX_LISTED_OVERLAPS`] in ascending order.
 //!
 //! Renumbering the atoms leaves each placed position unchanged, except at ties that the rules leave
-//! to identifiers: isomorphic siblings, the two ends of a free component with equal codes, and
-//! isomorphic components at one anchor. At such a tie the atoms trade places under an automorphism,
-//! so the set of positions is the same. One case is not covered: components anchored at two
-//! distinct fixed atoms in one grid cell (see `placement_order`) are ordered by identifier when
-//! their ranks tie, so renumbering can change the result there.
+//! to identifiers: isomorphic siblings, the two ends of a free component with equal codes,
+//! isomorphic components at one anchor, a non-root ring whose two walks have equal codes, and a
+//! root ring whose rotations have equal codes. At such a tie the atoms trade places under an
+//! automorphism, so the set of positions is the same. One case is not covered: components anchored
+//! at two distinct fixed atoms in one grid cell (see `placement_order`) are ordered by identifier
+//! when their ranks tie, so renumbering can change the result there.
 
 mod chain;
+mod ring;
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -71,7 +81,7 @@ use crate::document::{
     Atom, AtomId, Bond, BondId, BondOrder, Command, Document, MAX_COMMANDS, ObjectId, Point, Vector,
 };
 use crate::graph::MoleculeGraph;
-use crate::rings;
+use crate::rings::{self, RingSystem};
 use crate::scene::Selection;
 use crate::states::{AtomKind, AttachmentPoints, Hydrogens, QueryAtom, Radical};
 use crate::stereo::StereoKey;
@@ -79,9 +89,12 @@ use crate::stereo::StereoKey;
 use chain::{Coord, Rooted};
 
 /// The identifier of the layout model that the preview reports.
-pub const MODEL_ID: &str = "chemifree-chain-layout-1";
+pub const MODEL_ID: &str = "chemifree-chain-layout-2";
 /// The most atoms a layout set may hold. A larger set is refused before any placement.
 pub const MAX_LAYOUT_ATOMS: usize = 500;
+/// The most atoms a simple layout ring may hold. A larger ring is refused with
+/// [`LayoutError::LargeRingInLayoutSet`].
+pub const MAX_RING_SIZE: usize = 12;
 /// Two points at most this far apart, in pt, are one place. The anchor order compares points in
 /// cells of this size, so two such points on opposite sides of a cell edge can be ordered apart;
 /// see `placement_order`.
@@ -141,8 +154,8 @@ type Adjacency = BTreeMap<AtomId, Vec<(AtomId, BondId)>>;
 ///
 /// The public fields state the sets and the boundary. The private fields hold what placement
 /// reads: the instance's positions, the canonical label of each layout atom, the order and the
-/// beginning atom of each bond at a layout atom, and every atom's neighbours. A preparation holds
-/// no reference to the document.
+/// beginning atom of each bond at a layout atom, every atom's neighbours, and the simple layout
+/// rings. A preparation holds no reference to the document.
 // Not `PartialEq`: nothing compares preparations, and a derived impl would compare private maps.
 #[derive(Clone, Debug)]
 pub struct Preparation {
@@ -176,6 +189,10 @@ pub struct Preparation {
     /// code.
     bond_begins: BTreeMap<BondId, AtomId>,
     adjacency: Adjacency,
+    /// The simple layout rings (R1), each as its members, ascending. Every member is a layout atom.
+    rings: Vec<Vec<AtomId>>,
+    /// The index in `rings` of each member of a simple layout ring.
+    ring_of: BTreeMap<AtomId, usize>,
 }
 
 /// Why a layout is refused. A variant that lists atoms or bonds lists them in ascending order.
@@ -189,8 +206,16 @@ pub enum LayoutError {
     EmptySelection,
     /// The layout set has `atoms` atoms, more than `limit`.
     TooLarge { atoms: usize, limit: usize },
-    /// These layout atoms lie in ring systems. Ring layout is not implemented.
-    RingInLayoutSet { atoms: Vec<AtomId> },
+    /// These layout atoms lie in ring systems that have a fixed member.
+    RingPartlyInLayoutSet { atoms: Vec<AtomId> },
+    /// These layout atoms lie in ring systems of more than one ring (fused or bridged). Their
+    /// layout is not implemented.
+    FusedRingInLayoutSet { atoms: Vec<AtomId> },
+    /// These layout atoms lie in ring systems that share an atom with another ring system (spiro).
+    /// Their layout is not implemented.
+    SpiroRingInLayoutSet { atoms: Vec<AtomId> },
+    /// These layout atoms lie in rings of more than `limit` atoms. Their layout is not implemented.
+    LargeRingInLayoutSet { atoms: Vec<AtomId>, limit: usize },
     /// Stated stereo touches the layout set or a boundary fixed atom. `atoms` are the stated
     /// centers there; `bonds` are the marked bonds and the stated double bonds there.
     StereoInLayout {
@@ -224,7 +249,10 @@ impl LayoutError {
             Self::UnknownSelection => "selection_unknown",
             Self::EmptySelection => "layout_selection_empty",
             Self::TooLarge { .. } => "too_large",
-            Self::RingInLayoutSet { .. } => "ring_in_layout_set",
+            Self::RingPartlyInLayoutSet { .. } => "ring_partly_in_layout_set",
+            Self::FusedRingInLayoutSet { .. } => "fused_ring_in_layout_set",
+            Self::SpiroRingInLayoutSet { .. } => "spiro_ring_in_layout_set",
+            Self::LargeRingInLayoutSet { .. } => "large_ring_in_layout_set",
             Self::StereoInLayout { .. } => "stereo_in_layout",
             Self::DisplayInLayoutSet { .. } => "display_in_layout_set",
             Self::MultipleAttachments { .. } => "multiple_attachments",
@@ -249,9 +277,27 @@ impl fmt::Display for LayoutError {
                 formatter,
                 "the layout set has {atoms} atoms, more than the limit of {limit}"
             ),
-            Self::RingInLayoutSet { atoms } => write!(
+            Self::RingPartlyInLayoutSet { atoms } => write!(
                 formatter,
-                "ring layout is not implemented: {} layout atoms lie in ring systems",
+                "{} layout atoms lie in ring systems that are only partly in the layout set",
+                atoms.len()
+            ),
+            Self::FusedRingInLayoutSet { atoms } => write!(
+                formatter,
+                "fused and bridged ring layout is not implemented: {} layout atoms lie in ring \
+                 systems of more than one ring",
+                atoms.len()
+            ),
+            Self::SpiroRingInLayoutSet { atoms } => write!(
+                formatter,
+                "spiro ring layout is not implemented: {} layout atoms lie in ring systems that \
+                 share an atom with another ring system",
+                atoms.len()
+            ),
+            Self::LargeRingInLayoutSet { atoms, limit } => write!(
+                formatter,
+                "ring layout is limited to rings of at most {limit} atoms: {} layout atoms lie in \
+                 larger rings",
                 atoms.len()
             ),
             Self::StereoInLayout { .. } => {
@@ -286,14 +332,15 @@ impl fmt::Display for LayoutError {
 
 impl std::error::Error for LayoutError {}
 
-/// A run of atoms placed one after another from the atom that the run branches from.
+/// A run of atoms placed one after another from the atom that the run branches from. A simple
+/// ring is a run too: its members in walk order from the entry.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Chain {
     /// The atoms of the run, in placement order.
     pub atoms: Vec<AtomId>,
-    /// The atom the run branches from: the fixed anchor for the first chain of an anchored
-    /// component, the parent atom for every other chain, and `None` for the first chain of a free
-    /// component.
+    /// The atom the run branches from: the fixed anchor for the root run (chain or ring) of an
+    /// anchored component, the parent atom for every other run, and `None` for the root run of a
+    /// free component.
     pub branch_from: Option<AtomId>,
 }
 
@@ -307,10 +354,14 @@ pub struct PlacedComponent {
     /// The boundary bond that anchors it, or `None` for a free component.
     pub anchor: Option<Anchor>,
     /// The atom that placement started from: the boundary atom of an anchored component, or the
-    /// root of a free one.
+    /// root of a free one. For a simple ring root it is the ring's entry member.
     pub root: AtomId,
-    /// Its chains, in the order their first atoms were placed.
+    /// Its chains, in the order their first atoms were placed. Empty for a lone ring. Every layout
+    /// atom of the component is in exactly one chain or one ring.
     pub chains: Vec<Chain>,
+    /// Its simple rings, in the order their entry atoms were placed. Each lists its members in walk
+    /// order from the entry, which is their placement order. Empty when the component has no ring.
+    pub rings: Vec<Chain>,
 }
 
 /// Where one layout atom stands before and after placement.
@@ -391,7 +442,12 @@ pub fn prepare(
             anchor: None,
         })
         .collect();
-    let fixed_ring_systems = ring_check(&atoms, &bonds, &adjacency, &layout_atoms)?;
+    let (fixed_ring_systems, rings) = ring_check(&atoms, &bonds, &adjacency, &layout_atoms)?;
+    let ring_of: BTreeMap<AtomId, usize> = rings
+        .iter()
+        .enumerate()
+        .flat_map(|(index, members)| members.iter().map(move |atom| (*atom, index)))
+        .collect();
     let boundary_fixed: BTreeSet<AtomId> = boundary.iter().map(|entry| entry.fixed_atom).collect();
     stereo_check(document, &bonds, &layout_atoms, &boundary_fixed)?;
     display_check(document, instance, &layout_atoms)?;
@@ -428,6 +484,8 @@ pub fn prepare(
         bond_orders,
         bond_begins,
         adjacency,
+        rings,
+        ring_of,
     };
     preparation.check_positions()?;
     preparation.check_coincident()?;
@@ -596,6 +654,7 @@ fn place_halting(prep: &Preparation, interrupt: &dyn Interrupt) -> Result<Previe
             anchor: entry.component.anchor,
             root: entry.rooted.root,
             chains: laid_out.chains,
+            rings: laid_out.rings,
         });
     }
     let mut positions = Vec::with_capacity(prep.layout_atoms.len());
@@ -856,21 +915,26 @@ fn boundary_bonds(
     boundary
 }
 
-/// Refuses a layout atom that lies in a ring system, and returns how many ring systems hold no
-/// layout atom. Only the graph-connected components that hold a layout atom are searched, so the
-/// count covers those components alone. A ring system lies inside one component, so each ring
-/// that holds a layout atom is found, and a ring system in any other component is neither refused
-/// nor counted.
+/// Finds the ring systems of the graph-connected components that hold a layout atom, refuses those
+/// a layout cannot place, and returns how many systems hold no layout atom together with the
+/// simple layout rings (R1) that hold one. Only those components are searched, so the count covers
+/// them alone. A ring system lies inside one component, so each ring that holds a layout atom is
+/// found, and a ring system in any other component is neither refused nor counted.
+///
+/// A system with a layout atom must be a simple layout ring. The four checks run in this order,
+/// and the first failing one is the reply: a system with a fixed member, one with more than one
+/// ring, one that shares an atom with another system, and one with more than [`MAX_RING_SIZE`]
+/// atoms. Each returned ring lists its members in ascending order.
 ///
 /// # Errors
 ///
-/// [`LayoutError::RingInLayoutSet`] naming every layout atom in a ring system.
+/// One of the four ring refusals, naming every layout atom of each system that fails that check.
 fn ring_check(
     atoms: &BTreeMap<AtomId, &Atom>,
     bonds: &BTreeMap<BondId, &Bond>,
     adjacency: &Adjacency,
     layout_atoms: &BTreeSet<AtomId>,
-) -> Result<usize, LayoutError> {
+) -> Result<(usize, Vec<Vec<AtomId>>), LayoutError> {
     let mut systems = Vec::new();
     let mut searched = BTreeSet::new();
     for &start in layout_atoms {
@@ -892,16 +956,50 @@ fn ring_check(
         );
         systems.extend(rings::perceive(&graph));
     }
-    let ring_atoms: BTreeSet<AtomId> = systems
-        .iter()
-        .flat_map(|system| system.atoms.iter().copied())
-        .collect();
-    let in_rings: Vec<AtomId> = layout_atoms.intersection(&ring_atoms).copied().collect();
-    if !in_rings.is_empty() {
-        return Err(LayoutError::RingInLayoutSet { atoms: in_rings });
+    // How many ring systems hold each atom. An atom in two systems is a spiro atom.
+    let mut memberships: BTreeMap<AtomId, usize> = BTreeMap::new();
+    for system in &systems {
+        for atom in &system.atoms {
+            *memberships.entry(*atom).or_insert(0) += 1;
+        }
     }
-    // No system holds a layout atom, because a system that did was refused above.
-    Ok(systems.len())
+    let touched: Vec<&RingSystem> = systems
+        .iter()
+        .filter(|system| system.atoms.iter().any(|atom| layout_atoms.contains(atom)))
+        .collect();
+    // The layout atoms, ascending, of every touched system that `fails`.
+    let failing = |fails: &dyn Fn(&RingSystem) -> bool| -> Vec<AtomId> {
+        let atoms: BTreeSet<AtomId> = touched
+            .iter()
+            .filter(|system| fails(system))
+            .flat_map(|system| system.atoms.iter().copied())
+            .filter(|atom| layout_atoms.contains(atom))
+            .collect();
+        atoms.into_iter().collect()
+    };
+    let partly = failing(&|system| system.atoms.iter().any(|atom| !layout_atoms.contains(atom)));
+    if !partly.is_empty() {
+        return Err(LayoutError::RingPartlyInLayoutSet { atoms: partly });
+    }
+    let fused = failing(&|system| system.cycle_rank >= 2);
+    if !fused.is_empty() {
+        return Err(LayoutError::FusedRingInLayoutSet { atoms: fused });
+    }
+    let spiro = failing(&|system| system.atoms.iter().any(|atom| memberships[atom] > 1));
+    if !spiro.is_empty() {
+        return Err(LayoutError::SpiroRingInLayoutSet { atoms: spiro });
+    }
+    let large = failing(&|system| system.atoms.len() > MAX_RING_SIZE);
+    if !large.is_empty() {
+        return Err(LayoutError::LargeRingInLayoutSet {
+            atoms: large,
+            limit: MAX_RING_SIZE,
+        });
+    }
+    // Every touched system is now a simple layout ring. RingSystem.atoms is ascending.
+    let simple_rings: Vec<Vec<AtomId>> =
+        touched.iter().map(|system| system.atoms.clone()).collect();
+    Ok((systems.len() - touched.len(), simple_rings))
 }
 
 /// Refuses stated stereo and bond marks that touch the layout set or a boundary fixed atom.
@@ -1361,11 +1459,11 @@ mod tests {
     }
 
     #[test]
-    fn ring_atoms_in_the_layout_set_are_refused_while_a_ring_elsewhere_is_not_counted() {
+    fn a_partly_selected_ring_is_refused_while_a_ring_elsewhere_is_not_counted() {
         let document = ring_and_free_carbon();
         assert_eq!(
             prepare(&document, instance(), &selection(&[1]), Scope::Selection).unwrap_err(),
-            LayoutError::RingInLayoutSet {
+            LayoutError::RingPartlyInLayoutSet {
                 atoms: vec![atom(1)],
             }
         );
@@ -1377,7 +1475,7 @@ mod tests {
                 Scope::Selection
             )
             .unwrap_err(),
-            LayoutError::RingInLayoutSet {
+            LayoutError::RingPartlyInLayoutSet {
                 atoms: vec![atom(1), atom(2)],
             }
         );
@@ -1669,8 +1767,23 @@ mod tests {
                 "too_large",
             ),
             (
-                LayoutError::RingInLayoutSet { atoms: vec![] },
-                "ring_in_layout_set",
+                LayoutError::RingPartlyInLayoutSet { atoms: vec![] },
+                "ring_partly_in_layout_set",
+            ),
+            (
+                LayoutError::FusedRingInLayoutSet { atoms: vec![] },
+                "fused_ring_in_layout_set",
+            ),
+            (
+                LayoutError::SpiroRingInLayoutSet { atoms: vec![] },
+                "spiro_ring_in_layout_set",
+            ),
+            (
+                LayoutError::LargeRingInLayoutSet {
+                    atoms: vec![],
+                    limit: 12,
+                },
+                "large_ring_in_layout_set",
             ),
             (
                 LayoutError::StereoInLayout {

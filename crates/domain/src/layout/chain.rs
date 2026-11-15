@@ -1,15 +1,16 @@
 //! The completion path of the chain layout preview: coordinates for the components of a
 //! [`Preparation`], each of which is a tree.
 //!
-//! The ring refusal of `prepare` leaves every layout component acyclic, so this module has no ring
-//! rule. It roots each component, ranks the children of every atom, and places the tree depth
-//! first. The layout module orders the components and places them one at a time.
+//! A layout component is a tree of units. Each layout atom outside a simple layout ring is an atom
+//! unit, and each simple ring is one ring unit, whose geometry the `ring` module gives. This module
+//! roots each component, ranks the children of every unit, and places the tree depth first. The
+//! layout module orders the components and places them one at a time.
 //!
 //! # Conventions
 //!
 //! Coordinates are scene points with y growing down. An angle in degrees names the direction
-//! `(cos, sin)`, so increasing angles turn clockwise on screen. Every bond placed here is exactly
-//! one bond length long.
+//! `(cos, sin)`, so increasing angles turn clockwise on screen. Every chain bond placed here is
+//! exactly one bond length long, and every ring bond is one to within 1e-9 pt.
 //!
 //! # Children
 //!
@@ -26,13 +27,16 @@
 //!   sorted by increasing absolute value, and on a tie the offset on the `-s` side comes first. A
 //!   child keeps the sign of its offset, or `s` at offset 0.
 //!
-//! The children take the slots in rank order, so the first-ranked child takes the first slot.
+//! The children take the slots in rank order, so the first-ranked child takes the first slot. A
+//! ring member is not placed this way: the `ring` module places the units that hang from it, and
+//! never applies the linear rule to it.
 //!
 //! # Codes and rank
 //!
 //! The canonical code of a rooted subtree is `(`, its label, `;`, the code of the bond to its
 //! parent, the codes of its children in byte order, and `)`. Equal codes mean the subtrees are
-//! isomorphic.
+//! isomorphic. A ring unit has the code of the `ring` module, which begins `{` and is built from
+//! the walk around the ring. A child of an atom may be a ring unit, so its code may begin `{`.
 //!
 //! The label is `atom_label` in the layout module: six fields joined by `|`, namely the kind, the
 //! charge, the isotope, the hydrogens, the radical and the attachment points. The kind is an
@@ -46,30 +50,44 @@
 //! A boundary bond is read from its fixed anchor. A query bond is `q*` for a query of any kind, or
 //! `q[`, the kinds of its list in stored order separated by `,`, and `]`, where a kind is `1`, `2`,
 //! `3` or `a`. A root has no bond to its parent, so its code is `-`. No label or bond code holds
-//! `(`, `;` or `)`, which delimit the code, so every code reads back unambiguously.
+//! `(`, `;` or `)`, which delimit an atom's code, and no label or bond code holds `{`, `}` or `/`,
+//! which delimit a ring's code. So every code reads back unambiguously.
 //!
 //! Children are ranked by height (the most bonds from the child down to a leaf) descending, then by
 //! atom count descending, then by code ascending, then by identifier ascending. The identifier is
-//! the last key of every ranking here, so it decides only the ties that the other keys leave.
+//! the last key of every ranking here, so it decides only the ties that the other keys leave. A
+//! ring unit's identifier is its entry atom.
 //!
 //! # Roots and chains
 //!
 //! An anchored component is rooted at its boundary atom. A free component is rooted at an end of a
-//! longest path: among those ends, the one with the smallest rooted code, then the smaller
-//! identifier. Every end of a longest path in a tree is a leaf, so a free root with two or more
-//! atoms has exactly one child. A free single atom is its own root.
+//! longest path, with the length counted in unit edges: among those ends, the one with the smallest
+//! rooted code, then the smaller identifier. An atom end's code starts `(` and a ring end's code
+//! starts `{`, so an atom end always beats a ring end, and a ring is the root only when every end
+//! of every longest path is a ring. A ring end's identifier is its chosen entry atom. A free
+//! single atom is its own root, and an atom root with more than one unit has exactly one child
+//! unit.
 //!
-//! The first-ranked child continues the chain of its parent. Every other child starts a new chain
-//! whose `branch_from` is its parent. Chains are listed in the order their first atoms are placed.
-//! The first chain of an anchored component branches from its fixed anchor, and the first chain of
-//! a free component has no `branch_from`.
+//! The first-ranked child continues the chain of its parent, unless it is a ring unit, in which
+//! case the chain ends at its parent. Every other child starts a new run. See the next section.
+//!
+//! # Chains and rings
+//!
+//! Every layout atom of a component is in exactly one chain or one ring. Ring members belong to no
+//! chain, and no chain or ring is empty. The root unit, a chain or a ring, branches from the fixed
+//! anchor of an anchored component, or from nothing when the component is free. Every other chain
+//! or ring branches from its parent atom. Every exocyclic unit placed from a ring member starts a
+//! new chain or ring that branches from that member, the entry member included. Chains and rings
+//! are each listed in the order their first atoms are placed.
 //!
 //! # Placement
 //!
-//! A free component of two or more atoms is laid out from the origin, with its root's single child
-//! at -30 degrees and sign -1. The layout is then moved so that its centroid is the centroid of its
-//! before positions. A free single atom keeps its position exactly. For a free component of two or
-//! more atoms, the placed layout depends on the before positions only through their centroid.
+//! A free component whose root is an atom of two or more atoms is laid out from the origin, with
+//! its root's single child at -30 degrees and sign -1. A free component whose root is a ring is
+//! laid out by the `ring` module, with the ring's centre at the origin and its entry at 0 degrees.
+//! The layout is then moved so that its centroid is the centroid of its before positions. A free
+//! single atom keeps its position exactly. For a free component of two or more atoms, the placed
+//! layout depends on the before positions only through their centroid.
 //!
 //! An anchored component hangs from its fixed anchor `f`. Let `m` be the number of placed neighbours
 //! of `f`: its fixed neighbours that have a position, and the layout atoms bonded to `f` that were
@@ -92,15 +110,17 @@
 //!
 //! Renumbering atoms leaves each atom's placed position unchanged, except at a tie that the rank
 //! leaves to identifiers: isomorphic siblings, the two ends of a free component with equal codes,
-//! and isomorphic components at one anchor. At such a tie the atoms trade places under an
-//! automorphism, so the set of positions is the same. One case is not covered: components anchored
+//! isomorphic components at one anchor, and the entries and walks of a ring with equal codes (see
+//! the `ring` module). At such a tie the atoms trade places under an automorphism, so the set of
+//! positions is the same. One case is not covered: components anchored
 //! at two distinct fixed atoms that share one place are ordered by identifier when their ranks tie,
 //! so renumbering can change the result there.
 //!
 //! # Checkpoints
 //!
-//! The interrupt is asked before each atom is placed. `place_with` also asks it once at the start of
-//! each component, and once per layout atom of its overlap scan.
+//! The interrupt is asked before each atom is placed, and ring members are asked through the same
+//! placement step, so before each of them too. `place_with` also asks it once at the start of each
+//! component, and once per layout atom of its overlap scan.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, VecDeque};
@@ -110,13 +130,14 @@ use crate::document::{AtomId, BondId, BondOrder, Point};
 use crate::element::Element;
 use crate::states::{BondQuery, QueryBondOrder};
 
+use super::ring::{self, RingFrame, RingNode};
 use super::{Chain, Component, Halt, LayoutError, Preparation, neighbours};
 
 /// An angle within this many steps of a multiple of 30 degrees is that multiple, and its direction
 /// is taken from the exact table.
 const STEP_TOLERANCE: f64 = 1e-9;
 /// Two gaps in degrees, or two clearances in pt, that differ by at most this are tied.
-const TIE_TOLERANCE: f64 = 1e-9;
+pub(super) const TIE_TOLERANCE: f64 = 1e-9;
 /// The turn between the bonds of a zigzag, in degrees.
 const ZIGZAG_DEGREES: f64 = 60.0;
 /// The direction of a free root's child, and of an anchored root with no placed neighbour.
@@ -149,17 +170,58 @@ impl From<Point> for Coord {
     }
 }
 
-/// An atom of a rooted tree, with the subtree below it. Once built, its children are in placement
-/// rank order.
-struct Node {
+/// An atom unit of a rooted tree, with the subtree below it. Once built, its children are in
+/// placement rank order.
+pub(super) struct Node {
     atom: AtomId,
-    /// The most bonds on a path from this atom down to a leaf.
+    /// The most unit edges on a path from this atom down to a leaf unit.
     height: usize,
-    /// The number of atoms in this subtree.
+    /// The number of atoms in this subtree, ring members included.
     size: usize,
     /// The canonical code of this subtree. See the module documentation.
     code: String,
-    children: Vec<Node>,
+    children: Vec<Unit>,
+}
+
+/// A unit of a rooted tree: an atom that lies in no simple layout ring, with the subtree below it,
+/// or a simple layout ring, which the `ring` module places as one polygon.
+pub(super) enum Unit {
+    Atom(Node),
+    Ring(RingNode),
+}
+
+impl Unit {
+    /// The canonical code of this unit. See the module documentation.
+    pub(super) fn code(&self) -> &str {
+        match self {
+            Self::Atom(node) => node.code.as_str(),
+            Self::Ring(ring) => ring.code.as_str(),
+        }
+    }
+
+    /// The most unit edges on a path from this unit down to a leaf unit.
+    pub(super) fn height(&self) -> usize {
+        match self {
+            Self::Atom(node) => node.height,
+            Self::Ring(ring) => ring.height,
+        }
+    }
+
+    /// The number of atoms in this unit's subtree, ring members included.
+    pub(super) fn size(&self) -> usize {
+        match self {
+            Self::Atom(node) => node.size,
+            Self::Ring(ring) => ring.size,
+        }
+    }
+
+    /// The identifier of this unit: its atom, or the entry atom of a ring.
+    pub(super) fn id(&self) -> AtomId {
+        match self {
+            Self::Atom(node) => node.atom,
+            Self::Ring(ring) => ring.entry(),
+        }
+    }
 }
 
 /// The fixed anchor of an anchored component, and the position it hangs from.
@@ -177,7 +239,7 @@ pub(super) struct Rooted {
     anchored: Option<Anchored>,
     /// The code of the boundary bond, `-` for a free component. See the module documentation.
     boundary_order: String,
-    tree: Node,
+    tree: Unit,
 }
 
 impl Rooted {
@@ -186,19 +248,19 @@ impl Rooted {
         self.anchored.map(|anchored| anchored.origin)
     }
 
-    /// The height of the tree from its root, in bonds.
+    /// The height of the tree from its root, in unit edges.
     pub(super) fn height(&self) -> usize {
-        self.tree.height
+        self.tree.height()
     }
 
-    /// The number of atoms in the tree.
+    /// The number of atoms in the tree, ring members included.
     pub(super) fn size(&self) -> usize {
-        self.tree.size
+        self.tree.size()
     }
 
     /// The canonical code of the tree from its root.
     pub(super) fn code(&self) -> &str {
-        &self.tree.code
+        self.tree.code()
     }
 
     /// The code of the boundary bond, `-` for a free component.
@@ -207,17 +269,18 @@ impl Rooted {
     }
 }
 
-/// The atoms placed for one component, in placement order, and its chains.
+/// The atoms placed for one component, in placement order, and its chains and rings.
 pub(super) struct Placed {
     pub(super) positions: Vec<(AtomId, Coord)>,
     pub(super) chains: Vec<Chain>,
+    pub(super) rings: Vec<Chain>,
 }
 
 /// Where a child goes: the direction of its bond from its parent, and its turn sign.
 #[derive(Clone, Copy, Debug)]
-struct Slot {
-    angle: f64,
-    turn: i8,
+pub(super) struct Slot {
+    pub(super) angle: f64,
+    pub(super) turn: i8,
 }
 
 /// Roots `component` and builds its tree. An anchored component is rooted at its boundary atom. A
@@ -244,7 +307,11 @@ pub(super) fn root(prep: &Preparation, component: &Component) -> Result<Rooted, 
                     origin,
                 }),
                 boundary_order: code_from(prep, anchor.bond, anchor.fixed_atom),
-                tree: build(prep, boundary_atom, None),
+                tree: if prep.ring_of.contains_key(&boundary_atom) {
+                    build(prep, boundary_atom, Some((anchor.fixed_atom, anchor.bond)))
+                } else {
+                    build(prep, boundary_atom, None)
+                },
             })
         }
         None => {
@@ -278,10 +345,8 @@ pub(super) fn place(
         interrupt,
         length: prep.bond_length_pt,
         positions: Vec::new(),
-        chains: vec![Chain {
-            atoms: Vec::new(),
-            branch_from: rooted.anchored.map(|anchored| anchored.fixed_atom),
-        }],
+        chains: Vec::new(),
+        rings: Vec::new(),
     };
     match rooted.anchored {
         Some(anchored) => placer.place_anchored(rooted, anchored, placed)?,
@@ -290,7 +355,15 @@ pub(super) fn place(
     Ok(Placed {
         positions: placer.positions,
         chains: placer.chains,
+        rings: placer.rings,
     })
+}
+
+/// The run that an atom joins when it is placed: an index into the chains, or into the rings.
+#[derive(Clone, Copy)]
+enum Run {
+    Chain(usize),
+    Ring(usize),
 }
 
 /// The state of one component's placement.
@@ -300,29 +373,47 @@ struct Placer<'a> {
     /// The document's bond length in pt.
     length: f64,
     positions: Vec<(AtomId, Coord)>,
+    /// The chains of the component. A chain is never empty.
     chains: Vec<Chain>,
+    /// The rings of the component, which hold the ring members. A ring is never empty.
+    rings: Vec<Chain>,
 }
 
 impl Placer<'_> {
-    /// Records `atom` at `at` as the next atom of chain `chain`, after asking the interrupt.
-    fn put(&mut self, atom: AtomId, at: Coord, chain: usize) -> Result<(), Halt> {
+    /// Records `atom` at `at` as the next atom of `run`, after asking the interrupt.
+    fn put(&mut self, atom: AtomId, at: Coord, run: Run) -> Result<(), Halt> {
         self.interrupt.check()?;
         self.positions.push((atom, at));
-        self.chains[chain].atoms.push(atom);
+        match run {
+            Run::Chain(index) => self.chains[index].atoms.push(atom),
+            Run::Ring(index) => self.rings[index].atoms.push(atom),
+        }
         Ok(())
     }
 
-    /// Starts a chain that branches from `branch_from`, and returns its index.
-    fn start_chain(&mut self, branch_from: AtomId) -> usize {
+    /// Starts a chain that branches from `branch_from`, or from nothing for the chain of a free
+    /// root, and returns its index.
+    fn start_chain(&mut self, branch_from: Option<AtomId>) -> usize {
         self.chains.push(Chain {
             atoms: Vec::new(),
-            branch_from: Some(branch_from),
+            branch_from,
         });
         self.chains.len() - 1
     }
 
-    /// Places the children of `node`, which sits at `origin` with incoming angle `incoming` and turn
-    /// sign `turn`, depth first in rank order. The first child continues chain `chain`.
+    /// Starts a ring that branches from `branch_from`, or from nothing for the ring of a free root,
+    /// and returns its index.
+    fn start_ring(&mut self, branch_from: Option<AtomId>) -> usize {
+        self.rings.push(Chain {
+            atoms: Vec::new(),
+            branch_from,
+        });
+        self.rings.len() - 1
+    }
+
+    /// Places the children of `node`, which sits at `origin` with incoming angle `incoming` and
+    /// turn sign `turn`, depth first in rank order. The first child continues chain `chain`, unless
+    /// it is a ring; every other child starts a run of its own.
     fn place_children(
         &mut self,
         node: &Node,
@@ -334,14 +425,83 @@ impl Placer<'_> {
         let linear = self.is_linear(node.atom);
         let slots = child_slots(node.children.len(), linear, incoming, turn);
         for (index, (child, slot)) in node.children.iter().zip(slots).enumerate() {
-            let at = along(origin, slot.angle, self.length);
-            let child_chain = if index == 0 {
-                chain
+            if index == 0 {
+                self.place_continuing(child, origin, slot, chain, node.atom)?;
             } else {
-                self.start_chain(node.atom)
-            };
-            self.put(child.atom, at, child_chain)?;
-            self.place_children(child, at, slot.angle, slot.turn, child_chain)?;
+                self.place_branch(child, origin, slot, node.atom)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Places `unit`, the first-ranked child of `parent`, at `origin` in the direction of `slot`.
+    /// An atom continues `chain`. A ring leaves `chain` at `parent` and starts a ring of its own.
+    fn place_continuing(
+        &mut self,
+        unit: &Unit,
+        origin: Coord,
+        slot: Slot,
+        chain: usize,
+        parent: AtomId,
+    ) -> Result<(), Halt> {
+        match unit {
+            Unit::Atom(node) => {
+                let at = along(origin, slot.angle, self.length);
+                self.put(node.atom, at, Run::Chain(chain))?;
+                self.place_children(node, at, slot.angle, slot.turn, chain)
+            }
+            Unit::Ring(ring) => {
+                let frame = ring::entered_frame(ring, origin, slot, self.length);
+                self.place_ring(ring, &frame, Some(parent))
+            }
+        }
+    }
+
+    /// Places `unit`, a child of `parent` that starts a new run, at `origin` in the direction of
+    /// `slot`. An atom starts a chain that branches from `parent`, and a ring starts a ring that
+    /// does.
+    fn place_branch(
+        &mut self,
+        unit: &Unit,
+        origin: Coord,
+        slot: Slot,
+        parent: AtomId,
+    ) -> Result<(), Halt> {
+        match unit {
+            Unit::Atom(node) => {
+                let chain = self.start_chain(Some(parent));
+                let at = along(origin, slot.angle, self.length);
+                self.put(node.atom, at, Run::Chain(chain))?;
+                self.place_children(node, at, slot.angle, slot.turn, chain)
+            }
+            Unit::Ring(ring) => {
+                let frame = ring::entered_frame(ring, origin, slot, self.length);
+                self.place_ring(ring, &frame, Some(parent))
+            }
+        }
+    }
+
+    /// Places a ring from its frame as a run that branches from `branch_from`: first its members in
+    /// walk order, then the units that hang from each member, member by member in walk order.
+    fn place_ring(
+        &mut self,
+        ring: &RingNode,
+        frame: &RingFrame,
+        branch_from: Option<AtomId>,
+    ) -> Result<(), Halt> {
+        let record = self.start_ring(branch_from);
+        for (member, &at) in ring.members.iter().zip(&frame.positions) {
+            self.put(member.atom, at, Run::Ring(record))?;
+        }
+        for ((member, &at), slots) in ring.members.iter().zip(&frame.positions).zip(&frame.slots) {
+            debug_assert_eq!(
+                slots.len(),
+                member.children.len(),
+                "a ring member takes one slot for each unit that hangs from it"
+            );
+            for (child, &slot) in member.children.iter().zip(slots) {
+                self.place_branch(child, at, slot, member.atom)?;
+            }
         }
         Ok(())
     }
@@ -354,28 +514,37 @@ impl Placer<'_> {
         placed: &BTreeMap<AtomId, Coord>,
     ) -> Result<(), Halt> {
         let slot = self.anchor_slot(anchored, placed);
-        let at = along(anchored.origin, slot.angle, self.length);
-        self.put(rooted.root, at, 0)?;
-        self.place_children(&rooted.tree, at, slot.angle, slot.turn, 0)
+        self.place_branch(&rooted.tree, anchored.origin, slot, anchored.fixed_atom)
     }
 
     /// Lays out a free component from the origin and moves it onto the centroid of its before
     /// positions. A single atom keeps its position.
     fn place_free(&mut self, rooted: &Rooted) -> Result<(), Halt> {
-        match rooted.tree.children.as_slice() {
-            [] => {
-                let kept = Coord::from(self.prep.position(rooted.root)?);
-                self.put(rooted.root, kept, 0)
-            }
-            [child] => {
-                let first = self.positions.len();
-                self.put(rooted.root, Coord::ORIGIN, 0)?;
-                let at = along(Coord::ORIGIN, FIRST_DEGREES, self.length);
-                self.put(child.atom, at, 0)?;
-                self.place_children(child, at, FIRST_DEGREES, -1, 0)?;
+        let first = self.positions.len();
+        match &rooted.tree {
+            Unit::Atom(node) => match node.children.as_slice() {
+                [] => {
+                    let kept = Coord::from(self.prep.position(rooted.root)?);
+                    let chain = self.start_chain(None);
+                    self.put(rooted.root, kept, Run::Chain(chain))
+                }
+                [child] => {
+                    let chain = self.start_chain(None);
+                    self.put(rooted.root, Coord::ORIGIN, Run::Chain(chain))?;
+                    let slot = Slot {
+                        angle: FIRST_DEGREES,
+                        turn: -1,
+                    };
+                    self.place_continuing(child, Coord::ORIGIN, slot, chain, rooted.root)?;
+                    self.recentre(first)
+                }
+                _ => unreachable!("an atom root is an end of a longest path, so it has one child"),
+            },
+            Unit::Ring(ring) => {
+                let frame = ring::root_frame(ring, self.length);
+                self.place_ring(ring, &frame, None)?;
                 self.recentre(first)
             }
-            _ => unreachable!("a free root is an end of a longest path, so it has one child"),
         }
     }
 
@@ -466,11 +635,19 @@ impl Placer<'_> {
     }
 }
 
-/// The tree below `atom`, entered from `parent`, which is `None` at the root. Only layout atoms
-/// become children, so a boundary bond is never followed. The layout components are trees, which
-/// `prepare` guarantees, so the recursion ends.
-fn build(prep: &Preparation, atom: AtomId, parent: Option<(AtomId, BondId)>) -> Node {
-    let mut children: Vec<Node> = Vec::new();
+/// The unit of `prep`'s layout tree that `atom` belongs to, built from `parent`, which is `None` at
+/// a root. A simple ring is built by the `ring` module, which builds the units that hang from its
+/// members. An atom's children are the layout atoms bonded to it, except its parent, so a boundary
+/// bond is never followed. The layout components are trees of units, which `prepare` guarantees, so
+/// the recursion ends.
+pub(super) fn build(prep: &Preparation, atom: AtomId, parent: Option<(AtomId, BondId)>) -> Unit {
+    if prep.ring_of.contains_key(&atom) {
+        return Unit::Ring(match parent {
+            Some(parent) => ring::entered(prep, atom, parent),
+            None => ring::rooted(prep, atom),
+        });
+    }
+    let mut children: Vec<Unit> = Vec::new();
     for &(other, bond) in neighbours(&prep.adjacency, atom) {
         let is_child =
             prep.layout_atoms.contains(&other) && parent.is_none_or(|(from, _)| from != other);
@@ -480,11 +657,11 @@ fn build(prep: &Preparation, atom: AtomId, parent: Option<(AtomId, BondId)>) -> 
     }
     let height = children
         .iter()
-        .map(|child| child.height + 1)
+        .map(|child| child.height() + 1)
         .max()
         .unwrap_or(0);
-    let size = 1 + children.iter().map(|child| child.size).sum::<usize>();
-    let mut codes: Vec<&str> = children.iter().map(|child| child.code.as_str()).collect();
+    let size = 1 + children.iter().map(Unit::size).sum::<usize>();
+    let mut codes: Vec<&str> = children.iter().map(Unit::code).collect();
     codes.sort_unstable();
     let label = prep
         .labels
@@ -496,50 +673,51 @@ fn build(prep: &Preparation, atom: AtomId, parent: Option<(AtomId, BondId)>) -> 
     };
     let code = format!("({label};{order}{})", codes.concat());
     children.sort_by(rank);
-    Node {
+    Unit::Atom(Node {
         atom,
         height,
         size,
         code,
         children,
-    }
+    })
 }
 
 /// The placement rank of two siblings: taller first, then larger, then by code, then by
-/// identifier.
-fn rank(left: &Node, right: &Node) -> Ordering {
+/// identifier. A ring unit's identifier is its entry atom.
+pub(super) fn rank(left: &Unit, right: &Unit) -> Ordering {
     right
-        .height
-        .cmp(&left.height)
-        .then(right.size.cmp(&left.size))
-        .then_with(|| left.code.cmp(&right.code))
-        .then(left.atom.cmp(&right.atom))
+        .height()
+        .cmp(&left.height())
+        .then(right.size().cmp(&left.size()))
+        .then_with(|| left.code().cmp(right.code()))
+        .then(left.id().cmp(&right.id()))
 }
 
 /// The root and tree of a free component: the end of a longest path with the smallest code, then
-/// the smallest identifier.
-fn free_root(prep: &Preparation, component: &Component) -> (AtomId, Node) {
-    let mut best: Option<Node> = None;
+/// the smallest identifier. A ring end's identifier is its chosen entry atom.
+fn free_root(prep: &Preparation, component: &Component) -> (AtomId, Unit) {
+    let mut best: Option<Unit> = None;
     for atom in diameter_ends(prep, component) {
         let tree = build(prep, atom, None);
-        let replaces = best.as_ref().is_none_or(|current| {
-            (tree.code.as_str(), tree.atom) < (current.code.as_str(), current.atom)
-        });
+        let replaces = best
+            .as_ref()
+            .is_none_or(|current| (tree.code(), tree.id()) < (current.code(), current.id()));
         if replaces {
             best = Some(tree);
         }
     }
     let tree = best.expect("a component has at least one end of a longest path");
-    (tree.atom, tree)
+    (tree.id(), tree)
 }
 
-/// The ends of the longest paths of `component`, ascending.
+/// The ends of the longest paths of `component`, ascending, counted in unit edges. A simple ring is
+/// one unit, so it is an end once, under its representative atom (see `unit_of`).
 ///
-/// The component is a tree, so the eccentricity of an atom is the greater of its distances to the
-/// two ends `a` and `b` of any one longest path, and the ends are the atoms whose eccentricity is
-/// the diameter. Three breadth-first searches find them: one from the first atom, which reaches `a`
-/// at its greatest distance; one from `a`, which gives `b` and the diameter; and one from `b`. Each
-/// search visits every atom and bond of the component once.
+/// The unit tree is a tree, so the eccentricity of a unit is the greater of its distances to the
+/// two ends `a` and `b` of any one longest path, and the ends are the units whose eccentricity is
+/// the diameter. Three breadth-first searches find them: one from the first atom's unit, which
+/// reaches `a` at its greatest distance; one from `a`, which gives `b` and the diameter; and one
+/// from `b`. Each search visits every unit and unit edge of the component once.
 fn diameter_ends(prep: &Preparation, component: &Component) -> Vec<AtomId> {
     let first = *component
         .atoms
@@ -553,7 +731,7 @@ fn diameter_ends(prep: &Preparation, component: &Component) -> Vec<AtomId> {
         .atoms
         .iter()
         .copied()
-        .filter(|atom| from_a[atom].max(from_b[atom]) == diameter)
+        .filter(|atom| unit_of(prep, *atom) == *atom && from_a[atom].max(from_b[atom]) == diameter)
         .collect()
 }
 
@@ -567,16 +745,36 @@ fn farthest(depths: &BTreeMap<AtomId, usize>) -> (AtomId, usize) {
         .expect("a search reaches its start atom")
 }
 
-/// The number of bonds from `start` to each atom of its component, by breadth-first search over
-/// the layout atoms.
+/// The atom that stands for the unit of `atom`: the smallest member of its simple ring, or the atom
+/// itself.
+fn unit_of(prep: &Preparation, atom: AtomId) -> AtomId {
+    prep.ring_of
+        .get(&atom)
+        .map_or(atom, |&index| prep.rings[index][0])
+}
+
+/// The number of unit edges from the unit of `start` to the unit of each layout atom of its
+/// component, keyed by the representative atom of each unit (see `unit_of`). The search is
+/// breadth-first over the units.
 fn distances(prep: &Preparation, start: AtomId) -> BTreeMap<AtomId, usize> {
+    let start = unit_of(prep, start);
     let mut depths = BTreeMap::from([(start, 0)]);
     let mut queue: VecDeque<(AtomId, usize)> = VecDeque::from([(start, 0)]);
-    while let Some((atom, depth)) = queue.pop_front() {
-        for &(other, _) in neighbours(&prep.adjacency, atom) {
-            if prep.layout_atoms.contains(&other) && !depths.contains_key(&other) {
-                depths.insert(other, depth + 1);
-                queue.push_back((other, depth + 1));
+    while let Some((current, depth)) = queue.pop_front() {
+        let members = match prep.ring_of.get(&current) {
+            Some(&index) => prep.rings[index].clone(),
+            None => vec![current],
+        };
+        for atom in members {
+            for &(other, _) in neighbours(&prep.adjacency, atom) {
+                let next = unit_of(prep, other);
+                if prep.layout_atoms.contains(&other)
+                    && next != current
+                    && !depths.contains_key(&next)
+                {
+                    depths.insert(next, depth + 1);
+                    queue.push_back((next, depth + 1));
+                }
             }
         }
     }
@@ -601,19 +799,7 @@ fn child_slots(count: usize, linear: bool, incoming: f64, turn: i8) -> Vec<Slot>
             let mut offsets: Vec<f64> = (1..=count)
                 .map(|step| -180.0 + 360.0 * step as f64 / parts)
                 .collect();
-            // Offsets whose absolute values differ by at most TIE_TOLERANCE form a symmetric pair.
-            // Distinct absolute values are at least 360 / (count + 1) degrees apart, so the
-            // tolerance joins only such pairs, and the order stays total.
-            offsets.sort_by(|left, right| {
-                let (left_abs, right_abs) = (left.abs(), right.abs());
-                if (left_abs - right_abs).abs() <= TIE_TOLERANCE {
-                    side_rank(*left, turn)
-                        .cmp(&side_rank(*right, turn))
-                        .then(left.total_cmp(right))
-                } else {
-                    left_abs.total_cmp(&right_abs)
-                }
-            });
+            offsets.sort_by(|left, right| offset_order(*left, *right, turn));
             offsets
                 .into_iter()
                 .map(|offset| Slot {
@@ -629,8 +815,24 @@ fn child_slots(count: usize, linear: bool, incoming: f64, turn: i8) -> Vec<Slot>
     }
 }
 
+/// The order of two offsets around one bisector, for a turn sign `turn`: the smaller absolute value
+/// first. Offsets whose absolute values differ by at most TIE_TOLERANCE form a symmetric pair, and
+/// on that tie the offset on the `-turn` side comes first. The slots of one set of siblings or of
+/// one ring member are spaced far more than TIE_TOLERANCE apart in absolute value, so the tolerance
+/// joins only such pairs, and the order stays total.
+pub(super) fn offset_order(left: f64, right: f64, turn: i8) -> Ordering {
+    let (left_abs, right_abs) = (left.abs(), right.abs());
+    if (left_abs - right_abs).abs() <= TIE_TOLERANCE {
+        side_rank(left, turn)
+            .cmp(&side_rank(right, turn))
+            .then(left.total_cmp(&right))
+    } else {
+        left_abs.total_cmp(&right_abs)
+    }
+}
+
 /// The sign of an offset: -1 or +1, with zero counted as +1.
-fn side(offset: f64) -> i8 {
+pub(super) fn side(offset: f64) -> i8 {
     if offset < 0.0 { -1 } else { 1 }
 }
 
@@ -682,7 +884,7 @@ fn angle_of(origin: Coord, at: Coord) -> f64 {
 }
 
 /// The point `length` pt from `origin` in direction `degrees`.
-fn along(origin: Coord, degrees: f64, length: f64) -> Coord {
+pub(super) fn along(origin: Coord, degrees: f64, length: f64) -> Coord {
     let direction = unit(degrees);
     Coord {
         x: origin.x + length * direction.x,
@@ -692,7 +894,7 @@ fn along(origin: Coord, degrees: f64, length: f64) -> Coord {
 
 /// The unit vector in direction `degrees`. Within the step tolerance of a multiple of 30 degrees the
 /// exact table is used; any other direction takes `cos` and `sin`.
-fn unit(degrees: f64) -> Coord {
+pub(super) fn unit(degrees: f64) -> Coord {
     let steps = degrees / 30.0;
     let nearest = steps.round();
     if (steps - nearest).abs() > STEP_TOLERANCE {
@@ -792,7 +994,7 @@ fn begin_of(prep: &Preparation, bond: BondId) -> AtomId {
 }
 
 /// The code of `bond` as a walk that comes to it from `from`, one of its two atoms, states it.
-fn code_from(prep: &Preparation, bond: BondId, from: AtomId) -> String {
+pub(super) fn code_from(prep: &Preparation, bond: BondId, from: AtomId) -> String {
     bond_code(order_of(prep, bond), begin_of(prep, bond) == from)
 }
 
@@ -1077,9 +1279,13 @@ mod tests {
             .iter()
             .filter(|&&(_, depth)| depth == diameter)
             .map(|&(atom, _)| build(prep, atom, None))
-            .min_by(|left, right| left.code.cmp(&right.code).then(left.atom.cmp(&right.atom)))
+            .min_by(|left, right| {
+                left.code()
+                    .cmp(right.code())
+                    .then(left.id().cmp(&right.id()))
+            })
             .expect("a component has at least one end of a longest path")
-            .atom
+            .id()
     }
 
     #[test]
