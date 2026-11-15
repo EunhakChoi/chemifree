@@ -622,3 +622,24 @@ pub(super) fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         Op::ScriptEvaluate => (missing(id, "P84", "No scripting is implemented."), &[]),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use chemifree_domain::layout::MAX_RING_SIZE;
+    use chemifree_domain::operation::OperationId;
+
+    use super::entry;
+
+    /// The layout note states the ring size limit as a literal; it must follow the constant.
+    #[test]
+    fn the_layout_note_names_the_ring_size_limit() {
+        let (layout, _) = entry(OperationId::LayoutStructure);
+        assert!(
+            layout
+                .note
+                .contains(&format!("isolated rings of 3 to {MAX_RING_SIZE} atoms")),
+            "{}",
+            layout.note
+        );
+    }
+}

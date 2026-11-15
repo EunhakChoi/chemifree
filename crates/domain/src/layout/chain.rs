@@ -640,39 +640,26 @@ impl Placer<'_> {
 /// members. An atom's children are the layout atoms bonded to it, except its parent, so a boundary
 /// bond is never followed. The layout components are trees of units, which `prepare` guarantees, so
 /// the recursion ends.
-pub(super) fn build(prep: &Preparation, atom: AtomId, parent: Option<(AtomId, BondId)>) -> Unit {
+fn build(prep: &Preparation, atom: AtomId, parent: Option<(AtomId, BondId)>) -> Unit {
     if prep.ring_of.contains_key(&atom) {
         return Unit::Ring(match parent {
             Some(parent) => ring::entered(prep, atom, parent),
             None => ring::rooted(prep, atom),
         });
     }
-    let mut children: Vec<Unit> = Vec::new();
-    for &(other, bond) in neighbours(&prep.adjacency, atom) {
-        let is_child =
-            prep.layout_atoms.contains(&other) && parent.is_none_or(|(from, _)| from != other);
-        if is_child {
-            children.push(build(prep, other, Some((atom, bond))));
-        }
-    }
+    let order = match parent {
+        Some((from, bond)) => code_from(prep, bond, from),
+        None => "-".to_owned(),
+    };
+    let (children, code) = child_units(prep, atom, &order, |other| {
+        parent.is_some_and(|(from, _)| from == other)
+    });
     let height = children
         .iter()
         .map(|child| child.height() + 1)
         .max()
         .unwrap_or(0);
     let size = 1 + children.iter().map(Unit::size).sum::<usize>();
-    let mut codes: Vec<&str> = children.iter().map(Unit::code).collect();
-    codes.sort_unstable();
-    let label = prep
-        .labels
-        .get(&atom)
-        .expect("prepare labels every layout atom");
-    let order = match parent {
-        Some((from, bond)) => code_from(prep, bond, from),
-        None => "-".to_owned(),
-    };
-    let code = format!("({label};{order}{})", codes.concat());
-    children.sort_by(rank);
     Unit::Atom(Node {
         atom,
         height,
@@ -682,9 +669,37 @@ pub(super) fn build(prep: &Preparation, atom: AtomId, parent: Option<(AtomId, Bo
     })
 }
 
+/// The child units of `atom`, in placement rank order, and the canonical code of `atom`. A child is
+/// a layout atom bonded to `atom` that `exclude` does not reject, built with `atom` as its parent.
+/// The code is `(`, the label of `atom`, `;`, `order`, the codes of the children in byte order,
+/// and `)`. `order` is the code of the bond to the parent, or `-` at a root. A ring member passes
+/// an empty `order`, because its walk states its bonds.
+pub(super) fn child_units(
+    prep: &Preparation,
+    atom: AtomId,
+    order: &str,
+    exclude: impl Fn(AtomId) -> bool,
+) -> (Vec<Unit>, String) {
+    let mut children: Vec<Unit> = Vec::new();
+    for &(other, bond) in neighbours(&prep.adjacency, atom) {
+        if prep.layout_atoms.contains(&other) && !exclude(other) {
+            children.push(build(prep, other, Some((atom, bond))));
+        }
+    }
+    let mut codes: Vec<&str> = children.iter().map(Unit::code).collect();
+    codes.sort_unstable();
+    let label = prep
+        .labels
+        .get(&atom)
+        .expect("prepare labels every layout atom");
+    let code = format!("({label};{order}{})", codes.concat());
+    children.sort_by(rank);
+    (children, code)
+}
+
 /// The placement rank of two siblings: taller first, then larger, then by code, then by
 /// identifier. A ring unit's identifier is its entry atom.
-pub(super) fn rank(left: &Unit, right: &Unit) -> Ordering {
+fn rank(left: &Unit, right: &Unit) -> Ordering {
     right
         .height()
         .cmp(&left.height())

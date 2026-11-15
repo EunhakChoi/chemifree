@@ -10,7 +10,8 @@
 //! A ring of `n` members has side `b`, the bond length, and circumradius `R = b / (2 sin(180 / n))`.
 //! Its members lie at `C + R u(θ_k)` from the centre `C`, where `θ_k = β + σ k 360 / n`. Here `β` is
 //! the outward bisector at the entry `v_0`, `σ` is ±1 for the walk direction, and `θ_k` is also the
-//! outward bisector at `v_k`. Every vertex is computed directly from `C`.
+//! outward bisector at `v_k`. Every vertex except the entry of an entered ring is computed directly from `C`; that entry
+//! stands one bond length from its parent, and `C` is derived from it.
 //!
 //! A member with `m` exocyclic units spreads them through the exterior wedge `W = 180 + 360 / n`, at
 //! the offsets `-W/2 + W j / (m + 1)` for `j = 1..=m` around its bisector. The offsets are sorted as
@@ -44,7 +45,7 @@ use std::collections::BTreeMap;
 use crate::document::{AtomId, BondId};
 
 use super::chain::{
-    Coord, Slot, TIE_TOLERANCE, Unit, along, build, code_from, offset_order, rank, side, unit,
+    Coord, Slot, TIE_TOLERANCE, Unit, along, child_units, code_from, offset_order, side, unit,
 };
 use super::{Preparation, neighbours};
 
@@ -193,23 +194,10 @@ pub(super) fn root_frame(ring: &RingNode, length: f64) -> RingFrame {
 fn exits(prep: &Preparation, index: usize, parent: Option<AtomId>) -> BTreeMap<AtomId, Exits> {
     let mut map: BTreeMap<AtomId, Exits> = BTreeMap::new();
     for &atom in &prep.rings[index] {
-        let mut children: Vec<Unit> = Vec::new();
-        for &(other, bond) in neighbours(&prep.adjacency, atom) {
-            let is_child = prep.layout_atoms.contains(&other)
-                && prep.ring_of.get(&other) != Some(&index)
-                && Some(other) != parent;
-            if is_child {
-                children.push(build(prep, other, Some((atom, bond))));
-            }
-        }
-        let mut codes: Vec<&str> = children.iter().map(Unit::code).collect();
-        codes.sort_unstable();
-        let label = prep
-            .labels
-            .get(&atom)
-            .expect("prepare labels every layout atom");
-        let code = format!("({label};{})", codes.concat());
-        children.sort_by(rank);
+        // The members of this ring are stated by its walk, and the parent is never a child.
+        let (children, code) = child_units(prep, atom, "", |other| {
+            prep.ring_of.get(&other) == Some(&index) || Some(other) == parent
+        });
         map.insert(atom, Exits { children, code });
     }
     map

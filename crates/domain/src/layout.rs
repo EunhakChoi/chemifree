@@ -714,7 +714,10 @@ fn grid_index(value: f64) -> i64 {
 }
 
 /// The rank of a component: taller first, then larger, then by code, then by the code of its
-/// boundary bond, then by its smallest identifier.
+/// boundary bond, then by its smallest identifier. The code of an anchored ring root already
+/// holds the boundary bond's code (a ring code starts with the bond from its parent, here the
+/// fixed anchor), while an anchored atom root's code has `-` there; the boundary key is compared
+/// for both, so for ring roots it repeats a key the code has already decided.
 fn component_rank(left: &Ranked<'_>, right: &Ranked<'_>) -> Ordering {
     right
         .rooted

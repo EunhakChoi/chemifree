@@ -6,13 +6,13 @@
 //! the placement runs under the request's time limit and the host cancel, and takes no compute
 //! slot. Nothing is changed: the document keeps its revision, history, selection and dirty state.
 //! A stop replies `error` with `time_limit` or `cancelled`, the snapshot's revision and no result.
-//! Fused, bridged and spiro ring layout, rings of more than 12 atoms, templates, scoring and
+//! Fused, bridged and spiro ring layout, rings of more than [`MAX_RING_SIZE`] atoms, templates, scoring and
 //! collision resolution are not implemented.
 
 use chemifree_domain::document::{Document, ObjectId, Point};
 use chemifree_domain::layout::{
-    self, Chain, LayoutError, MAX_LISTED_OVERLAPS, MODEL_ID, OVERLAP_FACTOR, PlacedComponent,
-    Preparation, Preview, Scope,
+    self, Chain, LayoutError, MAX_LISTED_OVERLAPS, MAX_RING_SIZE, MODEL_ID, OVERLAP_FACTOR,
+    PlacedComponent, Preparation, Preview, Scope,
 };
 use chemifree_domain::scene::Selection;
 
@@ -615,7 +615,9 @@ pub(super) fn placement_diagnostics(
     diagnostics.push(advice(
         Severity::Info,
         "layout_not_implemented",
-        "Fused, bridged and spiro ring layout, rings of more than 12 atoms, templates, scoring and search, and collision resolution are not implemented.",
+        format!(
+            "Fused, bridged and spiro ring layout, rings of more than {MAX_RING_SIZE} atoms, templates, scoring and search, and collision resolution are not implemented."
+        ),
         Map::new(),
     ));
     diagnostics
