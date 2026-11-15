@@ -1869,7 +1869,7 @@
    "acceptance": "손상·다중 레코드·큰 입력·취소·부분 지원에서 원본과 이력을 보존한다. reject/report 정책과 실제 저장 파일의 재개방을 검증한다.",
    "kind": "core",
    "id": "P48",
-   "status": "planned",
+   "status": "in_progress",
    "layers": [
     "presentation",
     "logic",
@@ -1883,7 +1883,8 @@
     "P30",
     "P33",
     "P38"
-   ]
+   ],
+   "note": "S1(2026-11-16, 사용자 결정: Opus 추천대로 P48 첫 조각): 좌표 없는 SMILES 가져오기가 연결 성분마다 P42 배치(chemifree-chain-layout-2, 문서 결합 길이)를 쓴다. 배치가 거절한 성분(융합·다리·스피로·13원자 이상 고리, 입체 정보가 있는 성분)은 입력 순서 격자에 두고 layout_not_covered(동의 불필요)로 알린다. 성분 상자는 기존 그림 아래 (X0, Y0)부터 2b 간격, 20b 폭의 줄로 쌓는다. 미리보기·다이제스트·동의 규칙과 model_id는 그대로다. 통합 가져오기/내보내기 UI, 다른 형식, 겹침 보고는 후속."
   },
   {
    "phase": "reaction",

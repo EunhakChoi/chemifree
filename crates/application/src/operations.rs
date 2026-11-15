@@ -32,6 +32,7 @@ mod reply;
 mod scene_clipboard;
 mod selection_scope;
 mod smiles;
+mod smiles_layout;
 mod stereo;
 mod substructure;
 mod svg;

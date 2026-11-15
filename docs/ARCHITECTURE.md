@@ -64,6 +64,9 @@ Every entry adapter calls the same `Application`:
   document routes for editing.
 
 A new feature is a new operation or a new transaction command, not a new adapter path.
+An operation may reuse another one's domain rules directly: the SMILES import
+(`operations/smiles_layout.rs`) runs the domain layout of `layout.structure` on a scratch
+document of the read graph (application → domain only, no new port).
 
 ## Sessions and locks
 

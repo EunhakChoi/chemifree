@@ -75,7 +75,7 @@ try {
   // The HTTP fixture supplies documented wire fields without implementing a parser.
   const tailedSource = 'CCO\nCC  \n'
   const layout = { feature: 'generated_layout', source_path: 'source', disposition: 'normalized',
-    reason: 'Atoms are placed on a grid in input order below the existing drawing.', semantic_impact: 'geometry' }
+    reason: 'SMILES has no coordinates: atoms are placed by a generated layout below the existing drawing, not taken from the source.', semantic_impact: 'geometry' }
   const ignored = { feature: 'ignored_text', source_path: 'source[4..=5]', disposition: 'dropped',
     reason: 'Text after the first whitespace is not read.', semantic_impact: 'document' }
   const stereoLoss = { feature: 'stereo_configuration', source_path: 'document.stereo', disposition: 'dropped',
@@ -141,9 +141,14 @@ try {
       const first = next.document.atoms.length + 1
       const elements = tailed ? ['C', 'C', 'O'] : ['N']
       // Expected service geometry for these named fixtures; this is not a second layout engine.
+      // The mock drawing has X0 = -26 and its lowest atom at y 15, so the first CCO has Y0 = 15 + 60 = 75.
+      // Each later layout starts 60 points below the lowest atom drawn so far: the first CCO's lowest atom
+      // is at 90, so N has Y0 = 150; N's atom at 150 gives a later CCO Y0 = 210.
       const positions = tailed
-        ? (first === 5 ? [{ x: -26, y: 75 }, { x: 4, y: 75 }, { x: 34, y: 75 }] : [{ x: -26, y: 195 }, { x: 4, y: 195 }, { x: 34, y: 195 }])
-        : [{ x: -26, y: 135 }]
+        ? (first === 5
+          ? [{ x: -26, y: 90 }, { x: -26 + 15 * Math.sqrt(3), y: 75 }, { x: -26 + 30 * Math.sqrt(3), y: 90 }]
+          : [{ x: -26, y: 225 }, { x: -26 + 15 * Math.sqrt(3), y: 210 }, { x: -26 + 30 * Math.sqrt(3), y: 225 }])
+        : [{ x: -26, y: 150 }]
       next.document.atoms.push(...elements.map((element, index) => atom(`a${first + index}`, element, positions[index].x, positions[index].y)))
       next.document.scene.instances[0].positions.push(...positions.map((position, index) => ({ atom: `a${first + index}`, ...position })))
       if (tailed) {
@@ -281,7 +286,7 @@ try {
     selection: [...window.smilesHarness.editor.selection],
     positions: window.smilesHarness.editor.current.document.atoms.slice(4).map((atom) => atom.position),
     source: document.getElementById('smiles-source').value,
-  })), { selection: ['a3'], positions: [{ x: -26, y: 75 }, { x: 4, y: 75 }, { x: 34, y: 75 }], source: 'N' })
+  })), { selection: ['a3'], positions: [{ x: -26, y: 90 }, { x: -26 + 15 * Math.sqrt(3), y: 75 }, { x: -26 + 30 * Math.sqrt(3), y: 90 }], source: 'N' })
 
   // Generated layout alone is informational: N imports with accept_loss:false and never
   // forces the person to approve a fictitious chemistry loss.

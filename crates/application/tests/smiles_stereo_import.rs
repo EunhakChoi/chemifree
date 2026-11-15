@@ -366,7 +366,7 @@ fn every_double_bond_of_a_conjugated_chain_is_stored() {
 }
 
 #[test]
-fn a_double_bond_served_by_its_neighbour_adds_no_record_and_no_loss() {
+fn a_double_bond_served_by_its_neighbour_adds_no_record_and_only_the_layout_fallback_loss() {
     let (app, _dir, id) = setup();
     let done = import(&app, &id, 0, "C/C=C/C=CC");
     assert_eq!(done["document_revision"], 1, "{done}");
@@ -377,7 +377,20 @@ fn a_double_bond_served_by_its_neighbour_adds_no_record_and_no_loss() {
         .iter()
         .map(|loss| loss["feature"].as_str().unwrap())
         .collect();
-    assert_eq!(features, ["generated_layout"], "{done}");
+    assert_eq!(
+        features,
+        ["generated_layout", "layout_not_covered"],
+        "{done}"
+    );
+    let fallback = &done["loss_report"][1];
+    assert_eq!(fallback["source_path"], "atoms[1, 2, 3, 4, 5, 6]", "{done}");
+    assert!(
+        fallback["reason"]
+            .as_str()
+            .unwrap()
+            .contains("stereo_in_layout"),
+        "{done}"
+    );
 }
 
 #[test]

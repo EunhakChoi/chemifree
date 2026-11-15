@@ -1007,11 +1007,12 @@
         },
         {
           "id": "CODEC-06.smiles-policy",
-          "summary": "For bounded SMILES, syntax the drawing cannot hold (unsupported stereo, wildcard, quadruple bonds, extended ring labels, charges and isotopes outside the drawing's range, aromatic systems outside the aromaticity model) is refused with its own code and position; dropped text, atom classes and undetermined radicals are reported as losses that need acceptance.",
+          "summary": "For bounded SMILES, syntax the drawing cannot hold (unsupported stereo, wildcard, quadruple bonds, extended ring labels, charges and isotopes outside the drawing's range, aromatic systems outside the aromaticity model) is refused with its own code and position; dropped text, atom classes and undetermined radicals are reported as losses that need acceptance; generated positions are reported as generated_layout, and a component the bounded layout does not cover as layout_not_covered, neither needing acceptance.",
           "status": "implemented",
           "implementation": [
             "crates/providers/src/smiles/reader.rs",
-            "crates/application/src/operations/smiles.rs"
+            "crates/application/src/operations/smiles.rs",
+            "crates/application/src/operations/smiles_layout.rs"
           ],
           "evidence": [
             "case:smiles-malformed-and-unsupported-refused",
