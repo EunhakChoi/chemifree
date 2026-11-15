@@ -9,7 +9,7 @@
 - 배치: 성분 상자를 (X0, Y0)부터 간격 2b로 늘어놓고, 20b를 넘으면 다음 줄. 단일 성분이 격자로 떨어지면 오늘과 같은 좌표다.
 - 코드: `crates/application/src/operations/smiles_layout.rs`(새), `smiles.rs`. 검사: `crates/application/tests/smiles_import_layout.rs`, `smiles_import_layout_fallback.rs`, `smiles_stereo_import.rs` 갱신, 웹 모의 좌표(`web-smiles-clipboard-check.mjs`).
 - 납품: #277(병합 `d7ea7da5`, main CI 성공).
-- 정리(R1, 동작 불변): 격자 경로 하나로 합침, 그래프 명령 생성기 공유, 격자 상수를 `smiles_layout.rs`로, 성분마다 그 성분만 담은 임시 문서에서 배치(main과의 동등성은 `smiles_import_layout_equivalence.rs`, 비트 단위는 main에서 기록한 다이제스트 `smiles_import_layout_digest.rs`로 확인), 방향족 변환과 배치 적용이 계산 전 잠금(`copy_for_compute`)과 잠금 아래 커밋(`commit_computed`)을 공유한다. 진단을 담는 재전송 기록(#273 후속)은 아직이다.
+- 정리(#278, 동작 불변): 격자 경로 하나로 합침, 그래프 명령 생성기 공유, 격자 상수를 `smiles_layout.rs`로, 성분마다 그 성분만 담은 임시 문서에서 배치. `smiles_import_layout_equivalence.rs`(합쳐 가져온 성분과 따로 가져온 성분의 모양이 같다, 1e-9)는 main 코드와 이 코드 모두에서 통과하고, main과의 비트 단위 동일성은 main(`d7ea7da5`)에서 기록한 다이제스트 `smiles_import_layout_digest.rs`가 보인다(다시 기록하려면 세 생산 파일을 main 것으로 되돌린 복사본에서 실행해 출력된 값을 쓴다), 방향족 변환과 배치 적용이 계산 전 잠금(`copy_for_compute`)과 잠금 아래 커밋(`commit_computed`)을 공유한다. 진단을 담는 재전송 기록(#273 후속)은 아직이다.
 - 남은 것(P48): 통합 가져오기/내보내기 UI, 다른 형식, 겹침 보고, 입체 성분 배치.
 
 ## P42 S4: 배치 웹 UI (T1)
