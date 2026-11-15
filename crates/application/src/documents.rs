@@ -2,6 +2,7 @@
 //! drafts, and copies.
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{panic, thread};
@@ -1048,17 +1049,15 @@ impl<R: DocumentRepository> Documents<R> {
         let _running = self.start(Some(&document_id), request_id)?;
         // Under the lock: answer a completed request, refuse early if the document is already
         // not at the expected revision, and copy the graph. Nothing else happens there.
-        let graph = {
-            let mut sessions = self.lock();
-            let session = self.session(&mut sessions, id)?;
-            if let Some(response) = session.replays.find(request_id, &mutation)? {
-                return Ok(response);
-            }
-            if let Some(hold) = session.hold {
-                return Err(held(id, hold));
-            }
-            session.expect_revision(expected_revision)?;
-            MoleculeGraph::from_document(&session.document)
+        let graph = match self.copy_for_compute(
+            id,
+            request_id,
+            &mutation,
+            expected_revision,
+            |session| MoleculeGraph::from_document(&session.document),
+        )? {
+            ControlFlow::Break(replayed) => return Ok(replayed),
+            ControlFlow::Continue(graph) => graph,
         };
         let permit = compute
             .gate
@@ -1083,17 +1082,13 @@ impl<R: DocumentRepository> Documents<R> {
         // after the last checkpoint is honoured here too, immediately before the edit is
         // committed; once it is committed it stands.
         self.mutate_running(id, request_id, expected_revision, mutation, |session| {
-            compute
-                .interrupt
-                .check()
-                .map_err(|interrupted| interruption(interrupted, compute.limit_ms))?;
-            if commands.is_empty() {
-                return Ok(Vec::new());
-            }
-            let result = session
-                .document
-                .apply_reporting(&commands, &domain_selection);
-            conversion_notes(&session.document, result)
+            commit_computed(
+                session,
+                compute,
+                &commands,
+                &domain_selection,
+                conversion_notes,
+            )
         })
     }
 
@@ -1132,17 +1127,15 @@ impl<R: DocumentRepository> Documents<R> {
         let _running = self.start(Some(&document_id), request_id)?;
         // Under the lock: answer a completed request, refuse a held document or a stale revision
         // before any layout refusal, and copy the document. Nothing else happens there.
-        let document = {
-            let mut sessions = self.lock();
-            let session = self.session(&mut sessions, id)?;
-            if let Some(response) = session.replays.find(request_id, &mutation)? {
-                return Ok(response);
-            }
-            if let Some(hold) = session.hold {
-                return Err(held(id, hold).into());
-            }
-            session.expect_revision(expected_revision)?;
-            session.document.without_history()
+        let document = match self.copy_for_compute(
+            id,
+            request_id,
+            &mutation,
+            expected_revision,
+            |session| session.document.without_history(),
+        )? {
+            ControlFlow::Break(replayed) => return Ok(replayed),
+            ControlFlow::Continue(document) => document,
         };
         let prepared = prepare(&document).map_err(LayoutHalt::Refused)?;
         let stopped = |interrupted: Interrupted| interruption(interrupted, compute.limit_ms);
@@ -1166,19 +1159,7 @@ impl<R: DocumentRepository> Documents<R> {
             expected_revision,
             mutation,
             diagnostics,
-            |session| {
-                compute.interrupt.check().map_err(stopped)?;
-                if commands.is_empty() {
-                    return Ok(Vec::new());
-                }
-                let result = session
-                    .document
-                    .apply_reporting(&commands, &domain_selection);
-                edit_notes(&session.document, result).map_err(|refused| ApplicationError {
-                    command_index: None,
-                    ..refused
-                })
-            },
+            |session| commit_computed(session, compute, &commands, &domain_selection, layout_notes),
         )?;
         Ok(response)
     }
@@ -2859,6 +2840,30 @@ impl<R: DocumentRepository> Documents<R> {
         Ok(response)
     }
 
+    /// The first lock of an edit computed outside the lock: answers a completed request from the
+    /// replay log (`Break`), refuses a held document and a document that is not at
+    /// `expected_revision`, and otherwise returns what `copy` takes from the session (`Continue`).
+    /// Nothing else happens under that lock.
+    fn copy_for_compute<T>(
+        &self,
+        id: &str,
+        request_id: Option<&str>,
+        mutation: &Mutation,
+        expected_revision: u64,
+        copy: impl FnOnce(&Session) -> T,
+    ) -> Result<ControlFlow<DocumentResponse, T>, ApplicationError> {
+        let mut sessions = self.lock();
+        let session = self.session(&mut sessions, id)?;
+        if let Some(response) = session.replays.find(request_id, mutation)? {
+            return Ok(ControlFlow::Break(response));
+        }
+        if let Some(hold) = session.hold {
+            return Err(held(id, hold));
+        }
+        session.expect_revision(expected_revision)?;
+        Ok(ControlFlow::Continue(copy(session)))
+    }
+
     fn session<'a>(
         &self,
         sessions: &'a mut Sessions,
@@ -3380,6 +3385,45 @@ fn conversion_notes(
         } else {
             refused
         }
+    })
+}
+
+/// Turns an applied edit or its refusal into the reply's notes or error, for [`commit_computed`].
+type CommitNotes =
+    fn(&Document, Result<Applied, TransactionError>) -> Result<Vec<Loss>, ApplicationError>;
+
+/// The change of an edit computed outside the lock, run by `mutate_running_reporting` after it
+/// checked the replay, the hold and the revision again: a stop that came after the last
+/// checkpoint is honoured immediately before the edit, an edit with no commands changes nothing
+/// (and is still recorded for replay), and `notes` turns the applied edit or its refusal into the
+/// reply's notes or error.
+fn commit_computed(
+    session: &mut Session,
+    compute: Compute<'_>,
+    commands: &[Command],
+    selection: &TransactionSelection,
+    notes: CommitNotes,
+) -> Result<Vec<Loss>, ApplicationError> {
+    compute
+        .interrupt
+        .check()
+        .map_err(|interrupted| interruption(interrupted, compute.limit_ms))?;
+    if commands.is_empty() {
+        return Ok(Vec::new());
+    }
+    let result = session.document.apply_reporting(commands, selection);
+    notes(&session.document, result)
+}
+
+/// Like [`edit_notes`] for a layout apply. Its commands are generated, so a refused edit names no
+/// command index.
+fn layout_notes(
+    document: &Document,
+    result: Result<Applied, TransactionError>,
+) -> Result<Vec<Loss>, ApplicationError> {
+    edit_notes(document, result).map_err(|refused| ApplicationError {
+        command_index: None,
+        ..refused
     })
 }
 

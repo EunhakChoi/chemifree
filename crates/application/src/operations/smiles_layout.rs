@@ -1,12 +1,12 @@
 //! Placement of the components of a coordinate-free SMILES read. A component takes the positions of
 //! the chain and simple ring layout of `chemifree_domain::layout` when that layout covers it, and
-//! stays on the grid otherwise. The layout runs on a scratch document that is never stored
-//! (CONTRACT, P48 S1).
+//! stays on the grid otherwise. The layout runs on one scratch document per component, which is
+//! never stored (CONTRACT, P48 S1).
 
 use std::collections::BTreeSet;
 
 use chemifree_domain::document::{
-    AtomId, AtomRef, Command, Document, DocumentId, NewAtomPositions, ObjectId, Point,
+    AtomId, AtomRef, Command, Document, DocumentId, NewAtomPositions, Point,
 };
 use chemifree_domain::layout::{self, Scope};
 use chemifree_domain::scene::Selection;
@@ -14,7 +14,12 @@ use chemifree_domain::settings::Settings;
 
 use super::smiles;
 use super::{Loss, LossConsent, LossDisposition, SemanticImpact};
-use crate::smiles::SmilesRead;
+use crate::smiles::{SmilesBond, SmilesRead, SmilesSlot, SmilesStereo};
+
+/// The grid of the components the layout does not cover, and of a whole import whose layout could
+/// not be computed: 10 columns, 30 pt apart, in input order.
+const GRID_SPACING: f64 = 30.0;
+const GRID_COLUMNS: usize = 10;
 
 /// How one read component is placed: its atoms, their local shape and why the layout does not
 /// cover it, if it does not.
@@ -31,35 +36,41 @@ pub(super) struct ComponentPlan {
 
 /// Grid positions in input order: the k-th of `count` items (k from 0) sits in column
 /// `k % GRID_COLUMNS` and row `k / GRID_COLUMNS`, each step `GRID_SPACING` pt apart.
-pub(super) fn grid_shape(count: usize) -> Vec<(f64, f64)> {
+fn grid_shape(count: usize) -> Vec<(f64, f64)> {
     (0..count)
         .map(|k| {
             (
-                (k % smiles::GRID_COLUMNS) as f64 * smiles::GRID_SPACING,
-                (k / smiles::GRID_COLUMNS) as f64 * smiles::GRID_SPACING,
+                (k % GRID_COLUMNS) as f64 * GRID_SPACING,
+                (k / GRID_COLUMNS) as f64 * GRID_SPACING,
             )
         })
         .collect()
 }
 
-/// The placement of each component of `read`, in the order of `components`, for a document
-/// whose bonds are `bond_length_pt` long. `None` when the scratch document cannot be built or
-/// applied; the whole import then stays on the grid.
-pub(super) fn placements(read: &SmilesRead, bond_length_pt: f64) -> Option<Vec<ComponentPlan>> {
-    let id = DocumentId::parse("smiles-layout").expect("smiles-layout is a valid document id");
-    let settings = Settings {
-        bond_length_pt,
-        ..Settings::default()
-    };
-    let mut scratch = Document::new_with_settings(id, "layout", settings).ok()?;
+/// The commands that make the graph of a read, and where its bonds start among them: a created
+/// bond is named by the index of its command, so `first_bond + n` names the n-th bond of the read.
+pub(super) struct PlacedCommands {
+    pub(super) commands: Vec<Command>,
+    pub(super) first_bond: usize,
+}
+
+/// The commands that add the atoms of `read`, the k-th at the k-th of `positions`, then its bonds,
+/// both in input order. `Err(k)` names the 0-based input index of the first atom whose position
+/// is out of range.
+pub(super) fn graph_commands(
+    read: &SmilesRead,
+    positions: impl IntoIterator<Item = (f64, f64)>,
+) -> Result<PlacedCommands, usize> {
     let mut commands = Vec::with_capacity(read.atoms.len() + read.bonds.len());
-    for (source, (x, y)) in read.atoms.iter().zip(grid_shape(read.atoms.len())) {
+    for (index, (source, (x, y))) in read.atoms.iter().zip(positions).enumerate() {
+        let point = Point::new(x, y).map_err(|_| index)?;
         commands.push(Command::AddAtom {
             atom: source.atom.clone(),
-            positions: NewAtomPositions::Single(Point::new(x, y).ok()?),
+            positions: NewAtomPositions::Single(point),
             bond_to: None,
         });
     }
+    let first_bond = commands.len();
     for bond in &read.bonds {
         commands.push(Command::AddBond {
             begin: AtomRef::Created(bond.begin),
@@ -67,19 +78,33 @@ pub(super) fn placements(read: &SmilesRead, bond_length_pt: f64) -> Option<Vec<C
             order: bond.order.clone(),
         });
     }
-    commands.extend(smiles::configuration_commands(read, read.atoms.len()));
-    scratch.apply(&commands).ok()?;
-    // The k-th atom of the read is the k-th atom of the scratch document: identifiers are fresh
-    // in command order.
-    let ids: Vec<AtomId> = scratch.atoms().map(|(id, _)| id).collect();
-    if ids.len() != read.atoms.len() {
-        debug_assert!(false, "the scratch document holds one atom per read atom");
-        return None;
-    }
-    let instance = scratch.first_instance();
-    components(read)
+    Ok(PlacedCommands {
+        commands,
+        first_bond,
+    })
+}
+
+/// The placement of each component of `read`, in the order of `components`, for a document
+/// whose bonds are `bond_length_pt` long. Each component is laid out on a scratch document of its
+/// own, which is never stored, with its atoms at the grid cells they have in the whole read: a
+/// free component is laid out around the centroid of those cells, so they, and nothing outside
+/// the component, decide its plan. `None` when a scratch document cannot be built or applied;
+/// the whole import then stays on the grid.
+pub(super) fn placements(read: &SmilesRead, bond_length_pt: f64) -> Option<Vec<ComponentPlan>> {
+    let settings = Settings {
+        bond_length_pt,
+        ..Settings::default()
+    };
+    let grid = grid_shape(read.atoms.len());
+    let components = components(read);
+    let parts = component_reads(read, &components);
+    components
         .into_iter()
-        .map(|atoms| plan(&scratch, instance, &ids, atoms))
+        .zip(parts)
+        .map(|(atoms, part)| {
+            let positions: Vec<(f64, f64)> = atoms.iter().map(|&atom| grid[atom]).collect();
+            plan(&part, positions, &settings, atoms)
+        })
         .collect()
 }
 
@@ -118,19 +143,95 @@ fn components(read: &SmilesRead) -> Vec<Vec<usize>> {
     found
 }
 
-/// The placement of one component: the P42 `after` positions of its atoms when the layout covers
-/// it, its local grid otherwise. `None` when the layout does not return one position per atom.
+/// The read of each component on its own, in the order of `components`: its atoms, its bonds and
+/// its configurations, in the read's order, with indices local to the component (its k-th atom is
+/// its k-th smallest input index). One pass over the read, so the work is proportional to it.
+fn component_reads(read: &SmilesRead, components: &[Vec<usize>]) -> Vec<SmilesRead> {
+    let mut owner = vec![0; read.atoms.len()];
+    let mut local = vec![0; read.atoms.len()];
+    for (component, atoms) in components.iter().enumerate() {
+        for (k, &atom) in atoms.iter().enumerate() {
+            owner[atom] = component;
+            local[atom] = k;
+        }
+    }
+    let mut parts: Vec<SmilesRead> = components
+        .iter()
+        .map(|atoms| SmilesRead {
+            atoms: atoms.iter().map(|&atom| read.atoms[atom].clone()).collect(),
+            bonds: Vec::new(),
+            ignored_text: None,
+            losses: Vec::new(),
+            stereo: SmilesStereo::default(),
+        })
+        .collect();
+    let mut local_bond = vec![0; read.bonds.len()];
+    for (index, bond) in read.bonds.iter().enumerate() {
+        let part = &mut parts[owner[bond.begin]];
+        local_bond[index] = part.bonds.len();
+        part.bonds.push(SmilesBond {
+            begin: local[bond.begin],
+            end: local[bond.end],
+            order: bond.order.clone(),
+        });
+    }
+    for center in &read.stereo.centers {
+        let mut moved = center.clone();
+        moved.atom = local[center.atom];
+        moved.slots = center.slots.map(|slot| match slot {
+            SmilesSlot::Atom(atom) => SmilesSlot::Atom(local[atom]),
+            SmilesSlot::ImplicitHydrogen => SmilesSlot::ImplicitHydrogen,
+        });
+        parts[owner[center.atom]].stereo.centers.push(moved);
+    }
+    for double_bond in &read.stereo.double_bonds {
+        let mut moved = double_bond.clone();
+        moved.bond = local_bond[double_bond.bond];
+        moved.begin_neighbor = local[double_bond.begin_neighbor];
+        moved.end_neighbor = local[double_bond.end_neighbor];
+        parts[owner[read.bonds[double_bond.bond].begin]]
+            .stereo
+            .double_bonds
+            .push(moved);
+    }
+    parts
+}
+
+/// The placement of one component, laid out on a scratch document that holds `part` (the
+/// component's read, with local indices) with its k-th atom at the k-th of `positions`: the P42
+/// `after` positions of its atoms when the layout covers it, its local grid otherwise. `None` when
+/// the scratch document cannot be built or applied, or the layout does not return one position
+/// per atom.
 fn plan(
-    scratch: &Document,
-    instance: ObjectId,
-    ids: &[AtomId],
+    part: &SmilesRead,
+    positions: Vec<(f64, f64)>,
+    settings: &Settings,
     atoms: Vec<usize>,
 ) -> Option<ComponentPlan> {
+    let id = DocumentId::parse("smiles-layout").expect("smiles-layout is a valid document id");
+    let mut scratch = Document::new_with_settings(id, "layout", settings.clone()).ok()?;
+    let PlacedCommands {
+        mut commands,
+        first_bond,
+    } = graph_commands(part, positions).ok()?;
+    commands.extend(smiles::configuration_commands(part, first_bond));
+    scratch.apply(&commands).ok()?;
+    // The k-th atom of the part is the k-th atom of its scratch document: identifiers are fresh
+    // in command order, so they ascend with the input indices, as in the whole read.
+    let ids: Vec<AtomId> = scratch.atoms().map(|(id, _)| id).collect();
+    if ids.len() != atoms.len() {
+        debug_assert!(
+            false,
+            "the scratch document holds one atom per component atom"
+        );
+        return None;
+    }
+    let instance = scratch.first_instance();
     let selection = Selection {
-        atoms: BTreeSet::from([ids[atoms[0]]]),
+        atoms: BTreeSet::from([ids[0]]),
         ..Selection::default()
     };
-    let prepared = layout::prepare(scratch, instance, &selection, Scope::Components)
+    let prepared = layout::prepare(&scratch, instance, &selection, Scope::Components)
         .and_then(|prep| layout::place(&prep));
     match prepared {
         Ok(preview) => {
@@ -162,12 +263,41 @@ fn plan(
     }
 }
 
+/// The position of every input atom, indexed by its input index, with the first box at `origin`:
+/// the components of `plans` packed by [`pack`] or, when the layout could not be computed (`None`),
+/// the whole import as one box on the grid.
+pub(super) fn positions(
+    plans: Option<&[ComponentPlan]>,
+    atom_count: usize,
+    origin: (f64, f64),
+    bond_length_pt: f64,
+) -> Vec<(f64, f64)> {
+    match plans {
+        Some(plans) => pack(plans, atom_count, origin, bond_length_pt),
+        None => {
+            // One box of every atom on the grid. Its top-left corner is the grid's first cell
+            // (0, 0), so each atom lands at `origin` plus its grid cell, bit for bit.
+            let whole = ComponentPlan {
+                atoms: (0..atom_count).collect(),
+                shape: grid_shape(atom_count),
+                fallback: None,
+            };
+            pack(
+                std::slice::from_ref(&whole),
+                atom_count,
+                origin,
+                bond_length_pt,
+            )
+        }
+    }
+}
+
 /// Packs the components in shelf rows, one bounding box each, and returns the position of every
 /// input atom, indexed by its input index. A box's top-left corner is its position: boxes in a row
 /// are `2 * bond_length_pt` apart, and a box goes into the current row only while it ends within
 /// `20 * bond_length_pt` of `origin`'s x; the first box of a row is always placed. Overlaps between
 /// boxes are not checked.
-pub(super) fn pack(
+fn pack(
     plans: &[ComponentPlan],
     atom_count: usize,
     origin: (f64, f64),

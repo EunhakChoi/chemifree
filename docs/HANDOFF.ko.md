@@ -8,6 +8,8 @@
 - 손실: `generated_layout` 하나(문구 갱신)와 격자 성분마다 `layout_not_covered`(`atoms[i, ...]`, 모델·거절 코드, 동의 불필요). 재전송도 같은 보고. 다이제스트·`model_id`(`chemifree-smiles-1`)는 그대로다.
 - 배치: 성분 상자를 (X0, Y0)부터 간격 2b로 늘어놓고, 20b를 넘으면 다음 줄. 단일 성분이 격자로 떨어지면 오늘과 같은 좌표다.
 - 코드: `crates/application/src/operations/smiles_layout.rs`(새), `smiles.rs`. 검사: `crates/application/tests/smiles_import_layout.rs`, `smiles_import_layout_fallback.rs`, `smiles_stereo_import.rs` 갱신, 웹 모의 좌표(`web-smiles-clipboard-check.mjs`).
+- 납품: #277(병합 `d7ea7da5`, main CI 성공).
+- 정리(R1, 동작 불변): 격자 경로 하나로 합침, 그래프 명령 생성기 공유, 격자 상수를 `smiles_layout.rs`로, 성분마다 그 성분만 담은 임시 문서에서 배치(main과의 동등성은 `smiles_import_layout_equivalence.rs`, 비트 단위는 main에서 기록한 다이제스트 `smiles_import_layout_digest.rs`로 확인), 방향족 변환과 배치 적용이 계산 전 잠금(`copy_for_compute`)과 잠금 아래 커밋(`commit_computed`)을 공유한다. 진단을 담는 재전송 기록(#273 후속)은 아직이다.
 - 남은 것(P48): 통합 가져오기/내보내기 UI, 다른 형식, 겹침 보고, 입체 성분 배치.
 
 ## P42 S4: 배치 웹 UI (T1)
