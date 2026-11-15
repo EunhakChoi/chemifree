@@ -24,7 +24,7 @@ type App = Application<LocalCapabilities, FileDocumentRepository>;
 const WAIT: Duration = Duration::from_secs(30);
 
 /// The model that every reply of `layout.structure` names.
-const MODEL_ID: &str = "chemifree-chain-layout-1";
+const MODEL_ID: &str = "chemifree-chain-layout-2";
 
 /// The questions that a successful apply of butane asks, counted in a passing run: one once the
 /// compute slot is taken, the layout's own checkpoints, and the last one, asked under the session

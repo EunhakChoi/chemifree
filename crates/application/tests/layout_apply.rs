@@ -19,7 +19,7 @@ type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 type Positions = BTreeMap<String, [u64; 2]>;
 
 /// The model that the apply's replies name.
-const MODEL_ID: &str = "chemifree-chain-layout-1";
+const MODEL_ID: &str = "chemifree-chain-layout-2";
 /// The largest limit a request may set, in milliseconds.
 const MAXIMUM_LIMIT_MS: u64 = 8_000;
 /// The tolerance, in pt, of an applied position against its proposal.

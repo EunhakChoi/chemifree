@@ -1700,11 +1700,12 @@
       "parts": [
         {
           "id": "LAYOUT-01.chain-preview",
-          "summary": "The chain layout preview gives proposed coordinates for exactly the layout set; fixed atoms get none and never move, and the preview changes nothing. Applying a layout is not implemented.",
+          "summary": "The chain and simple-ring layout preview (P42 S1 to S3) gives proposed coordinates for exactly the layout set, with isolated rings of 3 to 12 atoms drawn as regular polygons; fixed atoms get none and never move, and the preview changes nothing. The apply mode commits the same proposal as one undoable edit. Fused, bridged, spiro and larger rings are refused, not laid out.",
           "status": "partial",
           "implementation": [
             "crates/domain/src/layout.rs",
             "crates/domain/src/layout/chain.rs",
+            "crates/domain/src/layout/ring.rs",
             "crates/application/src/operations/layout.rs"
           ],
           "evidence": [
@@ -1716,7 +1717,7 @@
         },
         {
           "id": "LAYOUT-01.rest",
-          "summary": "Everything of this requirement outside the chain layout preview (P42 S1): nothing of it is implemented.",
+          "summary": "Everything of this requirement outside the chain and simple-ring layout (P42 S1–S3): nothing of it is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1740,11 +1741,12 @@
       "parts": [
         {
           "id": "LAYOUT-02.chain-preview",
-          "summary": "The chain layout preview uses the document bond length, refuses stated stereo and bond marks instead of moving them, and gives the same proposal for the same document and selection. It changes no bond style. Applying a layout and stereo-preserving placement are not implemented.",
+          "summary": "The chain and simple-ring layout (P42 S1 to S3) uses the document bond length, refuses stated stereo and bond marks instead of moving them, and gives the same proposal for the same document and selection, in preview and apply. It changes no bond style. Stereo-preserving placement is not implemented.",
           "status": "partial",
           "implementation": [
             "crates/domain/src/layout.rs",
             "crates/domain/src/layout/chain.rs",
+            "crates/domain/src/layout/ring.rs",
             "crates/application/src/operations/layout.rs"
           ],
           "evidence": [
@@ -1758,7 +1760,7 @@
         },
         {
           "id": "LAYOUT-02.rest",
-          "summary": "Everything of this requirement outside the chain layout preview (P42 S1): nothing of it is implemented.",
+          "summary": "Everything of this requirement outside the chain and simple-ring layout (P42 S1–S3): nothing of it is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1783,11 +1785,12 @@
       "parts": [
         {
           "id": "LAYOUT-03.chain-tie",
-          "summary": "The chain layout's candidate order and tie rule are applied; placement finishes for every accepted set and can be stopped at its checkpoints. Ring, template, search and score rules are not implemented.",
+          "summary": "The chain and simple-ring candidate order and tie rules (root, rank, ring walk and entry) are applied; placement finishes for every accepted set and can be stopped at its checkpoints. Fused, spiro, bridged and macrocycle ring, template, search and score rules are not implemented.",
           "status": "partial",
           "implementation": [
             "crates/domain/src/layout.rs",
             "crates/domain/src/layout/chain.rs",
+            "crates/domain/src/layout/ring.rs",
             "crates/application/src/operations/layout.rs"
           ],
           "evidence": [
@@ -1804,7 +1807,7 @@
         },
         {
           "id": "LAYOUT-03.rest",
-          "summary": "Everything of this requirement outside the chain layout preview (P42 S1): nothing of it is implemented.",
+          "summary": "Everything of this requirement outside the chain and simple-ring layout (P42 S1–S3): nothing of it is implemented.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],

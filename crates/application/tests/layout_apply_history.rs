@@ -14,7 +14,7 @@ type App = Application<LocalCapabilities, FileDocumentRepository>;
 type TestResult = Result<(), Box<dyn Error>>;
 
 /// The model that every `layout.structure` reply names.
-const MODEL_ID: &str = "chemifree-chain-layout-1";
+const MODEL_ID: &str = "chemifree-chain-layout-2";
 /// The message of the `layout_unchanged` diagnostic of an apply that changes nothing.
 const NO_OP_MESSAGE: &str =
     "Every layout atom is already at its proposed position; nothing was changed.";

@@ -507,18 +507,18 @@ fn a_component_of_501_atoms_is_refused_and_one_of_500_is_laid_out() {
 }
 
 #[test]
-fn ring_atoms_in_the_layout_set_are_refused_and_a_ring_elsewhere_is_not_counted() {
+fn a_partly_selected_ring_is_refused_and_a_ring_elsewhere_is_not_counted() {
     let document = ring_and_free_carbon();
     assert_eq!(
         prepare_of(&document, &[1]).unwrap_err(),
-        LayoutError::RingInLayoutSet {
+        LayoutError::RingPartlyInLayoutSet {
             atoms: vec![atom(1)],
         }
     );
     // The refused ring atoms are listed in ascending order.
     assert_eq!(
         prepare_of(&document, &[2, 1, 7]).unwrap_err(),
-        LayoutError::RingInLayoutSet {
+        LayoutError::RingPartlyInLayoutSet {
             atoms: vec![atom(1), atom(2)],
         }
     );
@@ -536,10 +536,11 @@ fn a_large_ring_in_another_component_is_not_counted_and_leaves_the_layout_unchan
     let alone = butane_row();
     let mut with_ring = butane_row();
     with_ring.apply(&large_ring(40, 1000.0, 1000.0)).unwrap();
-    // Carbon 5 is refused when it is laid out, which shows that the ring is a ring system.
+    // Carbon 5 alone is refused as a partly selected ring, which shows that the ring is a ring
+    // system.
     assert_eq!(
         prepare_of(&with_ring, &[5]).unwrap_err(),
-        LayoutError::RingInLayoutSet {
+        LayoutError::RingPartlyInLayoutSet {
             atoms: vec![atom(5)],
         }
     );
@@ -556,16 +557,31 @@ fn a_large_ring_in_another_component_is_not_counted_and_leaves_the_layout_unchan
 }
 
 #[test]
-fn a_whole_hexagon_in_the_layout_set_is_refused_as_ring_layout() {
+fn a_whole_free_hexagon_is_laid_out_onto_its_own_positions() {
     let document = ring_and_free_carbon();
-    let error = prepare_of(&document, &[1, 2, 3, 4, 5, 6]).unwrap_err();
+    let preview = preview_of(&document, &[1, 2, 3, 4, 5, 6]).unwrap();
+    // The hexagon of InsertRing is already a regular polygon around the origin, so each member
+    // stays exactly where it is.
+    for placement in &preview.positions {
+        assert!(
+            placement.after == placement.before,
+            "{:?} moved from {:?} to {:?}",
+            placement.atom,
+            placement.before,
+            placement.after
+        );
+    }
+    let component = &preview.components[0];
+    assert_eq!(component.root, atom(1));
+    assert!(component.chains.is_empty());
     assert_eq!(
-        error,
-        LayoutError::RingInLayoutSet {
+        component.rings,
+        vec![Chain {
             atoms: (1..=6).map(atom).collect(),
-        }
+            branch_from: None,
+        }]
     );
-    assert_eq!(error.reason(), "ring_in_layout_set");
+    assert!(layout::move_commands(&preview, document.first_instance()).is_empty());
 }
 
 #[test]

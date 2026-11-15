@@ -14,7 +14,7 @@ Nothing on this page marks a feature as implemented. "Planned" items below have 
 
 | Crate or app | Depends on | Holds |
 | --- | --- | --- |
-| `crates/domain` | nothing | Document model, commands, transactions, undo/redo, chemistry rules (valence, aromaticity, identity, substructure, stereo, CIP), layout (bounded chain preview and apply), scene objects |
+| `crates/domain` | nothing | Document model, commands, transactions, undo/redo, chemistry rules (valence, aromaticity, identity, substructure, stereo, CIP), layout (bounded chain and simple-ring preview and apply: `layout.rs` prepares and orders the components, `layout/chain.rs` roots, ranks and places a tree of units, and `layout/ring.rs` holds the ring walks, codes and polygon geometry of the ring units in that tree), scene objects |
 | `crates/numerics` | `num-bigint`, `num-integer` | Exact rationals and stored number formats |
 | `crates/application` | domain, numerics | Sessions, revisions, request replay, the operation surface, ports, the SVG layout, DATA registry and typed loaders |
 | `crates/inchi-native` | domain | Optional native InChI binding |

@@ -587,7 +587,7 @@ pub(super) fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
         Op::LayoutStructure => (
             runs(
                 id,
-                "Read-only preview (mode \"preview\") or one undoable edit (mode \"apply\", with expected_revision and a compute slot) of 2D coordinates for an acyclic selection in one scene instance: 120° zigzag at the document bond length, deterministic branch order and tie rule, anchored to fixed atoms by at most one bond per component, under a time limit (time_limit_ms). Ring layout, templates, scoring and collision search are not implemented.",
+                "Read-only preview (mode \"preview\") or one undoable edit (mode \"apply\", with expected_revision and a compute slot) of 2D coordinates for acyclic chains and isolated rings of 3 to 12 atoms in one scene instance: 120° zigzag and regular polygons at the document bond length, deterministic branch, walk and tie rules, anchored to fixed atoms by at most one bond per component, under a time limit (time_limit_ms). Fused, bridged and spiro ring layout, rings of more than 12 atoms, templates, scoring and collision search are not implemented.",
             ),
             &[],
         ),
@@ -620,5 +620,26 @@ pub(super) fn entry(operation: OperationId) -> (Entry, &'static [Entry]) {
             &[],
         ),
         Op::ScriptEvaluate => (missing(id, "P84", "No scripting is implemented."), &[]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chemifree_domain::layout::MAX_RING_SIZE;
+    use chemifree_domain::operation::OperationId;
+
+    use super::entry;
+
+    /// The layout note states the ring size limit as a literal; it must follow the constant.
+    #[test]
+    fn the_layout_note_names_the_ring_size_limit() {
+        let (layout, _) = entry(OperationId::LayoutStructure);
+        assert!(
+            layout
+                .note
+                .contains(&format!("isolated rings of 3 to {MAX_RING_SIZE} atoms")),
+            "{}",
+            layout.note
+        );
     }
 }
