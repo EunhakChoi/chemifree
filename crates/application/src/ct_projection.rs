@@ -65,11 +65,43 @@ fn implicit_hydrogen_uncertainty(record: usize, tab: CtTab) -> Loss {
     }
 }
 
+/// The editor atom of a record atom: its element, charge, isotope and radical.
+pub(crate) fn ct_atom(source: &CtAtom, index: usize) -> Result<Atom, CtError> {
+    let element = Element::from_symbol(&source.element).ok_or_else(|| {
+        projection_error(index, "unsupported_atom", "Invalid element from codec.")
+    })?;
+    let mut atom = Atom::new(AtomKind::Element(element));
+    atom.charge = source.charge;
+    atom.isotope = source.isotope;
+    atom.radical = match source.radical {
+        CtRadical::None => Radical::None,
+        CtRadical::Singlet => Radical::Singlet,
+        CtRadical::Doublet => Radical::Doublet,
+        CtRadical::Triplet => Radical::Triplet,
+    };
+    Ok(atom)
+}
+
+/// The editor bond order of a record order: 1, 2, 3 and 4 are single, double, triple and aromatic.
+#[must_use]
+pub(crate) fn ct_bond_order(order: u8) -> Option<BondOrder> {
+    match order {
+        1 => Some(BondOrder::Single),
+        2 => Some(BondOrder::Double),
+        3 => Some(BondOrder::Triple),
+        4 => Some(BondOrder::Aromatic),
+        _ => None,
+    }
+}
+
 /// Build domain edits for one record; document validation is performed by a candidate transaction.
+/// With `positions`, atom `i` is placed at `positions[i]` in document points instead of its file
+/// coordinates; `None` keeps the file coordinates.
 pub(crate) fn import_commands(
     record: &CtRecord,
     index: usize,
     doc: &DocumentView,
+    positions: Option<&[(f64, f64)]>,
     losses: &mut Vec<Loss>,
 ) -> Result<Vec<Command>, CtError> {
     if doc.scene.instances.len() != 1 {
@@ -79,6 +111,10 @@ pub(crate) fn import_commands(
             "Import requires exactly one molecule placement.",
         ));
     }
+    debug_assert!(
+        positions.is_none_or(|placed| placed.len() == record.atoms.len()),
+        "one position per record atom"
+    );
     // A chiral flag of 1 that no absolute collection backs is read but not interpreted; with a
     // STEABS collection the file states the same thing as a group, which is imported.
     let has_absolute = record
@@ -135,29 +171,21 @@ pub(crate) fn import_commands(
                 "The editor stores two-dimensional positions only.",
             ));
         }
-        let element = Element::from_symbol(&source.element).ok_or_else(|| {
-            projection_error(index, "unsupported_atom", "Invalid element from codec.")
-        })?;
-        let point = Point::new(
-            source.x * POINTS_PER_ANGSTROM,
-            -source.y * POINTS_PER_ANGSTROM,
-        )
-        .map_err(|_| {
+        let atom = ct_atom(source, index)?;
+        let (x, y) = match positions {
+            Some(placed) => placed[i],
+            None => (
+                source.x * POINTS_PER_ANGSTROM,
+                -source.y * POINTS_PER_ANGSTROM,
+            ),
+        };
+        let point = Point::new(x, y).map_err(|_| {
             projection_error(
                 index,
                 "coordinate_out_of_range",
                 format!("Atom {} cannot be placed in the editor.", i + 1),
             )
         })?;
-        let mut atom = Atom::new(AtomKind::Element(element));
-        atom.charge = source.charge;
-        atom.isotope = source.isotope;
-        atom.radical = match source.radical {
-            CtRadical::None => Radical::None,
-            CtRadical::Singlet => Radical::Singlet,
-            CtRadical::Doublet => Radical::Doublet,
-            CtRadical::Triplet => Radical::Triplet,
-        };
         commands.push(Command::AddAtom {
             atom,
             positions: NewAtomPositions::Single(point),
@@ -172,19 +200,9 @@ pub(crate) fn import_commands(
                 "Codec returned an invalid endpoint.",
             ));
         }
-        let order = match bond.order {
-            1 => BondOrder::Single,
-            2 => BondOrder::Double,
-            3 => BondOrder::Triple,
-            4 => BondOrder::Aromatic,
-            _ => {
-                return Err(projection_error(
-                    index,
-                    "unsupported_bond",
-                    "Unsupported codec bond order.",
-                ));
-            }
-        };
+        let order = ct_bond_order(bond.order).ok_or_else(|| {
+            projection_error(index, "unsupported_bond", "Unsupported codec bond order.")
+        })?;
         commands.push(Command::AddBond {
             begin: AtomRef::Created(bond.begin),
             end: AtomRef::Created(bond.end),

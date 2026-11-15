@@ -710,6 +710,7 @@
             "crates/application/src/operations/backend.rs"
           ],
           "evidence": [
+            "case:molfile-coordinate-free-layout",
             "case:molfile-round-trip",
             "check:check:rust",
             "check:test:contracts"
@@ -962,11 +963,12 @@
       "parts": [
         {
           "id": "CODEC-06.v2000-policy",
-          "summary": "For the bounded V2000 profile, unsupported chemical directives are refused and projection, metadata and interpretation losses are reported.",
+          "summary": "For the bounded V2000 profile, unsupported chemical directives are refused and projection, metadata and interpretation losses are reported; a coordinate-free 2D record is laid out with generated_layout and layout_not_covered reported.",
           "status": "implemented",
           "implementation": [
             "crates/providers/src/ctfile.rs",
-            "crates/application/src/ct_projection.rs"
+            "crates/application/src/ct_projection.rs",
+            "crates/application/src/operations/molfile_layout.rs"
           ],
           "evidence": [
             "check:check:rust",
@@ -1012,7 +1014,8 @@
           "implementation": [
             "crates/providers/src/smiles/reader.rs",
             "crates/application/src/operations/smiles.rs",
-            "crates/application/src/operations/smiles_layout.rs"
+            "crates/application/src/operations/smiles_layout.rs",
+            "crates/application/src/operations/import_layout.rs"
           ],
           "evidence": [
             "case:smiles-malformed-and-unsupported-refused",

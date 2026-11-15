@@ -17,6 +17,7 @@
     "cases/capabilities-report-unimplemented.json",
     "cases/formula-and-mass.json",
     "cases/molfile-round-trip.json",
+    "cases/molfile-coordinate-free-layout.json",
     "cases/graph-scene-separation.json",
     "cases/scene-tree-history.json",
     "cases/scene-references.json",

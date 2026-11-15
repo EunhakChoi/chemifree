@@ -13,19 +13,15 @@ use chemifree_domain::states::AttachmentPoints;
 use chemifree_domain::stereo::{AtomConfiguration, BondConfiguration, SlotRef};
 
 use super::import::{ImportFormat, ImportRequest, Staged};
+use super::import_layout::{self, ComponentPlan};
 use super::interchange::{consent_diagnostic, export_consent_refusal, needs_consent};
-use super::smiles_layout::{self, ComponentPlan, PlacedCommands};
+use super::smiles_layout::{self, PlacedCommands};
 use super::*;
-use crate::contract::{BondOrderDto, HydrogensDto, RadicalDto, SceneObjectView};
+use crate::contract::{BondOrderDto, HydrogensDto, RadicalDto};
 use crate::smiles::{
     ErrorClass, SmilesCode, SmilesCodec, SmilesError, SmilesRead, SmilesSlot, SmilesStyle, Span,
 };
 use crate::stereo_projection::{self, GroupFault, GroupInput};
-
-/// New atoms go below whatever the drawing already holds, from its leftmost point; an empty drawing
-/// starts them at (40, 40).
-const GAP_BELOW_DRAWING: f64 = 60.0;
-const EMPTY_DRAWING_ORIGIN: f64 = 40.0;
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -332,40 +328,10 @@ fn placed_commands(
     target: &DocumentView,
     plans: Option<&[ComponentPlan]>,
 ) -> Result<PlacedCommands, Diagnostic> {
-    // Everything the drawing holds that has a position: atoms and the points of graphics.
-    let graphic_points = target.scene.objects.iter().flat_map(|object| match object {
-        SceneObjectView::Graphic { points, .. } => points.clone(),
-        SceneObjectView::Image {
-            origin, size_pt, ..
-        } => vec![
-            *origin,
-            crate::contract::PositionView {
-                x: origin.x + size_pt.x,
-                y: origin.y + size_pt.y,
-            },
-        ],
-        SceneObjectView::Caption { anchor, .. } => vec![*anchor],
-        SceneObjectView::Instance { .. } | SceneObjectView::Group { .. } => Vec::new(),
-    });
-    let (left, bottom) = target
-        .atoms
-        .iter()
-        .map(|atom| atom.position)
-        .chain(graphic_points)
-        .fold(None, |extent: Option<(f64, f64)>, position| {
-            Some(match extent {
-                Some((left, bottom)) => (left.min(position.x), bottom.max(position.y)),
-                None => (position.x, position.y),
-            })
-        })
-        .map_or(
-            (EMPTY_DRAWING_ORIGIN, EMPTY_DRAWING_ORIGIN),
-            |(left, bottom)| (left, bottom + GAP_BELOW_DRAWING),
-        );
-    let positions = smiles_layout::positions(
+    let positions = import_layout::positions(
         plans,
         read.atoms.len(),
-        (left, bottom),
+        import_layout::origin(target),
         target.settings.bond_length_pt,
     );
     smiles_layout::graph_commands(read, positions).map_err(|index| {
@@ -419,7 +385,7 @@ impl ImportFormat for SmilesImportFormat<'_> {
         // a replay finds the same plans and reports the same losses in the same place.
         let plans = smiles_layout::placements(read, target.settings.bond_length_pt);
         if let Some(plans) = &plans {
-            losses.extend(smiles_layout::not_covered_losses(plans));
+            losses.extend(import_layout::not_covered_losses(plans, ""));
         }
         // A replayed import has committed already, so it returns no commands, only its losses.
         let commands = if replayed {

@@ -85,13 +85,13 @@ P33a/b/c는 native graph version1의 Copy/Cut/Paste다. 명시 source placement,
 
 P33e/f/j는 별도 native graphics version2 forest Copy/Cut/Paste다. paint/containment 순서·내부 self/cycle refs를 fresh IDs로 보존하고 여러 placement 목적지에서도 chemistry/placements를 유지한다. instance·mixed graph target·outgoing/graph refs·child 두 개 미만 group을 거절하고 Cut은 outside incoming도 거절한다. P33j는 frozen roots를 subtree 삭제하며 외부 부모를 자동 prune하지 않고 history와 refs를 복구한다. Scene Cut이 없다는 과거 기록은 P33j 이후 현재 상태가 아니다.
 
-P33d/g는 기존 MOL·SMILES preview/loss-consent를 사용하는 명시 text bridge다. 전체 graph export와 단일-placement 기존 문서 append를 제공하고 기존 좌표/grammar·생성 배치(P48 S1부터 성분별 P42 배치 또는 grid)·live selection을 유지한다. P33h는 CDXML whole-drawing export 동의 뒤 명시 clipboard copy, P33i는 정확한 UTF-8 source·page/molecule 선택·preview/loss 동의를 거쳐 새 drawing 생성을 제공한다. CDX는 binary download이며 clipboard text나 기존 문서 append가 아니다. Browser 전송은 명시 read/write·수동 대안을 제공하며 변경을 만드는 import는 immutable uncertain request/process 추적과 restart reconcile 규칙을 따른다.
+P33d/g는 기존 MOL·SMILES preview/loss-consent를 사용하는 명시 text bridge다. 전체 graph export와 단일-placement 기존 문서 append를 제공하고 기존 좌표/grammar·생성 배치(P48 S1부터 SMILES는 성분별 P42 배치 또는 grid, P48 S2부터 헤더 2D·좌표 전부 0인 MOL 레코드도 같은 배치)·live selection을 유지한다. P33h는 CDXML whole-drawing export 동의 뒤 명시 clipboard copy, P33i는 정확한 UTF-8 source·page/molecule 선택·preview/loss 동의를 거쳐 새 drawing 생성을 제공한다. CDX는 binary download이며 clipboard text나 기존 문서 append가 아니다. Browser 전송은 명시 read/write·수동 대안을 제공하며 변경을 만드는 import는 immutable uncertain request/process 추적과 restart reconcile 규칙을 따른다.
 
 P33k의 `test:browser:clipboard-integration`은 production panel/hook/client→실제 HTTP/Application/Domain에서 graph 및 nested forest 문서 간 Copy/Paste와 source 불변·fresh IDs/속성/참조·style refusal·history/selection을 확인했다. Clipboard transport만 대체하며 permission/error/restart 검사는 별도 scripted HTTP/clipboard 경계 검사다. 전체 editor canvas/navigation, 실제 OS clipboard 권한 성공과 다른 앱 호환·과학적 정확성은 입증하지 않는다.
 
 Instance 복제·enhanced-stereo-group graph 복사·global shortcut·custom MIME·external Cut·Windows/OLE는 bounded P33 밖이다. 이 완료는 형식 전체/모든 내부 객체의 clipboard 지원을 뜻하지 않는다. 기존 conformance 보고서 집계는 재실행 없이 유지한다. CODEC-06.rest·OPS-01.rest·OPS-02.rest의 open follow-up에서는 완료된 P33을 제거한다. 고급 형식/통합 파일·text UX는 기존 codec 후속과 P48, 전문 객체의 포함/선택은 P72, 정리·키보드 UI는 P47/P85, 전문 scene/reaction 변경 집합은 해당 기존 후속에 남긴다. 선언된 native 복제/shortcut 제한에 새 구현 약속을 임의로 부여하지 않는다.
 
-현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 65, partial 16, unverified 3, not_implemented 33) · conformance 사례 119개(passed 119: accept 87·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 65, partial 16, unverified 3, not_implemented 33) · conformance 사례 120개(passed 120: accept 88·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
