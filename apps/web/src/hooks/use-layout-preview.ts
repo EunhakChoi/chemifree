@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import type { LayoutGhost } from '@/editor/layout-ghost'
 import { selectionSnapshot } from '@/editor/scene-selection'
@@ -73,7 +73,7 @@ function isCurrent(requested: DocumentView, generation: number, request: LayoutR
   return now.request !== null &&
     requested.id === now.document.id &&
     generation === now.serviceGeneration &&
-    sameContent(requested, now.document) &&
+    (requested === now.document || sameContent(requested, now.document)) &&
     requested.revision === now.document.revision &&
     sameLayoutRequest(request, now.request)
 }
@@ -141,6 +141,8 @@ export function useLayoutPreview({ document, editor, activePlacement }: {
 }): LayoutController {
   const [state, setState] = useState<LayoutState>({ kind: 'idle' })
   const [scopeSelection, setScopeSelection] = useState(false)
+  // Counts presses and clears, so only the reply to the latest press is written.
+  const pressCount = useRef(0)
 
   const selected = selectionSnapshot(editor.selection, document)
   const blocked = layoutBlocked(activePlacement, selected)
@@ -163,14 +165,16 @@ export function useLayoutPreview({ document, editor, activePlacement }: {
   async function preview(): Promise<void> {
     if (currentRequest === null) return
     const press: Press = { generation: editor.serviceGeneration, requested: document, request: currentRequest }
+    const pressed = ++pressCount.current
     setState({ kind: 'pending', requested: press.requested, request: press.request })
     let answer: LayoutPreview
     try {
       answer = await editor.previewLayout(press.request)
     } catch (error: unknown) {
-      setState(failedPreview(error, press))
+      if (pressed === pressCount.current) setState(failedPreview(error, press))
       return
     }
+    if (pressed !== pressCount.current) return
     setState({ kind: 'preview', generation: press.generation, requested: press.requested, preview: answer })
   }
 
@@ -188,6 +192,7 @@ export function useLayoutPreview({ document, editor, activePlacement }: {
   }
 
   function clear(): void {
+    pressCount.current += 1
     setState({ kind: 'idle' })
   }
 

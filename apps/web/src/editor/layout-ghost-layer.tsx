@@ -2,7 +2,7 @@ import type { GhostSegment } from '@/editor/layout-ghost'
 import type { Position } from '@/lib/document-contract'
 
 /**
- * Proposed layout positions drawn over a placement: a dot for each moved atom and one dashed line
+ * Proposed layout positions drawn over a placement: a dot for each layout atom (moved or not) and one dashed line
  * for each bond. An overlay for the person looking, not part of the drawing: `data-editor-overlay`
  * lets an export leave it out, and it takes no pointer events, as AgreementRings does. The dash
  * and the primary color set it apart from the drawing, which has neither.
