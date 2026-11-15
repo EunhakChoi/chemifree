@@ -14,6 +14,7 @@ use chemifree_domain::stereo::{AtomConfiguration, BondConfiguration, SlotRef};
 
 use super::import::{ImportFormat, ImportRequest, Staged};
 use super::interchange::{consent_diagnostic, export_consent_refusal, needs_consent};
+use super::smiles_layout::{self, ComponentPlan};
 use super::*;
 use crate::contract::{BondOrderDto, HydrogensDto, RadicalDto, SceneObjectView};
 use crate::smiles::{
@@ -21,9 +22,11 @@ use crate::smiles::{
 };
 use crate::stereo_projection::{self, GroupFault, GroupInput};
 
-/// Where new atoms go: a grid, in input order, below whatever the drawing already holds.
-const GRID_SPACING: f64 = 30.0;
-const GRID_COLUMNS: usize = 10;
+/// The grid of the components the layout does not cover, and of a whole import whose layout could
+/// not be computed: 10 columns, 30 pt apart, in input order. New atoms go below whatever the
+/// drawing already holds.
+pub(super) const GRID_SPACING: f64 = 30.0;
+pub(super) const GRID_COLUMNS: usize = 10;
 const GAP_BELOW_DRAWING: f64 = 60.0;
 const EMPTY_DRAWING_ORIGIN: f64 = 40.0;
 
@@ -199,7 +202,8 @@ struct SmilesImportFormat<'a> {
     p: &'a SmilesImportParameters,
 }
 
-/// The commands of the whole import: atoms on a grid below `target`'s atoms, the bonds, the
+/// The commands of the whole import: atoms below `target`'s atoms, placed by the chain and simple
+/// ring layout per component and on a grid for the components it does not cover, the bonds, the
 /// configurations the text's tetrahedral marks and its `/` and `\` marks state (no bond marks:
 /// the atoms have no coordinates that could show them) and the enhanced stereo groups its
 /// CXSMILES block lists.
@@ -207,16 +211,38 @@ fn import_commands(
     read: &SmilesRead,
     source: &str,
     target: &DocumentView,
+    plans: Option<&[ComponentPlan]>,
     losses: &mut Vec<Loss>,
 ) -> Result<Vec<Command>, Diagnostic> {
     let GridCommands {
         mut commands,
         first_bond,
-    } = grid_commands(read, target)?;
+    } = grid_commands(read, target, plans)?;
+    commands.extend(configuration_commands(read, first_bond));
+    let groups = group_inputs(read);
+    let centers: HashSet<usize> = read.stereo.centers.iter().map(|c| c.atom).collect();
+    let group_commands = stereo_projection::group_commands(
+        &groups,
+        target,
+        Some(&centers),
+        |k| group_path(read, k),
+        losses,
+    )
+    .map_err(|fault| group_fault_diagnostic(fault, read, source))?;
+    commands.extend(group_commands);
+    Ok(commands)
+}
+
+/// The configurations the text's tetrahedral marks and its `/` and `\` marks state, for a graph
+/// whose atoms are made by the first `read.atoms.len()` commands of a transaction and whose n-th
+/// bond is made by command `first_bond + n`.
+pub(super) fn configuration_commands(read: &SmilesRead, first_bond: usize) -> Vec<Command> {
     let created = |slot: SmilesSlot| match slot {
         SmilesSlot::Atom(index) => SlotRef::Atom(AtomRef::Created(index)),
         SmilesSlot::ImplicitHydrogen => SlotRef::ImplicitHydrogen,
     };
+    let mut commands =
+        Vec::with_capacity(read.stereo.centers.len() + read.stereo.double_bonds.len());
     for center in &read.stereo.centers {
         commands.push(Command::SetAtomConfiguration {
             atom: AtomRef::Created(center.atom),
@@ -236,18 +262,7 @@ fn import_commands(
             }),
         });
     }
-    let groups = group_inputs(read);
-    let centers: HashSet<usize> = read.stereo.centers.iter().map(|c| c.atom).collect();
-    let group_commands = stereo_projection::group_commands(
-        &groups,
-        target,
-        Some(&centers),
-        |k| group_path(read, k),
-        losses,
-    )
-    .map_err(|fault| group_fault_diagnostic(fault, read, source))?;
-    commands.extend(group_commands);
-    Ok(commands)
+    commands
 }
 
 /// A group the mapping cannot make, as the diagnostic of its own cause.
@@ -319,9 +334,14 @@ struct GridCommands {
     first_bond: usize,
 }
 
-/// Grid positions for new atoms, below `target`'s atoms, and the bonds between them; fails when
-/// a position is out of range.
-fn grid_commands(read: &SmilesRead, target: &DocumentView) -> Result<GridCommands, Diagnostic> {
+/// Positions for new atoms, below `target`'s atoms, and the bonds between them; fails when a
+/// position is out of range. The positions are packed from `plans`; without them the whole
+/// import is on the grid.
+fn grid_commands(
+    read: &SmilesRead,
+    target: &DocumentView,
+    plans: Option<&[ComponentPlan]>,
+) -> Result<GridCommands, Diagnostic> {
     // Everything the drawing holds that has a position: atoms and the points of graphics.
     let graphic_points = target.scene.objects.iter().flat_map(|object| match object {
         SceneObjectView::Graphic { points, .. } => points.clone(),
@@ -352,13 +372,22 @@ fn grid_commands(read: &SmilesRead, target: &DocumentView) -> Result<GridCommand
             (EMPTY_DRAWING_ORIGIN, EMPTY_DRAWING_ORIGIN),
             |(left, bottom)| (left, bottom + GAP_BELOW_DRAWING),
         );
+    let positions: Vec<(f64, f64)> = match plans {
+        Some(plans) => smiles_layout::pack(
+            plans,
+            read.atoms.len(),
+            (left, bottom),
+            target.settings.bond_length_pt,
+        ),
+        // The layout could not be computed: the whole import stays on the grid, as before.
+        None => smiles_layout::grid_shape(read.atoms.len())
+            .into_iter()
+            .map(|(x, y)| (left + x, bottom + y))
+            .collect(),
+    };
     let mut commands = Vec::with_capacity(read.atoms.len() + read.bonds.len());
-    for (index, source) in read.atoms.iter().enumerate() {
-        let point = Point::new(
-            left + (index % GRID_COLUMNS) as f64 * GRID_SPACING,
-            bottom + (index / GRID_COLUMNS) as f64 * GRID_SPACING,
-        )
-        .map_err(|_| {
+    for (index, (source, (x, y))) in read.atoms.iter().zip(positions).enumerate() {
+        let point = Point::new(x, y).map_err(|_| {
             diagnostic(
                 "coordinate_out_of_range",
                 format!(
@@ -394,7 +423,7 @@ fn generated_layout() -> Loss {
         feature: "generated_layout".into(),
         source_path: "source".into(),
         disposition: LossDisposition::Normalized,
-        reason: "SMILES has no coordinates and no structure layout is implemented: atoms are placed on a grid in input order below the existing drawing.".into(),
+        reason: "SMILES has no coordinates: atoms are placed by a generated layout below the existing drawing, not taken from the source.".into(),
         semantic_impact: SemanticImpact::Geometry,
     }
 }
@@ -423,14 +452,20 @@ impl ImportFormat for SmilesImportFormat<'_> {
         }
         let mut losses = read.losses.clone();
         losses.push(generated_layout());
-        // A replayed import has committed already; its placement is not computed again.
+        // The plans depend only on the read and the bond length, which an import never changes, so
+        // a replay finds the same plans and reports the same losses in the same place.
+        let plans = smiles_layout::placements(read, target.settings.bond_length_pt);
+        if let Some(plans) = &plans {
+            losses.extend(smiles_layout::not_covered_losses(plans));
+        }
+        // A replayed import has committed already, so it returns no commands, only its losses.
         let commands = if replayed {
             // The document is the one the commit produced: the losses the group mapping
             // reported then are found again from it, so a replay reports what the import did.
             losses.extend(replayed_group_losses(read, target));
             Vec::new()
         } else {
-            import_commands(read, &self.p.source, target, &mut losses)?
+            import_commands(read, &self.p.source, target, plans.as_deref(), &mut losses)?
         };
         Ok(Staged {
             commands,
@@ -845,7 +880,7 @@ mod command_index_tests {
     fn a_configuration_names_the_command_that_made_its_double_bond() {
         let read = trans_difluoroethene();
         let view = empty_view();
-        let grid = grid_commands(&read, &view).expect("a grid");
+        let grid = grid_commands(&read, &view, None).expect("a grid");
         assert!(
             grid.commands[..grid.first_bond]
                 .iter()
@@ -857,7 +892,8 @@ mod command_index_tests {
                 .all(|command| matches!(command, Command::AddBond { .. }))
         );
         let mut losses = Vec::new();
-        let commands = import_commands(&read, "F/C=C/F", &view, &mut losses).expect("commands");
+        let commands =
+            import_commands(&read, "F/C=C/F", &view, None, &mut losses).expect("commands");
         let Some(Command::SetBondConfiguration {
             bond: BondRef::Created(named),
             ..

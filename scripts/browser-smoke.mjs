@@ -5032,10 +5032,13 @@ step = 'after short_wide_bond_is_selectable'
       assert.equal(await cipState.textContent(), 'Switch on atom or bond stereo labels to compute CIP labels for the stored configurations.')
       assert.match(await panel.textContent(), /CIP labels describe the stored configuration, not the drawing\./)
       assert.doesNotMatch(await agreePage.locator('body').textContent(), /No CIP label is computed/)
-      await agreePage.waitForFunction(async (id) => {
-        const current = await (await fetch(`/api/v1/documents/${id}`)).json()
-        return current.session.draft_revision === current.document.revision
-      }, cipId)
+      // Poll from Node (autosave waits AUTOSAVE_DELAY_MS = 1 s) until the draft of the shown revision is written, so the snapshot below is settled.
+      for (let tries = 0; ; tries += 1) {
+        const current = await read(cipId)
+        if (current.session.draft_revision === current.document.revision) break
+        assert.ok(tries < 100, 'the autosave draft of the shown revision is written within 10 s')
+        await agreePage.waitForTimeout(100)
+      }
       const untouched = await read(cipId)
 
       await atomSwitch.click()
@@ -5349,10 +5352,13 @@ step = 'after short_wide_bond_is_selectable'
 
       // Group labels: off by default, drawn beside each member on the canvas while the switch is on,
       // never part of the document, and stacked clear of a CIP label.
-      await agreePage.waitForFunction(async (id) => {
-        const current = await (await fetch(`/api/v1/documents/${id}`)).json()
-        return current.session.draft_revision === current.document.revision
-      }, groupsId)
+      // Poll from Node (autosave waits AUTOSAVE_DELAY_MS = 1 s) until the draft of the shown revision is written, so the snapshot below is settled.
+      for (let tries = 0; ; tries += 1) {
+        const current = await read(groupsId)
+        if (current.session.draft_revision === current.document.revision) break
+        assert.ok(tries < 100, 'the autosave draft of the shown revision is written within 10 s')
+        await agreePage.waitForTimeout(100)
+      }
       const beforeLabels = await read(groupsId)
       assert.equal(await labels.count(), 0)
       await groupSwitch.click()

@@ -377,7 +377,20 @@ fn a_double_bond_served_by_its_neighbour_adds_no_record_and_no_loss() {
         .iter()
         .map(|loss| loss["feature"].as_str().unwrap())
         .collect();
-    assert_eq!(features, ["generated_layout"], "{done}");
+    assert_eq!(
+        features,
+        ["generated_layout", "layout_not_covered"],
+        "{done}"
+    );
+    let fallback = &done["loss_report"][1];
+    assert_eq!(fallback["source_path"], "atoms[1, 2, 3, 4, 5, 6]", "{done}");
+    assert!(
+        fallback["reason"]
+            .as_str()
+            .unwrap()
+            .contains("stereo_in_layout"),
+        "{done}"
+    );
 }
 
 #[test]
