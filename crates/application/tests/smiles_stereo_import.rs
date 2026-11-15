@@ -366,7 +366,7 @@ fn every_double_bond_of_a_conjugated_chain_is_stored() {
 }
 
 #[test]
-fn a_double_bond_served_by_its_neighbour_adds_no_record_and_no_loss() {
+fn a_double_bond_served_by_its_neighbour_adds_no_record_and_only_the_layout_fallback_loss() {
     let (app, _dir, id) = setup();
     let done = import(&app, &id, 0, "C/C=C/C=CC");
     assert_eq!(done["document_revision"], 1, "{done}");

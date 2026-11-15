@@ -73,6 +73,7 @@ pub(super) fn placements(read: &SmilesRead, bond_length_pt: f64) -> Option<Vec<C
     // in command order.
     let ids: Vec<AtomId> = scratch.atoms().map(|(id, _)| id).collect();
     if ids.len() != read.atoms.len() {
+        debug_assert!(false, "the scratch document holds one atom per read atom");
         return None;
     }
     let instance = scratch.first_instance();
@@ -141,6 +142,7 @@ fn plan(
                 .map(|placement| (placement.after.x(), placement.after.y()))
                 .collect();
             if shape.len() != atoms.len() {
+                debug_assert!(false, "a laid-out component has one position per atom");
                 return None;
             }
             Some(ComponentPlan {
@@ -178,6 +180,11 @@ pub(super) fn pack(
     let (mut cursor, mut row_top, mut row_height) = (x0, y0, 0.0_f64);
     let mut row_has_box = false;
     for plan in plans {
+        debug_assert_eq!(
+            plan.atoms.len(),
+            plan.shape.len(),
+            "one local position per atom"
+        );
         let Some((&(first_x, first_y), rest)) = plan.shape.split_first() else {
             continue;
         };
