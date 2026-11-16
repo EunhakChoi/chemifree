@@ -1,9 +1,9 @@
 //! The format-neutral placement of the components of a coordinate-free import (CONTRACT, P48 S1
 //! and S2): the grid, the components of a graph, the layout of one component on a scratch document
-//! that is never stored, the shelf packing, the origin below the existing drawing and the
-//! `layout_not_covered` losses.
+//! that is never stored, the shelf packing, the origin below the existing drawing, the
+//! `layout_not_covered` losses and the `generated_layout_overlap` losses of laid-out components.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use chemifree_domain::document::{AtomId, Command, Document, DocumentId};
 use chemifree_domain::layout::{self, Scope};
@@ -22,6 +22,13 @@ const GRID_COLUMNS: usize = 10;
 /// starts them at (40, 40).
 const GAP_BELOW_DRAWING: f64 = 60.0;
 const EMPTY_DRAWING_ORIGIN: f64 = 40.0;
+
+/// Two non-bonded atoms of a laid-out component closer than this many bond lengths overlap
+/// (CONTRACT, P48 S4). The import reports them as a loss; P42's `layout::OVERLAP_FACTOR` (0.5)
+/// is a different rule and is not used here.
+const IMPORT_OVERLAP_FACTOR: f64 = 0.3;
+/// The most overlapping pairs one `generated_layout_overlap` reason lists; its count stays exact.
+const MAX_LISTED_PAIRS: usize = 20;
 
 /// Grid positions in input order: the k-th of `count` items (k from 0) sits in column
 /// `k % GRID_COLUMNS` and row `k / GRID_COLUMNS`, each step `GRID_SPACING` pt apart.
@@ -57,6 +64,10 @@ pub(super) struct ComponentPlan {
     pub(super) shape: Vec<(f64, f64)>,
     /// Why the component is not laid out, as a `Fallback`; `None` when laid out.
     pub(super) fallback: Option<Fallback>,
+    /// The non-bonded atom pairs of a laid-out component closer than `IMPORT_OVERLAP_FACTOR` bond
+    /// lengths (CONTRACT, P48 S4): 0-based input-index pairs, ascending, smaller index first.
+    /// Empty unless laid out.
+    pub(super) overlaps: Vec<(usize, usize)>,
 }
 
 /// The connected components of a graph of `atom_count` atoms joined by `edges`, each as its
@@ -141,10 +152,27 @@ pub(super) fn plan(
                 debug_assert!(false, "a laid-out component has one position per atom");
                 return None;
             }
+            // Overlaps are measured on the component's own shape: packing only translates it, and
+            // the shape exists on replay too (CONTRACT, P48 S4).
+            let local: BTreeMap<AtomId, usize> =
+                ids.iter().enumerate().map(|(k, &id)| (id, k)).collect();
+            let bonded: BTreeSet<(usize, usize)> = scratch
+                .bonds()
+                .filter_map(|(_, bond)| {
+                    let begin = *local.get(&bond.begin)?;
+                    let end = *local.get(&bond.end)?;
+                    Some((begin.min(end), begin.max(end)))
+                })
+                .collect();
+            let overlaps = overlap_pairs(&shape, &bonded, settings.bond_length_pt)
+                .into_iter()
+                .map(|(i, j)| (atoms[i], atoms[j]))
+                .collect();
             Some(ComponentPlan {
                 atoms,
                 shape,
                 fallback: None,
+                overlaps,
             })
         }
         Err(error) => {
@@ -153,9 +181,31 @@ pub(super) fn plan(
                 atoms,
                 shape,
                 fallback: Some(Fallback::Grid(error.reason())),
+                overlaps: Vec::new(),
             })
         }
     }
+}
+
+/// The pairs `(i, j)`, i < j, of local indices into `shape` that no bond joins (`bonded` holds
+/// `(min, max)` pairs) and that lie closer than `IMPORT_OVERLAP_FACTOR * bond_length_pt`, strictly,
+/// in ascending lexicographic order (CONTRACT, P48 S4). At most 500 atoms reach it, so the
+/// quadratic scan is bounded.
+fn overlap_pairs(
+    shape: &[(f64, f64)],
+    bonded: &BTreeSet<(usize, usize)>,
+    bond_length_pt: f64,
+) -> Vec<(usize, usize)> {
+    let limit = IMPORT_OVERLAP_FACTOR * bond_length_pt;
+    let mut pairs = Vec::new();
+    for (i, &(xi, yi)) in shape.iter().enumerate() {
+        for (j, &(xj, yj)) in shape.iter().enumerate().skip(i + 1) {
+            if !bonded.contains(&(i, j)) && f64::hypot(xj - xi, yj - yi) < limit {
+                pairs.push((i, j));
+            }
+        }
+    }
+    pairs
 }
 
 /// The position of every input atom, indexed by its input index, with the first box at `origin`:
@@ -176,6 +226,7 @@ pub(super) fn positions(
                 atoms: (0..atom_count).collect(),
                 shape: grid_shape(atom_count),
                 fallback: None,
+                overlaps: Vec::new(),
             };
             pack(
                 std::slice::from_ref(&whole),
@@ -272,6 +323,46 @@ pub(super) fn not_covered_losses(plans: &[ComponentPlan], path_prefix: &str) -> 
     losses
 }
 
+/// The `generated_layout_overlap` losses of the laid-out components, in layout order: one for each
+/// component with a non-bonded atom pair closer than `IMPORT_OVERLAP_FACTOR` bond lengths
+/// (CONTRACT, P48 S4). The reason counts every pair and lists the first `MAX_LISTED_PAIRS`.
+/// `path_prefix` is used as in [`not_covered_losses`].
+pub(super) fn overlap_losses(plans: &[ComponentPlan], path_prefix: &str) -> Vec<Loss> {
+    let mut losses = Vec::new();
+    for plan in plans {
+        if plan.overlaps.is_empty() {
+            continue;
+        }
+        let atoms: BTreeSet<usize> = plan.overlaps.iter().flat_map(|&(i, j)| [i, j]).collect();
+        let atoms: Vec<String> = atoms.iter().map(|atom| (atom + 1).to_string()).collect();
+        let count = plan.overlaps.len();
+        let listed: Vec<String> = plan
+            .overlaps
+            .iter()
+            .take(MAX_LISTED_PAIRS)
+            .map(|(i, j)| format!("{}-{}", i + 1, j + 1))
+            .collect();
+        let more = if count > MAX_LISTED_PAIRS {
+            format!(", and {} more", count - MAX_LISTED_PAIRS)
+        } else {
+            String::new()
+        };
+        losses.push(Loss {
+            feature: "generated_layout_overlap".into(),
+            source_path: format!("{path_prefix}atoms[{}]", atoms.join(", ")),
+            disposition: LossDisposition::Normalized,
+            reason: format!(
+                "Non-bonded atom pairs closer than 0.3 bond lengths in the generated layout ({}): {count} ({}{more}). Overlaps are reported, not resolved; the generated positions are kept.",
+                layout::MODEL_ID,
+                listed.join(", ")
+            ),
+            semantic_impact: SemanticImpact::Geometry,
+            consent: LossConsent::NotRequired,
+        });
+    }
+    losses
+}
+
 /// The top-left corner of the first box of an import into `target`: the leftmost x of the drawing,
 /// and 60 pt below its largest y, over its atoms, graphic points, image corners and caption
 /// anchors. An empty drawing starts at (40, 40).
@@ -307,3 +398,6 @@ pub(super) fn origin(target: &DocumentView) -> (f64, f64) {
             |(left, bottom)| (left, bottom + GAP_BELOW_DRAWING),
         )
 }
+
+#[cfg(test)]
+mod tests;

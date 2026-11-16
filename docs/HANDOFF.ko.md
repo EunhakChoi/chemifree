@@ -1,5 +1,14 @@
 # Chemifree 새 세션 인계
 
+## P48 S4: 생성 배치 겹침 보고 (T1)
+
+사용자 결정(2026-11-16): Opus 추천대로 기준 0.3b, 보고만(동의 없음), 생성한 원자만 본다. 사양은 Opus가 정했고(V1–V31, Lead questions 없음) 기준 문서는 CONTRACT "Layout of imported components (P48 S1)"의 **Overlaps (P48 S4)**와 "Layout of coordinate-free records (P48 S2)"다.
+
+- 규칙: P42 엔진이 배치한 성분 안에서 결합 없는 원자 쌍의 거리가 0.3b보다 작으면(엄격한 `<`) 성분마다 `generated_layout_overlap` 손실 하나(`atoms[...]`, MOL은 `records[N].atoms[...]`, normalized/geometry, 동의 불필요). 사유에 정확한 쌍 수와 앞의 20쌍. 좌표는 바꾸지 않는다. 격자·한 점 성분, 성분 사이, 기존 원자는 보지 않는다(포장 간격 2b와 60 pt 시작점, b ≤ 200이라 겹칠 수 없음). P42의 `layout_overlap`(0.5b, 경고)과 달리 손실이다: 성공 응답의 진단은 웹 SMILES 클립보드 확인이 거절하고, 손실은 다이제스트·재전송·손실 목록에 이미 들어간다.
+- 동의: SMILES는 그대로 `accept_loss` 없이 커밋된다. MOL은 `generated_layout` 때문에 이미 `accept_loss`가 필요해 결과가 같다. 사양 V19의 "MOL 거절 `details.losses`에도 나온다"는 오늘 MOL 거절이 `{record}`만 싣는 것과 맞지 않아 SMILES·내보내기에만 해당하는 것으로 좁혔다(MOL 거절의 손실 목록은 범위 밖).
+- R1 다이제스트 `0x54bee8918bc4a96c`는 그대로이고 다시 기록하지 않았다(겹치는 조각 없음).
+- 검사: `import_layout/tests.rs`(단위), `crates/application/tests/import_layout_overlap.rs`(10: TTBM 4쌍, TNPM으로 0.3b와 0.5b 구분, 성분 순서, 격자·한 점 제외, MOL 경로·재전송·SMILES와 비트 동일), conformance `smiles-import-layout-overlap`(121건). 가드 변이(기준 0.5, `<=`, 결합 검사 제거, 격자 검사, 0 기준 번호, 동의 필요, MOL 호출 제거, 상한 20) 모두 잡힘.
+
 ## P48 S3: 웹 Import 카드 하나 (T1)
 
 사용자 결정(2026-11-16): Opus 추천 화면 구성(자동 판별 + 수동 변경, CDXML/CDX는 지금처럼 새 문서)대로 진행한다. 사양은 Opus가 정했고(I1–I25) 기준 문서는 CONTRACT의 client policy "Web Import card (P48 S3; no service change)"다. 사양의 Lead questions Q1–Q4는 상시 지시에 따라 리드가 Opus 추천대로 정했다: 고르거나 놓은 CDXML/CDX 파일도 **Read … pages and molecules**를 눌러야 보내고, 붙여넣은 SDF는 기존 파일 경로(같은 연산)로 보내며, 가져온 뒤 원본을 지우는 규칙은 형식별로 오늘 그대로 두고, 사용자가 고른 형식은 타이핑해도 유지한다(새 파일·클립보드 읽기·Clear·빈 텍스트에서 초기화).
@@ -9,7 +18,7 @@
 - 빈 화면: SMILES·MOL·SDF도 판별하지만 "열린 문서가 필요" 안내만 보이고 보내지 않는다. 미해결 SMILES·MOL 가져오기는 형식을 바꿔도 카드에 남는다.
 - 검사: 새 client check `web-import-detect-client-check.mjs`·`web-import-decode-client-check.mjs`, 새 smoke 단계 "Import card"(`scripts/lib/import-card-smoke.mjs`, 결과 키 `import_*` 9개, `editor-import-card.png`). 기존 SMILES·MOL·CDXML 브라우저 검사와 smoke 단계는 locator만 카드로 옮겼고 결과 키·단언은 그대로다. 변이와 리뷰 처리: `docs/verification/p48-s3-import-card.md`.
 - 리뷰 중 판단: 열린 문서에서 불확실한 CDXML 생성 시도를 지운 뒤 미리보기가 남는다는 지적은 재현되지 않았다. 지우기 버튼은 서비스 재시작이 감지된 뒤에만 나오고, 재시작은 세대를 바꿔 옛 미리보기를 숨긴다(`cdxml-import.tsx`의 `prepared.generation` 비교). 이를 확인하는 단언을 `web-cdxml-import-check.mjs`에 더했다.
-- 후속: 통합 내보내기 UI, CDXML·CDX 배치, 겹침 보고(P48 S4 후보).
+- 후속: 통합 내보내기 UI, CDXML·CDX 배치(겹침 보고는 S4에서 처리).
 
 ## P48 S2: 좌표 없는 MOL/SDF 배치 (T1)
 
@@ -30,7 +39,7 @@
 - 코드: `crates/application/src/operations/smiles_layout.rs`(새), `smiles.rs`. 검사: `crates/application/tests/smiles_import_layout.rs`, `smiles_import_layout_fallback.rs`, `smiles_stereo_import.rs` 갱신, 웹 모의 좌표(`web-smiles-clipboard-check.mjs`).
 - 납품: #277(병합 `d7ea7da5`, main CI 성공).
 - 정리(#278, 동작 불변): 격자 경로 하나로 합침, 그래프 명령 생성기 공유, 격자 상수를 `smiles_layout.rs`로, 성분마다 그 성분만 담은 임시 문서에서 배치. `smiles_import_layout_equivalence.rs`(합쳐 가져온 성분과 따로 가져온 성분의 모양이 같다, 1e-9)는 main 코드와 이 코드 모두에서 통과하고, main과의 비트 단위 동일성은 main(`d7ea7da5`)에서 기록한 다이제스트 `smiles_import_layout_digest.rs`가 보인다(다시 기록하려면 세 생산 파일을 main 것으로 되돌린 복사본에서 실행해 출력된 값을 쓴다), 방향족 변환과 배치 적용이 계산 전 잠금(`copy_for_compute`)과 잠금 아래 커밋(`commit_computed`)을 공유한다. 진단을 담는 재전송 기록(#273 후속)은 아직이다.
-- 남은 것(P48): 통합 가져오기/내보내기 UI, CDXML·CDX, 겹침 보고, 입체 성분 배치(MOL은 S2에서 처리).
+- 남은 것(P48): 통합 내보내기 UI, CDXML·CDX, 입체 성분 배치(MOL은 S2, 가져오기 UI는 S3, 겹침 보고는 S4에서 처리).
 
 ## P42 S4: 배치 웹 UI (T1)
 
@@ -1177,7 +1186,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 65, partial 16, unverified 3, not_implemented 33) · conformance 사례 120개(passed 120: accept 88·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 65, partial 16, unverified 3, not_implemented 33) · conformance 사례 121개(passed 121: accept 89·reject 32, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, MODEL-03, CODEC-01, CODEC-02, CODEC-03, CODEC-05, CODEC-06, OPS-01, OPS-02, CHEM-01, CHEM-02, STEREO-01, LAYOUT-01, LAYOUT-02, LAYOUT-03, RENDER-01, STYLE-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

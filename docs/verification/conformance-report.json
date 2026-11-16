@@ -234,6 +234,19 @@
       "case_sha256": "00138721c2c70e6ad59d6189549703e119a798fd46b43e7d4c58011e6789667d"
     },
     {
+      "id": "smiles-import-layout-overlap",
+      "title": "An overlapping SMILES layout reports generated_layout_overlap and commits without accepting a loss",
+      "requirements": [
+        "CODEC-06"
+      ],
+      "axis": "encoding",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "1ab65236d940c0b111de6714dc7c48b379b945d260d141ab554460b1df64d583"
+    },
+    {
       "id": "graph-scene-separation",
       "title": "Chemical graph and scene positions are kept and compared separately: a second scene instance of the same graph moves independently, chemistry and the first instance stay, and undo restores each step",
       "requirements": [
@@ -1641,7 +1654,7 @@
   ],
   "counts": {
     "accept": {
-      "passed": 88,
+      "passed": 89,
       "failed": 0,
       "not_run": 0
     },
@@ -1651,7 +1664,7 @@
       "not_run": 0
     },
     "total": {
-      "passed": 120,
+      "passed": 121,
       "failed": 0,
       "not_run": 0
     }
