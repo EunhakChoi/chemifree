@@ -3585,9 +3585,20 @@ step = 'after short_wide_bond_is_selectable'
   await crashApi()
   unexpectedDownloads = 0
   page.on('download', countDownload)
-  await panel.getByRole('button', { name: 'Download CDXML', exact: true }).click()
-  await panel.getByRole('alert').filter({ hasText: 'The drawing or service changed. Preview the export again.' }).waitFor()
+  // The page may notice the restart before the click and hide the prepared result itself; either
+  // way the old result must not be downloaded. A click that lands must show the stale alert.
+  const staleDownload = panel.getByRole('button', { name: 'Download CDXML', exact: true })
+  let clicked = false
+  try {
+    await staleDownload.click({ timeout: 5000 })
+    clicked = true
+  } catch (error) {
+    if (await staleDownload.count() !== 0) throw error
+  }
+  if (clicked) await panel.getByRole('alert').filter({ hasText: 'The drawing or service changed. Preview the export again.' }).waitFor()
+  await staleDownload.waitFor({ state: 'detached' })
   assert.equal(await panel.getByRole('button', { name: 'Download CDXML', exact: true }).count(), 0)
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   assert.equal(unexpectedDownloads, 0, 'a new service process must not download an older prepared result')
   page.off('download', countDownload)
   results.interchange_export_service_generation = true

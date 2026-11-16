@@ -39,7 +39,7 @@ function Harness() {
       <AromaticityPanel document={shown} editor={editor} />
       <IdentityPanel document={shown} editor={editor} />
       <SubstructurePanel document={shown} editor={editor} />
-      <ExportCard document={shown} editor={editor} />
+      <ExportCard key={'export-' + shown.id} document={shown} editor={editor} />
       <LayoutHarness shown={shown} editor={editor} />
     </main>}
   </>

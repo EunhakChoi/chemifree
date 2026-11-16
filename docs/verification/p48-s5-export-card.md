@@ -15,11 +15,11 @@ Scope: one web Export card replaces the four export panels (client policy "Web E
 ## New checks
 
 - `scripts/web-export-formats-client-check.mjs`: format order and labels, `parseExportFormat`, `exportFileName`, and that each download name is detected as the same format by the Import card (SVG detects nothing).
-- Smoke step "Export card" (`scripts/lib/export-card-smoke.mjs`, `scripts/lib/export-card-reopen-smoke.mjs`): `export_card_single_entry`, `export_format_switch_drops_result`, `export_cancel_by_switch_sends_no_file`, `export_files_leave_history_unchanged`, `export_mol_file_reopens`, `export_corrupt_file_refused_history_kept`, `import_clear_cancels_preview_history_kept`, `export_sdf_file_reopens`, `export_cdxml_file_reopens`, `export_cdx_file_reopens`, `export_smiles_text_reopens`, `export_svg_file_is_not_importable`, `export_card_absent_on_empty_screen`; screenshot `editor-export-card.png`.
+- Smoke step "Export card" (`scripts/lib/export-card-smoke.mjs`, `scripts/lib/export-card-reopen-smoke.mjs`): `export_card_single_entry`, `export_format_switch_drops_result`, `export_cancel_by_switch_sends_no_file` (a held preview reply and a held download re-check, both dropped by a format switch), `export_files_leave_history_unchanged`, `export_mol_file_reopens`, `export_corrupt_file_refused_history_kept`, `import_clear_cancels_preview_history_kept`, `export_sdf_file_reopens`, `export_cdxml_file_reopens`, `export_cdx_file_reopens`, `export_smiles_text_reopens`, `export_svg_file_is_not_importable`, `export_card_absent_on_empty_screen`; screenshot `editor-export-card.png`.
 
 ## Migrated checks
 
-`web-smiles-clipboard-check.mjs`, `web-mol-clipboard-check.mjs`, `web-cdxml-clipboard-check.mjs`, `web-compute-stop-check.mjs`, `scripts/lib/import-card-smoke.mjs` (`import_card_single_entry`) and the smoke steps `ctfile_export_response_race`, `ctfile_preview_import_export`, `ctfile_v3000_version_consent_roundtrip`, `interchange_export_consent_binary_and_groups`, `interchange_export_response_race`, `interchange_export_service_generation`, `svg_export_download`, `svg_export_consent_and_stale_guards`, `smiles_panel` now reach the export controls through the Export card (`exportCard(page, format)`). Results keys and assertions are kept; where a step used both CDXML and CDX buttons of one panel, it now selects the other format first, which drops the previous preview as the card promises.
+`web-smiles-clipboard-check.mjs`, `web-mol-clipboard-check.mjs`, `web-cdxml-clipboard-check.mjs`, `web-compute-stop-check.mjs`, `scripts/lib/import-card-smoke.mjs` (`import_card_single_entry`) and the smoke steps `ctfile_export_response_race`, `ctfile_preview_import_export`, `ctfile_v3000_version_consent_roundtrip`, `interchange_export_consent_binary_and_groups`, `interchange_export_response_race`, `interchange_export_service_generation`, `svg_export_download`, `svg_export_consent_and_stale_guards`, `smiles_panel` now reach the export controls through the Export card (`exportCard(page, format)`). Results keys and assertions are kept. Where a step used both CDXML and CDX buttons of one panel, it now selects the other format first; the assertions 'a different format replaces the old preview' and 'acceptance is scoped to the selected format' still hold, but now through the remount, so they no longer exercise one flow holding two kinds at once (a flow now serves one format per mount).
 
 ## P48 acceptance, clause by clause
 
@@ -42,7 +42,15 @@ Scope: one web Export card replaces the four export panels (client policy "Web E
 | X1 | `exportFileName('cdx')` returns `chemifree.cdxml` | client check (file name and reopen-detection cases) |
 | X2 | `parseExportFormat` accepts `'png'` | client check (refuse case) |
 
-X3–X9 (smoke guards) are recorded in the PR.
+| X3 | CT and interchange flows keyed by family instead of format | smoke `export_format_switch_drops_result`: "a format switch drops the MOL result" |
+| X4 | `onChoiceChange(next)` not called (`void onChoiceChange`, since a plain removal fails `noUnusedParameters`) | the same key: "the MOL version is kept for the drawing" |
+| X5 | `onStyleChange(next)` not called (same variant) | the same key: "the SMILES form is kept for the drawing" |
+| X6 | the CT flow renders both preview buttons | the same key: "MOL does not offer the SDF preview" |
+| X7 | the format starts as `'mol'` | `export_card_single_entry`: "no format is chosen by default" |
+| X8 | the CT flow key made constant | `export_format_switch_drops_result` (the run stops there, before `export_cancel_by_switch_sends_no_file`) |
+| X9 | CDX downloaded as the base64 text | "CDXML and CDX drawing export consent and binary download": "download contains CDX bytes, never the base64 transport text" (an earlier step than the spec named) |
+
+Each mutation ran the full smoke in a throwaway worktree at 283cf9ba and was restored (cmp against HEAD).
 
 ## Reviews
 

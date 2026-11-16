@@ -54,7 +54,7 @@ export function ExportCard({ document, editor }: { document: DocumentView; edito
           <option value="" disabled>Choose a format</option>
           {EXPORT_FORMATS.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
         </select>
-        <FieldDescription>Changing the format drops a prepared result; the MOL version and SMILES form are kept for this drawing.</FieldDescription>
+        <FieldDescription>Changing the format drops a prepared result and a download still being checked; the MOL version and SMILES form are kept while this drawing stays open and are not saved in it.</FieldDescription>
       </Field>
       {renderFlow()}
     </section>

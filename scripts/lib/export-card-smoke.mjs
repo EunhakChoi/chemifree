@@ -163,11 +163,14 @@ export async function exportCardSmoke({ page, api, apiWrite, outDir, work, resul
     const answered = new Promise((resolve) => { finish = resolve })
     const hold = async (route) => {
       if (route.request().postDataJSON()?.operation !== 'document.export') return route.continue()
-      const response = await route.fetch()
-      arrive()
-      await released
-      await route.fulfill({ response })
-      finish()
+      try {
+        const response = await route.fetch()
+        arrive()
+        await released
+        await route.fulfill({ response })
+      } finally {
+        finish()
+      }
     }
     let downloads = 0
     const countDownload = () => { downloads += 1 }
@@ -185,6 +188,45 @@ export async function exportCardSmoke({ page, api, apiWrite, outDir, work, resul
       assert.equal(await region.getByRole('button', { name: /^Download / }).count(), 0, 'no download button appears after the switch')
       assert.deepEqual(await snap(sourceId), original, 'the drawing and its history are unchanged by the cancelled export')
     } finally {
+      release()
+      await page.unroute('**/api/v1/operations', hold)
+    }
+    // A download already clicked re-checks the export first; switching the format while that
+    // re-check is held drops it, so no file is saved for a format the user left.
+    await choose('mol')
+    await region.getByRole('button', { name: 'Preview MOL export', exact: true }).click()
+    const downloadMol = region.getByRole('button', { name: 'Download MOL', exact: true })
+    await downloadMol.waitFor()
+    let recheckArrive
+    const recheckReached = new Promise((resolve) => { recheckArrive = resolve })
+    let recheckRelease
+    const recheckReleased = new Promise((resolve) => { recheckRelease = resolve })
+    let recheckFinish
+    const recheckAnswered = new Promise((resolve) => { recheckFinish = resolve })
+    const holdRecheck = async (route) => {
+      if (route.request().postDataJSON()?.operation !== 'document.export') return route.continue()
+      try {
+        const response = await route.fetch()
+        recheckArrive()
+        await recheckReleased
+        await route.fulfill({ response })
+      } finally {
+        recheckFinish()
+      }
+    }
+    await page.route('**/api/v1/operations', holdRecheck)
+    try {
+      await downloadMol.click()
+      await recheckReached
+      await choose('sdf')
+      recheckRelease()
+      await recheckAnswered
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+      assert.equal(downloads, 0, 'a MOL download whose re-check returns after the switch saves no file')
+      assert.deepEqual(await snap(sourceId), original, 'the drawing and its history are unchanged by the dropped download')
+    } finally {
+      recheckRelease()
+      await page.unroute('**/api/v1/operations', holdRecheck)
       release()
       await page.unroute('**/api/v1/operations', hold)
       page.off('download', countDownload)
