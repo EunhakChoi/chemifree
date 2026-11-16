@@ -1,6 +1,6 @@
-// Real Import card, SMILES flow, SMILES export panel, editor and client with HTTP and clipboard
+// Real Import card, SMILES flow, SMILES format of the Export card, editor and client with HTTP and clipboard
 // boundaries scripted. The card owns the source text, reads, preview, consent and recovery; the
-// SMILES panel only writes and copies. This checks transport, consent and recovery, not the
+// SMILES format of the Export card only writes and copies. This checks transport, consent and recovery, not the
 // independent SMILES parser or chemical correctness.
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
@@ -14,7 +14,7 @@ const fixture = `
 import React, { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ImportCard } from '/src/components/import-card.tsx'
-import { SmilesPanel } from '/src/components/smiles-panel.tsx'
+import { ExportCard } from '/src/components/export-card.tsx'
 import { NativeClipboardPanel } from '/src/components/native-clipboard-panel.tsx'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
 import '/src/index.css'
@@ -24,7 +24,7 @@ function Harness() {
   window.smilesHarness = { editor, select: (ids) => editor.setSelection(new Set(ids)) }
   return <><output aria-label="Current document">{editor.current?.document.id ?? 'loading'}</output>
     {editor.current && <><ImportCard key={'import-' + editor.current.document.id} document={editor.current.document} editor={editor} />
-      <SmilesPanel key={editor.current.document.id} document={editor.current.document} editor={editor} />
+      <ExportCard key={'export-' + editor.current.document.id} document={editor.current.document} editor={editor} />
       <NativeClipboardPanel key={'native-' + editor.current.document.id} document={editor.current.document} editor={editor} activePlacement="s1" /></>}
   </>
 }
@@ -189,11 +189,16 @@ try {
   })
   await page.goto(`http://127.0.0.1:${address.port}/smiles-clipboard-check`)
   await page.getByLabel('Current document').filter({ hasText: 'drawing' }).waitFor()
-  const panel = page.getByRole('complementary', { name: 'SMILES', exact: true })
+  const panel = page.getByRole('region', { name: 'Export', exact: true })
   const card = page.getByRole('region', { name: 'Import', exact: true })
   const source = card.getByRole('textbox', { name: 'Text to import', exact: true })
   assert.deepEqual(await page.evaluate(() => window.smilesClipboard.reads), [])
   assert.equal(requests.length, 0)
+  await panel.getByRole('combobox', { name: 'Export format', exact: true }).selectOption('smiles')
+  // A request the selection starts can reach the route after selectOption returns. The session read
+  // is reported after it, so the count below sees that request.
+  await page.evaluate(() => fetch('/api/v1/session').then((response) => response.text()))
+  assert.equal(requests.length, 0, 'choosing a format sends nothing')
   await page.evaluate(() => window.smilesHarness.select(['a2', 's1']))
 
   // The whole graph writer ignores atom/scene selection; clipboard write needs a distinct

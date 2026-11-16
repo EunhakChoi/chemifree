@@ -10,7 +10,7 @@ import { keepRequestInterception } from './lib/request-interception.mjs'
 const fixture = `
 import React, { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
-import { InterchangeExportPanel } from '/src/components/interchange-export-panel.tsx'
+import { ExportCard } from '/src/components/export-card.tsx'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
 import '/src/index.css'
 function Harness() {
@@ -19,7 +19,7 @@ function Harness() {
   window.cdxmlHarness = { editor }
   return <main className="p-4"><output aria-label="Current document">{editor.current?.document.id ?? 'loading'}</output>
     <output aria-label="Service generation">{editor.serviceGeneration}</output>
-    {editor.current && <InterchangeExportPanel key={editor.current.document.id} document={editor.current.document} editor={editor} />}
+    {editor.current && <ExportCard key={'export-' + editor.current.document.id} document={editor.current.document} editor={editor} />}
   </main>
 }
 createRoot(document.getElementById('root')).render(<Harness />)
@@ -106,13 +106,17 @@ try {
     } })
   })
   await page.goto(`http://127.0.0.1:${address.port}/cdxml-clipboard-check`)
-  const panel = page.getByRole('complementary', { name: 'CDXML and CDX export' })
+  const panel = page.getByRole('region', { name: 'Export', exact: true })
+  const formatSelect = panel.getByRole('combobox', { name: 'Export format', exact: true })
+  const chooseExport = (format) => formatSelect.selectOption(format)
   const copy = panel.getByRole('button', { name: 'Copy CDXML to clipboard', exact: true })
   const text = panel.getByLabel('Prepared CDXML text', { exact: true })
   await panel.waitFor()
   assert.equal(requests.length, 0)
   assert.deepEqual(await page.evaluate(() => window.cdxmlClipboard.writes), [])
   assert.equal(await copy.count(), 0)
+  await chooseExport('cdxml')
+  assert.equal(requests.length, 0, 'choosing a format sends nothing')
   await page.evaluate(() => window.cdxmlHarness.editor.setSelection(new Set(['a1'])))
   await panel.getByRole('button', { name: 'Preview CDXML export', exact: true }).click()
   await panel.getByRole('button', { name: 'Accept these losses and preview CDXML', exact: true }).waitFor()
@@ -151,6 +155,7 @@ try {
   await copy.click()
   await panel.getByRole('alert').filter({ hasText: 'Clipboard writing is unavailable.' }).waitFor()
   assert.equal(await text.inputValue(), content, 'API absence retains manual fallback')
+  await chooseExport('cdx')
   await panel.getByRole('button', { name: 'Preview CDX export', exact: true }).click()
   await panel.getByRole('button', { name: 'Accept these losses and preview CDX', exact: true }).click()
   await panel.getByRole('button', { name: 'Download CDX', exact: true }).waitFor()
@@ -159,6 +164,7 @@ try {
 
   // Reload reinstalls the boundary stub; a held old-document write must not populate a new panel.
   await page.reload()
+  await chooseExport('cdxml')
   await panel.getByRole('button', { name: 'Preview CDXML export', exact: true }).click()
   await panel.getByRole('button', { name: 'Accept these losses and preview CDXML', exact: true }).click()
   await copy.waitFor()
@@ -167,11 +173,15 @@ try {
   await page.waitForFunction(() => typeof window.cdxmlClipboard.finish === 'function')
   await page.evaluate(() => window.cdxmlHarness.editor.open('other'))
   await page.getByLabel('Current document', { exact: true }).filter({ hasText: 'other' }).waitFor()
+  await chooseExport('cdxml')
+  assert.equal(await formatSelect.inputValue(), 'cdxml', 'the held reply is checked against a mounted CDXML flow')
   await page.evaluate(() => window.cdxmlClipboard.finish())
   assert.equal(await text.count(), 0)
   assert.equal(await panel.getByText('CDXML text copied.', { exact: true }).count(), 0)
 
   await page.evaluate(() => window.cdxmlHarness.editor.open('drawing'))
+  await page.getByLabel('Current document', { exact: true }).filter({ hasText: 'drawing' }).waitFor()
+  await chooseExport('cdxml')
   await panel.getByRole('button', { name: 'Preview CDXML export', exact: true }).click()
   await panel.getByRole('button', { name: 'Accept these losses and preview CDXML', exact: true }).click()
   await copy.waitFor()

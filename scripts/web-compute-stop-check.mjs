@@ -17,7 +17,7 @@ import { PropertiesPanel } from '/src/components/properties-panel.tsx'
 import { AromaticityPanel } from '/src/components/aromaticity-panel.tsx'
 import { IdentityPanel } from '/src/components/identity-panel.tsx'
 import { SubstructurePanel } from '/src/components/substructure-panel.tsx'
-import { SmilesPanel } from '/src/components/smiles-panel.tsx'
+import { ExportCard } from '/src/components/export-card.tsx'
 import { LayoutPanel } from '/src/components/layout-panel.tsx'
 import { useLayoutPreview } from '/src/hooks/use-layout-preview.ts'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
@@ -39,7 +39,7 @@ function Harness() {
       <AromaticityPanel document={shown} editor={editor} />
       <IdentityPanel document={shown} editor={editor} />
       <SubstructurePanel document={shown} editor={editor} />
-      <SmilesPanel document={shown} editor={editor} />
+      <ExportCard key={'export-' + shown.id} document={shown} editor={editor} />
       <LayoutHarness shown={shown} editor={editor} />
     </main>}
   </>
@@ -248,7 +248,7 @@ try {
   const aromaticity = region('Rings and aromaticity')
   const identity = region('Graph identity')
   const substructure = region('Substructure search')
-  const smiles = page.getByRole('complementary', { name: 'SMILES', exact: true })
+  const smiles = page.getByRole('region', { name: 'Export', exact: true })
   const sent = (operation) => requests.filter((request) => request.operation === operation)
 
   /** Waits until a stop notice in `scope` shows its title and its statement, and returns the notice. */
@@ -315,6 +315,7 @@ try {
   // own retry answers. Recorded and canonical writes send no accepted_losses.
   const writeButton = smiles.getByRole('button', { name: 'Write SMILES', exact: true })
   const written = smiles.getByRole('textbox', { name: 'Written SMILES', exact: true })
+  await smiles.getByRole('combobox', { name: 'Export format', exact: true }).selectOption('smiles')
   await writeButton.click()
   const recordedStop = await showsStop(smiles, 'smiles-stop', LIMIT_TITLE)
   assert.equal(await written.count(), 0)

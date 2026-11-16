@@ -92,14 +92,11 @@ import { buildMark, inspectorWhere, setMark } from '@/editor/mark-gestures'
 import { DocumentStyleButton, PreferencesButton } from '@/components/style-settings'
 import { InterchangeCreationNotice } from '@/components/cdxml-import'
 import { ImportCard } from '@/components/import-card'
-import { CtfilePanel } from '@/components/ctfile-panel'
-import { InterchangeExportPanel } from '@/components/interchange-export-panel'
-import { SvgExportPanel } from '@/components/svg-export-panel'
+import { ExportCard } from '@/components/export-card'
 import { NativeClipboardPanel } from '@/components/native-clipboard-panel'
 import { UserTemplatePanel } from '@/components/user-template-panel'
 import { CaptionPanel } from '@/components/caption-panel'
 import { SceneClipboardPanel } from '@/components/scene-clipboard-panel'
-import { SmilesPanel } from '@/components/smiles-panel'
 import { PropertiesPanel } from '@/components/properties-panel'
 import { AromaticityPanel } from '@/components/aromaticity-panel'
 import { LayoutPanel } from '@/components/layout-panel'
@@ -957,10 +954,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <NativeClipboardPanel key={`clipboard-${document.id}`} document={document} editor={editor} activePlacement={activePlacement} />
           <UserTemplatePanel key={`templates-${document.id}-${editor.serviceGeneration}`} document={document} editor={editor} activePlacement={activePlacement} />
           <ImportCard key={`import-${document.id}`} document={document} editor={editor} />
-          <CtfilePanel key={`ctfile-${document.id}`} document={document} editor={editor} />
-          <InterchangeExportPanel key={`interchange-export-${document.id}`} document={document} editor={editor} />
-          <SvgExportPanel key={`svg-export-${document.id}`} document={document} editor={editor} />
-          <SmilesPanel key={`smiles-${document.id}`} document={document} editor={editor} />
+          <ExportCard key={`export-${document.id}`} document={document} editor={editor} />
           <PropertiesPanel document={document} editor={editor} />
           <AromaticityPanel document={document} editor={editor} />
           <LayoutPanel layout={layoutController} busy={editor.busy} />

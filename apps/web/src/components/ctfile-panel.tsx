@@ -8,8 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { LossList } from '@/components/loss-list'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
-import { afterDownloadFailure, afterExportFailure, CTAB_OPTIONS, DEFAULT_CTAB, MAX_CONSENT_RESTARTS, parseCtabChoice, type CtabChoice } from '@/lib/ct-conversion'
+import { afterDownloadFailure, afterExportFailure, CTAB_OPTIONS, MAX_CONSENT_RESTARTS, parseCtabChoice, type CtabChoice } from '@/lib/ct-conversion'
 import { ApiError, ConsentRequired, MAX_CLIPBOARD_MOL_BYTES, sameConversionSnapshot, type CtFormat, type CtImport, type CtLoss, type CtPreview, type DocumentView } from '@/lib/document-contract'
+import { exportFileName } from '@/lib/export-formats'
 import type { ImportFlowHandle } from '@/lib/import-detect'
 
 interface SourceFile {
@@ -53,10 +54,22 @@ interface ExportOffer {
   generation: number
 }
 
-/** The editor uses the same preview, loss consent and operation contract as other clients. */
-export function CtfilePanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
+/**
+ * The MOL and SDF formats of the Export card, one format per mount. It uses the same preview, loss
+ * consent and operation contract as other clients.
+ */
+export function CtExportFlow({ document, editor, format, initialChoice, onChoiceChange }: {
+  document: DocumentView
+  editor: DocumentEditor
+  /** The one format this mount previews; the card remounts the flow when it changes. */
+  format: CtFormat
+  /** The MOL version the card kept for this drawing from an earlier mount. */
+  initialChoice: CtabChoice
+  /** Tells the card the chosen version, so switching formats and back keeps it. */
+  onChoiceChange: (choice: CtabChoice) => void
+}) {
   const [exported, setExported] = useState<PreparedExport | null>(null)
-  const [choice, setChoice] = useState<CtabChoice>(DEFAULT_CTAB)
+  const [choice, setChoice] = useState<CtabChoice>(initialChoice)
   const [choiceVersion, setChoiceVersion] = useState(0)
   const [offer, setOffer] = useState<ExportOffer | null>(null)
   const [unacceptable, setUnacceptable] = useState<Unacceptable | null>(null)
@@ -103,6 +116,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
     setExported(null)
     setOffer(null)
     clearMessages()
+    onChoiceChange(next)
   }
 
   async function previewExport(format: CtFormat, acceptedStart?: string, changedStart = false) {
@@ -169,7 +183,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
       }
       const anchor = window.document.createElement('a')
       anchor.href = item.url
-      anchor.download = `chemifree.${item.format}`
+      anchor.download = exportFileName(item.format)
       anchor.click()
     } catch (cause) {
       if (!alive.current) return
@@ -232,8 +246,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
     }
   }
 
-  return <Dialog open={molMode !== null} onOpenChange={(open) => { if (!open) closeMolDialog() }}><aside aria-label="MOL and SDF" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3 text-xs">
-    <h3 className="text-sm font-medium">MOL and SDF</h3>
+  return <Dialog open={molMode !== null} onOpenChange={(open) => { if (!open) closeMolDialog() }}><div className="flex min-w-0 flex-col gap-3" data-testid="export-flow" data-format={format}>
     <p className="leading-relaxed text-muted-foreground" data-testid="ctfile-note">Reads and writes bounded V2000 and V3000 MOL and SDF: atoms, coordinates, charges, isotopes, radicals, single, double and triple bonds (V3000 also aromatic), wedge, hash and wavy marks, and (V3000 only) enhanced stereo groups as COLLECTION entries. Query atoms and bonds, S-groups, R-groups, 3D and reactions are refused, never ignored. Stereo that a version cannot carry is listed as a loss to accept before anything is written.</p>
     {molMode === null && molError && <Alert variant="destructive"><AlertDescription>{molError}</AlertDescription></Alert>}
     {error && <p role="alert">{error}</p>}
@@ -251,8 +264,8 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
       <FieldDescription>Your choice for this page only; it is not saved in the drawing.</FieldDescription>
     </Field>
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="outline" disabled={pending > 0 || editor.busy} onClick={() => void previewExport('mol')}>Preview MOL export</Button>
-      <Button size="sm" variant="outline" disabled={pending > 0 || editor.busy} onClick={() => void previewExport('sdf')}>Preview SDF export</Button>
+      {format === 'mol' && <Button size="sm" variant="outline" disabled={pending > 0 || editor.busy} onClick={() => void previewExport('mol')}>Preview MOL export</Button>}
+      {format === 'sdf' && <Button size="sm" variant="outline" disabled={pending > 0 || editor.busy} onClick={() => void previewExport('sdf')}>Preview SDF export</Button>}
     </div>
     {offer && !currentOffer && <p>The drawing or the version changed. Preview the export again.</p>}
     {currentOffer && <div role="group" aria-label="Losses to accept before writing" className="flex max-h-64 flex-col gap-2 overflow-auto" data-testid="ctfile-offer">
@@ -293,7 +306,7 @@ export function CtfilePanel({ document, editor }: { document: DocumentView; edit
         {molStatus && <p role="status">{molStatus}</p>}
       </div>
     </DialogContent>
-  </aside></Dialog>
+  </div></Dialog>
 }
 
 /** The MOL/SDF record import of the Import card: a file, or pasted SDF text, previewed by record. */

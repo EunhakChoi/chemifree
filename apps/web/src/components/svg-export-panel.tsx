@@ -5,9 +5,13 @@ import { Spinner } from '@/components/ui/spinner'
 import { useConsentedExport } from '@/hooks/use-consented-export'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import type { DocumentView, SvgExport } from '@/lib/document-contract'
+import { exportFileName } from '@/lib/export-formats'
 
-/** Offers the whole drawing as an SVG picture under the shared export loss consent. The picture is not an interchange file. */
-export function SvgExportPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
+/**
+ * The SVG picture format of the Export card: offers the whole drawing as an SVG picture under the
+ * shared export loss consent. The picture is not an interchange file.
+ */
+export function SvgExportFlow({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
   const {
     exported,
     current: currentExport,
@@ -24,11 +28,10 @@ export function SvgExportPanel({ document, editor }: { document: DocumentView; e
     editor,
     run: (id, _kind, accepted) => editor.exportSvg(id, accepted),
     blob: (result) => new Blob([result.content], { type: result.media_type }),
-    fileName: () => 'chemifree.svg',
+    fileName: () => exportFileName('svg'),
   })
 
-  return <aside aria-label="SVG drawing export" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3 text-xs">
-    <h3 className="text-sm font-medium">SVG drawing export</h3>
+  return <div className="flex min-w-0 flex-col gap-3" data-testid="export-flow" data-format="svg">
     <p className="leading-relaxed text-muted-foreground" data-testid="svg-export-note">Writes the whole drawing as one SVG picture of its atoms, bonds, labels, scene graphics, PNG images, and captions whose characters are all in a bounded character set. The SVG is a picture, and its graph is not machine-readable, so a drawing with atoms always reports chemical_graph. It is not an interchange file and cannot be imported back: SVG import is refused. Fonts are not embedded and glyphs are not converted to outlines, so the viewer's installed font chooses the glyph shapes. Radical and attachment marks, stereo configurations and groups, label styling, abbreviation displays, caption underlines and captions with other characters are left out or drawn differently and must be accepted first.</p>
     <Button size="sm" variant="outline" disabled={busy} onClick={() => void preview('svg')}>Preview SVG drawing</Button>
     {pending > 0 && <p role="status" className="flex items-center gap-2"><Spinner />Checking export…</p>}
@@ -53,5 +56,5 @@ export function SvgExportPanel({ document, editor }: { document: DocumentView; e
       <LossList losses={currentExport.result.losses} />
       <Button size="sm" disabled={busy} onClick={() => void download(currentExport)}>Download SVG</Button>
     </div>}
-  </aside>
+  </div>
 }

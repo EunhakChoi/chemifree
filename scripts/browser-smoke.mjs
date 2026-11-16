@@ -31,6 +31,7 @@ import { join, resolve } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import { chromium } from 'playwright-core'
 
+import { exportCard, exportCardSmoke } from './lib/export-card-smoke.mjs'
 import { importCardSmoke } from './lib/import-card-smoke.mjs'
 import { keepRequestInterception } from './lib/request-interception.mjs'
 import { observeRequestLog } from './lib/request-log.mjs'
@@ -3215,7 +3216,7 @@ step = 'after short_wide_bond_is_selectable'
   })
   await page.reload()
   await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
-  const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+  const panel = await exportCard(page, 'mol')
   await panel.getByRole('button', { name: 'Preview MOL export' }).click()
   await panel.getByRole('button', { name: 'Download MOL' }).waitFor()
   let arrived
@@ -3263,7 +3264,7 @@ step = 'after short_wide_bond_is_selectable'
   const id = created.body.document.id
   await page.reload()
   await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
-  const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+  const panel = await exportCard(page, 'mol')
   await panel.waitFor()
   const card = page.getByRole('region', { name: 'Import', exact: true })
   const mol = 'Carbon\n\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n' +
@@ -3338,7 +3339,7 @@ step = 'after short_wide_bond_is_selectable'
   const openPanel = async (id) => {
     await page.reload()
     await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
-    const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+    const panel = await exportCard(page, 'mol')
     await panel.waitFor()
     return { panel, card: page.getByRole('region', { name: 'Import', exact: true }) }
   }
@@ -3460,13 +3461,13 @@ step = 'after short_wide_bond_is_selectable'
     assert.equal(drawn.status, 200, JSON.stringify(drawn.body))
     return { id, drawing: drawn.body }
   }
-  const open = async (id) => {
+  const open = async (id, format) => {
     await page.reload()
     await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
-    return page.getByRole('complementary', { name: 'CDXML and CDX export' })
+    return exportCard(page, format)
   }
   const supported = await build('supported', true)
-  let panel = await open(supported.id)
+  let panel = await open(supported.id, 'cdxml')
   assert.match(await panel.getByTestId('interchange-export-note').textContent(), /exporter does not add wedges/)
   assert.match(await panel.getByTestId('interchange-export-note').textContent(), /whole group is omitted/)
   const before = (await api(`/api/v1/documents/${supported.id}`)).document
@@ -3475,6 +3476,7 @@ step = 'after short_wide_bond_is_selectable'
   assert.equal(await panel.getByTestId('interchange-export-offer').count(), 0, 'representable grouped stereo needs no loss acceptance')
   assert.match(await panel.getByLabel('Prepared CDXML text', { exact: true }).inputValue(), /<CDXML\b/, 'the clipboard manual fallback exposes real exported CDXML')
   await panel.getByRole('button', { name: 'Copy CDXML to clipboard', exact: true }).waitFor()
+  await exportCard(page, 'cdx')
   await panel.getByRole('button', { name: 'Preview CDX export', exact: true }).click()
   await panel.getByRole('button', { name: 'Download CDX', exact: true }).waitFor()
   assert.equal(await panel.getByRole('button', { name: 'Download CDXML', exact: true }).count(), 0, 'a different format replaces the old preview')
@@ -3501,7 +3503,7 @@ step = 'after short_wide_bond_is_selectable'
   assert.deepEqual((await api(`/api/v1/documents/${supported.id}`)).document, before, 'export changes no drawing')
 
   const omitted = await build('stored-only', false)
-  panel = await open(omitted.id)
+  panel = await open(omitted.id, 'cdxml')
   await panel.getByRole('button', { name: 'Preview CDXML export', exact: true }).click()
   const offer = panel.getByTestId('interchange-export-offer')
   await offer.waitFor()
@@ -3509,6 +3511,7 @@ step = 'after short_wide_bond_is_selectable'
   await offer.locator('[data-feature="stereo_group"]').waitFor()
   assert.doesNotMatch(await offer.textContent(), /groups themselves are|which this output cannot carry/, 'headings must not claim all formats lose all groups, or omitted groups survived')
   assert.equal(await panel.getByRole('button', { name: /^Download / }).count(), 0, 'no download before loss consent')
+  await exportCard(page, 'cdx')
   await panel.getByRole('button', { name: 'Preview CDX export', exact: true }).click()
   await offer.getByRole('button', { name: 'Accept these losses and preview CDX', exact: true }).waitFor()
   assert.equal(await offer.getByRole('button', { name: 'Accept these losses and preview CDXML', exact: true }).count(), 0, 'acceptance is scoped to the selected format')
@@ -3535,7 +3538,7 @@ step = 'after short_wide_bond_is_selectable'
 
   // Hold a verified response while the user edits; its already-produced bytes must not download.
   step = 'CDX drawing export delayed response after edit'
-  panel = await open(supported.id)
+  panel = await open(supported.id, 'cdx')
   await panel.getByRole('button', { name: 'Preview CDX export', exact: true }).click()
   await panel.getByRole('button', { name: 'Download CDX', exact: true }).waitFor()
   let arrive
@@ -3576,15 +3579,26 @@ step = 'after short_wide_bond_is_selectable'
   // A prepared result from a dead process is invalid, even if the document ID is reused.
   step = 'CDXML drawing export service restart'
   const restart = await build('restart', true)
-  panel = await open(restart.id)
+  panel = await open(restart.id, 'cdxml')
   await panel.getByRole('button', { name: 'Preview CDXML export', exact: true }).click()
   await panel.getByRole('button', { name: 'Download CDXML', exact: true }).waitFor()
   await crashApi()
   unexpectedDownloads = 0
   page.on('download', countDownload)
-  await panel.getByRole('button', { name: 'Download CDXML', exact: true }).click()
-  await panel.getByRole('alert').filter({ hasText: 'The drawing or service changed. Preview the export again.' }).waitFor()
+  // The page may notice the restart before the click and hide the prepared result itself; either
+  // way the old result must not be downloaded. A click that lands must show the stale alert.
+  const staleDownload = panel.getByRole('button', { name: 'Download CDXML', exact: true })
+  let clicked = false
+  try {
+    await staleDownload.click({ timeout: 5000 })
+    clicked = true
+  } catch (error) {
+    if (await staleDownload.count() !== 0) throw error
+  }
+  if (clicked) await panel.getByRole('alert').filter({ hasText: 'The drawing or service changed. Preview the export again.' }).waitFor()
+  await staleDownload.waitFor({ state: 'detached' })
   assert.equal(await panel.getByRole('button', { name: 'Download CDXML', exact: true }).count(), 0)
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   assert.equal(unexpectedDownloads, 0, 'a new service process must not download an older prepared result')
   page.off('download', countDownload)
   results.interchange_export_service_generation = true
@@ -3606,7 +3620,7 @@ step = 'after short_wide_bond_is_selectable'
   const open = async (id) => {
     await page.reload()
     await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
-    return page.getByRole('complementary', { name: 'SVG drawing export' })
+    return exportCard(page, 'svg')
   }
 
   // A plain C-C drawing needs no consent, and its picture reports the chemical graph loss.
@@ -3728,7 +3742,7 @@ step = 'after short_wide_bond_is_selectable'
   const id = created.body.document.id
   await page.reload()
   await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
-  const panel = page.getByRole('complementary', { name: 'SMILES' })
+  const panel = await exportCard(page, 'smiles')
   await panel.waitFor()
   const card = page.getByRole('region', { name: 'Import', exact: true })
   const source = card.getByLabel('Text to import')
@@ -3756,6 +3770,7 @@ step = 'after short_wide_bond_is_selectable'
   })
   await page.reload()
   await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
+  await exportCard(page, 'smiles')
   await panel.waitFor()
   assert.equal(await card.getByRole('button', { name: 'Accept these losses and import SMILES' }).count(), 0)
   assert.equal(await card.getByLabel('Text to import').inputValue(), '', 'a reopened panel starts empty')
@@ -3827,6 +3842,7 @@ step = 'after short_wide_bond_is_selectable'
   })
   await page.reload()
   await page.locator(`li[data-document-id="${metalId}"]`).getByRole('button', { name: 'Open' }).click()
+  await exportCard(page, 'smiles')
   await panel.getByRole('button', { name: 'Write SMILES' }).click()
   await panel.getByRole('button', { name: 'Accept these losses and write SMILES' }).waitFor()
   assert.equal(await panel.getByLabel('Written SMILES').count(), 0, 'nothing is written before consent')
@@ -3909,6 +3925,7 @@ step = 'after short_wide_bond_is_selectable'
 
 // One Import card: pick, drop and paste per format, ambiguity, override and the empty screen (P48 S3).
 await importCardSmoke({ page, api, apiWrite, outDir, results, setStep: (name) => { step = name } })
+await exportCardSmoke({ page, api, apiWrite, outDir, work, results, setStep: (name) => { step = name } })
 
 // Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.
 {

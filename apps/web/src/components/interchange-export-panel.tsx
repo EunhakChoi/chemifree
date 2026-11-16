@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { type PreparedExport, useConsentedExport } from '@/hooks/use-consented-export'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import type { DocumentView, InterchangeExport, InterchangeFormat } from '@/lib/document-contract'
+import { exportFileName } from '@/lib/export-formats'
 
 type PreparedInterchange = PreparedExport<InterchangeFormat, InterchangeExport>
 
@@ -18,9 +19,11 @@ interface ClipboardWrite {
   message: string
 }
 
-interface InterchangeExportPanelProps {
+interface InterchangeExportFlowProps {
   document: DocumentView
   editor: DocumentEditor
+  /** The one format this mount previews; the card remounts the flow when it changes. */
+  format: InterchangeFormat
 }
 
 function exportBlob(result: InterchangeExport): Blob {
@@ -36,8 +39,11 @@ function exportBlob(result: InterchangeExport): Blob {
   return new Blob([bytes], { type: 'chemical/x-cdx' })
 }
 
-/** Offers files and explicit CDXML text copying under the shared export loss consent. */
-export function InterchangeExportPanel({ document, editor }: InterchangeExportPanelProps) {
+/**
+ * The CDXML and CDX formats of the Export card, one format per mount: files and explicit CDXML text
+ * copying under the shared export loss consent.
+ */
+export function InterchangeExportFlow({ document, editor, format }: InterchangeExportFlowProps) {
   const {
     exported,
     current: currentExport,
@@ -56,7 +62,7 @@ export function InterchangeExportPanel({ document, editor }: InterchangeExportPa
     editor,
     run: (id, kind, accepted) => editor.exportInterchange(id, kind, accepted),
     blob: (result) => exportBlob(result),
-    fileName: (kind) => `chemifree.${kind}`,
+    fileName: (kind) => exportFileName(kind),
   })
   const [clipboardWrite, setClipboardWrite] = useState<ClipboardWrite | null>(null)
   const text = useRef<HTMLTextAreaElement>(null)
@@ -91,12 +97,11 @@ export function InterchangeExportPanel({ document, editor }: InterchangeExportPa
     }
   }
 
-  return <aside aria-label="CDXML and CDX export" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3 text-xs">
-    <h3 className="text-sm font-medium">CDXML and CDX export</h3>
+  return <div className="flex min-w-0 flex-col gap-3" data-testid="export-flow" data-format={format}>
     <p className="leading-relaxed text-muted-foreground" data-testid="interchange-export-note">Writes the first molecule placement as one page and fragment, including wedge, hash, wavy and crossed marks. Configurations are carried through the drawn marks and written positions; the exporter does not add wedges. Supported enhanced stereo groups are written, with group numbers outside 1–127 renumbered separately for And and Or. If a member’s written depiction cannot retain its stored tetrahedral configuration, its whole group is omitted with a loss to accept. Stored double-bond configurations and ungrouped stereo uncertainty are also reported. Query atoms and unsupported bond types are refused.</p>
     <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="outline" disabled={busy} onClick={() => void previewExport('cdxml')}>Preview CDXML export</Button>
-      <Button size="sm" variant="outline" disabled={busy} onClick={() => void previewExport('cdx')}>Preview CDX export</Button>
+      {format === 'cdxml' && <Button size="sm" variant="outline" disabled={busy} onClick={() => void previewExport('cdxml')}>Preview CDXML export</Button>}
+      {format === 'cdx' && <Button size="sm" variant="outline" disabled={busy} onClick={() => void previewExport('cdx')}>Preview CDX export</Button>}
     </div>
     {pending > 0 && <p role="status" className="flex items-center gap-2"><Spinner />Checking export…</p>}
     {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
@@ -138,5 +143,5 @@ export function InterchangeExportPanel({ document, editor }: InterchangeExportPa
           : <p role="status">{currentWrite.message}</p>)}
       </>}
     </div>}
-  </aside>
+  </div>
 }
