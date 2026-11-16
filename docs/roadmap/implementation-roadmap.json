@@ -1880,7 +1880,7 @@
     ],
     "merge_commit": "5ecb19752750de4537ba156d5da7d8ac69f3f0c3",
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/43937571536",
-    "note": "S1 SMILES 가져오기의 성분별 P42 배치(#277, 병합 d7ea7da5), S2 좌표 없는 MOL/SDF 레코드 배치(#279, 병합 66a40045), S3 웹 Import 카드(#280, 병합 5b5f2268), S4 겹침 보고(#281, 병합 41ff4494), S5 웹 Export 카드(#282, 병합 5ecb1975)로 문서화한 범위 안에서 완료했다. 범위·한계·수락 기준별 근거: docs/verification/p48-s5-export-card.md."
+    "note": "S1 SMILES 가져오기의 성분별 P42 배치(#277, 병합 d7ea7da5), S2 좌표 없는 MOL/SDF 레코드 배치(#279, 병합 66a40045), S3 웹 Import 카드(#280, 병합 5b5f2268), S4 겹침 보고(#281, 병합 41ff4494), S5 웹 Export 카드(#282, 병합 5ecb1975)로 문서화한 범위 안에서 완료했다. merge_commit·main_ci는 마지막 납품(#282) 기준이다. 범위·한계·수락 기준별 근거: docs/verification/p48-s5-export-card.md."
    },
    "layers": [
     "presentation",

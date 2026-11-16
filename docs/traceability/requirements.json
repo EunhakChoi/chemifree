@@ -1038,7 +1038,7 @@
         },
         {
           "id": "CODEC-06.rest",
-          "summary": "Advanced unknown/unsupported objects and format interoperability beyond the implemented codecs and bounded P33 clipboard profiles remain open. Existing codec/export rows cover their declared advanced objects; P48 covers integrated file/drop/text import/export UX and W04 covers Windows metafile output. Native instance/enhanced-group cloning, custom MIME and external-app clipboard compatibility are not newly promised by removing completed P33 from this catch-all.",
+          "summary": "Advanced unknown/unsupported objects and format interoperability beyond the implemented codecs and bounded P33 clipboard profiles remain open. Existing codec/export rows cover their declared advanced objects; the bounded web Import and Export cards are P48 (done) and W04 covers Windows metafile output. Native instance/enhanced-group cloning, custom MIME and external-app clipboard compatibility are not newly promised by removing completed P33 from this catch-all.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
