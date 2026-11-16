@@ -386,7 +386,7 @@ fn calculate(
     let mut explicit_double = Vec::new();
     let mut pi_bonds = BTreeSet::new();
     for &id in &ring.bonds {
-        let bond = context.bonds[&id];
+        let bond = context.bonds.get(&id).copied().ok_or("invalid_graph")?;
         let (Some(&a), Some(&b)) = (positions.get(&bond.begin), positions.get(&bond.end)) else {
             return Err("invalid_graph".into());
         };
@@ -407,12 +407,12 @@ fn calculate(
         inside[b].push((a, id));
     }
     // Only the bonds touching this block, each once, feed the shared order summation.
-    let touching: BTreeMap<BondId, &Bond> = ring
-        .atoms
-        .iter()
-        .flat_map(|atom| &context.incident[atom])
-        .map(|&id| (id, context.bonds[&id]))
-        .collect();
+    let mut touching: BTreeMap<BondId, &Bond> = BTreeMap::new();
+    for atom in &ring.atoms {
+        for &id in context.incident.get(atom).ok_or("invalid_graph")? {
+            touching.insert(id, context.bonds.get(&id).copied().ok_or("invalid_graph")?);
+        }
+    }
     let mut orders = chemistry::incident_orders(
         ring.atoms.iter().copied(),
         touching.iter().map(|(&id, &bond)| (id, bond)),
@@ -421,16 +421,14 @@ fn calculate(
     let mut incidences = Vec::with_capacity(ring.atoms.len());
     for (i, atom_id) in ring.atoms.iter().enumerate() {
         let mut incidence = Incidence {
-            orders: orders
-                .remove(atom_id)
-                .expect("every ring atom has an entry"),
+            orders: orders.remove(atom_id).ok_or("invalid_graph")?,
             ring_degree: inside[i].len(),
             outside: 0,
             ring_double: 0,
             ring_aromatic: 0,
         };
-        for bond_id in &context.incident[atom_id] {
-            let bond = context.bonds[bond_id];
+        for bond_id in context.incident.get(atom_id).ok_or("invalid_graph")? {
+            let bond = context.bonds.get(bond_id).copied().ok_or("invalid_graph")?;
             if ring_edges.contains(bond_id) {
                 match bond.order {
                     BondOrder::Double => incidence.ring_double += 1,
@@ -447,7 +445,8 @@ fn calculate(
     }
     let mut roles = Vec::with_capacity(ring.atoms.len());
     for (i, id) in ring.atoms.iter().enumerate() {
-        roles.push(role(*id, context.atoms[id], &incidences[i])?);
+        let atom = context.atoms.get(id).copied().ok_or("invalid_graph")?;
+        roles.push(role(*id, atom, &incidences[i])?);
     }
     if roles.iter().any(Option::is_none) {
         // Some atoms are saturated. Only a cycle of conjugated atoms through a π bond could
@@ -505,10 +504,14 @@ fn calculate(
         if adjacent_donors {
             return Err("adjacent_donors".into());
         }
-        let outside_model = ring.atoms.iter().any(|id| {
-            context.atoms[id].kind.element().map(|e| e.symbol()) != Some("C")
-                || context.atoms[id].charge != 0
-        });
+        let mut outside_model = false;
+        for id in &ring.atoms {
+            let atom = context.atoms.get(id).copied().ok_or("invalid_graph")?;
+            if atom.kind.element().map(|e| e.symbol()) != Some("C") || atom.charge != 0 {
+                outside_model = true;
+                break;
+            }
+        }
         if outside_model || !six_membered_cover(&inside, interrupt)? {
             return Err("fused_system_outside_model".into());
         }
@@ -898,6 +901,64 @@ mod tests {
         assert_eq!(
             changed_commands(&context, Vec::new(), Vec::new()),
             Ok(Vec::new())
+        );
+    }
+
+    /// Classification reads each ring bond, incidence list and atom through the context. A
+    /// ring that names one the context lacks is a defect elsewhere: the verdict must be
+    /// `invalid_graph`, not a panic that would lose the request.
+    #[test]
+    fn a_ring_naming_an_item_the_context_lacks_is_invalid_graph_not_a_panic() {
+        let a1 = AtomId::from_serial(1).unwrap();
+        let a2 = AtomId::from_serial(2).unwrap();
+        let b1 = BondId::from_serial(1).unwrap();
+        let ring = |atoms: Vec<AtomId>, bonds: Vec<BondId>| RingSystem {
+            atoms,
+            bonds,
+            cycle_rank: 1,
+        };
+        let context = |incident: Vec<(AtomId, Vec<BondId>)>| Context {
+            atoms: BTreeMap::new(),
+            bonds: BTreeMap::new(),
+            incident: incident.into_iter().collect(),
+        };
+        let refused =
+            |ring: &RingSystem, context: &Context<'_>| calculate(ring, context, &NEVER).err();
+        let invalid = Some(Halt::Reason("invalid_graph"));
+
+        // A ring bond the bond table lacks.
+        assert_eq!(
+            refused(
+                &ring(vec![a1, a2], vec![b1]),
+                &context(vec![(a1, Vec::new()), (a2, Vec::new())]),
+            ),
+            invalid
+        );
+        // A ring atom with no incidence list.
+        assert_eq!(
+            refused(&ring(vec![a1], Vec::new()), &context(Vec::new())),
+            invalid
+        );
+        // An incidence list naming a bond the bond table lacks.
+        assert_eq!(
+            refused(&ring(vec![a1], Vec::new()), &context(vec![(a1, vec![b1])])),
+            invalid
+        );
+        // A ring atom the atom table lacks, with an incidence list.
+        assert_eq!(
+            refused(
+                &ring(vec![a1], Vec::new()),
+                &context(vec![(a1, Vec::new())])
+            ),
+            invalid
+        );
+        // A ring that lists one atom twice: the shared order summation has one entry for it.
+        assert_eq!(
+            refused(
+                &ring(vec![a1, a1], Vec::new()),
+                &context(vec![(a1, Vec::new())])
+            ),
+            invalid
         );
     }
 }

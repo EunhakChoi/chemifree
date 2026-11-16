@@ -493,6 +493,34 @@
       "case_sha256": "2d8f6a028b371b1cf9751c5ad35025503d3178212cccf4f2bfe2eeb0dd7e19cf"
     },
     {
+      "id": "aromaticity-charged-ring-round-trip",
+      "title": "A Kekule pyridinium with a charged ring nitrogen is aromatic; both conversions keep the nitrogen charge and the Kekule pattern round-trips",
+      "requirements": [
+        "MODEL-02",
+        "CHEM-02"
+      ],
+      "axis": "graph",
+      "kind": "accept",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "0bb4f72867ff4d2747b77afc87502bca585ad8ba8dba3bf1ecbc8474cc9ccb63"
+    },
+    {
+      "id": "aromaticity-adjacent-donors-refused-unchanged",
+      "title": "A Kekule 1,2-dihydro-1,2-diazete has adjacent donor nitrogens, is unsupported, and its conversion to aromatic is refused and leaves the document unchanged",
+      "requirements": [
+        "MODEL-02",
+        "CHEM-02"
+      ],
+      "axis": "graph",
+      "kind": "reject",
+      "outcome": "passed",
+      "pending": null,
+      "failure": null,
+      "case_sha256": "1b4e59cd9f6ca4048943bda87ec8c3a1a73eae058e83863c83a8c91ac8173900"
+    },
+    {
       "id": "compute-time-limit-refused",
       "title": "A conversion stopped by its time limit reports time_limit with only the limit, changes nothing, and is computed afresh when asked again, with another limit if wished; once completed, the same request ID with another limit is request_id_reused",
       "requirements": [
@@ -1654,17 +1682,17 @@
   ],
   "counts": {
     "accept": {
-      "passed": 89,
+      "passed": 90,
       "failed": 0,
       "not_run": 0
     },
     "reject": {
-      "passed": 32,
+      "passed": 33,
       "failed": 0,
       "not_run": 0
     },
     "total": {
-      "passed": 121,
+      "passed": 123,
       "failed": 0,
       "not_run": 0
     }
