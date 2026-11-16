@@ -1,4 +1,4 @@
-// Real Import card, CT export panel, clipboard recovery panel, editor hook and client. HTTP and browser
+// Real Import card, the Export card (MOL format), clipboard recovery panel, editor hook and client. HTTP and browser
 // clipboard transport are scripted; the fixture makes no claim to test a MOL codec.
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
@@ -11,7 +11,7 @@ const root = fileURLToPath(new URL('../apps/web', import.meta.url))
 const fixture = `
 import React, { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
-import { CtfilePanel } from '/src/components/ctfile-panel.tsx'
+import { ExportCard } from '/src/components/export-card.tsx'
 import { ImportCard } from '/src/components/import-card.tsx'
 import { NativeClipboardPanel } from '/src/components/native-clipboard-panel.tsx'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
@@ -22,7 +22,7 @@ function Harness() {
   window.molHarness = { editor, select: (ids) => editor.setSelection(new Set(ids)) }
   return <><output aria-label="Current document">{editor.current?.document.id ?? 'loading'}</output>
     {editor.current && <><ImportCard key={'import-' + editor.current.document.id} document={editor.current.document} editor={editor} />
-      <CtfilePanel key={editor.current.document.id} document={editor.current.document} editor={editor} />
+      <ExportCard key={'export-' + editor.current.document.id} document={editor.current.document} editor={editor} />
       <NativeClipboardPanel key={'native-' + editor.current.document.id} document={editor.current.document} editor={editor} activePlacement="s1" /></>}
   </>
 }
@@ -153,12 +153,13 @@ try {
   await page.goto(`http://127.0.0.1:${address.port}/mol-clipboard-check`)
   await page.getByLabel('Current document').filter({ hasText: 'drawing' }).waitFor()
   await page.evaluate(() => window.molHarness.select(['a1']))
-  const ct = page.getByRole('complementary', { name: 'MOL and SDF', exact: true })
+  const ct = page.getByRole('region', { name: 'Export', exact: true })
   const card = page.getByRole('region', { name: 'Import', exact: true })
   const text = card.getByRole('textbox', { name: 'Text to import', exact: true })
 
   // This is whole drawing export: neither live selected atom IDs nor native fragment scope
   // may leak into the export request. Loss acceptance is required before clipboard text exists.
+  await ct.getByRole('combobox', { name: 'Export format', exact: true }).selectOption('mol')
   await ct.getByRole('button', { name: 'Preview MOL export', exact: true }).click()
   await ct.getByRole('button', { name: 'Accept these losses and preview MOL', exact: true }).waitFor()
   assert.equal(await page.getByRole('button', { name: 'MOL clipboard text…', exact: true }).count(), 0)

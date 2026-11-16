@@ -216,9 +216,19 @@ export function SmilesImportFlow({ document, editor, source, sourceVersion, comp
   </div>
 }
 
-/** Writes the drawing as SMILES text with the same loss consent as other formats. Reading SMILES is the Import card's job. */
-export function SmilesPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
-  const [style, setStyle] = useState<SmilesStyle>('recorded')
+/**
+ * The SMILES format of the Export card: writes the drawing as SMILES text with the same loss
+ * consent as other formats. Reading SMILES is the Import card's job.
+ */
+export function SmilesExportFlow({ document, editor, initialStyle, onStyleChange }: {
+  document: DocumentView
+  editor: DocumentEditor
+  /** The form the card kept for this drawing from an earlier mount. */
+  initialStyle: SmilesStyle
+  /** Tells the card the chosen form, so switching formats and back keeps it. */
+  onStyleChange: (style: SmilesStyle) => void
+}) {
+  const [style, setStyle] = useState<SmilesStyle>(initialStyle)
   const [styleVersion, setStyleVersion] = useState(0)
   const [written, setWritten] = useState<Written | null>(null)
   const [exportOffer, setExportOffer] = useState<(Offer & { styleVersion: number }) | null>(null)
@@ -269,6 +279,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     } else {
       setNotice(null)
     }
+    onStyleChange(next)
   }
 
   async function write(accepted?: string) {
@@ -341,8 +352,7 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     }
   }
 
-  return <aside aria-label="SMILES" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3 text-xs">
-    <h3 className="text-sm font-medium">SMILES</h3>
+  return <div className="flex min-w-0 flex-col gap-3" data-testid="export-flow" data-format="smiles">
     <p className="leading-relaxed text-muted-foreground">
       An OpenSMILES subset. Reading takes the tetrahedral marks @ and @@, the directional bonds / and \ beside a double bond (C=C, C=N, N=N; rings of 8 or more atoms) and CXSMILES stereo groups (a:, o1:, &1:) as stored configurations and groups, with no wedges drawn; it refuses a directional bond it cannot place (for example one end only, or on a ring-closure digit), other stereo classes and CXSMILES fields, query and reaction SMILES. Recorded output writes supported tetrahedral configurations, stored double-bond configurations as directional bonds the reader reads back, and groups; any other stereo, or a double-bond configuration it cannot place, requires loss consent. Canonical output does not retain stereo. Positions are generated, not read.
     </p>
@@ -377,5 +387,5 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
       </div>
       <LossList losses={liveWritten.data.losses} />
     </div>}
-  </aside>
+  </div>
 }

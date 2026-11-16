@@ -1,5 +1,15 @@
 # Chemifree 새 세션 인계
 
+## P48 S5: 웹 Export 카드 하나 (T1, P48 마지막 조각)
+
+사용자 상시 지시(Opus 추천대로 진행)에 따라 Opus가 P48을 S5로 닫기로 했다: P48 범위에 "내보내기 통합"이 들어 있다. 사양은 Opus가 정했고(E1–E26) 기준 문서는 CONTRACT client policy "Web Export card (P48 S5; no service change)"다. Lead question Q1은 P87(#271)·P42(#276) 선례대로 정했다: 이 PR은 P48을 `in_progress`로 두고, 병합 뒤 별도 기록 PR이 `done`으로 바꾸며 traceability 후속 6곳에서 P48을 뺀다.
+
+- 화면: `apps/web/src/components/export-card.tsx`(열린 문서에만). **Export format** 선택(SMILES, MOL, SDF, CDXML, CDX, SVG picture), 기본값 없음, 문서가 열린 동안만 기억. 네 내보내기 패널은 같은 파일 안의 `SmilesExportFlow`·`CtExportFlow`·`InterchangeExportFlow`·`SvgExportFlow`로 옮겼고 형식별 key로 다시 띄운다. 요청·바이트·손실·동의·다운로드 재확인은 그대로다. MOL 버전과 SMILES 형식은 형식을 바꿔도 유지된다. 파일 이름은 `chemifree.<format>`(`apps/web/src/lib/export-formats.ts`)이고 Import 카드가 같은 형식으로 읽는다.
+- 카드 밖: 그래프 Copy/Cut/Paste, 장면 클립보드, 템플릿 다운로드, 저장, InChI. 빈 화면에는 Export 카드가 없다.
+- 검사: 새 client check `web-export-formats-client-check.mjs`, 새 smoke 단계 "Export card"(`scripts/lib/export-card-smoke.mjs`·`export-card-reopen-smoke.mjs`, 결과 키 13개: 형식 전환·취소·이력 유지, MOL·SDF·CDXML·CDX 파일을 저장 경로에서 Import 카드로 다시 열기, SMILES 텍스트 다시 가져오기, 손상 파일 거절, SVG는 가져오지 않음, 빈 화면). 기존 내보내기 검사(smiles·mol·cdxml clipboard, compute-stop, smoke 9단계)는 locator만 카드로 옮겼다. 기록: `docs/verification/p48-s5-export-card.md`.
+- CDXML·CDX 좌표 없는 배치는 하지 않는다: CDXML과 CDX는 자기 좌표를 가지며, 위치 없는 노드는 `missing_position`으로 거절한다(interchange_projection.rs). 필요해지면 이슈로 연다.
+- P48 완료 근거(수락 기준 항목별)는 검증 기록의 표에 있다. 가져오기·내보내기 요청 자체에는 취소 신호가 없고, 취소는 형식 전환·Clear로 결과를 버리는 것과 서비스 시간 제한 중단이다.
+
 ## P48 S4: 생성 배치 겹침 보고 (T1)
 
 사용자 결정(2026-11-16): Opus 추천대로 기준 0.3b, 보고만(동의 없음), 생성한 원자만 본다. 사양은 Opus가 정했고(V1–V31, Lead questions 없음) 기준 문서는 CONTRACT "Layout of imported components (P48 S1)"의 **Overlaps (P48 S4)**와 "Layout of coordinate-free records (P48 S2)"다.
@@ -18,7 +28,7 @@
 - 빈 화면: SMILES·MOL·SDF도 판별하지만 "열린 문서가 필요" 안내만 보이고 보내지 않는다. 미해결 SMILES·MOL 가져오기는 형식을 바꿔도 카드에 남는다.
 - 검사: 새 client check `web-import-detect-client-check.mjs`·`web-import-decode-client-check.mjs`, 새 smoke 단계 "Import card"(`scripts/lib/import-card-smoke.mjs`, 결과 키 `import_*` 9개, `editor-import-card.png`). 기존 SMILES·MOL·CDXML 브라우저 검사와 smoke 단계는 locator만 카드로 옮겼고 결과 키·단언은 그대로다. 변이와 리뷰 처리: `docs/verification/p48-s3-import-card.md`.
 - 리뷰 중 판단: 열린 문서에서 불확실한 CDXML 생성 시도를 지운 뒤 미리보기가 남는다는 지적은 재현되지 않았다. 지우기 버튼은 서비스 재시작이 감지된 뒤에만 나오고, 재시작은 세대를 바꿔 옛 미리보기를 숨긴다(`cdxml-import.tsx`의 `prepared.generation` 비교). 이를 확인하는 단언을 `web-cdxml-import-check.mjs`에 더했다.
-- 후속: 통합 내보내기 UI, CDXML·CDX 배치(겹침 보고는 S4에서 처리).
+- 후속 없음: 내보내기 UI는 S5, 겹침 보고는 S4에서 처리. CDXML·CDX 좌표 없는 배치는 하지 않는다(S5 참고).
 
 ## P48 S2: 좌표 없는 MOL/SDF 배치 (T1)
 
@@ -39,7 +49,7 @@
 - 코드: `crates/application/src/operations/smiles_layout.rs`(새), `smiles.rs`. 검사: `crates/application/tests/smiles_import_layout.rs`, `smiles_import_layout_fallback.rs`, `smiles_stereo_import.rs` 갱신, 웹 모의 좌표(`web-smiles-clipboard-check.mjs`).
 - 납품: #277(병합 `d7ea7da5`, main CI 성공).
 - 정리(#278, 동작 불변): 격자 경로 하나로 합침, 그래프 명령 생성기 공유, 격자 상수를 `smiles_layout.rs`로, 성분마다 그 성분만 담은 임시 문서에서 배치. `smiles_import_layout_equivalence.rs`(합쳐 가져온 성분과 따로 가져온 성분의 모양이 같다, 1e-9)는 main 코드와 이 코드 모두에서 통과하고, main과의 비트 단위 동일성은 main(`d7ea7da5`)에서 기록한 다이제스트 `smiles_import_layout_digest.rs`가 보인다(다시 기록하려면 세 생산 파일을 main 것으로 되돌린 복사본에서 실행해 출력된 값을 쓴다), 방향족 변환과 배치 적용이 계산 전 잠금(`copy_for_compute`)과 잠금 아래 커밋(`commit_computed`)을 공유한다. 진단을 담는 재전송 기록(#273 후속)은 아직이다.
-- 남은 것(P48): 통합 내보내기 UI, CDXML·CDX, 입체 성분 배치(MOL은 S2, 가져오기 UI는 S3, 겹침 보고는 S4에서 처리).
+- 남은 것(P48): 입체 성분 배치는 격자로 남긴다(MOL은 S2, 가져오기 UI는 S3, 겹침 보고는 S4, 내보내기 UI는 S5에서 처리).
 
 ## P42 S4: 배치 웹 UI (T1)
 
