@@ -952,5 +952,13 @@ mod tests {
             ),
             invalid
         );
+        // A ring that lists one atom twice: the shared order summation has one entry for it.
+        assert_eq!(
+            refused(
+                &ring(vec![a1, a1], Vec::new()),
+                &context(vec![(a1, Vec::new())])
+            ),
+            invalid
+        );
     }
 }

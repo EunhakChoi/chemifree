@@ -54,6 +54,7 @@ fn restricted_targets_are_the_contract_atom_roles() {
 
 #[test]
 fn a_ring_with_phosphorus_is_refused_as_element_or_charge() {
+    assert_eq!(restricted_target("P", 0), Some(3), "the premise below");
     // The valence table lists phosphorus (`restricted_target` gives Some for P with charge 0),
     // but the ring model supports only C, N, O and S, so the ring is unsupported, never
     // classified. Kekulé spelling: P=C, C-C, C=C, C-C, C=C, C-P.
