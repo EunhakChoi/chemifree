@@ -29,6 +29,9 @@ type SystemKey = (
     usize,
 );
 
+/// An aromatic conversion: its command count, updated bonds and atom edits, by original index.
+type AromaticEdit = (usize, BTreeSet<usize>, BTreeMap<usize, String>);
+
 /// What the corpus reports for one record, with each atom and bond named by its index in the
 /// record as the corpus file states it.
 #[derive(Debug)]
@@ -36,8 +39,9 @@ struct RecordKey {
     systems: Vec<SystemKey>,
     aromatize: Result<(), &'static str>,
     kekulize: Result<(), &'static str>,
-    /// The command count, and the original indices of the bonds the edit updates.
-    to_aromatic: Result<(usize, BTreeSet<usize>), &'static str>,
+    /// The command count, the original indices of the bonds the edit updates, and each updated
+    /// atom's original index with its edit (the stated donor hydrogens).
+    to_aromatic: Result<AromaticEdit, &'static str>,
     /// The command count, and the original indices of the bonds the edit updates. Which of
     /// them become double follows the numbering (both alternations of a benzene ring are valid
     /// Kekulé structures), so only the updated set is compared.
@@ -283,7 +287,16 @@ fn record_key(numbered: &Numbered) -> RecordKey {
                 Some(bond_origin[bond])
             })
             .collect();
-        (commands.len(), updated)
+        let atoms: BTreeMap<usize, String> = commands
+            .iter()
+            .filter_map(|command| {
+                let Command::UpdateAtom { atom, edit } = command else {
+                    return None;
+                };
+                Some((atom_origin[atom], format!("{edit:?}")))
+            })
+            .collect();
+        (commands.len(), updated, atoms)
     });
     RecordKey {
         systems,
