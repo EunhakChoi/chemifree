@@ -1,4 +1,4 @@
-// Real CT panel, clipboard recovery panel, editor hook and client. HTTP and browser
+// Real Import card, CT export panel, clipboard recovery panel, editor hook and client. HTTP and browser
 // clipboard transport are scripted; the fixture makes no claim to test a MOL codec.
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +12,7 @@ const fixture = `
 import React, { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { CtfilePanel } from '/src/components/ctfile-panel.tsx'
+import { ImportCard } from '/src/components/import-card.tsx'
 import { NativeClipboardPanel } from '/src/components/native-clipboard-panel.tsx'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
 import '/src/index.css'
@@ -20,7 +21,8 @@ function Harness() {
   useEffect(() => { void editor.open('drawing') }, [])
   window.molHarness = { editor, select: (ids) => editor.setSelection(new Set(ids)) }
   return <><output aria-label="Current document">{editor.current?.document.id ?? 'loading'}</output>
-    {editor.current && <><CtfilePanel key={editor.current.document.id} document={editor.current.document} editor={editor} />
+    {editor.current && <><ImportCard key={'import-' + editor.current.document.id} document={editor.current.document} editor={editor} />
+      <CtfilePanel key={editor.current.document.id} document={editor.current.document} editor={editor} />
       <NativeClipboardPanel key={'native-' + editor.current.document.id} document={editor.current.document} editor={editor} activePlacement="s1" /></>}
   </>
 }
@@ -152,6 +154,8 @@ try {
   await page.getByLabel('Current document').filter({ hasText: 'drawing' }).waitFor()
   await page.evaluate(() => window.molHarness.select(['a1']))
   const ct = page.getByRole('complementary', { name: 'MOL and SDF', exact: true })
+  const card = page.getByRole('region', { name: 'Import', exact: true })
+  const text = card.getByRole('textbox', { name: 'Text to import', exact: true })
 
   // This is whole drawing export: neither live selected atom IDs nor native fragment scope
   // may leak into the export request. Loss acceptance is required before clipboard text exists.
@@ -181,49 +185,50 @@ try {
   await ct.getByRole('button', { name: 'Accept these losses and preview MOL', exact: true }).click()
   assert.equal(requests.at(-1).parameters.accepted_losses, 'b'.repeat(64))
 
-  // Opening never reads clipboard or sends text. Denied permission leaves manual input;
+  // The mounted card has read nothing and sent nothing. Denied permission leaves manual input;
   // changing the source text invalidates its prior digest, and the UTF-8 byte cap is local.
   const beforeOpen = requests.length
-  await ct.getByRole('button', { name: 'Import MOL text…', exact: true }).click()
   assert.deepEqual(await page.evaluate(() => window.molClipboard.reads), [])
   assert.equal(requests.length, beforeOpen)
-  assert.equal(await page.getByRole('textbox', { name: 'MOL text to import' }).inputValue(), '')
+  assert.equal(await text.inputValue(), '')
   await page.evaluate(() => { window.molClipboard.denyRead = true })
-  await page.getByRole('button', { name: 'Read clipboard', exact: true }).click()
-  await page.getByRole('alert').filter({ hasText: 'Paste MOL text manually' }).waitFor()
-  await page.getByRole('textbox', { name: 'MOL text to import' }).fill(inputMol)
+  await card.getByRole('button', { name: 'Read clipboard', exact: true }).click()
+  await page.getByRole('alert').filter({ hasText: 'Paste the text manually' }).waitFor()
+  await text.fill(inputMol)
   assert.equal(requests.length, beforeOpen)
-  await page.getByRole('button', { name: 'Preview MOL text', exact: true }).click()
-  await page.getByRole('button', { name: 'Import MOL text', exact: true }).waitFor()
-  assert.match(await page.getByRole('dialog').innerText(), /1 atoms, 0 bonds/)
-  assert.match(await page.getByRole('dialog').innerText(), /Importing accepts every loss listed above/)
-  assert.match(await page.getByRole('dialog').innerText(), /Source title is not stored by append/)
+  await card.getByRole('button', { name: 'Preview MOL text', exact: true }).click()
+  await card.getByRole('button', { name: 'Import MOL text', exact: true }).waitFor()
+  assert.match(await card.innerText(), /1 atoms, 0 bonds/)
+  assert.match(await card.innerText(), /Importing accepts every loss listed above/)
+  assert.match(await card.innerText(), /Source title is not stored by append/)
   assert.deepEqual(requests.at(-1).parameters, { document_id: 'drawing', expected_revision: 3, format: 'mol', source: inputMol, record: 1, preview: true })
-  await page.getByRole('textbox', { name: 'MOL text to import' }).fill(`${inputMol}\n`)
-  assert.equal(await page.getByRole('button', { name: 'Import MOL text', exact: true }).count(), 0)
-  await page.getByRole('textbox', { name: 'MOL text to import' }).fill('é'.repeat(102401))
-  assert.equal(await page.getByRole('button', { name: 'Preview MOL text', exact: true }).isDisabled(), true)
+  await text.fill(`${inputMol}\n`)
+  assert.equal(await card.getByRole('button', { name: 'Import MOL text', exact: true }).count(), 0)
+  // MOL is chosen explicitly before the ambiguous text. Typed edits keep that choice, so the MOL
+  // flow and its byte-cap alert appear only through the explicit choice.
+  await card.getByLabel('Format', { exact: true }).selectOption('mol')
+  await text.fill('é'.repeat(102401))
+  assert.equal(await card.getByLabel('Format', { exact: true }).inputValue(), 'mol')
+  assert.equal(await card.getByRole('button', { name: 'Preview MOL text', exact: true }).isDisabled(), true)
   await page.getByRole('alert').filter({ hasText: 'up to 200 KiB of UTF-8' }).waitFor()
-  await page.getByRole('button', { name: 'Close', exact: true }).click()
 
-  // A late permitted read cannot repopulate a new dialog. No backend preview is sent by reading.
+  // A late permitted read cannot repopulate a card that Clear emptied meanwhile. No backend preview is sent by reading.
   await page.evaluate(() => { window.molClipboard.denyRead = false; window.molClipboard.deferredRead = true })
-  await ct.getByRole('button', { name: 'Import MOL text…', exact: true }).click()
-  await page.getByRole('button', { name: 'Read clipboard', exact: true }).click()
+  await card.getByRole('button', { name: 'Read clipboard', exact: true }).click()
   await page.waitForFunction(() => typeof window.molClipboard.finishRead === 'function')
-  await page.getByRole('button', { name: 'Close', exact: true }).click()
-  await ct.getByRole('button', { name: 'Import MOL text…', exact: true }).click()
+  await card.getByRole('button', { name: 'Clear', exact: true }).click()
   await page.evaluate(() => window.molClipboard.finishRead('late source'))
-  assert.equal(await page.getByRole('textbox', { name: 'MOL text to import' }).inputValue(), '')
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())))
+  assert.equal(await text.inputValue(), '')
 
   // One committed import with two lost replies. The single visible recovery action belongs
-  // to the MOL panel; retrying it freezes request ID/body and preserves the live selection.
-  await page.getByRole('textbox', { name: 'MOL text to import' }).fill(inputMol)
-  await page.getByRole('button', { name: 'Preview MOL text', exact: true }).click()
-  await page.getByRole('button', { name: 'Import MOL text', exact: true }).waitFor()
+  // to the Import card; retrying it freezes request ID/body and preserves the live selection.
+  await text.fill(inputMol)
+  await card.getByRole('button', { name: 'Preview MOL text', exact: true }).click()
+  await card.getByRole('button', { name: 'Import MOL text', exact: true }).waitFor()
   importFails = 2
-  await page.getByRole('button', { name: 'Import MOL text', exact: true }).click()
-  await page.getByRole('button', { name: 'Check MOL import outcome', exact: true }).waitFor()
+  await card.getByRole('button', { name: 'Import MOL text', exact: true }).click()
+  await card.getByRole('button', { name: 'Check MOL import outcome', exact: true }).waitFor()
   const firstSends = requests.filter((request) => request.operation === 'document.import' && !request.parameters.preview)
   assert.equal(firstSends.length, 2)
   assert.deepEqual(firstSends[0], firstSends[1])
@@ -233,13 +238,14 @@ try {
   assert.equal('selection_after' in firstSends[0].parameters, false)
   assert.equal(state.document.atoms.length, 3)
   assert.equal(await page.getByRole('button', { name: 'Check MOL import outcome', exact: true, includeHidden: true }).count(), 1)
+  assert.equal(await card.getByRole('button', { name: 'Check MOL import outcome', exact: true, includeHidden: true }).count(), 1)
   await page.evaluate(() => window.molHarness.select(['a2']))
-  await page.getByRole('button', { name: 'Close', exact: true }).click()
-  await page.getByRole('dialog').waitFor({ state: 'detached' })
-  const checkImport = ct.getByRole('button', { name: 'Check MOL import outcome', exact: true })
+  const checkImport = card.getByRole('button', { name: 'Check MOL import outcome', exact: true })
   assert.equal(await checkImport.isEnabled(), true)
   await checkImport.click()
   await page.waitForFunction(() => !window.molHarness.editor.clipboardPending)
+  // Checking the outcome runs Clear, so the card no longer holds the checked source text.
+  assert.equal(await text.inputValue(), '')
   const allSends = requests.filter((request) => request.operation === 'document.import' && !request.parameters.preview)
   assert.equal(allSends.length, 3)
   assert.deepEqual(allSends[2], firstSends[0])
@@ -251,12 +257,14 @@ try {
   })), { atoms: ['a1', 'a2', 'a3'], position: { x: 20, y: -40 }, selection: ['a2'] })
 
   // A valid empty first record is a no-op import: revision and live selection are retained.
+  // The successful import clears the card, so its source text and Import button go.
   const noOpRevision = state.document.revision
-  await ct.getByRole('button', { name: 'Import MOL text…', exact: true }).click()
-  await page.getByRole('textbox', { name: 'MOL text to import' }).fill(emptyMol)
-  await page.getByRole('button', { name: 'Preview MOL text', exact: true }).click()
-  await page.getByRole('button', { name: 'Import MOL text', exact: true }).click()
-  await page.getByRole('dialog').waitFor({ state: 'detached' })
+  await text.fill(emptyMol)
+  await card.getByRole('button', { name: 'Preview MOL text', exact: true }).click()
+  await card.getByRole('button', { name: 'Import MOL text', exact: true }).click()
+  await card.getByRole('button', { name: 'Import MOL text', exact: true }).waitFor({ state: 'detached' })
+  assert.equal(await text.inputValue(), '')
+  assert.equal(await card.getByRole('button', { name: 'Import MOL text', exact: true }).count(), 0)
   assert.equal(state.document.revision, noOpRevision)
   assert.deepEqual(await page.evaluate(() => [...window.molHarness.editor.selection]), ['a2'])
 
@@ -265,10 +273,9 @@ try {
   const restarted = structuredClone(state)
   restarted.document.title = 'Restarted MOL drawing'
   holdImport = true
-  await ct.getByRole('button', { name: 'Import MOL text…', exact: true }).click()
-  await page.getByRole('textbox', { name: 'MOL text to import' }).fill(inputMol)
-  await page.getByRole('button', { name: 'Preview MOL text', exact: true }).click()
-  await page.getByRole('button', { name: 'Import MOL text', exact: true }).click()
+  await text.fill(inputMol)
+  await card.getByRole('button', { name: 'Preview MOL text', exact: true }).click()
+  await card.getByRole('button', { name: 'Import MOL text', exact: true }).click()
   await heldImportReady
   assert.equal(state.document.atoms.length, 4)
   state = restarted

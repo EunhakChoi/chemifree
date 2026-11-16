@@ -1,5 +1,16 @@
 # Chemifree 새 세션 인계
 
+## P48 S3: 웹 Import 카드 하나 (T1)
+
+사용자 결정(2026-11-16): Opus 추천 화면 구성(자동 판별 + 수동 변경, CDXML/CDX는 지금처럼 새 문서)대로 진행한다. 사양은 Opus가 정했고(I1–I25) 기준 문서는 CONTRACT의 client policy "Web Import card (P48 S3; no service change)"다. 사양의 Lead questions Q1–Q4는 상시 지시에 따라 리드가 Opus 추천대로 정했다: 고르거나 놓은 CDXML/CDX 파일도 **Read … pages and molecules**를 눌러야 보내고, 붙여넣은 SDF는 기존 파일 경로(같은 연산)로 보내며, 가져온 뒤 원본을 지우는 규칙은 형식별로 오늘 그대로 두고, 사용자가 고른 형식은 타이핑해도 유지한다(새 파일·클립보드 읽기·Clear·빈 텍스트에서 초기화).
+
+- 화면: `apps/web/src/components/import-card.tsx`(빈 화면과 열린 문서의 MOL/SDF 패널 앞). SMILES·MOL/SDF·CDXML 패널의 가져오기 부분은 같은 파일 안의 `SmilesImportFlow`·`CtImportFlow`·`MolTextImportFlow`·`InterchangeImportFlow`로 옮겨 카드가 띄운다. 내보내기 부분은 그대로다. 서비스·리더·손실·동의 변경은 없다.
+- 판별: `apps/web/src/lib/import-detect.ts`. 확장자 먼저, 다음 내용(CDX 서명 → `<CDXML` → `$$$$` → `M  END`/counts → SMILES 문자(약함)). 확장자와 강한 내용이 다르면 애매함이고, 애매하면 아무것도 보내지 않는다. 텍스트는 CDX가 될 수 없다. 200 KiB 넘는 파일은 읽기 전에 거절하고, 형식별 한도·디코딩은 그대로다.
+- 빈 화면: SMILES·MOL·SDF도 판별하지만 "열린 문서가 필요" 안내만 보이고 보내지 않는다. 미해결 SMILES·MOL 가져오기는 형식을 바꿔도 카드에 남는다.
+- 검사: 새 client check `web-import-detect-client-check.mjs`·`web-import-decode-client-check.mjs`, 새 smoke 단계 "Import card"(`scripts/lib/import-card-smoke.mjs`, 결과 키 `import_*` 9개, `editor-import-card.png`). 기존 SMILES·MOL·CDXML 브라우저 검사와 smoke 단계는 locator만 카드로 옮겼고 결과 키·단언은 그대로다. 변이와 리뷰 처리: `docs/verification/p48-s3-import-card.md`.
+- 리뷰 중 판단: 열린 문서에서 불확실한 CDXML 생성 시도를 지운 뒤 미리보기가 남는다는 지적은 재현되지 않았다. 지우기 버튼은 서비스 재시작이 감지된 뒤에만 나오고, 재시작은 세대를 바꿔 옛 미리보기를 숨긴다(`cdxml-import.tsx`의 `prepared.generation` 비교). 이를 확인하는 단언을 `web-cdxml-import-check.mjs`에 더했다.
+- 후속: 통합 내보내기 UI, CDXML·CDX 배치, 겹침 보고(P48 S4 후보).
+
 ## P48 S2: 좌표 없는 MOL/SDF 배치 (T1)
 
 사용자 결정(2026-11-16): Opus 추천대로 헤더 2행 21–22바이트가 `2D`이고 모든 좌표가 0인 레코드만 배치하고 손실을 보고한다. 사양은 Opus가 정했고 기준 문서는 CONTRACT "Layout of coordinate-free records (P48 S2)"다. 사양의 열린 질문 Q1–Q4는 사용자의 상시 지시(결정이 필요하면 Opus에게 묻고 진행)에 따라 리드가 Opus 추천대로 정했다: 결합 표시가 있는 성분은 엔진에 넘기지 않고 원본의 한 점(0,0)으로 두어 한 점으로 쌓고, 0,0의 원자 하나도 배치하며, MOL의 "모든 손실은 `accept_loss`" 규칙은 그대로 두고, 표시 없는 이중결합의 생성 기하는 S1처럼 받아들인다.

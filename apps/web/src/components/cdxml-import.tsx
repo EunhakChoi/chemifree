@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import type { InterchangeChoice, InterchangeFormat, InterchangeInput, InterchangePreview } from '@/lib/document-contract'
+import type { ImportFlowHandle } from '@/lib/import-detect'
 
 /** This form's cap on the file itself; CDX grows by a third as base64 and must fit the 256 KiB request body. */
 const MAX_FILE_BYTES = 120 * 1024
@@ -23,27 +23,24 @@ interface Prepared {
   generation: number
 }
 
-/** Canonical padded base64, which is what the operation API requires for CDX. */
-function toBase64(bytes: Uint8Array): string {
-  let binary = ''
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
-  }
-  return btoa(binary)
-}
-
-/** A rich file is projected only after its particular losses have been reviewed. */
-export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
-  const [source, setSource] = useState<Source | null>(null)
-  const [title, setTitle] = useState('Imported drawing')
+/** CDXML text or a CDXML/CDX file from the Import card, read into pages and molecules only on an explicit click. */
+export function InterchangeImportFlow({ editor, source, origin, format, suggestedTitle, byteLength, onDone, ref }: {
+  editor: DocumentEditor
+  source: string
+  origin: 'text' | 'file'
+  format: InterchangeFormat
+  suggestedTitle: string
+  byteLength?: number
+  onDone: () => void
+  ref: Ref<ImportFlowHandle>
+}) {
+  const [inspected, setInspected] = useState<Source | null>(null)
+  const [title, setTitle] = useState(suggestedTitle)
   const [choice, setChoice] = useState(0)
   const [prepared, setPrepared] = useState<Prepared | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [text, setText] = useState('')
-  const [reading, setReading] = useState(false)
   const creation = editor.interchangeCreation
-  const fileInput = useRef<HTMLInputElement>(null)
   const sequence = useRef(0)
   const creating = useRef(false)
   const alive = useRef(true)
@@ -51,112 +48,53 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     alive.current = true
     return () => { alive.current = false; sequence.current += 1 }
   }, [])
-  useEffect(() => {
-    // A detected restart also invalidates the file-backed read. Allow the same
-    // file to fire change again after the user has reconciled the old attempt.
-    if (fileInput.current) fileInput.current.value = ''
-  }, [editor.serviceGeneration])
+  useImperativeHandle(ref, () => ({
+    reset() {
+      sequence.current += 1
+      setInspected(null)
+      setPrepared(null)
+      setChoice(0)
+      setError(null)
+      setPending(false)
+    },
+  }))
 
   const current = prepared?.generation === editor.serviceGeneration ? prepared : null
-  const liveSource = source?.generation === editor.serviceGeneration ? source : null
-  const fits = new TextEncoder().encode(text).byteLength <= MAX_FILE_BYTES
+  const liveInspected = inspected?.generation === editor.serviceGeneration ? inspected : null
+  // The card always passes a file's size; a missing size fails closed rather than reading as 0.
+  const fits = origin === 'file'
+    ? byteLength !== undefined && byteLength <= MAX_FILE_BYTES
+    : new TextEncoder().encode(source).byteLength <= MAX_FILE_BYTES
   const locked = creation !== null
+  const label = format === 'cdx' ? 'CDX' : 'CDXML'
 
-  function editText(value: string) {
-    sequence.current += 1
-    setText(value)
-    if (fileInput.current) fileInput.current.value = ''
-    setSource(null)
-    setPrepared(null)
-    setChoice(0)
-    setError(null)
-    setPending(false)
-    setReading(false)
-  }
-
-  async function readClipboard() {
-    if (pending || reading || locked || editor.busy) return
+  async function readChoices() {
+    if (!source.trim() || !fits || pending || locked || editor.busy) return
     const request = ++sequence.current
     const generation = editor.currentServiceGeneration()
-    setReading(true)
-    setError(null)
-    try {
-      if (typeof navigator.clipboard?.readText !== 'function') throw new Error('Clipboard reading is unavailable. Paste CDXML text manually.')
-      const value = await navigator.clipboard.readText()
-      if (alive.current && sequence.current === request && generation === editor.currentServiceGeneration()) editText(value)
-    } catch (cause) {
-      if (alive.current && sequence.current === request && generation === editor.currentServiceGeneration()) {
-        setError(cause instanceof Error ? `${cause.message} Paste CDXML text manually.` : 'Clipboard reading failed. Paste CDXML text manually.')
-      }
-    } finally {
-      if (alive.current && sequence.current === request) setReading(false)
-    }
-  }
-
-  async function readText() {
-    if (!text.trim() || !fits || pending || locked || editor.busy) return
-    const request = ++sequence.current
-    const generation = editor.currentServiceGeneration()
-    const asked = text
+    const asked = source
+    const failure = origin === 'file' ? 'Could not read this file.' : 'Could not read CDXML text.'
     setPending(true)
-    setSource(null)
+    setInspected(null)
     setPrepared(null)
     setChoice(0)
     setError(null)
     try {
-      const choices = await editor.readInterchange(asked, 'cdxml')
+      const choices = await editor.readInterchange(asked, format)
       if (alive.current && sequence.current === request && generation === editor.currentServiceGeneration()) {
-        setSource({ format: 'cdxml', text: asked, choices, generation })
+        setInspected({ format, text: asked, choices, generation })
       }
     } catch (cause) {
-      if (alive.current && sequence.current === request && generation === editor.currentServiceGeneration()) setError(cause instanceof Error ? cause.message : 'Could not read CDXML text.')
-    } finally {
-      if (alive.current && sequence.current === request) setPending(false)
-    }
-  }
-
-  async function chooseFile(file?: File) {
-    const request = ++sequence.current
-    setPrepared(null)
-    setSource(null)
-    setChoice(0)
-    setError(null)
-    setText('')
-    if (!file) return
-    const name = file.name.toLowerCase()
-    const format: InterchangeFormat | null = name.endsWith('.cdxml') ? 'cdxml' : name.endsWith('.cdx') ? 'cdx' : null
-    if (!format) {
-      setError('Choose a .cdxml or .cdx file.')
-      return
-    }
-    if (file.size > MAX_FILE_BYTES) {
-      setError('This web form accepts CDXML and CDX files up to 120 KiB. The operation API and CLI have their own limits.')
-      return
-    }
-    setPending(true)
-    const generation = editor.currentServiceGeneration()
-    try {
-      const buffer = await file.arrayBuffer()
-      // CDXML preserves a UTF-8 BOM while rejecting invalid input rather than replacing bytes.
-      const text = format === 'cdx'
-        ? toBase64(new Uint8Array(buffer))
-        : new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer)
-      const choices = await editor.readInterchange(text, format)
-      if (alive.current && sequence.current === request && generation === editor.currentServiceGeneration()) {
-        setSource({ format, text, choices, generation })
-        setTitle(file.name.replace(/\.cdx(ml)?$/i, '') || 'Imported drawing')
-      }
-    } catch (cause) {
-      if (alive.current && sequence.current === request && generation === editor.currentServiceGeneration()) setError(cause instanceof Error ? cause.message : 'Could not read this file.')
+      if (alive.current && sequence.current === request && generation === editor.currentServiceGeneration()) setError(cause instanceof Error ? cause.message : failure)
     } finally {
       if (alive.current && sequence.current === request) setPending(false)
     }
   }
 
   async function preview() {
-    const selected = liveSource?.choices[choice]
-    if (!liveSource || !selected || !title.trim() || locked) return
-    const input: InterchangeInput = { format: liveSource.format, source: liveSource.text, title: title.trim(), page_id: selected.page_id, fragment_id: selected.fragment_id }
+    const selected = liveInspected?.choices[choice]
+    if (!liveInspected || !selected || !title.trim() || locked) return
+    const input: InterchangeInput = { format: liveInspected.format, source: liveInspected.text, title: title.trim(), page_id: selected.page_id, fragment_id: selected.fragment_id }
     const request = ++sequence.current
     const generation = editor.currentServiceGeneration()
     setPending(true)
@@ -182,7 +120,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     setError(null)
     try {
       await editor.createInterchange(ready.input, ready.preview.digest, { generation: ready.generation })
-      if (alive.current) editText('')
+      if (alive.current) onDone()
     } catch (cause) {
       if (alive.current) setError(cause instanceof Error ? cause.message : 'The creation outcome is unknown. Check the original attempt.')
     } finally {
@@ -191,34 +129,17 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
     }
   }
 
-  return <section aria-labelledby="cdxml-import" className="space-y-3 rounded-lg border p-4">
-    <h3 id="cdxml-import" className="text-sm font-medium">Create a drawing from CDXML or CDX</h3>
-    <p className="text-sm text-muted-foreground">Choose a page and molecule. The editor supports one molecule; review the other content that will be left out before creating a new drawing.</p>
-    <Field>
-      <FieldLabel htmlFor="cdxml-file">CDXML or CDX file</FieldLabel>
-      <Input ref={fileInput} id="cdxml-file" type="file" accept=".cdxml,.cdx,application/xml,text/xml" disabled={pending || reading || locked || editor.busy}
-        onChange={(event) => void chooseFile(event.currentTarget.files?.[0])} />
-      <FieldDescription>External resources are never fetched. Files up to 120 KiB; CDX is sent as base64.</FieldDescription>
-    </Field>
-    <Field data-invalid={!fits || undefined}>
-      <FieldLabel htmlFor="cdxml-text">CDXML source text</FieldLabel>
-      <Textarea id="cdxml-text" rows={5} value={text} disabled={locked} spellCheck={false} autoComplete="off" autoCapitalize="off" aria-invalid={!fits}
-        className="field-sizing-fixed max-h-48 resize-y font-mono text-xs" onChange={(event) => editText(event.currentTarget.value)} />
-      <FieldDescription>CDXML only, up to 120 KiB of UTF-8. Reading the clipboard only fills this field. Read pages and molecules sends the exact text to the local service; no format is guessed.</FieldDescription>
-    </Field>
-    {!fits && <p role="alert" className="text-sm text-destructive">CDXML text exceeds 120 KiB of UTF-8. Shorten it before reading pages and molecules.</p>}
-    <div className="flex flex-wrap gap-2">
-      <Button variant="outline" disabled={pending || reading || locked || editor.busy} onClick={() => void readClipboard()}>Read CDXML clipboard</Button>
-      <Button variant="outline" disabled={pending || reading || locked || editor.busy || !text.trim() || !fits} onClick={() => void readText()}>Read CDXML pages and molecules</Button>
-    </div>
-    <InterchangeCreationNotice editor={editor} onClear={() => editText('')} />
-    {liveSource && liveSource.choices.length === 0 && <p role="status">No page and top-level molecule with IDs can be projected into the editor.</p>}
-    {liveSource && liveSource.choices.length > 0 && <>
+  return <div className="flex min-w-0 flex-col gap-3">
+    <p className="text-muted-foreground">Choose a page and molecule. The editor supports one molecule; review the other content that will be left out before creating a new drawing. External resources are never fetched.</p>
+    {!fits && <p role="alert" className="text-sm text-destructive">{origin === 'file' ? 'This web form accepts CDXML and CDX files up to 120 KiB. The operation API and CLI have their own limits.' : 'CDXML text exceeds 120 KiB of UTF-8. Shorten it before reading pages and molecules.'}</p>}
+    <Button variant="outline" disabled={pending || locked || editor.busy || !source.trim() || !fits} onClick={() => void readChoices()}>{`Read ${label} pages and molecules`}</Button>
+    {liveInspected && liveInspected.choices.length === 0 && <p role="status">No page and top-level molecule with IDs can be projected into the editor.</p>}
+    {liveInspected && liveInspected.choices.length > 0 && <>
       <Field>
         <FieldLabel htmlFor="cdxml-choice">Page and molecule</FieldLabel>
         <select id="cdxml-choice" className="w-full min-w-0 max-w-full rounded-md border bg-background p-2 text-sm" value={choice} disabled={pending || locked || editor.busy}
           onChange={(event) => { setChoice(Number(event.currentTarget.value)); setPrepared(null) }}>
-          {liveSource.choices.map((item, index) => <option key={`${item.page_id}:${item.fragment_id}`} value={index}>
+          {liveInspected.choices.map((item, index) => <option key={`${item.page_id}:${item.fragment_id}`} value={index}>
             Page {item.page_id}, molecule {item.fragment_id} ({item.fragment_path})
           </option>)}
         </select>
@@ -248,7 +169,7 @@ export function CdxmlImport({ editor }: { editor: DocumentEditor }) {
         Accept losses and create drawing
       </Button>
     </div>}
-  </section>
+  </div>
 }
 
 /** Recovery stays visible while inspecting Saved documents, outside the conditional picker. */

@@ -1,5 +1,7 @@
-// Real SMILES panel/editor/client with HTTP and clipboard boundaries scripted. This checks
-// transport, consent and recovery, not the independent SMILES parser or chemical correctness.
+// Real Import card, SMILES flow, SMILES export panel, editor and client with HTTP and clipboard
+// boundaries scripted. The card owns the source text, reads, preview, consent and recovery; the
+// SMILES panel only writes and copies. This checks transport, consent and recovery, not the
+// independent SMILES parser or chemical correctness.
 import assert from 'node:assert/strict'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
@@ -11,6 +13,7 @@ const root = fileURLToPath(new URL('../apps/web', import.meta.url))
 const fixture = `
 import React, { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { ImportCard } from '/src/components/import-card.tsx'
 import { SmilesPanel } from '/src/components/smiles-panel.tsx'
 import { NativeClipboardPanel } from '/src/components/native-clipboard-panel.tsx'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
@@ -20,7 +23,8 @@ function Harness() {
   useEffect(() => { void editor.open('drawing') }, [])
   window.smilesHarness = { editor, select: (ids) => editor.setSelection(new Set(ids)) }
   return <><output aria-label="Current document">{editor.current?.document.id ?? 'loading'}</output>
-    {editor.current && <><SmilesPanel key={editor.current.document.id} document={editor.current.document} editor={editor} />
+    {editor.current && <><ImportCard key={'import-' + editor.current.document.id} document={editor.current.document} editor={editor} />
+      <SmilesPanel key={editor.current.document.id} document={editor.current.document} editor={editor} />
       <NativeClipboardPanel key={'native-' + editor.current.document.id} document={editor.current.document} editor={editor} activePlacement="s1" /></>}
   </>
 }
@@ -186,7 +190,8 @@ try {
   await page.goto(`http://127.0.0.1:${address.port}/smiles-clipboard-check`)
   await page.getByLabel('Current document').filter({ hasText: 'drawing' }).waitFor()
   const panel = page.getByRole('complementary', { name: 'SMILES', exact: true })
-  const source = panel.getByRole('textbox', { name: 'SMILES text', exact: true })
+  const card = page.getByRole('region', { name: 'Import', exact: true })
+  const source = card.getByRole('textbox', { name: 'Text to import', exact: true })
   assert.deepEqual(await page.evaluate(() => window.smilesClipboard.reads), [])
   assert.equal(requests.length, 0)
   await page.evaluate(() => window.smilesHarness.select(['a2', 's1']))
@@ -224,41 +229,43 @@ try {
   // UTF-8 disables preview, and a late read cannot replace a newer typed source.
   const beforeReads = requests.length
   await page.evaluate(() => { window.smilesClipboard.denyRead = true })
-  await panel.getByRole('button', { name: 'Read clipboard', exact: true }).click()
-  await panel.getByRole('alert').filter({ hasText: 'Paste SMILES text manually' }).waitFor()
+  await card.getByRole('button', { name: 'Read clipboard', exact: true }).click()
+  await card.getByRole('alert').filter({ hasText: 'Paste the text manually' }).waitFor()
   await source.fill('é'.repeat(8193))
-  assert.equal(await panel.getByRole('button', { name: 'Preview SMILES import', exact: true }).isDisabled(), true)
-  await panel.getByRole('alert').filter({ hasText: 'exceeds 16 KiB of UTF-8' }).waitFor()
+  // Typed text is ambiguous for é, so the format is chosen explicitly; the select is enabled only once text exists.
+  await card.getByLabel('Format', { exact: true }).selectOption('smiles')
+  assert.equal(await card.getByRole('button', { name: 'Preview SMILES import', exact: true }).isDisabled(), true)
+  await card.getByRole('alert').filter({ hasText: 'exceeds 16 KiB of UTF-8' }).waitFor()
   assert.equal(requests.length, beforeReads)
   await source.fill('N')
   await page.evaluate(() => { window.smilesClipboard.denyRead = false; window.smilesClipboard.deferredRead = true })
-  await panel.getByRole('button', { name: 'Read clipboard', exact: true }).click()
+  await card.getByRole('button', { name: 'Read clipboard', exact: true }).click()
   await page.waitForFunction(() => typeof window.smilesClipboard.finishRead === 'function')
   await source.fill('N newer edit')
   await page.evaluate((value) => window.smilesClipboard.finishRead(value), tailedSource)
-  await panel.getByRole('status').filter({ hasText: 'clipboard result was not used' }).waitFor()
+  await card.getByRole('status').filter({ hasText: 'clipboard result was not used' }).waitFor()
   assert.equal(await source.inputValue(), 'N newer edit')
   await page.evaluate((value) => { window.smilesClipboard.deferredRead = false; window.smilesClipboard.text = value }, tailedSource)
-  await panel.getByRole('button', { name: 'Read clipboard', exact: true }).click()
-  await page.waitForFunction((value) => document.getElementById('smiles-source')?.value === value, tailedSource)
+  await card.getByRole('button', { name: 'Read clipboard', exact: true }).click()
+  await page.waitForFunction((value) => document.getElementById('import-text')?.value === value, tailedSource)
   assert.equal(requests.length, beforeReads)
   assert.deepEqual(await page.evaluate(() => window.smilesClipboard.reads), [true, true, true])
 
   // Exact source, false initial consent, explicit true consent. Both lost accepted replies
   // are checked with one immutable ID/body, even after manual edits remove the old preview.
-  await panel.getByRole('button', { name: 'Preview SMILES import', exact: true }).click()
-  await panel.getByRole('button', { name: 'Import SMILES', exact: true }).waitFor()
+  await card.getByRole('button', { name: 'Preview SMILES import', exact: true }).click()
+  await card.getByRole('button', { name: 'Import SMILES', exact: true }).waitFor()
   assert.equal(requests.at(-1).parameters.source, tailedSource)
-  assert.match(await panel.innerText(), /3 atom\(s\), 2 bond\(s\)/)
-  await panel.getByRole('button', { name: 'Import SMILES', exact: true }).click()
-  await panel.getByRole('button', { name: 'Accept these losses and import SMILES', exact: true }).waitFor()
+  assert.match(await card.innerText(), /3 atom\(s\), 2 bond\(s\)/)
+  await card.getByRole('button', { name: 'Import SMILES', exact: true }).click()
+  await card.getByRole('button', { name: 'Accept these losses and import SMILES', exact: true }).waitFor()
   const declined = requests.at(-1)
   assert.equal(declined.parameters.accept_loss, false)
   assert.equal(declined.parameters.source, tailedSource)
   assert.equal(state.document.atoms.length, 4)
   importFails = 2
-  await panel.getByRole('button', { name: 'Accept these losses and import SMILES', exact: true }).click()
-  await panel.getByRole('button', { name: 'Check SMILES import outcome', exact: true }).waitFor()
+  await card.getByRole('button', { name: 'Accept these losses and import SMILES', exact: true }).click()
+  await card.getByRole('button', { name: 'Check SMILES import outcome', exact: true }).waitFor()
   const accepted = requests.filter((request) => request.operation === 'document.import' && !request.parameters.preview && request.parameters.accept_loss)
   assert.equal(accepted.length, 2)
   assert.deepEqual(accepted[0], accepted[1])
@@ -267,11 +274,12 @@ try {
   assert.equal(accepted[0].parameters.preview_digest, 'a'.repeat(64))
   assert.equal(state.document.atoms.length, 7, 'only one accepted import committed')
   await source.fill('N')
-  assert.equal(await panel.getByRole('button', { name: 'Import SMILES', exact: true }).count(), 0)
-  assert.equal(await panel.getByRole('button', { name: 'Preview SMILES import', exact: true }).isDisabled(), true)
+  assert.equal(await card.getByRole('button', { name: 'Import SMILES', exact: true }).count(), 0)
+  assert.equal(await card.getByRole('button', { name: 'Preview SMILES import', exact: true }).isDisabled(), true)
   assert.equal(await page.getByRole('button', { name: 'Check SMILES import outcome', exact: true, includeHidden: true }).count(), 1)
+  assert.equal(await card.getByRole('button', { name: 'Check SMILES import outcome', exact: true, includeHidden: true }).count(), 1)
   await page.evaluate(() => window.smilesHarness.select(['a3']))
-  const checking = panel.getByRole('button', { name: 'Check SMILES import outcome', exact: true })
+  const checking = card.getByRole('button', { name: 'Check SMILES import outcome', exact: true })
   assert.equal(await checking.isEnabled(), true)
   await checking.click()
   await page.waitForFunction(() => !window.smilesHarness.editor.clipboardPending)
@@ -285,30 +293,30 @@ try {
   assert.deepEqual(await page.evaluate(() => ({
     selection: [...window.smilesHarness.editor.selection],
     positions: window.smilesHarness.editor.current.document.atoms.slice(4).map((atom) => atom.position),
-    source: document.getElementById('smiles-source').value,
+    source: document.getElementById('import-text').value,
   })), { selection: ['a3'], positions: [{ x: -26, y: 90 }, { x: -26 + 15 * Math.sqrt(3), y: 75 }, { x: -26 + 30 * Math.sqrt(3), y: 90 }], source: 'N' })
 
   // Generated layout alone is informational: N imports with accept_loss:false and never
   // forces the person to approve a fictitious chemistry loss.
-  await panel.getByRole('button', { name: 'Preview SMILES import', exact: true }).click()
-  await panel.getByRole('button', { name: 'Import SMILES', exact: true }).click()
-  await panel.getByRole('status').filter({ hasText: 'Imported. The drawing now holds the new atoms' }).waitFor()
+  await card.getByRole('button', { name: 'Preview SMILES import', exact: true }).click()
+  await card.getByRole('button', { name: 'Import SMILES', exact: true }).click()
+  await card.getByRole('status').filter({ hasText: 'Imported. The drawing now holds the new atoms' }).waitFor()
   assert.equal(requests.at(-1).parameters.source, 'N')
   assert.equal(requests.at(-1).parameters.accept_loss, false)
   assert.equal(state.document.atoms.length, 8)
   assert.equal(commits.size, 2)
-  assert.equal(await panel.getByRole('button', { name: 'Accept these losses and import SMILES', exact: true }).count(), 0)
+  assert.equal(await card.getByRole('button', { name: 'Accept these losses and import SMILES', exact: true }).count(), 0)
 
   // A committed old-process success held across a detected restart cannot replace the
-  // shown drawing or release the gate. Reconciliation is local to this SMILES panel.
+  // shown drawing or release the gate. Reconciliation is local to the Import card.
   await source.fill(tailedSource)
-  await panel.getByRole('button', { name: 'Preview SMILES import', exact: true }).click()
-  await panel.getByRole('button', { name: 'Import SMILES', exact: true }).click()
-  await panel.getByRole('button', { name: 'Accept these losses and import SMILES', exact: true }).waitFor()
+  await card.getByRole('button', { name: 'Preview SMILES import', exact: true }).click()
+  await card.getByRole('button', { name: 'Import SMILES', exact: true }).click()
+  await card.getByRole('button', { name: 'Accept these losses and import SMILES', exact: true }).waitFor()
   const restarted = structuredClone(state)
   restarted.document.title = 'Restarted SMILES drawing'
   holdImport = true
-  await panel.getByRole('button', { name: 'Accept these losses and import SMILES', exact: true }).click()
+  await card.getByRole('button', { name: 'Accept these losses and import SMILES', exact: true }).click()
   await heldImportReady
   assert.equal(state.document.atoms.length, 11)
   state = restarted
@@ -317,11 +325,11 @@ try {
   assert.equal(await page.evaluate(() => window.smilesHarness.editor.inspectIdentity('drawing', 'recorded', null)
     .then(() => 'unexpected', (error) => error.code)), 'service_restarted')
   await finishImport()
-  await panel.getByRole('button', { name: 'Reload document to reconcile', exact: true }).waitFor()
+  await card.getByRole('button', { name: 'Reload document to reconcile', exact: true }).waitFor()
   assert.equal(await page.getByRole('button', { name: 'Reload document to reconcile', exact: true, includeHidden: true }).count(), 1)
   assert.equal(await page.evaluate(() => window.smilesHarness.editor.current.document.atoms.length), 8)
   const beforeReload = requests.length
-  await panel.getByRole('button', { name: 'Reload document to reconcile', exact: true }).click()
+  await card.getByRole('button', { name: 'Reload document to reconcile', exact: true }).click()
   await page.waitForFunction(() => !window.smilesHarness.editor.clipboardPending)
   assert.equal(requests.length, beforeReload)
   assert.equal(await page.evaluate(() => window.smilesHarness.editor.current.document.title), 'Restarted SMILES drawing')

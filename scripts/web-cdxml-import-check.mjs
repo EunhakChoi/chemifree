@@ -10,18 +10,23 @@ import { keepRequestInterception } from './lib/request-interception.mjs'
 const fixture = `
 import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { CdxmlImport, InterchangeCreationNotice } from '/src/components/cdxml-import.tsx'
+import { ImportCard } from '/src/components/import-card.tsx'
+import { InterchangeCreationNotice } from '/src/components/cdxml-import.tsx'
 import { useDocumentEditor } from '/src/hooks/use-document-editor.ts'
 import '/src/index.css'
 function Harness() {
   const editor = useDocumentEditor()
   const [picker, setPicker] = useState(true)
+  const [openLayout, setOpenLayout] = useState(false)
   useEffect(() => { void editor.open('original') }, [])
   window.cdxmlHarness = { editor }
   return <><output aria-label="Current document">{editor.current?.document.id ?? 'loading'}</output>
     <button disabled={editor.busy} onClick={async () => { await editor.open('original'); setPicker(false) }}>Inspect Saved drawing</button>
     <button disabled={editor.busy} onClick={() => setPicker(true)}>Return to import form</button>
-    {picker ? <CdxmlImport editor={editor} /> : <InterchangeCreationNotice editor={editor} />}</>
+    <button onClick={() => setOpenLayout(true)}>Use open-document layout</button>
+    {openLayout
+      ? <><ImportCard document={editor.current?.document ?? null} editor={editor} /><InterchangeCreationNotice editor={editor} /></>
+      : picker ? <ImportCard document={null} editor={editor} /> : <InterchangeCreationNotice editor={editor} />}</>
 }
 createRoot(document.getElementById('root')).render(<Harness />)
 `
@@ -150,13 +155,17 @@ try {
   await page.getByLabel('Current document').filter({ hasText: 'original' }).waitFor()
   assert.equal(requests.length, 0)
   assert.deepEqual(await page.evaluate(() => window.cdxmlClipboard.reads), [])
-  const field = page.getByLabel('CDXML source text', { exact: true })
-  const read = page.getByRole('button', { name: 'Read CDXML clipboard', exact: true })
+  const field = page.getByLabel('Text to import', { exact: true })
+  const read = page.getByRole('button', { name: 'Read clipboard', exact: true })
   const inspect = page.getByRole('button', { name: 'Read CDXML pages and molecules', exact: true })
+  const format = page.getByLabel('Format', { exact: true })
+  const file = page.getByLabel('Import file', { exact: true })
+  const card = page.getByRole('region', { name: 'Import', exact: true })
   await page.evaluate(() => { window.cdxmlClipboard.deny = true })
   await read.click()
-  await page.getByRole('alert').filter({ hasText: 'Denied' }).waitFor()
+  await page.getByRole('alert').filter({ hasText: 'Clipboard reading was unavailable, denied or failed. Paste the text manually.' }).waitFor()
   await field.fill('manual CDXML text')
+  await format.selectOption('cdxml')
   assert.equal(await inspect.isEnabled(), true, 'manual entry survives denied clipboard permissions')
   assert.equal(requests.length, 0)
   await page.evaluate(() => { window.cdxmlClipboard.deny = false; window.cdxmlClipboard.defer = true })
@@ -164,25 +173,40 @@ try {
   await field.fill('manual edit wins')
   await page.evaluate(() => { window.cdxmlClipboard.finish('stale clipboard text'); window.cdxmlClipboard.defer = false })
   assert.equal(await field.inputValue(), 'manual edit wins')
+  assert.equal(await format.inputValue(), 'cdxml', 'typed edits keep the format choice')
   await field.fill('é'.repeat(120 * 1024 / 2))
   assert.equal(await inspect.isEnabled(), true)
+  assert.equal(await format.inputValue(), 'cdxml', 'typed edits keep the format choice')
   await field.fill('é'.repeat(120 * 1024 / 2 + 1))
   assert.equal(await inspect.isDisabled(), true, 'UTF-8 byte cap, not character count')
+  assert.equal(await format.inputValue(), 'cdxml', 'typed edits keep the format choice')
   assert.equal(requests.length, 0)
   await field.fill('VmpDRDAxMDA=')
+  assert.equal(await format.inputValue(), 'cdxml', 'typed edits keep the format choice')
   await inspect.click()
   await page.getByRole('alert').filter({ hasText: 'Not a CDXML' }).waitFor()
   assert.equal(commits.size, 0)
 
-  const file = page.getByLabel('CDXML or CDX file', { exact: true })
   const fixtureFile = { name: 'fixture.cdxml', mimeType: 'text/xml', buffer: Buffer.from(source, 'utf8') }
-  await file.setInputFiles(fixtureFile)
+  // A pick is processed once the card shows the picked name. A negative check needs a bounded
+  // observation window: an automatic read would start within milliseconds of that point.
+  async function pickFile() {
+    const before = requests.length
+    await file.setInputFiles(fixtureFile)
+    await page.getByText('fixture.cdxml (', { exact: false }).waitFor()
+    await page.waitForTimeout(300)
+    assert.equal(requests.length, before, 'a pick sends nothing')
+    assert.equal(await page.getByLabel('Page and molecule', { exact: true }).count(), 0)
+  }
+  await pickFile()
+  await inspect.click()
   await page.getByLabel('Page and molecule', { exact: true }).waitFor()
   assert.equal(await file.evaluate((input) => input.files.length), 1)
   await field.fill('text replaces the file source')
   assert.equal(await file.evaluate((input) => input.files.length), 0, 'text invalidation clears the native file path')
   const readsBeforeReselect = requests.filter((request) => request.parameters.mode === 'read').length
-  await file.setInputFiles(fixtureFile)
+  await pickFile()
+  await inspect.click()
   await page.getByLabel('Page and molecule', { exact: true }).waitFor()
   assert.equal(requests.filter((request) => request.parameters.mode === 'read').length, readsBeforeReselect + 1, 'the same file can be selected and read again')
   await page.getByLabel('Page and molecule', { exact: true }).selectOption('1')
@@ -195,7 +219,8 @@ try {
     await read.click()
     // Textarea rendering follows browser line-ending rules; transport still uses
     // the original clipboard string, asserted at every service boundary above.
-    await page.waitForFunction((expected) => document.getElementById('cdxml-text').value === expected, source.replaceAll('\r\n', '\n'))
+    await page.waitForFunction((expected) => document.getElementById('import-text').value === expected, source.replaceAll('\r\n', '\n'))
+    assert.equal(await format.inputValue(), 'cdxml', 'a clipboard read resets the format choice and the fixture is detected')
     const before = requests.length
     await inspect.click()
     await page.getByLabel('Page and molecule', { exact: true }).waitFor()
@@ -206,6 +231,8 @@ try {
     await page.getByTestId('cdxml-preview').waitFor()
     await page.getByText('Only the chosen molecule is projected.', { exact: false }).waitFor()
   }
+  // The file route is detected as CDXML; a SMILES override makes the clipboard read's reset observable.
+  await format.selectOption('smiles')
   await prepare()
   assert.equal(commits.size, 0, 'read and preview never create')
   loseCreation = true
@@ -214,7 +241,11 @@ try {
   await check.waitFor()
   await page.waitForFunction(() => !window.cdxmlHarness.editor.busy)
   assert.equal(commits.size, 1)
+  assert.equal(await card.getByRole('button', { name: 'Check CDXML creation outcome', exact: true }).count(), 1, 'the creation notice is inside the empty-screen card')
   assert.equal(await field.isDisabled(), true, 'uncertain creation cannot be redirected to new source')
+  assert.equal(await file.isDisabled(), true, 'a locked card cannot pick a file')
+  assert.equal(await read.isDisabled(), true, 'a locked card cannot read the clipboard')
+  assert.equal(await page.getByRole('button', { name: 'Clear', exact: true }).isDisabled(), true, 'a locked card cannot clear the attempt')
   const first = requests.find((request) => request.parameters.mode === 'create')
   const frozenAttempt = await page.evaluate(() => window.cdxmlHarness.editor.interchangeCreation)
   await page.evaluate(() => window.cdxmlHarness.editor.clearInterchangeCreation())
@@ -288,7 +319,8 @@ try {
   assert.equal(commits.size, 3, 'a first-send restart never creates an unreviewed new-process drawing')
   assert.equal(await page.getByLabel('Current document').textContent(), 'created-3')
   await page.getByRole('button', { name: 'I checked Saved documents; clear this attempt', exact: true }).click()
-  await file.setInputFiles(fixtureFile)
+  await pickFile()
+  await inspect.click()
   await page.getByLabel('Page and molecule', { exact: true }).waitFor()
   await page.getByLabel('Page and molecule', { exact: true }).selectOption('1')
   await page.getByLabel('New drawing title', { exact: true }).fill('File molecule')
@@ -296,9 +328,34 @@ try {
   await page.getByTestId('cdxml-preview').waitFor()
   await page.getByRole('button', { name: 'Accept losses and create drawing', exact: true }).click()
   await page.getByLabel('Current document').filter({ hasText: 'created-4' }).waitFor()
-  await page.waitForFunction(() => document.getElementById('cdxml-file').files.length === 0)
+  await page.waitForFunction(() => document.getElementById('import-file').files.length === 0)
   assert.equal(commits.size, 4, 'ordinary file import still creates exactly one new drawing')
   assert.deepEqual(await page.evaluate(() => window.cdxmlClipboard.reads), [true, true, true, true, true, true])
+  // The open-document workspace renders this notice beside the import card without onClear.
+  // After clearing the attempt there, the reviewed preview is not offered again, so the same input cannot be created again.
+  // The drawing must be clean: a creation first drafts an open drawing with unsaved changes, and this harness refuses that draft.
+  dirtyOriginal = false
+  await page.getByRole('button', { name: 'Use open-document layout', exact: true }).click()
+  await page.getByRole('button', { name: 'Inspect Saved drawing', exact: true }).click()
+  await page.getByLabel('Current document').filter({ hasText: 'original' }).waitFor()
+  await prepare()
+  const acceptReviewed = page.getByRole('button', { name: 'Accept losses and create drawing', exact: true })
+  const clearAttempt = page.getByRole('button', { name: 'I checked Saved documents; clear this attempt', exact: true })
+  // The service restarts before the reviewed create: the POST is refused and the attempt waits for reconciliation.
+  // An attempt reaches this clear button only after a detected restart, and the restart moves the service generation,
+  // which hides a preview made for the old service (InterchangeImportFlow compares prepared.generation).
+  token = 'cdxml-process-4'
+  await acceptReviewed.click()
+  await page.getByRole('button', { name: 'Refresh Saved documents', exact: true }).waitFor()
+  const postsBeforeClear = creationPosts.length
+  await clearAttempt.click()
+  await clearAttempt.waitFor({ state: 'detached' })
+  assert.equal(await acceptReviewed.count(), 0, 'clearing an attempt in an open document drops the reviewed preview')
+  assert.equal(await page.getByTestId('cdxml-preview').count(), 0, 'clearing an attempt in an open document drops the reviewed preview')
+  assert.equal(creationPosts.length, postsBeforeClear, 'clearing an attempt sends no new creation request')
+  await prepare()
+  await acceptReviewed.waitFor()
+  assert.equal(await acceptReviewed.isEnabled(), true, 'a fresh read and preview makes the drawing creatable again')
   assert.deepEqual(errors, [])
   console.log('CDXML exact text, explicit source/consent, new-drawing creation and process-bound recovery checks passed.')
 } finally {
