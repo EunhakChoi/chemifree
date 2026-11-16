@@ -2,7 +2,7 @@
 
 ## P17 S1: 코퍼스 재번호·표기 불변성 (T1)
 
-테스트만 더했다(`crates/providers/tests/aromaticity_corpus_invariance.rs`). 방향족 코퍼스 196개 기록을 두 가지 고정 재번호로 다시 만들어 고리계·분류·이유·전자 수·변환 결과·화학 identity가 같음을 확인하고, Kekulé·방향족 표기 80쌍 중 74쌍이 일치함을 확인한다. 나머지 6쌍(azulene, biphenylene, heptalene, cyclotriazane, trioxadithiolane, CH2 고리에 붙은 triazane)은 표기에 따라 거절 이유가 달라 결과를 표로 고정했고, CONTRACT의 "표기가 같으면 분류가 같다" 문장을 이 차이를 적도록 고쳤다. 화학 모델은 바꾸지 않았다. 변이 M1–M5 근거는 `docs/verification/p17-s1-corpus-invariance.md`. P17 마감 계획(Opus): S2 공개 conformance 사례(전하 고리 왕복, adjacent_donors 거절 시 문서 불변)와 `calculate`의 확인 없는 인덱싱 정리·`restricted_target` 고정 테스트, S3 기록 PR로 `done`. 이슈 #249의 질소 수소 리셋은 파일 형식 변경 없이 한계로 남긴다(Opus 추천 A).
+테스트만 더했다(`crates/providers/tests/aromaticity_corpus_invariance.rs`). 방향족 코퍼스 196개 기록을 두 가지 고정 재번호로 다시 만들어 고리계·분류·이유·전자 수·변환 결과·화학 identity가 같음을 확인하고, Kekulé·방향족 표기 80쌍 중 74쌍이 일치함을 확인한다. 나머지 6쌍(azulene, biphenylene, heptalene, cyclotriazane, trioxadithiolane, CH2 고리에 붙은 triazane)은 표기에 따라 거절 이유가 달라 결과를 표로 고정했고, CONTRACT의 "한 분자의 두 표기는 분류가 같다" 문장을 이 차이를 적도록 고쳤다. 화학 모델은 바꾸지 않았다. 변이 M1–M5 근거는 `docs/verification/p17-s1-corpus-invariance.md`. P17 마감 계획(Opus): S2 공개 conformance 사례(전하 고리 왕복, adjacent_donors 거절 시 문서 불변)와 `calculate`의 확인 없는 인덱싱 정리·`restricted_target` 고정 테스트, S3 기록 PR로 `done`. 이슈 #249의 질소 수소 리셋은 파일 형식 변경 없이 한계로 남긴다(Opus 추천 A).
 
 ## P48 완료 기록 (T1)
 

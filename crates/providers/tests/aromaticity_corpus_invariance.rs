@@ -1,4 +1,5 @@
-//! The corpus must classify a molecule the same however its atoms and bonds are numbered, and
+//! The corpus must classify a molecule the same under two fixed renumberings of its atoms and
+//! bonds, and
 //! the Kekulé and aromatic spellings of one molecule must agree, except for the six pairs in
 //! `DOCUMENTED_SPELLING_DIFFERENCES`, whose outcomes are pinned instead. Each record is checked
 //! under two fixed renumberings: the reversed order with ends swapped, and the odd indices first.
@@ -37,7 +38,10 @@ struct RecordKey {
     kekulize: Result<(), &'static str>,
     /// The command count, and the original indices of the bonds the edit updates.
     to_aromatic: Result<(usize, BTreeSet<usize>), &'static str>,
-    to_kekule: Result<usize, &'static str>,
+    /// The command count, and the original indices of the bonds the edit updates. Which of
+    /// them become double follows the numbering (both alternations of a benzene ring are valid
+    /// Kekulé structures), so only the updated set is compared.
+    to_kekule: Result<(usize, BTreeSet<usize>), &'static str>,
     /// The canonical code of the chemical graph, or its refusal code.
     identity: Result<String, &'static str>,
 }
@@ -79,7 +83,8 @@ fn as_stated(document: Document) -> Numbered {
 
 /// Rebuilds `original` with its atoms added in `atom_order` and its bonds added in
 /// `bond_order`; each order is a permutation of the original indices. With `swap_ends`, every
-/// bond names its atoms the other way round. Atoms are cloned exactly.
+/// bond names its atoms the other way round. Atoms keep their element, charge, radical and
+/// hydrogens; positions are not copied, since perception and identity ignore them.
 fn renumber(
     original: &Document,
     atom_order: &[usize],
@@ -285,8 +290,18 @@ fn record_key(numbered: &Numbered) -> RecordKey {
         aromatize: interpretation.aromatize().map(|_| ()),
         kekulize: interpretation.kekulize().map(|_| ()),
         to_aromatic,
-        to_kekule: aromaticity::conversion_commands(&graph, Target::Kekule)
-            .map(|commands| commands.len()),
+        to_kekule: aromaticity::conversion_commands(&graph, Target::Kekule).map(|commands| {
+            let assigned: BTreeSet<usize> = commands
+                .iter()
+                .filter_map(|command| {
+                    let Command::UpdateBond { bond, .. } = command else {
+                        return None;
+                    };
+                    Some(bond_origin[bond])
+                })
+                .collect();
+            (commands.len(), assigned)
+        }),
         identity: identity::canonicalize_chemical(&graph)
             .map(|canonical| canonical.code)
             .map_err(|error| error.code()),
@@ -325,7 +340,11 @@ fn corpus_results_do_not_depend_on_numbering() {
             );
         }
     }
-    assert!(compared > 0, "no record was compared under any numbering");
+    assert_eq!(
+        compared,
+        2 * corpus.len(),
+        "every record is compared under both numberings"
+    );
 }
 
 /// The pinned outcome of one spelling of a documented pair.
@@ -513,6 +532,12 @@ fn kekule_and_aromatic_spellings_of_a_molecule_agree() {
             kekule_key.identity, aromatic_key.identity,
             "{molecule}: chemical identity differs between the spellings"
         );
+        // `kekulize` is not compared: a Kekulé spelling has no aromatic bond to assign, so it
+        // succeeds there whatever the aromatic spelling does; `to_kekule` above covers it.
+        assert_eq!(
+            kekule_key.aromatize, aromatic_key.aromatize,
+            "{molecule}: aromatize outcomes differ between the spellings"
+        );
         let forward = outcome(&kekule_key.to_aromatic);
         let backward = outcome(&aromatic_key.to_kekule);
         assert_eq!(
@@ -539,6 +564,10 @@ fn kekule_and_aromatic_spellings_of_a_molecule_agree() {
             assert_eq!(
                 converted.systems, aromatic_key.systems,
                 "{molecule}: classification changes after the aromatic spelling is converted to Kekulé"
+            );
+            assert_eq!(
+                converted.identity, aromatic_key.identity,
+                "{molecule}: chemical identity changes after the aromatic spelling is converted to Kekulé"
             );
         }
         agreeing += 1;
