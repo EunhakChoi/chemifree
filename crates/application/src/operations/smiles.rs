@@ -386,6 +386,7 @@ impl ImportFormat for SmilesImportFormat<'_> {
         let plans = smiles_layout::placements(read, target.settings.bond_length_pt);
         if let Some(plans) = &plans {
             losses.extend(import_layout::not_covered_losses(plans, ""));
+            losses.extend(import_layout::overlap_losses(plans, ""));
         }
         // A replayed import has committed already, so it returns no commands, only its losses.
         let commands = if replayed {

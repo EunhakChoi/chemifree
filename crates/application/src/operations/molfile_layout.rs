@@ -84,11 +84,13 @@ pub(super) fn placements(record: &CtRecord, bond_length_pt: f64) -> Option<Vec<C
             {
                 // A component with a bond mark is never given to the engine: grid or zigzag
                 // geometry would let the marks derive a configuration the file does not state.
-                // Every atom keeps the one source point.
+                // Every atom keeps the one source point. It is not checked for overlaps: its atoms
+                // share one point on purpose (CONTRACT, P48 S4).
                 return Some(ComponentPlan {
                     shape: vec![(0.0, 0.0); members.len()],
                     atoms: members,
                     fallback: Some(Fallback::SourcePoint("stereo_in_layout")),
+                    overlaps: Vec::new(),
                 });
             }
             let mut commands = Vec::with_capacity(members.len() + bonds.len());

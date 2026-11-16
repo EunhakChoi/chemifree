@@ -18,6 +18,7 @@
     "cases/formula-and-mass.json",
     "cases/molfile-round-trip.json",
     "cases/molfile-coordinate-free-layout.json",
+    "cases/smiles-import-layout-overlap.json",
     "cases/graph-scene-separation.json",
     "cases/scene-tree-history.json",
     "cases/scene-references.json",

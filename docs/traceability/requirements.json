@@ -969,7 +969,7 @@
       "parts": [
         {
           "id": "CODEC-06.v2000-policy",
-          "summary": "For the bounded V2000 profile, unsupported chemical directives are refused and projection, metadata and interpretation losses are reported; a coordinate-free 2D record is laid out with generated_layout and layout_not_covered reported.",
+          "summary": "For the bounded V2000 profile, unsupported chemical directives are refused and projection, metadata and interpretation losses are reported; a coordinate-free 2D record is laid out with generated_layout and layout_not_covered reported. Since P48 S4 a coordinate-free record also reports generated_layout_overlap (records[N].atoms[...]) for a laid-out component with overlapping atoms; it changes no consent outcome.",
           "status": "implemented",
           "implementation": [
             "crates/providers/src/ctfile.rs",
@@ -1015,7 +1015,7 @@
         },
         {
           "id": "CODEC-06.smiles-policy",
-          "summary": "For bounded SMILES, syntax the drawing cannot hold (unsupported stereo, wildcard, quadruple bonds, extended ring labels, charges and isotopes outside the drawing's range, aromatic systems outside the aromaticity model) is refused with its own code and position; dropped text, atom classes and undetermined radicals are reported as losses that need acceptance; generated positions are reported as generated_layout, and a component the bounded layout does not cover as layout_not_covered, neither needing acceptance.",
+          "summary": "For bounded SMILES, syntax the drawing cannot hold (unsupported stereo, wildcard, quadruple bonds, extended ring labels, charges and isotopes outside the drawing's range, aromatic systems outside the aromaticity model) is refused with its own code and position; dropped text, atom classes and undetermined radicals are reported as losses that need acceptance; generated positions are reported as generated_layout, and a component the bounded layout does not cover as layout_not_covered, neither needing acceptance. P48 S4 reports an overlap inside a laid-out component (non-bonded atoms closer than 0.3 bond lengths) as one no-consent generated_layout_overlap loss per component.",
           "status": "implemented",
           "implementation": [
             "crates/providers/src/smiles/reader.rs",
@@ -1025,7 +1025,8 @@
           ],
           "evidence": [
             "case:smiles-malformed-and-unsupported-refused",
-            "check:check:rust"
+            "check:check:rust",
+            "case:smiles-import-layout-overlap"
           ],
           "followups": []
         },

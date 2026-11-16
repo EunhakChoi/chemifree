@@ -1,0 +1,83 @@
+{
+  "id": "smiles-import-layout-overlap",
+  "title": "An overlapping SMILES layout reports generated_layout_overlap and commits without accepting a loss",
+  "requirements": [
+    "CODEC-06"
+  ],
+  "axis": "encoding",
+  "kind": "accept",
+  "steps": [
+    {
+      "call": "create",
+      "bind": "d"
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "preview",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "CC(C)(C)C(C(C)(C)C)(C(C)(C)C)C(C)(C)C",
+          "expected_revision": 0,
+          "preview": true
+        }
+      },
+      "document": "d",
+      "capture": {
+        "digest": "/result/preview_digest"
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 0,
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "generated_layout_overlap",
+              "source_path": "atoms[3, 4, 8, 9, 12, 13, 16, 17]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "call": "operation",
+      "request": {
+        "contract": 1,
+        "request_id": "import",
+        "profile": "preserve-semantics",
+        "operation": "document.import",
+        "parameters": {
+          "format": "smiles",
+          "source": "CC(C)(C)C(C(C)(C)C)(C(C)(C)C)C(C)(C)C",
+          "expected_revision": 0,
+          "preview_digest": null,
+          "accept_loss": false
+        }
+      },
+      "document": "d",
+      "substitute": {
+        "/parameters/preview_digest": "digest"
+      },
+      "expect": {
+        "outcome": "partial",
+        "document_revision": 1,
+        "result": {
+          "document": {
+            "revision": 1
+          }
+        },
+        "loss_report": {
+          "$contains": [
+            {
+              "feature": "generated_layout_overlap",
+              "source_path": "atoms[3, 4, 8, 9, 12, 13, 16, 17]"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

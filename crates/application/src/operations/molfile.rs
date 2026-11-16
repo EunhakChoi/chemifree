@@ -198,7 +198,7 @@ impl ImportFormat for CtImportFormat<'_> {
         let bond_length_pt = target.settings.bond_length_pt;
         // Only a 2D record whose coordinates are all 0 is laid out; every other record keeps its
         // file coordinates. The plans depend only on the record and the bond length, which an
-        // import never changes, so a replay reports the same layout losses.
+        // import never changes, so a replay reports the same layout losses, overlaps included.
         let plans = molfile_layout::coordinate_free(record)
             .then(|| molfile_layout::placements(record, bond_length_pt))
             .flatten();
@@ -206,6 +206,10 @@ impl ImportFormat for CtImportFormat<'_> {
         if let Some(plans) = &plans {
             losses.push(molfile_layout::generated_layout(self.p.record));
             losses.extend(import_layout::not_covered_losses(
+                plans,
+                &format!("records[{}].", self.p.record),
+            ));
+            losses.extend(import_layout::overlap_losses(
                 plans,
                 &format!("records[{}].", self.p.record),
             ));
