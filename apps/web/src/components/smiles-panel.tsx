@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react'
 
 import { ComputeStopNotice } from '@/components/compute-stop-notice'
 import { LossList } from '@/components/loss-list'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import type { ComputeStop } from '@/lib/compute-stop'
@@ -21,6 +21,7 @@ import {
   type SmilesPreview,
   type SmilesStyle,
 } from '@/lib/document-contract'
+import type { ImportFlowHandle } from '@/lib/import-detect'
 
 /**
  * What a result was made for. A result is shown, and its button works, only while the form,
@@ -58,42 +59,46 @@ function message(failure: unknown, fallback: string) {
   return failure instanceof Error ? failure.message : fallback
 }
 
-/** SMILES text in and out of the drawing, with the same preview, losses and consent as other formats. */
-export function SmilesPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
-  const [source, setSource] = useState('')
-  const [style, setStyle] = useState<SmilesStyle>('recorded')
-  const [sourceVersion, setSourceVersion] = useState(0)
-  const [styleVersion, setStyleVersion] = useState(0)
+/** The SMILES import half of the Import card: preview, losses and consent for the card's source text. */
+export function SmilesImportFlow({ document, editor, source, sourceVersion, composing, ref }: {
+  document: DocumentView
+  editor: DocumentEditor
+  source: string
+  origin: 'text' | 'file'
+  sourceVersion: number
+  composing: boolean
+  ref: Ref<ImportFlowHandle>
+}) {
   const [prepared, setPrepared] = useState<Prepared | null>(null)
   const [importOffer, setImportOffer] = useState<(Offer & { preview: string }) | null>(null)
-  const [written, setWritten] = useState<Written | null>(null)
-  const [exportOffer, setExportOffer] = useState<(Offer & { styleVersion: number }) | null>(null)
   const [pending, setPending] = useState(0)
-  const [composing, setComposing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // The last write the service stopped at its time limit or on a cancel: it produced no result.
-  const [stopped, setStopped] = useState<ComputeStop | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [transport, setTransport] = useState<{ generation: number; action: 'read' | 'write' | 'check' } | null>(null)
-  const writtenText = useRef<HTMLTextAreaElement>(null)
-  const sourceEpoch = useRef(0)
-  const clipboardRequest = useRef(0)
   const alive = useRef(true)
   const previewRequest = useRef(0)
-  const exportRequest = useRef(0)
-  // How many requests of each kind are running, so an edit can say it replaced one.
+  // How many previews are running, so an edit can say it replaced one.
   const previewing = useRef(0)
-  const exporting = useRef(0)
   const committing = useRef(false)
   useEffect(() => {
     alive.current = true
     return () => {
       alive.current = false
       previewRequest.current += 1
-      exportRequest.current += 1
-      clipboardRequest.current += 1
     }
   }, [])
+  useImperativeHandle(ref, () => ({
+    reset() {
+      setPrepared(null)
+      setImportOffer(null)
+      setError(null)
+      if (previewing.current > 0) {
+        previewRequest.current += 1
+        setNotice(MESSAGE_TEXT_CHANGED)
+      } else {
+        setNotice(null)
+      }
+    },
+  }))
 
   const generation = editor.serviceGeneration
   // Whether a result's drawing is the one shown. The matcher keeps one answer per snapshot
@@ -105,42 +110,9 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
   const livePreview = prepared && prepared.sourceVersion === sourceVersion && current(prepared) ? prepared : null
   const liveImportOffer = livePreview && importOffer && importOffer.preview === livePreview.data.digest && current(importOffer)
     ? importOffer : null
-  const liveWritten = written && written.styleVersion === styleVersion && current(written) ? written : null
-  const liveExportOffer = exportOffer && exportOffer.styleVersion === styleVersion && current(exportOffer) ? exportOffer : null
-  const stale = (prepared && !livePreview) || (written && !liveWritten)
-  const transportBusy = transport !== null && transport.generation === generation
+  const stale = prepared && !livePreview
   const sourceFits = new TextEncoder().encode(source).byteLength <= MAX_CLIPBOARD_SMILES_BYTES
-  const busy = pending > 0 || transportBusy || editor.busy
-
-  function changeSource(next: string) {
-    sourceEpoch.current += 1
-    setSource(next)
-    setSourceVersion((version) => version + 1)
-    setPrepared(null)
-    setImportOffer(null)
-    setError(null)
-    if (previewing.current > 0) {
-      previewRequest.current += 1
-      setNotice(MESSAGE_TEXT_CHANGED)
-    } else {
-      setNotice(null)
-    }
-  }
-
-  function changeStyle(next: SmilesStyle) {
-    setStyle(next)
-    setStyleVersion((version) => version + 1)
-    setWritten(null)
-    setExportOffer(null)
-    setError(null)
-    setStopped(null)
-    if (exporting.current > 0) {
-      exportRequest.current += 1
-      setNotice(MESSAGE_FORM_CHANGED)
-    } else {
-      setNotice(null)
-    }
-  }
+  const busy = pending > 0 || editor.busy
 
   async function previewImport() {
     if (busy || composing || source === '' || !sourceFits) return
@@ -213,6 +185,92 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     }
   }
 
+  return <div className="flex min-w-0 flex-col gap-3">
+    <p className="text-muted-foreground">Line breaks and trailing text are kept unchanged. The reader handles its supported CXSMILES stereo block after the structure; other text after the first whitespace is not read and is reported as a loss.</p>
+    <p className="text-muted-foreground">Preview SMILES import sends it to the local service; importing sends the same inspected source after confirmation. The UTF-8 limit is 16 KiB.</p>
+    {!sourceFits && <Alert variant="destructive"><AlertDescription>This SMILES text exceeds 16 KiB of UTF-8. Shorten it before previewing.</AlertDescription></Alert>}
+    <Button size="sm" variant="outline" disabled={source === '' || !sourceFits || busy || composing} onClick={() => void previewImport()}>
+      Preview SMILES import
+    </Button>
+    {error && <p role="alert">{error}</p>}
+    {notice && <p role="status">{notice}</p>}
+    {stale && <p>The text, the drawing or the service changed since the last result. Run it again.</p>}
+    {livePreview && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto">
+      <p data-testid="smiles-preview-summary">
+        {livePreview.data.atoms} atom(s), {livePreview.data.bonds} bond(s) would be added.
+      </p>
+      {livePreview.data.ignoredText && <p>Not read: {describeSpan(livePreview.data.ignoredText)}.</p>}
+      <LossList losses={livePreview.data.losses} />
+      <p className="text-muted-foreground">
+        Valence model {livePreview.data.valenceModel}; aromaticity model {livePreview.data.aromaticityModel}.
+      </p>
+      {!liveImportOffer && <Button size="sm" disabled={busy} onClick={() => void commitImport(false)}>
+        Import SMILES
+      </Button>}
+      {liveImportOffer && <div role="group" aria-label="Losses to accept" className="flex flex-col gap-2">
+        <p>These losses change the chemistry or drop text and must be accepted: {liveImportOffer.features.join(', ')}.</p>
+        <LossList losses={liveImportOffer.losses} />
+        <Button size="sm" disabled={busy} onClick={() => void commitImport(true)}>Accept these losses and import SMILES</Button>
+      </div>}
+    </div>}
+  </div>
+}
+
+/** Writes the drawing as SMILES text with the same loss consent as other formats. Reading SMILES is the Import card's job. */
+export function SmilesPanel({ document, editor }: { document: DocumentView; editor: DocumentEditor }) {
+  const [style, setStyle] = useState<SmilesStyle>('recorded')
+  const [styleVersion, setStyleVersion] = useState(0)
+  const [written, setWritten] = useState<Written | null>(null)
+  const [exportOffer, setExportOffer] = useState<(Offer & { styleVersion: number }) | null>(null)
+  const [pending, setPending] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+  // The last write the service stopped at its time limit or on a cancel: it produced no result.
+  const [stopped, setStopped] = useState<ComputeStop | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [transport, setTransport] = useState<{ generation: number; action: 'write' } | null>(null)
+  const writtenText = useRef<HTMLTextAreaElement>(null)
+  const clipboardRequest = useRef(0)
+  const alive = useRef(true)
+  const exportRequest = useRef(0)
+  // How many exports are running, so a style change can say it replaced one.
+  const exporting = useRef(0)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+      exportRequest.current += 1
+      clipboardRequest.current += 1
+    }
+  }, [])
+
+  const generation = editor.serviceGeneration
+  // Whether a result's drawing is the one shown. The matcher keeps one answer per snapshot
+  // object, and it is made anew when the drawing changes, so each snapshot is compared with
+  // the drawing once per change however many results and offers hold it.
+  const matchesShown = useMemo(() => conversionSnapshotMatcher(document), [document])
+  const current = (stamp: Stamp) => stamp.generation === generation && matchesShown(stamp.drawing)
+
+  const liveWritten = written && written.styleVersion === styleVersion && current(written) ? written : null
+  const liveExportOffer = exportOffer && exportOffer.styleVersion === styleVersion && current(exportOffer) ? exportOffer : null
+  const stale = written && !liveWritten
+  const transportBusy = transport !== null && transport.generation === generation
+  const busy = pending > 0 || transportBusy || editor.busy
+
+  function changeStyle(next: SmilesStyle) {
+    setStyle(next)
+    setStyleVersion((version) => version + 1)
+    setWritten(null)
+    setExportOffer(null)
+    setError(null)
+    setStopped(null)
+    if (exporting.current > 0) {
+      exportRequest.current += 1
+      setNotice(MESSAGE_FORM_CHANGED)
+    } else {
+      setNotice(null)
+    }
+  }
+
   async function write(accepted?: string) {
     const sequence = ++exportRequest.current
     const asked = { style, styleVersion, generation, drawing: document }
@@ -258,34 +316,6 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     return alive.current && clipboardRequest.current === sequence && editor.currentServiceGeneration() === askedGeneration
   }
 
-  async function readClipboard() {
-    if (busy) return
-    const sequence = ++clipboardRequest.current
-    const askedGeneration = generation
-    const askedEpoch = sourceEpoch.current
-    const drawing = document
-    setTransport({ generation: askedGeneration, action: 'read' })
-    setError(null)
-    setNotice(null)
-    try {
-      if (typeof navigator.clipboard?.readText !== 'function') {
-        throw new Error('Browser clipboard reading is unavailable.')
-      }
-      // This optional read starts directly in the click. The source is passed unchanged.
-      const value = await navigator.clipboard.readText()
-      if (!clipboardCurrent(sequence, askedGeneration)) return
-      if (sourceEpoch.current !== askedEpoch || !editor.isCurrentConversion(drawing, askedGeneration)) {
-        setNotice('The text, drawing or service changed while reading clipboard. The clipboard result was not used.')
-        return
-      }
-      changeSource(value)
-    } catch {
-      if (clipboardCurrent(sequence, askedGeneration)) setError('Clipboard reading was unavailable, denied or failed. Paste SMILES text manually.')
-    } finally {
-      if (alive.current && clipboardRequest.current === sequence) setTransport(null)
-    }
-  }
-
   async function copyWritten() {
     const ready = liveWritten
     if (!ready || busy) return
@@ -311,81 +341,15 @@ export function SmilesPanel({ document, editor }: { document: DocumentView; edit
     }
   }
 
-  async function checkImportOutcome() {
-    if (pending > 0 || transportBusy) return
-    const sequence = ++clipboardRequest.current
-    const askedGeneration = generation
-    setTransport({ generation: askedGeneration, action: 'check' })
-    setError(null)
-    setNotice(null)
-    try {
-      if (editor.clipboardNeedsReload) await editor.reconcileClipboardPaste()
-      else await editor.checkClipboardPaste()
-      if (clipboardCurrent(sequence, askedGeneration)) {
-        setPrepared(null)
-        setImportOffer(null)
-        setNotice('SMILES import outcome reconciled with the document.')
-      }
-    } catch (failure: unknown) {
-      if (clipboardCurrent(sequence, askedGeneration)) setError(message(failure, 'The SMILES import outcome could not be checked.'))
-    } finally {
-      if (alive.current && clipboardRequest.current === sequence) setTransport(null)
-    }
-  }
-
   return <aside aria-label="SMILES" className="flex min-w-0 flex-col gap-3 rounded-lg border p-3 text-xs">
     <h3 className="text-sm font-medium">SMILES</h3>
     <p className="leading-relaxed text-muted-foreground">
       An OpenSMILES subset. Reading takes the tetrahedral marks @ and @@, the directional bonds / and \ beside a double bond (C=C, C=N, N=N; rings of 8 or more atoms) and CXSMILES stereo groups (a:, o1:, &1:) as stored configurations and groups, with no wedges drawn; it refuses a directional bond it cannot place (for example one end only, or on a ring-closure digit), other stereo classes and CXSMILES fields, query and reaction SMILES. Recorded output writes supported tetrahedral configurations, stored double-bond configurations as directional bonds the reader reads back, and groups; any other stereo, or a double-bond configuration it cannot place, requires loss consent. Canonical output does not retain stereo. Positions are generated, not read.
     </p>
-    <Field>
-      <FieldLabel htmlFor="smiles-source">SMILES text</FieldLabel>
-      <Textarea id="smiles-source" rows={3} spellCheck={false} autoComplete="off" autoCapitalize="off"
-        className="font-mono text-xs" value={source}
-        onChange={(event) => changeSource(event.currentTarget.value)}
-        onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)} />
-      <FieldDescription>
-        Line breaks and trailing text are kept unchanged. The reader handles its supported CXSMILES stereo block after the structure; other text after the first whitespace is not read and is reported as a loss.
-      </FieldDescription>
-    </Field>
-    <Button size="sm" variant="outline" disabled={busy || composing} onClick={() => void readClipboard()}>Read clipboard</Button>
-    <p className="text-muted-foreground">Reading the clipboard keeps text here. Preview SMILES import sends it to the local service; importing sends the same inspected source after confirmation. The UTF-8 limit is 16 KiB.</p>
-    {!sourceFits && <Alert variant="destructive"><AlertDescription>This SMILES text exceeds 16 KiB of UTF-8. Shorten it before previewing.</AlertDescription></Alert>}
-    <Button size="sm" variant="outline" disabled={source === '' || !sourceFits || busy || composing} onClick={() => void previewImport()}>
-      Preview SMILES import
-    </Button>
     {error && <p role="alert">{error}</p>}
-    {stopped !== null && <ComputeStopNotice stop={stopped} onRetry={() => void write()} disabled={busy || composing} retryLabel="Write SMILES again" testId="smiles-stop" />}
+    {stopped !== null && <ComputeStopNotice stop={stopped} onRetry={() => void write()} disabled={busy} retryLabel="Write SMILES again" testId="smiles-stop" />}
     {notice && <p role="status">{notice}</p>}
-    {editor.clipboardPending && editor.clipboardAction === 'smiles_import' && <Alert>
-      <AlertDescription className="flex flex-col gap-2">
-        <p>{editor.clipboardNeedsReload
-          ? 'The original SMILES import can no longer be confirmed by replay. It may already be present. Reload the document to reconcile its outcome.'
-          : 'The SMILES import outcome is not confirmed. Check the original attempt before importing again. Editing this source text does not change that attempt.'}</p>
-        <Button size="sm" variant="outline" disabled={pending > 0 || transportBusy} onClick={() => void checkImportOutcome()}>
-          {editor.clipboardNeedsReload ? 'Reload document to reconcile' : 'Check SMILES import outcome'}
-        </Button>
-      </AlertDescription>
-    </Alert>}
     {stale && <p>The text, the drawing or the service changed since the last result. Run it again.</p>}
-    {livePreview && <div aria-live="polite" className="flex max-h-64 flex-col gap-2 overflow-auto">
-      <p data-testid="smiles-preview-summary">
-        {livePreview.data.atoms} atom(s), {livePreview.data.bonds} bond(s) would be added.
-      </p>
-      {livePreview.data.ignoredText && <p>Not read: {describeSpan(livePreview.data.ignoredText)}.</p>}
-      <LossList losses={livePreview.data.losses} />
-      <p className="text-muted-foreground">
-        Valence model {livePreview.data.valenceModel}; aromaticity model {livePreview.data.aromaticityModel}.
-      </p>
-      {!liveImportOffer && <Button size="sm" disabled={busy} onClick={() => void commitImport(false)}>
-        Import SMILES
-      </Button>}
-      {liveImportOffer && <div role="group" aria-label="Losses to accept" className="flex flex-col gap-2">
-        <p>These losses change the chemistry or drop text and must be accepted: {liveImportOffer.features.join(', ')}.</p>
-        <LossList losses={liveImportOffer.losses} />
-        <Button size="sm" disabled={busy} onClick={() => void commitImport(true)}>Accept these losses and import SMILES</Button>
-      </div>}
-    </div>}
     <Field>
       <FieldLabel htmlFor="smiles-style">Write the drawing as</FieldLabel>
       <select id="smiles-style" value={style} disabled={busy}

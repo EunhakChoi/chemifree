@@ -31,6 +31,7 @@ import { join, resolve } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import { chromium } from 'playwright-core'
 
+import { importCardSmoke } from './lib/import-card-smoke.mjs'
 import { keepRequestInterception } from './lib/request-interception.mjs'
 import { observeRequestLog } from './lib/request-log.mjs'
 
@@ -278,8 +279,10 @@ results.preferences_read_can_be_retried = true
 // Select a page and fragment, inspect losses and IDs, then explicitly create a new drawing.
 {
   const source = '<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2"/></fragment><t id="4"><s>α</s></t></page><page id="5"><fragment id="6"><n id="7" p="10 20" Element="8"/></fragment></page></CDXML>'
+  const card = page.getByRole('region', { name: 'Import', exact: true })
   const before = (await api('/api/v1/documents')).documents.length
-  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'two-pages.cdxml', mimeType: 'application/xml', buffer: Buffer.from(source) })
+  await card.getByLabel('Import file').setInputFiles({ name: 'two-pages.cdxml', mimeType: 'application/xml', buffer: Buffer.from(source) })
+  await card.getByRole('button', { name: 'Read CDXML pages and molecules' }).click()
   await page.getByLabel('Page and molecule').selectOption('1')
   await page.getByRole('button', { name: 'Preview import' }).click()
   const preview = page.getByTestId('cdxml-preview')
@@ -301,7 +304,8 @@ results.preferences_read_can_be_retried = true
     ['missing.cdxml', '<CDXML><page id="1"><fragment id="2"><n id="3"/></fragment></page></CDXML>', /has no position/],
     ['label.cdxml', '<CDXML><page id="1"><fragment id="2"><n id="3" p="0 0"><t id="4"><s>O</s></t></n></fragment></page></CDXML>', /has a label or child object/],
   ]) {
-    await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name, mimeType: 'application/xml', buffer: Buffer.from(unsafe) })
+    await card.getByLabel('Import file').setInputFiles({ name, mimeType: 'application/xml', buffer: Buffer.from(unsafe) })
+    await card.getByRole('button', { name: 'Read CDXML pages and molecules' }).click()
     await page.getByLabel('Page and molecule').waitFor()
     await page.getByRole('button', { name: 'Preview import' }).click()
     await page.getByRole('alert').filter({ hasText: message }).waitFor()
@@ -312,6 +316,7 @@ results.preferences_read_can_be_retried = true
 // CDX: the same picker sends base64 and shows the same preview, mapping and consent.
 {
   step = 'CDX import'
+  const card = page.getByRole('region', { name: 'Import', exact: true })
   const u16 = (value) => Buffer.from([value & 0xff, value >> 8])
   const i32 = (value) => { const buffer = Buffer.alloc(4); buffer.writeInt32LE(value); return buffer }
   const obj = (tag, id, ...parts) => Buffer.concat([u16(tag), i32(id), ...parts, u16(0)])
@@ -321,7 +326,8 @@ results.preferences_read_can_be_retried = true
   const header = Buffer.concat([Buffer.from('VjCD0100'), Buffer.from([4, 3, 2, 1]), Buffer.alloc(16)])
   const cdx = Buffer.concat([header, document, u16(0)])
   const before = (await api('/api/v1/documents')).documents.length
-  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'molecule.cdx', mimeType: 'application/octet-stream', buffer: cdx })
+  await card.getByLabel('Import file').setInputFiles({ name: 'molecule.cdx', mimeType: 'application/octet-stream', buffer: cdx })
+  await card.getByRole('button', { name: 'Read CDX pages and molecules' }).click()
   await page.getByLabel('Page and molecule').waitFor()
   assert.equal(await page.getByLabel('New drawing title').inputValue(), 'molecule', 'the .cdx extension is stripped from the title')
   await page.getByRole('button', { name: 'Preview import' }).click()
@@ -340,20 +346,24 @@ results.preferences_read_can_be_retried = true
   await page.getByRole('button', { name: 'Close document' }).click()
   await page.getByText('No document open').waitFor()
   // A truncated file is refused by the service; an oversized one never leaves the browser.
-  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'cut.cdx', mimeType: 'application/octet-stream', buffer: cdx.subarray(0, cdx.length - 5) })
+  await card.getByLabel('Import file').setInputFiles({ name: 'cut.cdx', mimeType: 'application/octet-stream', buffer: cdx.subarray(0, cdx.length - 5) })
+  await card.getByRole('button', { name: 'Read CDX pages and molecules' }).click()
   await page.getByRole('alert').filter({ hasText: /ends in the middle of an item\. \(byte offset \d+\)/ }).waitFor()
-  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'big.cdx', mimeType: 'application/octet-stream', buffer: Buffer.alloc(121 * 1024) })
+  await card.getByLabel('Import file').setInputFiles({ name: 'big.cdx', mimeType: 'application/octet-stream', buffer: Buffer.alloc(121 * 1024) })
   await page.getByRole('alert').filter({ hasText: /up to 120 KiB/ }).waitFor()
+  assert.equal(await card.getByRole('button', { name: 'Read CDX pages and molecules' }).isDisabled(), true, 'an oversized file cannot be read')
   assert.equal((await api('/api/v1/documents')).documents.length, before + 1, 'refused CDX creates no drawing')
   results.cdx_import_with_consent = true
 }
 // A preview from an unmounted picker cannot replace a newer file's preview.
 {
   step = 'CDXML delayed preview after picker changes'
+  const card = page.getByRole('region', { name: 'Import', exact: true })
   const first = '<CDXML><page id="1"><fragment id="2"><n id="3" p="1 2"/></fragment></page></CDXML>'
   const second = '<CDXML><page id="5"><fragment id="6"><n id="7" p="3 4" Element="8"/></fragment></page></CDXML>'
   const before = (await api('/api/v1/documents')).documents.length
-  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'old.cdxml', mimeType: 'application/xml', buffer: Buffer.from(first) })
+  await card.getByLabel('Import file').setInputFiles({ name: 'old.cdxml', mimeType: 'application/xml', buffer: Buffer.from(first) })
+  await card.getByRole('button', { name: 'Read CDXML pages and molecules' }).click()
   await page.getByLabel('Page and molecule').waitFor()
   let arrived
   const responseArrived = new Promise((resolve) => { arrived = resolve })
@@ -379,7 +389,8 @@ results.preferences_read_can_be_retried = true
   await page.getByLabel('Document title').waitFor()
   await page.getByRole('button', { name: 'Close document' }).click()
   await page.getByText('No document open').waitFor()
-  await page.getByLabel(/CDXML(?: or CDX)? file/).setInputFiles({ name: 'new.cdxml', mimeType: 'application/xml', buffer: Buffer.from(second) })
+  await card.getByLabel('Import file').setInputFiles({ name: 'new.cdxml', mimeType: 'application/xml', buffer: Buffer.from(second) })
+  await card.getByRole('button', { name: 'Read CDXML pages and molecules' }).click()
   await page.getByLabel('Page and molecule').waitFor()
   await page.getByRole('button', { name: 'Preview import' }).click()
   const currentPreview = page.getByTestId('cdxml-preview')
@@ -3253,15 +3264,17 @@ step = 'after short_wide_bond_is_selectable'
   await page.reload()
   await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
   const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+  await panel.waitFor()
+  const card = page.getByRole('region', { name: 'Import', exact: true })
   const mol = 'Carbon\n\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n' +
     '    0.0000    1.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0\nM  END\n'
-  await panel.getByLabel('Import file').setInputFiles({ name: 'carbon.mol', mimeType: 'text/plain', buffer: Buffer.from(mol) })
-  await panel.getByRole('button', { name: 'Preview import' }).click()
-  await panel.getByText('1 record(s); importing record 1.', { exact: true }).waitFor()
+  await card.getByLabel('Import file').setInputFiles({ name: 'carbon.mol', mimeType: 'text/plain', buffer: Buffer.from(mol) })
+  await card.getByRole('button', { name: 'Preview import' }).click()
+  await card.getByText('1 record(s); importing record 1.', { exact: true }).waitFor()
   assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms.length, 0, 'preview does not change the drawing')
-  await panel.getByText(/does not replace its title/).waitFor()
-  await panel.getByRole('button', { name: 'Accept losses and import' }).click()
-  await panel.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
+  await card.getByText(/does not replace its title/).waitFor()
+  await card.getByRole('button', { name: 'Accept losses and import' }).click()
+  await card.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
   const imported = await api(`/api/v1/documents/${id}`)
   assert.deepEqual(imported.document.atoms.map((atom) => [atom.element, atom.position.x, atom.position.y]), [['C', 0, -20]])
   await panel.getByRole('button', { name: 'Preview MOL export' }).click()
@@ -3293,9 +3306,9 @@ step = 'after short_wide_bond_is_selectable'
   await panel.getByRole('button', { name: 'Download MOL' }).waitFor({ state: 'hidden' })
   assert.equal(extraDownloads, 0, 'an old export is not downloaded after restart')
   page.off('download', countDownload)
-  await panel.getByRole('button', { name: 'Preview import' }).click()
-  await panel.getByText('The service previewed a different drawing. Reload and preview again.', { exact: true }).waitFor()
-  assert.equal(await panel.getByRole('button', { name: 'Accept losses and import' }).count(), 0)
+  await card.getByRole('button', { name: 'Preview import' }).click()
+  await card.getByText('The service previewed a different drawing. Reload and preview again.', { exact: true }).waitFor()
+  assert.equal(await card.getByRole('button', { name: 'Accept losses and import' }).count(), 0)
   assert.equal((await api(`/api/v1/documents/${id}`)).document.atoms[0].element, 'O')
   results.ctfile_preview_import_export = true
 }
@@ -3325,7 +3338,9 @@ step = 'after short_wide_bond_is_selectable'
   const openPanel = async (id) => {
     await page.reload()
     await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
-    return page.getByRole('complementary', { name: 'MOL and SDF' })
+    const panel = page.getByRole('complementary', { name: 'MOL and SDF' })
+    await panel.waitFor()
+    return { panel, card: page.getByRole('region', { name: 'Import', exact: true }) }
   }
   const id = await build('source', 'V3000 source', stereoCommands)
   const stored = await apiWrite(`/api/v1/documents/${id}/transactions`, { request_id: 'v3k-source-derive', expected_revision: 1, commands: [
@@ -3338,7 +3353,7 @@ step = 'after short_wide_bond_is_selectable'
   assert.equal(grouped.status, 200, JSON.stringify(grouped.body))
   const heldGroups = (await api(`/api/v1/documents/${id}`)).document.stereo.groups
   assert.equal(heldGroups.length, 1)
-  const panel = await openPanel(id)
+  const { panel } = await openPanel(id)
   const version = panel.getByLabel('MOL version to write')
   assert.equal(await version.inputValue(), 'v2000', 'V2000 is the default')
   assert.match(await panel.getByTestId('ctfile-note').textContent(), /enhanced stereo groups as COLLECTION entries/)
@@ -3388,12 +3403,12 @@ step = 'after short_wide_bond_is_selectable'
 
   // The written file reads back into the same group, partition and number.
   const copyId = (await apiWrite('/api/v1/documents', { request_id: 'v3k-copy-create', title: 'V3000 copy' })).body.document.id
-  const importPanel = await openPanel(copyId)
-  await importPanel.getByLabel('Import file').setInputFiles({ name: 'v3000-groups.mol', mimeType: 'text/plain', buffer: Buffer.from(text) })
-  await importPanel.getByRole('button', { name: 'Preview import' }).click()
-  await importPanel.getByText('1 record(s); importing record 1.', { exact: true }).waitFor()
-  await importPanel.getByRole('button', { name: 'Accept losses and import' }).click()
-  await importPanel.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
+  const { card: importCard } = await openPanel(copyId)
+  await importCard.getByLabel('Import file').setInputFiles({ name: 'v3000-groups.mol', mimeType: 'text/plain', buffer: Buffer.from(text) })
+  await importCard.getByRole('button', { name: 'Preview import' }).click()
+  await importCard.getByText('1 record(s); importing record 1.', { exact: true }).waitFor()
+  await importCard.getByRole('button', { name: 'Accept losses and import' }).click()
+  await importCard.getByRole('button', { name: 'Accept losses and import' }).waitFor({ state: 'hidden' })
   let backGroups
   for (let attempt = 0; attempt < 50; attempt += 1) {
     backGroups = (await api(`/api/v1/documents/${copyId}`)).document.stereo.groups
@@ -3413,7 +3428,7 @@ step = 'after short_wide_bond_is_selectable'
   ] })
   assert.equal(refusedGroup.status, 200, JSON.stringify(refusedGroup.body))
   const before = (await api(`/api/v1/documents/${refusedId}`)).document
-  const refusedPanel = await openPanel(refusedId)
+  const { panel: refusedPanel } = await openPanel(refusedId)
   await refusedPanel.getByLabel('MOL version to write').selectOption('v3000')
   await refusedPanel.getByRole('button', { name: 'Preview MOL export' }).click()
   await refusedPanel.getByText(/^A stereo group holds atoms that the wedges or hashes would not derive/).waitFor()
@@ -3714,22 +3729,24 @@ step = 'after short_wide_bond_is_selectable'
   await page.reload()
   await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
   const panel = page.getByRole('complementary', { name: 'SMILES' })
-  const source = panel.getByLabel('SMILES text')
+  await panel.waitFor()
+  const card = page.getByRole('region', { name: 'Import', exact: true })
+  const source = card.getByLabel('Text to import')
   const atomCount = async () => (await api(`/api/v1/documents/${id}`)).document.atoms.length
 
   // A pasted second line is not lost silently: the preview shows ethanol and the ignored text.
   await source.focus()
   await page.keyboard.insertText('CCO\nCC')
   assert.equal(await source.inputValue(), 'CCO\nCC', 'the line break reaches the reader')
-  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
-  await panel.getByTestId('smiles-preview-summary').getByText('3 atom(s), 2 bond(s) would be added.').waitFor()
-  await panel.getByText('Not read: characters 5 to 6', { exact: false }).waitFor()
-  await panel.getByText(/Text after the first whitespace is not read/).waitFor()
+  await card.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await card.getByTestId('smiles-preview-summary').getByText('3 atom(s), 2 bond(s) would be added.').waitFor()
+  await card.getByText('Not read: characters 5 to 6', { exact: false }).waitFor()
+  await card.getByText(/Text after the first whitespace is not read/).waitFor()
   assert.equal(await atomCount(), 0, 'a preview changes nothing')
 
   // That loss drops text, so the import asks for it to be accepted; nothing is added before.
-  await panel.getByRole('button', { name: 'Import SMILES' }).click()
-  await panel.getByRole('button', { name: 'Accept these losses and import SMILES' }).waitFor()
+  await card.getByRole('button', { name: 'Import SMILES' }).click()
+  await card.getByRole('button', { name: 'Accept these losses and import SMILES' }).waitFor()
   assert.equal(await atomCount(), 0, 'a consent refusal changes nothing')
 
   // Editing the drawing makes the offer stale: it cannot be clicked.
@@ -3739,17 +3756,18 @@ step = 'after short_wide_bond_is_selectable'
   })
   await page.reload()
   await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
-  assert.equal(await panel.getByRole('button', { name: 'Accept these losses and import SMILES' }).count(), 0)
-  assert.equal(await panel.getByLabel('SMILES text').inputValue(), '', 'a reopened panel starts empty')
+  await panel.waitFor()
+  assert.equal(await card.getByRole('button', { name: 'Accept these losses and import SMILES' }).count(), 0)
+  assert.equal(await card.getByLabel('Text to import').inputValue(), '', 'a reopened panel starts empty')
 
   // A plain string needs no acceptance.
   await source.fill('CCO')
-  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
-  await panel.getByTestId('smiles-preview-summary').waitFor()
-  await panel.getByRole('button', { name: 'Import SMILES' }).click()
-  await panel.getByText(/Imported\./).waitFor()
+  await card.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await card.getByTestId('smiles-preview-summary').waitFor()
+  await card.getByRole('button', { name: 'Import SMILES' }).click()
+  await card.getByText(/Imported\./).waitFor()
   assert.equal(await atomCount(), 4)
-  await panel.getByRole('button', { name: 'Import SMILES' }).waitFor({ state: 'hidden' })
+  await card.getByRole('button', { name: 'Import SMILES' }).waitFor({ state: 'hidden' })
 
   // An edit of the text while a preview is running is said out loud and its result is not used.
   let arrived
@@ -3771,23 +3789,24 @@ step = 'after short_wide_bond_is_selectable'
   }
   await page.route('**/api/v1/operations', hold)
   await source.fill('CC')
-  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await card.getByRole('button', { name: 'Preview SMILES import' }).click()
   await reached
   await source.fill('CCC')
-  await panel.getByText('The text changed while a request was running; its result was not used. Run it again.').waitFor()
+  await card.getByText('The text changed while a request was running; its result was not used. Run it again.').waitFor()
   release()
   await answered
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)))
   await page.unroute('**/api/v1/operations', hold)
-  assert.equal(await panel.getByTestId('smiles-preview-summary').count(), 0, 'the replaced preview is not shown')
+  assert.equal(await card.getByTestId('smiles-preview-summary').count(), 0, 'the replaced preview is not shown')
 
-  // Errors are shown in characters and bytes, in the panel itself.
+  // Errors are shown in characters and bytes, in the Import card itself.
+  await card.getByLabel('Format', { exact: true }).selectOption('smiles')
   await source.fill('C\u00e9O')
-  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
-  await panel.getByRole('alert').getByText(/character 2 \(bytes 1 to 2\)/).waitFor()
+  await card.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await card.getByRole('alert').getByText(/character 2 \(bytes 1 to 2\)/).waitFor()
   await source.fill('c1cccc1')
-  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
-  await panel.getByRole('alert').getByText(/Reason: /).waitFor()
+  await card.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await card.getByRole('alert').getByText(/Reason: /).waitFor()
 
   // Writing: the output belongs to the form it was written for.
   await panel.getByLabel('Write the drawing as').selectOption('canonical')
@@ -3822,21 +3841,21 @@ step = 'after short_wide_bond_is_selectable'
   // A definite precommit service refusal (503 busy) leaves the panel usable: the error shows in the panel, the
   // buttons work again, and a new preview and import go through.
   await source.fill('CC')
-  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
-  await panel.getByTestId('smiles-preview-summary').waitFor()
+  await card.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await card.getByTestId('smiles-preview-summary').waitFor()
   const failCommit = async (route) => {
     const request = route.request().postDataJSON()
     if (request?.operation === 'document.import' && request?.parameters?.preview !== true) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ api_version: 'v1', code: 'busy', message: 'The import was refused before commit.' }) })
     return route.continue()
   }
   await page.route('**/api/v1/operations', failCommit)
-  await panel.getByRole('button', { name: 'Import SMILES' }).click()
-  await panel.getByRole('alert').waitFor()
+  await card.getByRole('button', { name: 'Import SMILES' }).click()
+  await card.getByRole('alert').waitFor()
   await page.unroute('**/api/v1/operations', failCommit)
-  assert.equal(await panel.getByRole('button', { name: 'Preview SMILES import' }).isEnabled(), true, 'the panel is usable again')
-  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
-  await panel.getByTestId('smiles-preview-summary').waitFor()
-  await panel.getByRole('button', { name: 'Import SMILES' }).isEnabled()
+  assert.equal(await card.getByRole('button', { name: 'Preview SMILES import' }).isEnabled(), true, 'the panel is usable again')
+  await card.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await card.getByTestId('smiles-preview-summary').waitFor()
+  await card.getByRole('button', { name: 'Import SMILES' }).isEnabled()
 
   // A commit whose replies are lost may have happened. The hook retains its immutable
   // attempt even when the source form changes; checking gets the original committed reply.
@@ -3852,26 +3871,26 @@ step = 'after short_wide_bond_is_selectable'
     return route.abort('connectionreset')
   }
   await page.route('**/api/v1/operations', loseReply)
-  await panel.getByRole('button', { name: 'Import SMILES' }).click()
-  await panel.getByRole('button', { name: 'Check SMILES import outcome' }).waitFor()
+  await card.getByRole('button', { name: 'Import SMILES' }).click()
+  await card.getByRole('button', { name: 'Check SMILES import outcome' }).waitFor()
   await page.unroute('**/api/v1/operations', loseReply)
   assert.equal(await metalAtoms(), before + 2, 'the first request did commit')
   assert.equal(lostSmilesRequests.length, 2, 'one immediate outcome check also lost its reply')
   assert.deepEqual(lostSmilesRequests[0], lostSmilesRequests[1])
   await source.fill('CCC')
-  assert.equal(await panel.getByRole('button', { name: 'Preview SMILES import' }).isDisabled(), true, 'an unresolved import blocks a new preview')
-  assert.equal(await panel.getByRole('button', { name: 'Check SMILES import outcome' }).count(), 1, 'editing text retains the original attempt')
+  assert.equal(await card.getByRole('button', { name: 'Preview SMILES import' }).isDisabled(), true, 'an unresolved import blocks a new preview')
+  assert.equal(await card.getByRole('button', { name: 'Check SMILES import outcome' }).count(), 1, 'editing text retains the original attempt')
   const checkedImport = page.waitForRequest((request) => request.url().includes('/api/v1/operations') &&
     request.postDataJSON()?.operation === 'document.import' && request.postDataJSON()?.parameters?.preview !== true)
-  await panel.getByRole('button', { name: 'Check SMILES import outcome' }).click()
+  await card.getByRole('button', { name: 'Check SMILES import outcome' }).click()
   assert.deepEqual((await checkedImport).postDataJSON(), lostSmilesRequests[0], 'the source edit must not change the retried body or request ID')
-  await panel.getByRole('button', { name: 'Check SMILES import outcome' }).waitFor({ state: 'hidden' })
+  await card.getByRole('button', { name: 'Check SMILES import outcome' }).waitFor({ state: 'hidden' })
   assert.equal(await metalAtoms(), before + 2, 'the retry was answered from the committed reply, not imported again')
 
-  // A restart between the preview and the import refuses the import in the panel.
+  // A restart between the preview and the import refuses the import in the Import card.
   await source.fill('CC')
-  await panel.getByRole('button', { name: 'Preview SMILES import' }).click()
-  await panel.getByTestId('smiles-preview-summary').waitFor()
+  await card.getByRole('button', { name: 'Preview SMILES import' }).click()
+  await card.getByTestId('smiles-preview-summary').waitFor()
   // The successful import above schedules a recovery draft. Let that request finish
   // before deliberately killing the service so its unrelated response is not cut off.
   const metalRevision = (await api(`/api/v1/documents/${metalId}`)).document.revision
@@ -3880,13 +3899,16 @@ step = 'after short_wide_bond_is_selectable'
     metalRevision,
   )
   await crashApi()
-  await panel.getByRole('button', { name: 'Import SMILES' }).click()
-  await panel.getByRole('button', { name: 'Reload document to reconcile' }).waitFor()
-  assert.equal(await panel.getByRole('button', { name: 'Import SMILES' }).count(), 0)
-  await panel.getByRole('button', { name: 'Reload document to reconcile' }).click()
-  await panel.getByRole('button', { name: 'Reload document to reconcile' }).waitFor({ state: 'hidden' })
+  await card.getByRole('button', { name: 'Import SMILES' }).click()
+  await card.getByRole('button', { name: 'Reload document to reconcile' }).waitFor()
+  assert.equal(await card.getByRole('button', { name: 'Import SMILES' }).count(), 0)
+  await card.getByRole('button', { name: 'Reload document to reconcile' }).click()
+  await card.getByRole('button', { name: 'Reload document to reconcile' }).waitFor({ state: 'hidden' })
   results.smiles_panel = true
 }
+
+// One Import card: pick, drop and paste per format, ambiguity, override and the empty screen (P48 S3).
+await importCardSmoke({ page, api, apiWrite, outDir, results, setStep: (name) => { step = name } })
 
 // Inspect an independently drawn benzene graph, explicitly convert it, and undo the edit.
 {

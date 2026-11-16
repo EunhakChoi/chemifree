@@ -90,7 +90,8 @@ import { StructureCanvas, type DrawnKind, type DrawnOrder, type Tool } from '@/e
 import { MarkGlyph } from '@/editor/stroke-shapes'
 import { buildMark, inspectorWhere, setMark } from '@/editor/mark-gestures'
 import { DocumentStyleButton, PreferencesButton } from '@/components/style-settings'
-import { CdxmlImport, InterchangeCreationNotice } from '@/components/cdxml-import'
+import { InterchangeCreationNotice } from '@/components/cdxml-import'
+import { ImportCard } from '@/components/import-card'
 import { CtfilePanel } from '@/components/ctfile-panel'
 import { InterchangeExportPanel } from '@/components/interchange-export-panel'
 import { SvgExportPanel } from '@/components/svg-export-panel'
@@ -369,7 +370,7 @@ function DocumentPicker({ editor }: { editor: DocumentEditor }) {
           </Button>
         </EmptyContent>
       </Empty>
-      <CdxmlImport editor={editor} />
+      <ImportCard document={null} editor={editor} />
       <section aria-labelledby="saved-documents" className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
           <h3 id="saved-documents" className="text-sm font-medium">Saved documents</h3>
@@ -955,6 +956,7 @@ function Editor({ editor, current }: { editor: DocumentEditor; current: Document
           <ValenceInspector document={document} editor={editor} />
           <NativeClipboardPanel key={`clipboard-${document.id}`} document={document} editor={editor} activePlacement={activePlacement} />
           <UserTemplatePanel key={`templates-${document.id}-${editor.serviceGeneration}`} document={document} editor={editor} activePlacement={activePlacement} />
+          <ImportCard key={`import-${document.id}`} document={document} editor={editor} />
           <CtfilePanel key={`ctfile-${document.id}`} document={document} editor={editor} />
           <InterchangeExportPanel key={`interchange-export-${document.id}`} document={document} editor={editor} />
           <SvgExportPanel key={`svg-export-${document.id}`} document={document} editor={editor} />
