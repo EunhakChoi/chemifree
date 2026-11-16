@@ -1,5 +1,9 @@
 # Chemifree 새 세션 인계
 
+## P48 완료 기록 (T1)
+
+P48(파일·텍스트 가져오기/내보내기 전체 UX)은 문서화한 범위 안에서 끝났다(2026-11-17): #277(S1 SMILES 배치), #279(S2 좌표 없는 MOL/SDF 배치), #280(S3 Import 카드), #281(S4 겹침 보고), #282(S5 Export 카드, 병합 5ecb1975, main CI run 43937571536). 로드맵 P48은 `done`이고, traceability 후속 6곳(CODEC-01/02/03/05/06.rest, OPS-02.rest)에서 P48을 뺐다. 수락 기준 항목별 근거는 `docs/verification/p48-s5-export-card.md`에 있다. 하지 않은 것: CDXML·CDX 좌표 없는 배치(위치 없는 노드는 `missing_position`으로 거절), 입체 성분 배치(격자와 `layout_not_covered`), 요청 자체의 취소 신호. 다음 T1 작업은 P17·P19·P34의 제한된 범위 마감이다.
+
 ## P48 S5: 웹 Export 카드 하나 (T1, P48 마지막 조각)
 
 사용자 상시 지시(Opus 추천대로 진행)에 따라 Opus가 P48을 S5로 닫기로 했다: P48 범위에 "내보내기 통합"이 들어 있다. 사양은 Opus가 정했고(E1–E26) 기준 문서는 CONTRACT client policy "Web Export card (P48 S5; no service change)"다. Lead question Q1은 P87(#271)·P42(#276) 선례대로 정했다: 이 PR은 P48을 `in_progress`로 두고, 병합 뒤 별도 기록 PR이 `done`으로 바꾸며 traceability 후속 6곳에서 P48을 뺀다.

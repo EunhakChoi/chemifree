@@ -617,7 +617,6 @@
           "evidence": [],
           "followups": [
             "P22",
-            "P48",
             "P80"
           ]
         }
@@ -689,7 +688,6 @@
           "evidence": [],
           "followups": [
             "P23",
-            "P48",
             "P80"
           ]
         }
@@ -811,7 +809,6 @@
             "P20",
             "P24",
             "P28",
-            "P48",
             "P68",
             "P78"
           ]
@@ -953,7 +950,7 @@
         },
         {
           "id": "CODEC-05.rest",
-          "summary": "Unsupported stereo writing (the directional bonds / and \\ are written by the recorded writer only, never by canonical output), the @TH, @AL, @SP, @TB and @OH classes and every CXSMILES field other than the three stereo group fields, query SMILES, reaction SMILES, InChI import and other line notations remain open. Directional bond reading is CODEC-05.smiles-directional-read; writing them in recorded output is CODEC-05.smiles-directional-write; lone-pair fourth-position SMILES marks remain refused. InChI import and dedicated UI remain unsupported and are outside the completed bounded generator; broader text import/export UX is tracked by P48.",
+          "summary": "Unsupported stereo writing (the directional bonds / and \\ are written by the recorded writer only, never by canonical output), the @TH, @AL, @SP, @TB and @OH classes and every CXSMILES field other than the three stereo group fields, query SMILES, reaction SMILES, InChI import and other line notations remain open. Directional bond reading is CODEC-05.smiles-directional-read; writing them in recorded output is CODEC-05.smiles-directional-write; lone-pair fourth-position SMILES marks remain refused. InChI import and dedicated UI remain unsupported and are outside the completed bounded generator; the bounded web Import and Export cards are P48 (done).",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -961,7 +958,6 @@
           "followups": [
             "P18",
             "P21",
-            "P48",
             "P56"
           ]
         }
@@ -1052,7 +1048,6 @@
             "P21",
             "P22",
             "P38",
-            "P48",
             "P50",
             "P68",
             "P70",
@@ -1465,7 +1460,7 @@
         },
         {
           "id": "OPS-02.rest",
-          "summary": "Atomic change sets and reference rules for later specialized scene/reaction objects, import workflows, automation and collaborative editing remain open under the existing listed roadmap rows. Bounded P33 clipboard transactions/history/replay are implemented; removing P33 does not complete those specialized edit or reference contracts.",
+          "summary": "Atomic change sets and reference rules for later specialized scene/reaction objects, import workflows beyond the delivered P48 cards, automation and collaborative editing remain open under the existing listed roadmap rows. Bounded P33 clipboard transactions/history/replay are implemented; removing P33 does not complete those specialized edit or reference contracts.",
           "status": "not_implemented",
           "catch_all": true,
           "implementation": [],
@@ -1475,7 +1470,6 @@
             "P34",
             "P41",
             "P47",
-            "P48",
             "P57",
             "P75",
             "P77",
