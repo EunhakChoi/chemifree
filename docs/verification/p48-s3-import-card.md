@@ -47,4 +47,10 @@ Each mutation was applied in a sandbox copy only, the named check failed, and th
 
 20 candidates were judged; 19 were rejected as spec-mandated, pre-existing or out of scope. One was judged real: after clearing an uncertain CDXML/CDX creation attempt in an open drawing the reviewed preview would stay creatable. A fix was tried and then reverted: the clear button appears only after a detected service restart, and the restart moves the service generation, which already hides a preview made for the old service (`InterchangeImportFlow` compares `prepared.generation`). Removing the fix left the new open-document assertion passing, and M11 shows that this assertion depends on the generation check. The fix would also have dropped the preview after a definitive refusal, a behavior change outside this slice.
 
-PR reviews (Codex and the independent review) are recorded in the PR.
+## PR review fixes (#280)
+
+- Pasted SDF text had no client cap: it now gets the 200 KiB UTF-8 cap of an SDF file (smoke `import_paste_sdf_text` asserts the alert and that nothing is sent).
+- While a replacement file was being read, the previous file's flow stayed mounted and importable (Codex P2 and the independent review): the route is now hidden while a file is read.
+- README no longer says the web formats are used without detection.
+
+Both reviews and every disposition are recorded in the PR.

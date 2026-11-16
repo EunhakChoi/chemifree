@@ -241,6 +241,8 @@ export function ImportCard({ document, editor }: { document: DocumentView | null
 
   function renderRoute() {
     if (idle) return null
+    // A file being read replaces the current source: the old flow is unmounted, so its preview cannot be imported meanwhile.
+    if (reading === 'file') return null
     if (effective === null) return <p role="status" data-testid="import-ambiguous">{detection ? `${detectionSentence(detection, null)} ` : ''}Choose the format; nothing is sent until you do.</p>
     if (file && decoded && !decoded.ok) return <p role="alert" className="text-destructive">{decoded.message}</p>
     const source = file ? (decoded?.ok ? decoded.source : '') : text
@@ -254,6 +256,9 @@ export function ImportCard({ document, editor }: { document: DocumentView | null
     if (document === null) return <p role="status" data-testid="import-needs-document">{formatLabel(effective)} is added to an open drawing. Create or open a document, then import it there. Nothing was sent.</p>
     if (effective === 'smiles') return <SmilesImportFlow key={key} ref={flow} document={document} editor={editor} source={source} origin={origin} sourceVersion={sourceVersion} composing={composing} />
     if (effective === 'mol' && origin === 'text') return <MolTextImportFlow key={key} ref={flow} document={document} editor={editor} source={source} origin={origin} onDone={clear} />
+    if (origin === 'text' && new TextEncoder().encode(text).byteLength > MAX_IMPORT_FILE_BYTES) {
+      return <p role="alert" className="text-destructive">SDF text exceeds 200 KiB of UTF-8, the limit of an SDF file in this web form. Nothing was sent.</p>
+    }
     return <CtImportFlow key={key} ref={flow} document={document} editor={editor} source={source} origin={origin} fileName={file?.name} format={effective} />
   }
 

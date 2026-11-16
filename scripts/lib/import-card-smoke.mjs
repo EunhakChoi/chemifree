@@ -180,6 +180,12 @@ export async function importCardSmoke({ page, api, apiWrite, outDir, results, se
     const afterSdf = await atoms()
     assert.equal(countElement(afterSdf, 'N'), 1, 'the pasted SDF record 2 adds the nitrogen')
     assert.equal(afterSdf.length, beforeSdf.length + 1, 'only the chosen SDF record is added')
+    // Pasted SDF text over 200 KiB of UTF-8 is refused in the card, like an SDF file of that size.
+    const importsBeforeBigSdf = imports
+    await card.getByLabel('Text to import', { exact: true }).fill(`${sdfText}${'> <note>\n'}${'x'.repeat(201 * 1024)}\n\n$$$$\n`)
+    await card.getByText('SDF text exceeds 200 KiB of UTF-8, the limit of an SDF file in this web form. Nothing was sent.', { exact: true }).waitFor()
+    assert.equal(await button(card, 'Preview import').count(), 0, 'oversized SDF text offers no preview')
+    assert.equal(imports, importsBeforeBigSdf, 'oversized SDF text sends nothing')
     results.import_paste_sdf_text = true
 
     setStep('import_ambiguous_sends_nothing')
