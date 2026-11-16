@@ -835,7 +835,7 @@
    "issues": [
     249
    ],
-   "note": "`chem.aromaticity`(읽기 전용: 고리 블록과 `chemifree-aromaticity-2`의 한정된 해석)와 `chem.aromaticity_convert`(지원되는 방향족·Kekulé 표현의 원자적 변환, 실패하면 입력과 이력 유지)를 납품했다(#82, 모델 보완 P21a는 #91). 포화 원자가 섞인 융합 블록과 인접 donor 고리는 unsupported로 알린다. 더 넓은 융합계·상태와 코드 후속은 이슈 #249에 있다. M1 게이트 행이며 제한된 범위로 닫는 기준은 트랙 T1에서 정한다."
+   "note": "`chem.aromaticity`(읽기 전용: 고리 블록과 `chemifree-aromaticity-2`의 한정된 해석)와 `chem.aromaticity_convert`(지원되는 방향족·Kekulé 표현의 원자적 변환, 실패하면 입력과 이력 유지)를 납품했다(#82, 모델 보완 P21a는 #91). 포화 원자가 섞인 융합 블록과 인접 donor 고리는 unsupported로 알린다. 더 넓은 융합계·상태와 코드 후속은 이슈 #249에 있다. M1 게이트 행이며 제한된 범위로 닫는 기준은 트랙 T1에서 정한다. T1 마감 S1(테스트만): 코퍼스 196개 기록이 두 가지 재번호에서 같은 결과를 내고, Kekulé·방향족 표기 80쌍 중 74쌍이 일치하며 나머지 6쌍(문서화된 거절 차이)은 결과를 고정했다(docs/verification/p17-s1-corpus-invariance.md)."
   },
   {
    "phase": "chemistry",
