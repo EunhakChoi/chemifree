@@ -506,7 +506,7 @@ fn a_coordinate_free_record_reports_its_overlap_under_its_record_path() -> TestR
 /// Without acceptance the record's commit is refused with `loss_consent_required`, and nothing is
 /// written.
 #[test]
-fn a_record_overlap_is_refused_without_acceptance_and_writes_nothing() -> TestResult {
+fn a_record_with_an_overlap_keeps_the_mol_consent_outcome_and_writes_nothing() -> TestResult {
     let (app, _directory, id) = setup()?;
     let parameters = mol_parameters(&id, 0, &ttbm_record(0));
     let previewed = preview(&app, "mol-preview-refused", &parameters)?;
