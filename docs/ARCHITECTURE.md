@@ -23,6 +23,7 @@ Nothing on this page marks a feature as implemented. "Planned" items below have 
 | `crates/conformance` | application, host | Conformance runner |
 | `apps/api` | application, host, providers | HTTP adapter (axum); with `--web-dir` it also serves a built web app (tower-http `ServeDir`) on the same origin, under one security-header layer |
 | `apps/cli` | application, host, providers | CLI adapter |
+| `apps/mcp` | providers (the lock record reader and the default data directory; application and domain come in only as its compile-time dependencies); `chemifree-api` as a test-only dev-dependency | Local MCP adapter (stdio, `rmcp`): an HTTP client of the running local API server. It never assembles an `Application` and never takes the server lock; it finds the server through `--server-url` or the data directory's `server.lock` record (P82) |
 | `apps/web` | HTTP only | React/TypeScript editor |
 
 Dependencies point inward: a crate depends only on crates listed above it in this table,
@@ -178,9 +179,9 @@ model, the versioned file format with in-memory migration.
 | Item | Evidence | When |
 | --- | --- | --- |
 | DATA loaders for engines that do not exist yet sit in `application` | About 17,300 of its 50,800 source lines: `phase4_*`, `phase6_profiles.rs`, `naming_*`, `prediction_*`, `nmr_profile.rs`, `prepared_*`, `nickname_data.rs`, `layout_data_binding.rs`, `active_data.rs` and `active_data/`. The general DATA registry (`data.rs`, `data_formats.rs`, `data_profiles.rs`, `active_registry.rs`) and the `mass_*` files, about 3,300 lines, serve the implemented mass and isotope operation and stay | Move to a separate crate and rename when the first engine that reads them is built (planned at the start of track T7) |
-| The contract is written twice by hand | 85 Rust DTO types and the TypeScript validators | At P82: generate a schema from the Rust types for the MCP tool list and use it to check the TypeScript validators for drift |
+| The contract is written twice by hand | 85 Rust DTO types and the TypeScript validators | At P82: generate a schema from the Rust types for the MCP tool list and use it to check the TypeScript validators for drift. Not in P82 S1, whose three read-only tools take only `document_id` and `request_id` (schemas from the adapter's own argument types); planned for the edit tools and a drift check in later P82 slices |
 | About 190 integration test binaries | The shared build cache is about 41 GiB | P86 |
-| How a local MCP adapter runs | A separate process embedding `Application`, like the CLI, would not show an agent's unsaved edits in the open web editor | P82 connects to the running local server, so P87 (product server) comes first |
+| How a local MCP adapter runs | A separate process embedding `Application`, like the CLI, would not show an agent's unsaved edits in the open web editor | Started in P82 S1: `apps/mcp` is a stdio MCP server that calls the running local server's HTTP API, so every edit goes through that server's `Application` (P87 came first) |
 
 ## Order of work
 

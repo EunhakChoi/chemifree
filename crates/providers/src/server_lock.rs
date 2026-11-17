@@ -121,10 +121,46 @@ impl ServerLock {
         replace_record(&self.file, &format!("pid={}\nurl={url}\n", process::id()))
     }
 
+    /// Records `url` and `instance` next to this process's pid, replacing the record that `acquire`
+    /// wrote. `instance` is a value chosen anew at each start, which the server also gives in its
+    /// session reply, so that a local client can tell whether the server answering at a recorded
+    /// address is the one that wrote the record. It is 1 to 64 lowercase hexadecimal digits.
+    ///
+    /// # Errors
+    ///
+    /// As [`ServerLock::record_url`], and [`io::ErrorKind::InvalidInput`] when `instance` is not in
+    /// that form.
+    pub fn record_server(&self, url: &str, instance: &str) -> io::Result<()> {
+        if !is_instance(instance) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a server instance is 1 to 64 lowercase hexadecimal digits",
+            ));
+        }
+        if !self.writable {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "the lock file was opened read-only",
+            ));
+        }
+        replace_record(
+            &self.file,
+            &format!("pid={}\nurl={url}\ninstance={instance}\n", process::id()),
+        )
+    }
+
     /// The path of the lock file.
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// What the lock record in `data_dir` says about the server that wrote it, read without taking
+    /// the lock. A local client uses it to find a running server; the record may be stale (a server
+    /// that has stopped leaves it), so the address is only where to try, and a client still checks
+    /// it answers. A missing or unreadable record gives an empty [`LockHolder`].
+    pub fn recorded_holder(data_dir: &Path) -> LockHolder {
+        read_holder(&data_dir.join(Self::FILE_NAME))
     }
 }
 
@@ -136,6 +172,8 @@ pub struct LockHolder {
     pub pid: Option<u32>,
     /// The holder's address, such as `http://127.0.0.1:3001`.
     pub url: Option<String>,
+    /// The holder's instance, chosen anew at each start (see [`ServerLock::record_server`]).
+    pub instance: Option<String>,
 }
 
 impl fmt::Display for LockHolder {
@@ -261,10 +299,21 @@ fn parse_holder(record: &str) -> LockHolder {
                     holder.url = Some(url.to_owned());
                 }
             }
+            "instance" if is_instance(value) => {
+                holder.instance = Some(value.to_owned());
+            }
             _ => {}
         }
     }
     holder
+}
+
+/// Whether `value` is a server instance: 1 to 64 lowercase hexadecimal digits.
+fn is_instance(value: &str) -> bool {
+    (1..=64).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// The address to show: the loopback origin of a server, with a port of one to five ASCII digits.
@@ -347,6 +396,74 @@ mod tests {
     }
 
     #[test]
+    fn recorded_holder_reads_a_held_record_without_taking_the_lock() {
+        let directory = tempfile::tempdir().unwrap();
+        assert_eq!(
+            ServerLock::recorded_holder(directory.path()),
+            LockHolder::default(),
+            "no record yet"
+        );
+        let lock = ServerLock::acquire(directory.path()).unwrap();
+        lock.record_url(ADDRESS).unwrap();
+
+        let holder = ServerLock::recorded_holder(directory.path());
+
+        assert_eq!(holder.pid, Some(process::id()));
+        assert_eq!(holder.url.as_deref(), Some(ADDRESS));
+        // Reading did not take the lock: the server still holds it.
+        assert!(ServerLock::acquire(directory.path()).is_err());
+    }
+
+    #[test]
+    fn record_server_records_the_instance_after_the_address() {
+        let directory = tempfile::tempdir().unwrap();
+        let lock = ServerLock::acquire(directory.path()).unwrap();
+
+        lock.record_server(ADDRESS, "0a1b").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(lock.path()).unwrap(),
+            format!("pid={}\nurl={ADDRESS}\ninstance=0a1b\n", process::id())
+        );
+        let holder = ServerLock::recorded_holder(directory.path());
+        assert_eq!(holder.instance.as_deref(), Some("0a1b"));
+        for bad in ["", "0A1B", "xyz", &"a".repeat(65)] {
+            assert_eq!(
+                lock.record_server(ADDRESS, bad).unwrap_err().kind(),
+                io::ErrorKind::InvalidInput,
+                "{bad:?} is not an instance"
+            );
+        }
+    }
+
+    #[test]
+    fn recorded_holder_drops_an_instance_that_is_not_lowercase_hex() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join(ServerLock::FILE_NAME),
+            format!("pid=7\nurl={ADDRESS}\ninstance=NOT-HEX\n"),
+        )
+        .unwrap();
+
+        assert_eq!(ServerLock::recorded_holder(directory.path()).instance, None);
+    }
+
+    #[test]
+    fn recorded_holder_drops_an_address_that_is_not_the_loopback_origin() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join(ServerLock::FILE_NAME),
+            "pid=7\nurl=http://example.com:80\n",
+        )
+        .unwrap();
+
+        let holder = ServerLock::recorded_holder(directory.path());
+
+        assert_eq!(holder.pid, Some(7));
+        assert_eq!(holder.url, None);
+    }
+
+    #[test]
     fn second_acquire_is_refused_and_names_the_live_holder() {
         let directory = tempfile::tempdir().unwrap();
         let first = ServerLock::acquire(directory.path()).unwrap();
@@ -371,6 +488,7 @@ mod tests {
             &LockHolder {
                 pid: Some(process::id()),
                 url: Some(ADDRESS.to_owned()),
+                instance: None,
             }
         );
     }
@@ -504,6 +622,7 @@ mod tests {
             LockHolder {
                 pid: None,
                 url: Some(ADDRESS.to_owned()),
+                instance: None,
             },
             "a non-numeric pid is absent, and the other lines still count"
         );

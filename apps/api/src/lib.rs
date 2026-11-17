@@ -78,6 +78,7 @@ pub struct ApiState {
     allowed_hosts: HashSet<String>,
     allowed_origins: HashSet<String>,
     web_dir: Option<WebDir>,
+    instance: Option<String>,
 }
 
 impl ApiState {
@@ -108,7 +109,17 @@ impl ApiState {
             allowed_hosts,
             allowed_origins,
             web_dir: None,
+            instance: None,
         })
+    }
+
+    /// Gives `GET /api/v1/session` this start's instance, the value also written to the data
+    /// directory's server record, so that a local client that found this server through the record
+    /// can check it reached the server that wrote it.
+    #[must_use]
+    pub fn with_instance(mut self, instance: String) -> Self {
+        self.instance = Some(instance);
+        self
     }
 
     /// Also serves the built web app in `web_dir` from this origin, beside the API. Without it,
@@ -664,6 +675,8 @@ struct SessionResponse {
     api_version: &'static str,
     header: &'static str,
     token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    instance: Option<String>,
 }
 
 async fn session(State(state): State<Shared>) -> Json<SessionResponse> {
@@ -671,6 +684,7 @@ async fn session(State(state): State<Shared>) -> Json<SessionResponse> {
         api_version: API_VERSION,
         header: SESSION_HEADER,
         token: state.token.clone(),
+        instance: state.instance.clone(),
     })
 }
 

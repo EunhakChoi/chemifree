@@ -132,6 +132,11 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let mut token = [0_u8; 32];
     getrandom::fill(&mut token).map_err(|error| format!("no system randomness: {error}"))?;
     let token: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
+    // Chosen anew at each start and written to the server record and the session reply, so that a
+    // local client that found this server through the record can tell it reached this start.
+    let mut instance = [0_u8; 16];
+    getrandom::fill(&mut instance).map_err(|error| format!("no system randomness: {error}"))?;
+    let instance: String = instance.iter().map(|byte| format!("{byte:02x}")).collect();
 
     let origins = allowed_origins(args.allow_origins, web_dir.is_some());
     let listener = match TcpListener::bind((Ipv4Addr::LOCALHOST, args.port)).await {
@@ -149,14 +154,15 @@ async fn run() -> Result<(), Box<dyn Error>> {
     // listening line is printed. The record is informational, so a failure to write it is reported
     // and the server still starts. A server that holds no lock has no record to write.
     if let Some(server_lock) = &server_lock
-        && let Err(error) = server_lock.record_url(&format!("http://{address}"))
+        && let Err(error) = server_lock.record_server(&format!("http://{address}"), &instance)
     {
         eprintln!(
             "Could not record this server in {}: {error}",
             server_lock.path().display()
         );
     }
-    let state = ApiState::new(application, token, address.port(), &origins)?;
+    let state =
+        ApiState::new(application, token, address.port(), &origins)?.with_instance(instance);
     let state = match web_dir {
         Some(web_dir) => state.with_web_dir(web_dir),
         None => state,
