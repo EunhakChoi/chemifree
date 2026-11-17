@@ -15,7 +15,10 @@
 //!   ids and the reply size limit.
 //! - [`tools`] offers the read tools and the edit tools (create, transaction, undo, redo, save, close),
 //!   and maps their replies to MCP results.
+//! - [`analysis`] offers the read-only analysis tools (valences, aromaticity, graph identity, substructure,
+//!   stereo, CIP labels, InChI, properties) and the export tool, each one operation of the contract.
 
+pub mod analysis;
 pub mod client;
 pub mod discovery;
 pub mod tools;

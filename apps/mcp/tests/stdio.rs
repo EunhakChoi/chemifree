@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The instructions that the server sends in its `initialize` reply.
-const INSTRUCTIONS: &str = "Tools for a running local Chemifree server: list documents, read a snapshot and its revision, inspect the operation catalog, and create, edit (transactions, undo, redo), save and close documents. Edits need the current expected_revision; the session is shared with the open web editor.";
+const INSTRUCTIONS: &str = "Tools for a running local Chemifree server: list documents, read a snapshot and its revision, inspect the operation catalog, run read-only analyses (valences, aromaticity, graph identity, substructure, stereo, CIP labels, InChI, properties) and exports (SMILES, SVG, CDXML, CDX, MOL and SDF) of a document, and create, edit (transactions, undo, redo), save and close documents. Edits need the current expected_revision; the session is shared with the open web editor.";
 
 /// A `chemifree-mcp` process whose replies are read on a thread. It is killed and reaped when dropped.
 struct McpProcess {
@@ -198,8 +198,17 @@ async fn serves_the_tools_over_stdio_against_a_live_server() {
         names,
         [
             "chemifree_capabilities",
+            "chemifree_chem_aromaticity",
+            "chemifree_chem_cip",
+            "chemifree_chem_identity",
+            "chemifree_chem_inchi",
+            "chemifree_chem_properties",
+            "chemifree_chem_stereo",
+            "chemifree_chem_substructure",
+            "chemifree_chem_validate",
             "chemifree_document_close",
             "chemifree_document_create",
+            "chemifree_document_export",
             "chemifree_document_save",
             "chemifree_document_snapshot",
             "chemifree_document_transaction",
@@ -208,8 +217,17 @@ async fn serves_the_tools_over_stdio_against_a_live_server() {
             "chemifree_history_undo",
         ]
     );
-    const READ_ONLY: [&str; 3] = [
+    const READ_ONLY: [&str; 12] = [
         "chemifree_capabilities",
+        "chemifree_chem_aromaticity",
+        "chemifree_chem_cip",
+        "chemifree_chem_identity",
+        "chemifree_chem_inchi",
+        "chemifree_chem_properties",
+        "chemifree_chem_stereo",
+        "chemifree_chem_substructure",
+        "chemifree_chem_validate",
+        "chemifree_document_export",
         "chemifree_document_snapshot",
         "chemifree_documents_list",
     ];

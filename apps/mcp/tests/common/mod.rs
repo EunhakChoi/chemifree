@@ -10,8 +10,8 @@ use std::net::TcpListener as StdTcpListener;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use chemifree_api::{ApiState, LocalApplication, SESSION_HEADER, router};
-use chemifree_providers::{FileDocumentRepository, FilePreferenceStore, LocalCapabilities};
+use chemifree_api::{ApiState, SESSION_HEADER, router};
+use chemifree_host::{LocalStores, local_application};
 use http_body_util::{BodyExt, Full};
 use hyper::{Method, Request, StatusCode, header};
 use hyper_util::client::legacy::Client;
@@ -26,7 +26,8 @@ use tokio::task::JoinHandle;
 pub const TOKEN: &str = "mcp-test-token";
 
 /// A `chemifree-api` router on a loopback port, over a temporary data directory. The server stops when
-/// the value is dropped.
+/// the value is dropped. Its application is the one that `chemifree-api` serves: the format codecs of
+/// `chemifree-host`, and no optional provider.
 pub struct TestServer {
     pub url: String,
     /// The instance this server gives in its session reply; record it with
@@ -48,9 +49,7 @@ impl TestServer {
             .expect("the listener has an address")
             .port();
         let data = tempfile::tempdir().expect("a temporary data directory can be created");
-        let application =
-            LocalApplication::new(LocalCapabilities, FileDocumentRepository::new(data.path()))
-                .with_preferences(FilePreferenceStore::new(data.path()));
+        let application = local_application(LocalStores::new(data.path()));
         // Unique per server in a test run: ports differ while both are bound.
         let instance = format!("{port:04x}");
         let state = ApiState::new(application, TOKEN.to_owned(), port, &[])

@@ -1,11 +1,15 @@
 // Checks chemifree-mcp (P82) with a real MCP client. The SDK's stdio client starts the built adapter on
-// a temporary data directory where a running chemifree-api has recorded its address, then calls the
-// adapter's nine tools. Each read reply is compared with the API's own reply to the same operation. The
-// document is created and given one unsaved edit over HTTP first, as the web editor does, so the snapshot
-// has to include work that only the running server holds. The edit tools then create, change, save and
-// close documents: a repeated request_id replays its reply, a stale revision is refused whichever client
-// made the last edit, and a snapshot after chemifree-api has been stopped and started again on the same
-// data directory is read through the same adapter process. A failed step prints
+// a temporary data directory where a running chemifree-api has recorded its address, then lists its
+// eighteen tools: twelve read tools (the capabilities, the document list and snapshot, and the nine
+// analysis and export tools) and six edit tools. Each read reply is compared with the API's own reply to the
+// same operation. The document is created and given one unsaved edit over HTTP first, as the web editor does,
+// so the snapshot has to include work that only the running server holds. The analysis and export tools then
+// run on that unsaved edit: each reply must equal the API's reply to the same request id and parameters, and
+// the revision and unsaved state must not change. chemifree-api starts without an InChI provider, so
+// chem.inchi is a tool error, and its reply is the structured content. The edit tools then create, change,
+// save and close documents: a repeated request_id replays its reply, a stale revision is refused whichever
+// client made the last edit, and a snapshot after chemifree-api has been stopped and started again on the
+// same data directory is read through the same adapter process. A failed step prints
 // `FAILED <step>: <message>` and the API's standard error, then the run exits 1. A passing run prints
 // one line.
 //
@@ -29,12 +33,22 @@ const LISTENING = /listening on (http:\/\/127\.0\.0\.1:\d+)/
 const STARTUP_MS = 15_000
 const EXIT_MS = 15_000
 const HTTP_MS = 10_000
-// The tools that tools/list must report, exactly, each with its readOnlyHint: the three read tools are
-// read-only, and the six edit tools are not. The names are compared sorted.
+// The tools that tools/list must report, exactly, each with its readOnlyHint: the twelve read tools are read-only
+// (the capabilities, the document list and snapshot, and the nine analysis and export tools), and the six edit
+// tools are not. The names are compared sorted.
 const READ_ONLY_HINTS = new Map([
   ['chemifree_capabilities', true],
+  ['chemifree_chem_aromaticity', true],
+  ['chemifree_chem_cip', true],
+  ['chemifree_chem_identity', true],
+  ['chemifree_chem_inchi', true],
+  ['chemifree_chem_properties', true],
+  ['chemifree_chem_stereo', true],
+  ['chemifree_chem_substructure', true],
+  ['chemifree_chem_validate', true],
   ['chemifree_document_close', false],
   ['chemifree_document_create', false],
+  ['chemifree_document_export', true],
   ['chemifree_document_save', false],
   ['chemifree_document_snapshot', true],
   ['chemifree_document_transaction', false],
@@ -197,11 +211,14 @@ async function requestJson(baseUrl, method, path, status, options = {}) {
   return JSON.parse(text)
 }
 
-/** One request of the operation contract, as the MCP adapter sends it (contract 1, preserve-semantics). */
-function operate(baseUrl, session, operation, parameters) {
+/**
+ * One request of the operation contract, as the MCP adapter sends it (contract 1, preserve-semantics). The request
+ * id is `requestId` when one is given, so that a tool call and the API call that checks it can share it.
+ */
+function operate(baseUrl, session, operation, parameters, requestId = randomUUID()) {
   return requestJson(baseUrl, 'POST', '/api/v1/operations', 200, {
     session,
-    body: { contract: 1, request_id: randomUUID(), profile: 'preserve-semantics', operation, parameters },
+    body: { contract: 1, request_id: requestId, profile: 'preserve-semantics', operation, parameters },
   })
 }
 
@@ -213,6 +230,44 @@ async function callSucceeds(client, name, args) {
   const result = await client.callTool({ name, arguments: args })
   assert.notEqual(result.isError, true, `${name} is a tool error: ${textOf(result)}`)
   return result
+}
+
+/**
+ * Calls an analysis or export tool, and the API's own call of the same operation with the same request id and
+ * parameters. The tool's structured content must be the API's reply, and the tool is a tool error exactly when the
+ * outcome is neither `ok` nor `partial`. Returns the tool's result.
+ */
+async function readAndCompare(client, baseUrl, session, tool, operation, parameters) {
+  const requestId = randomUUID()
+  const result = await client.callTool({ name: tool, arguments: { ...parameters, request_id: requestId } })
+  const reply = await operate(baseUrl, session, operation, parameters, requestId)
+  assert.deepEqual(result.structuredContent, reply)
+  const completed = reply.outcome === 'ok' || reply.outcome === 'partial'
+  assert.equal(result.isError === true, !completed, `${tool} is a tool error for outcome ${reply.outcome}`)
+  return result
+}
+
+/**
+ * Runs an export that must be accepted, through readAndCompare. The server refuses an export that would drop content
+ * until its losses are accepted: the refusal's `loss_consent_required` diagnostic gives their digest, and the same
+ * export with that digest in `accepted_losses` completes. Returns the completed result.
+ */
+async function exportWithConsent(client, baseUrl, session, parameters) {
+  const tool = 'chemifree_document_export'
+  const first = await readAndCompare(client, baseUrl, session, tool, 'document.export', parameters)
+  const diagnostic = first.structuredContent?.diagnostics?.[0]
+  if (diagnostic?.code !== 'loss_consent_required') {
+    assert.notEqual(first.isError, true, textOf(first))
+    return first
+  }
+  const digest = diagnostic.details?.loss_digest
+  assert.equal(typeof digest, 'string', `the refusal gives the digest of its losses: ${textOf(first)}`)
+  const accepted = await readAndCompare(client, baseUrl, session, tool, 'document.export', {
+    ...parameters,
+    accepted_losses: digest,
+  })
+  assert.notEqual(accepted.isError, true, `the export with its losses accepted: ${textOf(accepted)}`)
+  return accepted
 }
 
 /**
@@ -325,6 +380,56 @@ async function run(state) {
   assert.equal(unknown.isError, true, `an unknown document is not a tool error: ${textOf(unknown)}`)
   assert.equal(textOf(unknown), 'document.snapshot: outcome error, revision n/a')
 
+  // The analysis and export tools read the document with its unsaved edit, and change nothing. Each reply must be
+  // the API's reply to the same request id and parameters.
+  state.step = 'document.snapshot before the analysis reads'
+  const beforeReads = await operate(baseUrl, session, 'document.snapshot', { document_id: documentId })
+  assert.equal(beforeReads.result.session.unsaved_changes, true, 'the analysis reads run on an unsaved edit')
+
+  state.step = 'chemifree_chem_validate'
+  const validated = await readAndCompare(state.client, baseUrl, session, 'chemifree_chem_validate', 'chem.validate', {
+    document_id: documentId,
+  })
+  assert.notEqual(validated.isError, true, textOf(validated))
+
+  state.step = 'chemifree_chem_properties (molecule, formula)'
+  const formula = await readAndCompare(
+    state.client,
+    baseUrl,
+    session,
+    'chemifree_chem_properties',
+    'chem.properties',
+    { document_id: documentId, scope: 'molecule', property: 'formula' },
+  )
+  assert.notEqual(formula.isError, true, textOf(formula))
+
+  state.step = 'chemifree_document_export (smiles, canonical)'
+  const smiles = await readAndCompare(state.client, baseUrl, session, 'chemifree_document_export', 'document.export', {
+    format: 'smiles',
+    document_id: documentId,
+    style: 'canonical',
+  })
+  assert.notEqual(smiles.isError, true, textOf(smiles))
+
+  // A stored stereo configuration makes svg refuse until its losses are accepted. This document has none, so the
+  // export completes at once, and the accepted_losses round trip runs only if the server refuses.
+  state.step = 'chemifree_document_export (svg)'
+  await exportWithConsent(state.client, baseUrl, session, { format: 'svg', document_id: documentId })
+
+  state.step = 'chemifree_chem_inchi (no InChI provider)'
+  const inchi = await readAndCompare(state.client, baseUrl, session, 'chemifree_chem_inchi', 'chem.inchi', {
+    document_id: documentId,
+  })
+  assert.equal(inchi.isError, true, `chem.inchi is not a tool error without a provider: ${textOf(inchi)}`)
+  assert.equal(inchi.structuredContent?.operation, 'chem.inchi')
+  assert.equal(inchi.structuredContent?.outcome, 'unsupported', textOf(inchi))
+
+  state.step = 'the analysis and export reads leave the revision and unsaved state unchanged'
+  const afterReads = await operate(baseUrl, session, 'document.snapshot', { document_id: documentId })
+  assert.equal(afterReads.document_revision, edited.document.revision, 'the revision is unchanged')
+  assert.equal(afterReads.result.session.unsaved_changes, true, 'the unsaved edit is still unsaved')
+  assert.deepEqual(afterReads.result.document, beforeReads.result.document, 'the document is unchanged')
+
   // The edit tools, through the same adapter process. Each reply is checked against the API's own state.
   state.step = 'chemifree_document_create (repeated request_id)'
   const createArguments = { request_id: 'mcp-s2-create-1' }
@@ -432,9 +537,10 @@ async function run(state) {
 
   return (
     `mcp-client-check (${state.profile}): chemifree-mcp initialized and lists ${TOOL_NAMES.length} tools; ` +
-    `its reads match chemifree-api (revision ${httpSnapshot.document_revision}), and an unknown document is a ` +
-    'tool error; its edits replay by request_id, refuse a stale revision, save and close, and read back after ' +
-    'a restart of chemifree-api'
+    `its reads match chemifree-api (revision ${httpSnapshot.document_revision}), its analysis and export replies ` +
+    'match the API for the same requests and leave the revision unchanged, chem.inchi is a tool error without a ' +
+    'provider, and an unknown document is a tool error; its edits replay by request_id, refuse a stale revision, ' +
+    'save and close, and read back after a restart of chemifree-api'
   )
 }
 
