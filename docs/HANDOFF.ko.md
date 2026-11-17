@@ -2,7 +2,7 @@
 
 ## P82 S4 PR1: 명령 스키마 생성과 serde corpus (T2)
 
-Opus 계획대로 S4를 네 PR로 나눴다. PR1은 `chemifree-application`의 선택 기능 `schema`(schemars derive, API·CLI 빌드에는 없음)로 명령 DTO의 JSON Schema를 만들고 `crates/application/tests/data/command-schema/commands.schema.json`에 고정한다(`CHEMIFREE_BLESS_COMMAND_SCHEMA=1`로 갱신). 공유 corpus(75개)는 serde가 받는지를 진실로 삼아 두 읽기 경로에서 확인한다. 스키마는 serde가 받는 것만 말하고 의미 제한(id 형식, 1–500개 등)은 서버가 `invalid_command`로 알린다. JSON Schema가 표현 못 하는 6개(정수 5.0, 중복 키)는 이유와 함께 표시했다. 기록: `docs/verification/p82-s4-command-schema.md`. 다음: PR2(ajv로 corpus 실행), PR3(MCP), PR4(TS).
+Opus 계획대로 S4를 네 PR로 나눴다. PR1은 `chemifree-application`의 선택 기능 `schema`(schemars derive, API·CLI 빌드에는 없음)로 명령 DTO의 JSON Schema를 만들고 `crates/application/tests/data/command-schema/commands.schema.json`에 고정한다(`CHEMIFREE_BLESS_COMMAND_SCHEMA=1`로 갱신). 공유 corpus(84개)는 serde가 받는지를 진실로 삼아 두 읽기 경로에서 확인한다. 스키마는 serde가 받는 것만 말하고 의미 제한(id 형식, 1–500개 등)은 서버가 `invalid_command`로 알린다. 스키마는 문서화된 객체·문자열 형태만 설명한다. serde가 받지만 문서에 없는 배열·맵 형태(6개)는 서버가 계속 받고, corpus에 "undocumented serde form:" 이유로 표시하며 테스트가 그 외의 '스키마 거절·serde 수락'을 막는다. JSON Schema가 표현 못 하는 정수(5.0, 5e0, -0)와 중복 키도 이유와 함께 표시했다. 기록: `docs/verification/p82-s4-command-schema.md`. 다음: PR2(ajv로 corpus 실행), PR3(MCP), PR4(TS).
 
 ## P82 S5: MCP 분석·export 도구 (T2)
 

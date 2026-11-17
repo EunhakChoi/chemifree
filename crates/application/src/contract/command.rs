@@ -118,6 +118,11 @@ pub enum CommandDto {
         query: Option<QueryDto>,
         #[serde(default)]
         charge: Option<i64>,
+        /// Absent leaves the isotope unchanged; `null` restores natural abundance.
+        // schemars writes a field's `default` into its schema unless the field is skipped when it
+        // is `None`. Absence leaves the isotope unchanged, which a `default` of `null` would
+        // misstate. serde ignores the attribute, since `CommandDto` only deserializes.
+        #[cfg_attr(feature = "schema", serde(skip_serializing_if = "Option::is_none"))]
         #[serde(default, deserialize_with = "present")]
         isotope: Option<Option<u64>>,
         #[serde(default)]
@@ -365,10 +370,7 @@ pub enum CommandDto {
         #[serde(deserialize_with = "nullable")]
         #[cfg_attr(
             feature = "schema",
-            schemars(
-                required,
-                schema_with = "super::schema::nullable::<AtomConfigurationDto>"
-            )
+            schemars(schema_with = "super::schema::nullable::<AtomConfigurationDto>")
         )]
         configuration: Option<AtomConfigurationDto>,
     },
@@ -380,10 +382,7 @@ pub enum CommandDto {
         #[serde(deserialize_with = "nullable")]
         #[cfg_attr(
             feature = "schema",
-            schemars(
-                required,
-                schema_with = "super::schema::nullable::<BondConfigurationDto>"
-            )
+            schemars(schema_with = "super::schema::nullable::<BondConfigurationDto>")
         )]
         configuration: Option<BondConfigurationDto>,
     },

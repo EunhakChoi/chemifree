@@ -137,7 +137,7 @@ impl From<CaptionAlignment> for CaptionAlignmentDto {
     }
 }
 
-/// A complete run value; no byte or UTF-16 substring indices cross the wire.
+/// A complete run value; it carries no byte or UTF-16 substring indices.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]

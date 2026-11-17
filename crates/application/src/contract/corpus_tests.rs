@@ -42,6 +42,11 @@ struct Override {
 
 const CORPUS: &str = include_str!("../../tests/data/command-schema/corpus.json");
 
+/// The start of the reason for a schema reject where serde accepts. The schema describes only the
+/// documented object and string forms, so such a case is a form serde reads but the contract does
+/// not document.
+const UNDOCUMENTED_FORM: &str = "undocumented serde form:";
+
 /// The typed read: `CommandDto` deserialized straight from the text.
 fn read_typed(text: &str) -> Result<(), String> {
     serde_json::from_str::<CommandDto>(text)
@@ -70,6 +75,37 @@ fn assert_verdict(case: &Case, text: &str, path: &str, read: Result<(), String>)
     );
 }
 
+/// Checks an override against its case. It needs a reason, and it has to differ from serde's
+/// verdict, since an override that repeats serde's verdict is stale.
+fn check_override(case: &Case, other: &Override) -> Result<(), String> {
+    if other.why.trim().is_empty() {
+        return Err(format!("case {:?}: an override needs a reason", case.name));
+    }
+    if other.verdict == case.expected {
+        return Err(format!(
+            "case {:?}: an override that repeats the serde verdict is stale",
+            case.name
+        ));
+    }
+    Ok(())
+}
+
+/// Checks a schema override. A schema reject where serde accepts refuses a form serde reads, so
+/// its reason must name that form with [`UNDOCUMENTED_FORM`].
+fn check_schema_override(case: &Case, schema: &Override) -> Result<(), String> {
+    check_override(case, schema)?;
+    let rejects_an_accepted_form =
+        schema.verdict == Verdict::Reject && case.expected == Verdict::Accept;
+    if rejects_an_accepted_form && !schema.why.starts_with(UNDOCUMENTED_FORM) {
+        return Err(format!(
+            "case {:?}: a schema reject where serde accepts needs a reason that starts \
+             with {UNDOCUMENTED_FORM:?}",
+            case.name
+        ));
+    }
+    Ok(())
+}
+
 #[test]
 fn command_corpus_verdicts_match_serde_on_both_read_paths() {
     let cases: Vec<Case> = serde_json::from_str(CORPUS)
@@ -93,17 +129,11 @@ fn command_corpus_verdicts_match_serde_on_both_read_paths() {
             "case {:?}: its text is not JSON: {text}",
             case.name
         );
-        for other in [&case.schema, &case.web].into_iter().flatten() {
-            assert!(
-                !other.why.trim().is_empty(),
-                "case {:?}: an override needs a reason",
-                case.name
-            );
-            assert_ne!(
-                other.verdict, case.expected,
-                "case {:?}: an override that repeats the serde verdict is stale",
-                case.name
-            );
+        if let Some(schema) = &case.schema {
+            check_schema_override(case, schema).unwrap_or_else(|message| panic!("{message}"));
+        }
+        if let Some(web) = &case.web {
+            check_override(case, web).unwrap_or_else(|message| panic!("{message}"));
         }
         assert_verdict(
             case,
@@ -115,7 +145,52 @@ fn command_corpus_verdicts_match_serde_on_both_read_paths() {
     }
 }
 
-#[cfg(all(test, feature = "schema"))]
+#[test]
+fn schema_reject_of_an_accepted_form_needs_the_undocumented_form_prefix() {
+    let accepted = Case {
+        name: "synthetic: serde accepts, the schema refuses".to_owned(),
+        command: None,
+        raw: Some(r#"["rename","x"]"#.to_owned()),
+        expected: Verdict::Accept,
+        schema: None,
+        web: None,
+    };
+    let unprefixed = Override {
+        verdict: Verdict::Reject,
+        why: "the schema describes only the object form".to_owned(),
+    };
+    let message = check_schema_override(&accepted, &unprefixed)
+        .expect_err("a schema reject where serde accepts must name its undocumented form");
+    assert!(
+        message.contains(UNDOCUMENTED_FORM),
+        "the refusal must name the prefix, got {message}"
+    );
+
+    let prefixed = Override {
+        verdict: Verdict::Reject,
+        why: format!("{UNDOCUMENTED_FORM} the schema describes only the object form"),
+    };
+    assert_eq!(check_schema_override(&accepted, &prefixed), Ok(()));
+}
+
+#[test]
+fn schema_accept_of_a_refused_form_needs_only_a_reason() {
+    let refused = Case {
+        name: "synthetic: serde refuses, the schema accepts".to_owned(),
+        command: None,
+        raw: Some("5e0".to_owned()),
+        expected: Verdict::Reject,
+        schema: None,
+        web: None,
+    };
+    let accepting = Override {
+        verdict: Verdict::Accept,
+        why: "JSON Schema integer admits 5e0".to_owned(),
+    };
+    assert_eq!(check_schema_override(&refused, &accepting), Ok(()));
+}
+
+#[cfg(feature = "schema")]
 #[test]
 fn command_schema_matches_the_golden_file() {
     const BLESS: &str = "CHEMIFREE_BLESS_COMMAND_SCHEMA";
