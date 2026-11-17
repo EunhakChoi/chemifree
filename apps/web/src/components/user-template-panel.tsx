@@ -21,7 +21,6 @@ interface TemplateFile {
   payload: string
 }
 
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The template file operation failed.'
 }

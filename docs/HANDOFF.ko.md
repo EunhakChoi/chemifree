@@ -2,7 +2,7 @@
 
 ## P34 S1: 사용자 템플릿 파일 검사를 공통 검사로 (T1)
 
-사용자 선택(A안)대로 P34를 provider 포트 없이 닫는 첫 PR이다. 사용자 템플릿 파일의 순수 검사(64 KiB 한도, 엄격한 UTF-8 해독과 빈 파일 거절, BOM 보존, 내려받기 파일명, 교차 결합 저장 거절)를 `apps/web/src/lib/user-template-file.ts`로 동작 변경 없이 옮기고, `scripts/web-user-template-client-check.mjs`(test:client, 즉 `npm run check`)로 검사한다. 요청 순서·서비스 세대 가드와 실제 내려받기·재선택·삽입 흐름은 여전히 CI 브라우저 스크립트 `test:browser:user-template`만 검사한다. 변이 5개(한도+1, `fatal: false`, `ignoreBOM: false`, 파일명 대체값, 교차 결합 기준)를 모두 잡았다. 남은 P34 일은 오래된 실행 기록 정리 PR과 납품 기록 PR이다.
+사용자 선택(A안: provider 포트 없이 기본 내장 레시피와 사용자 조각 파일을 출처별 분리로 본다)대로 P34를 provider 포트 없이 닫는 첫 PR이다. 사용자 템플릿 파일의 순수 검사(64 KiB 한도, 엄격한 UTF-8 해독과 빈 파일 거절, BOM 보존, 내려받기 파일명, 교차 결합 저장 거절)를 `apps/web/src/lib/user-template-file.ts`로 동작 변경 없이 옮기고, `scripts/web-user-template-client-check.mjs`(`npm run check`에 포함된 test:client)로 검사한다. 요청 순서·서비스 세대 가드와 실제 내려받기·재선택·삽입 흐름은 여전히 CI 브라우저 스크립트 `test:browser:user-template`만 검사한다. 변이 5개(한도+1, `fatal: false`, `ignoreBOM: false`, 파일명 대체값, 교차 결합 기준)를 모두 잡았다. 남은 P34 일은 오래된 실행 기록 정리 PR과 납품 기록 PR이다.
 
 ## P19 완료 기록 (T1)
 
