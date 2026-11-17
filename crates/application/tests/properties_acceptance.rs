@@ -54,8 +54,8 @@ fn formula_reply(app: &App, id: &str, parameters: Value) -> Value {
 fn salt_formula_by_scope() {
     let data = tempfile::tempdir().unwrap();
     let app = new_app(&data);
-    // Acetate CH3-C(=O)-O(-) and a separate sodium cation. The sodium states zero hydrogens; the
-    // charged oxygen keeps inferred hydrogens, which the valence model gives as zero.
+    // Acetate CH3-C(=O)-O(-) and a separate sodium cation. Both ions keep inferred hydrogens,
+    // which the valence model gives as zero (Na+ through its monatomic-ion row).
     let id = drawn(
         &app,
         "Sodium acetate",
