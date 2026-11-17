@@ -167,7 +167,7 @@ aromaticity assignment, chemical layout or collision avoidance. Multiple placeme
 sizes beyond 5/6 or other atom/bond patterns, fusion, other substituent patterns,
 abbreviation contraction/expansion and prepared legacy template framing activation remain
 unsupported. Unknown command fields are refused. Delivered by #174, #175 and #182, each with
-passing main CI; P34 stays in progress until its delivery record. See [the P34a record](verification/p34a-independent-ring.md),
+passing main CI; bounded P34 is done (see [the completion record](verification/p34-completion.md)). See [the P34a record](verification/p34a-independent-ring.md),
 [the P34b record](verification/p34b-five-ring.md), and
 [the P34g record](verification/p34g-kekule-ring.md).
 

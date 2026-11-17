@@ -54,7 +54,7 @@ saved as a tool setting. Delivered by #182 and #183 with passing main CI; see th
 
 Fusion, spiro, non-terminal replacement, aromatic-bond patterns, other sizes, general abbreviation handling beyond the bounded terminal Et contraction/expansion (P34i) and
 molecular conformations remain unimplemented. The ring insertion and attachment slices were delivered by
-#174, #175 and #177 with passing main CI. P34 stays in progress until its delivery record. See the
+#174, #175 and #177 with passing main CI. Bounded P34 is done; see [its completion record](docs/verification/p34-completion.md) and the
 [ring contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a),
 [attachment contract](docs/CONTRACT.md#attached-carbon-ring-p34c), and
 [P34c verification record](docs/verification/p34c-attached-ring.md).
