@@ -1,5 +1,9 @@
 # Chemifree 새 세션 인계
 
+## P19 S1: 분자식 수락 기준 검사 (T1)
+
+테스트만 더했다(`crates/application/tests/properties_acceptance.rs`). `chem.properties` 분자식을 `Application::execute`로 불러 염(나트륨 아세테이트의 분자·성분 범위와 전하), 라디칼(이중항·일중항·삼중항의 수소 감소, 전하 라디칼은 `hydrogens_unavailable`로 거절), 명시·추론 수소, 동위원소 표기, Hill 순서(탄소가 없으면 알파벳순이라 질소 이중항은 `H2N`)를 확인한다. 변이 4개 근거는 `docs/verification/p19-s1-formula-acceptance.md`. P19 마감 계획(Opus): S2 표시 자릿수 0·8 경계, 공개 데이터와 관찰 호환 프로필 구분, 정밀도 변경 뒤 저장 문서 불변을 크레이트 내부 테스트로, S3 기록 PR로 `done`. 개인 질량 등록 호환성(로컬 `content_invalid`)은 한계로 남긴다.
+
 ## P17 완료 기록 (T1)
 
 P17(고리 인식과 방향족·Kekulé 변환)은 문서화한 범위(`chemifree-aromaticity-2`) 안에서 끝났다(2026-11-17): #82(검사·변환), #284(S1 코퍼스 재번호·표기 불변성), #285(S2 공개 사례와 작은 보강, 병합 5fb36cd6, main CI run 43977176414). 로드맵 P17은 `done`이고, P17만 후속이던 제한된 부분 MODEL-02.4·MODEL-02.5·CHEM-02.1·CHEM-02.2는 `implemented`로 바꿨다. MODEL-02.rest·CHEM-02.rest·LAYOUT-03.rest와 선언 경로 `chem_graph`에서는 P17을 뺐다. 수락 기준별 근거와 한계: `docs/verification/p17-completion.md`. 하지 않은 것: 4n+2 고리·융합 블록의 인접 donor 판정, Kekulé 변환의 질소 수소 리셋(이슈 #249, 파일 형식 변경 없이 한계로 둠), 500개 명령을 넘는 변환. 남은 화학 범위는 로드맵 `tracks.on_demand` 메모가 맡고 뒤 트랙이 필요로 할 때 다시 연다. T1에 남은 행은 P19·P34이며, 시작은 사용자 요청이 정한다.
