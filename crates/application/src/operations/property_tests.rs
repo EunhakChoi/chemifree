@@ -6,14 +6,14 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-struct TestCapabilities;
+pub(super) struct TestCapabilities;
 impl CapabilityCatalog for TestCapabilities {
     fn capabilities(&self) -> Vec<chemifree_domain::Capability> {
         Vec::new()
     }
 }
 #[derive(Default)]
-struct TestRepository(Mutex<BTreeMap<DocumentId, Document>>);
+pub(super) struct TestRepository(Mutex<BTreeMap<DocumentId, Document>>);
 impl DocumentRepository for TestRepository {
     fn allocate_id(&self) -> Result<DocumentId, StorageError> {
         Ok(DocumentId::parse("fixture-document").unwrap())

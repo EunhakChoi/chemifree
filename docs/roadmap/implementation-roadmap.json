@@ -905,7 +905,7 @@
     "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41223458088",
     "note": "분자식·질량 첫 범위의 부분 납품이다. 개인 질량 프로필 호환성과 일반 정밀도는 미완료다."
    },
-   "note": "`chem.properties`가 분자·현재 선택·단절 성분의 분자식을 계산하고, 평균·정확 프로필 질량과 동위원소 분포는 검증된 외부 질량 자료가 등록됐을 때만 낸다. 별도 승인된 개인 질량 등록은 로컬 실행에서 `content_invalid`로 거절돼 그 호환성은 검증하지 못했다. 일반 정밀도 설정은 후속이다. M1 게이트 행이며 제한된 범위로 닫는 기준은 트랙 T1에서 정한다. T1 마감 S1(테스트만): 염·라디칼·전하 라디칼 거절·명시/추론 H·동위원소·Hill 순서를 연산 수준에서 검사한다(docs/verification/p19-s1-formula-acceptance.md)."
+   "note": "`chem.properties`가 분자·현재 선택·단절 성분의 분자식을 계산하고, 평균·정확 프로필 질량과 동위원소 분포는 검증된 외부 질량 자료가 등록됐을 때만 낸다. 별도 승인된 개인 질량 등록은 로컬 실행에서 `content_invalid`로 거절돼 그 호환성은 검증하지 못했다. 일반 정밀도 설정은 후속이다. M1 게이트 행이며 제한된 범위로 닫는 기준은 트랙 T1에서 정한다. T1 마감 S1(테스트만): 염·라디칼·전하 라디칼 거절·명시/추론 H·동위원소·Hill 순서를 연산 수준에서 검사한다(docs/verification/p19-s1-formula-acceptance.md). S2(테스트만): 표시 자릿수 0·8 경계, 공개 데이터와 관찰 호환 프로필 구분과 모호성 거절, 라디칼이 정확 질량을 바꾸지 않음을 검사한다(docs/verification/p19-s2-display-profiles.md)."
   },
   {
    "phase": "chemistry",
