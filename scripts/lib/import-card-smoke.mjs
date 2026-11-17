@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 
+import { openSavedDocument } from './open-document-smoke.mjs'
+
 // The "Import card" step of browser-smoke.mjs (P48 S3). It drives the one Import entry, in the open
 // workspace and on the empty screen, the way a user does, and checks each outcome on the service.
 // A refused or ambiguous source must send no document.import operation, so requests are counted.
@@ -91,10 +93,7 @@ export async function importCardSmoke({ page, api, apiWrite, outDir, results, se
     const created = await apiWrite('/api/v1/documents', { request_id: 'import-card-create', title: 'Import card' })
     const docId = created.body.document.id
     const atoms = async () => (await api(`/api/v1/documents/${docId}`)).document.atoms
-    const openDocument = async (id) => {
-      await page.reload()
-      await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
-    }
+    const openDocument = (id) => openSavedDocument(page, api, id)
     await openDocument(docId)
     const card = page.getByRole('region', { name: 'Import', exact: true })
     // Imports leave unsaved changes, so closing asks first; this step discards them.
