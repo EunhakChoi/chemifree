@@ -52,9 +52,9 @@ saved as a tool setting. Delivered by #182 and #183 with passing main CI; see th
 [P34g record](docs/verification/p34g-kekule-ring.md) and
 [P34h record](docs/verification/p34h-attached-kekule-ring.md).
 
-Fusion, spiro, non-terminal replacement, aromatic-bond patterns, other sizes, general abbreviation handling beyond the bounded terminal Et contraction/expansion (P34i) and
+Fusion, spiro, non-terminal replacement, aromatic-bond patterns, other sizes, an abbreviation dictionary or text-to-graph abbreviations (beyond the terminal Et display, P34i, and explicit user-text fragment displays, P35p) and
 molecular conformations remain unimplemented. The ring insertion and attachment slices were delivered by
-#174, #175 and #177 with passing main CI. P34 stays in progress until its delivery record. See the
+#174, #175 and #177 with passing main CI. Bounded P34 is done; see [its completion record](docs/verification/p34-completion.md) and the
 [ring contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a),
 [attachment contract](docs/CONTRACT.md#attached-carbon-ring-p34c), and
 [P34c verification record](docs/verification/p34c-attached-ring.md).

@@ -1,8 +1,13 @@
 # Chemifree 새 세션 인계
 
+## P34 완료 기록 (T1)
+
+P34(고리·사용자 템플릿·Et 표시와 attachment 편집)는 문서화한 범위 안에서 끝났다(2026-11-17): P34a–i(#174·#175·#177·#178·#180·#181·#182·#183·#185), S1(#291 사용자 템플릿 파일 검사를 공통 검사로, 병합 addeb460, main CI run 44061022248), S2(#292 오래된 실행 기록 정리). 사용자 결정(A안)으로 "출처가 다른 템플릿을 provider로 분리"는 provider 포트 없이 기본 고리 레시피와 사용자 조각 파일이라는 두 출처로 충족한다고 보았다(범위·수락 문구는 그대로, 원하면 다시 연다). 로드맵 P34는 `done`이고, P34만 후속이던 OPS-01.template-replacement·OPS-01.user-template-files를 `implemented`로 바꿨으며 MODEL-02.rest·MODEL-04.rest·OPS-02.rest에서 P34를 뺐다. 수락 기준별 근거와 한계: `docs/verification/p34-completion.md`. 하지 않은 것: 템플릿 provider 포트·DATA 기반 라이브러리, 약어 사전과 문자→그래프 약어(사용자 문자 조각 표시는 P35p #202), 일반 치환기, 융합·스피로 연결, 배치·충돌 회피. 이 미룬 항목을 맡은 열린 로드맵 행은 없다(치환기는 P77이 가장 가깝다). T1의 행은 모두 끝났다. 다음 트랙의 시작은 사용자 요청이 정한다.
+
 ## P34 S1: 사용자 템플릿 파일 검사를 공통 검사로 (T1)
 
 사용자 선택(A안: provider 포트 없이 기본 내장 레시피와 사용자 조각 파일을 출처별 분리로 본다)대로 P34를 provider 포트 없이 닫는 첫 PR이다. 사용자 템플릿 파일의 순수 검사(64 KiB 한도, 엄격한 UTF-8 해독과 빈 파일 거절, BOM 보존, 내려받기 파일명, 교차 결합 저장 거절)를 `apps/web/src/lib/user-template-file.ts`로 동작 변경 없이 옮기고, `scripts/web-user-template-client-check.mjs`(`npm run check`에 포함된 test:client)로 검사한다. 요청 순서·서비스 세대 가드와 실제 내려받기·재선택·삽입 흐름은 여전히 CI 브라우저 스크립트 `test:browser:user-template`만 검사한다. 변이 5개(한도+1, `fatal: false`, `ignoreBOM: false`, 파일명 대체값, 교차 결합 기준)를 모두 잡았다. 남은 P34 일은 납품 기록 PR이다.
+
 ## P34 S2: 오래된 실행 기록 정리 (T1)
 
 P34a–i 기록·CONTRACT·README·요구사항 요약·로드맵 P34 메모에 남아 있던 "검사 미실행"·"P34 in_progress" 문구를 병합 PR과 main CI 근거로 바꿨다. 슬라이스 기록 본문과 로드맵 메모의 슬라이스 문장은 작성 세션 기록으로 두고 맨 앞에 병합·CI 한 줄을 붙였다. #201은 P35o(Et 표시 문자 편집)이며 P34i 후속으로만 인용한다. 상태 변경은 없다(P34 `in_progress` 유지). 
@@ -1233,7 +1238,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 69, partial 12, unverified 3, not_implemented 33) · conformance 사례 123개(passed 123: accept 90·reject 33, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 71, partial 11, unverified 2, not_implemented 33) · conformance 사례 123개(passed 123: accept 90·reject 33, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, MODEL-03, CODEC-01, CODEC-02, CODEC-03, CODEC-05, CODEC-06, OPS-01, OPS-02, CHEM-01, CHEM-02, STEREO-01, LAYOUT-01, LAYOUT-02, LAYOUT-03, RENDER-01, STYLE-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

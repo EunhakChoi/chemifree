@@ -4,44 +4,7 @@
 
 P38a·P38b1·P38b2는 bounded SVG drawing export를 추적 부분 `RENDER-01.svg-export`(구현)로 연결한다. `document.export`의 `format: "svg"`가 원자·결합·라벨, 장면 그래픽, PNG 이미지와 그릴 수 있는 문자 집합의 캡션을 그리고, 그리지 않거나 바꾼 특성은 손실로 보고한다. 보이는 특성과 입체 설정은 `accepted_losses` 동의를 요구하며, 캡션 밑줄과 집합 밖 문자가 든 캡션도 동의를 요구한다. 제목·선택·참조·장면 그룹은 동의 없이 손실로만 보고한다. 구현 경로는 `crates/application/src/svg.rs`, `svg/*.rs`, `operations/svg.rs`와 웹의 `svg-export-panel.tsx`·`use-consented-export.ts`이고, 근거는 적합성 사례 `svg-export-caption`·`svg-export-drawing`·`svg-export-needs-consent`·`svg-import-refused`와 `check:check:rust`·`check:test:client`·`check:test:contracts`다. 이 부분은 그 bounded 내보내기 범위만 확립한다. 일반 SVG 출력, `render.scene`, 글자 셰이핑, 클리핑, 레이어와 웹 공유 렌더러는 확립하지 않는다. RENDER-01 요구사항은 partial로 남고 P38은 `in_progress`다. 범위와 그리지 않는 목록은 [HANDOFF의 P38b2·P38b1·P38a 섹션](HANDOFF.ko.md)과 [계약의 SVG 절](CONTRACT.md#svg-drawing-export-p38a)을 따른다.
 
-P34f는 단일 외부 single 결합의 말단 target ID에 source anchor를 바인딩하는 교체다.
-기존 boundary/mark/좌표/참조·이웃 stereo/group을 보존하고 N−1 atom/M internal bond만
-fresh IDs로 추가한다. 새 부분 OPS-01.template-replacement는 공통 Rust/client/HTTP=CLI
-검사에 연결한 partial이며, 작성한 검사는 이번 구현 세션에서 실행하지 않았다. 별도
-file/backend browser와 리뷰·검증 대기는 [P34f 기록](verification/p34f-template-replacement.md)을 따른다.
-
-P34e 후보는 명시 native template anchor의 translation-only single-bond 연결이다.
-source-anchor 저장 입체 손실·단절·style/배치/ID/한도를 거절하고 기존 paste remapping·
-AddBond destination notes/group·atomic history/replay를 재사용한다. inspect/clone plan은
-읽기 전용이며 웹은 명시 source/target/vector→preview→apply와 immutable recovery다.
-Domain/Application/HTTP=CLI/client/real-backend browser 회귀는 작성만 했으며 실행하지
-않았다. 적격 evidence나 상위 상태/집계를 승격하지 않고 [P34e 기록](verification/p34e-template-attachment.md)을 따른다.
-
-P34d의 `OPS-01.user-template-files`는 별도 browser 검사로 실제 파일 다운로드→재선택→
-backend 삽입을 확인했다(`5c9e148` 부모 격리 targeted 통과). 이 전용 script는
-`npm run check`에서 호출되지 않아 현재 traceability 정책의 적격 evidence가 아니다.
-따라서 구현 경로와 P34 후속은 유지하되 evidence는 비우고 해당 부분을 `unverified`로
-기록한다. 별도 browser 통과를 공통 검사 근거로 치환하거나 기존 native 검사에 새 UI의
-검증 범위를 덧씌우지 않는다. `a19062d` 통합 full은 이 evidence 자격과 집계 불일치로
-실패했으며, 수정 후 full/CI 재검증은 pending이다. [P34d 기록](verification/p34d-user-template.md)을 따른다.
-
-P34c 후보는 기존 원자에서 방향을 지정한 5/6 탄소 고리 연결을 더한다. shared attach_ring은
-기존 insert_bond의 stereo clearing·group prune·notes, transaction 원자성/history와 웹의
-immutable recovery를 재사용한다. Domain/Application(일반 bond-edit oracle)/HTTP=CLI/client/
-production UI 회귀를 작성했으나 실행하지 않았다. 상위 상태/기존 conformance 근거는
-승격하지 않으며 [P34c 기록](verification/p34c-attached-ring.md)을 따른다.
-
-P34b 후보는 기존 고리 명령에 size5(생략/explicit6은 기존6)를 더하고 실제 웹 5/6 선택과
-captured size의 immutable recovery를 연결한다. 독립 5-cycle·기하·rollback·저장/history·
-HTTP=CLI·client·production UI 회귀를 작성했으나 실행하지 않았다. 상위 상태나 기존
-conformance 개수/통과 근거는 승격하지 않으며 [P34b 기록](verification/p34b-five-ring.md)을 따른다.
-
-P34a 후보는 shared `insert_ring` 명령과 웹 중심 클릭으로 독립 탄소 6원 단일결합 고리를
-추가한다. 현재 길이·단일 배치·기존 선택 유지·한 Undo 및 미확정 결과의 같은 attempt
-확인으로 제한하며, 전체 MODEL-02/OPS-02/MODEL-04의 상태는 승격하지 않는다.
-회귀는 작성했으나 이 작업에서 실행하지 않아 새 conformance 통과 근거를 만들지 않았다.
-attachment·fusion·사용자 template·약어·복수 배치·layout/conformation은 후속이다.
-[P34a 기록](verification/p34a-independent-ring.md)에 검증 범위와 실행 대기를 구분한다.
+P34(고리·사용자 템플릿·Et 표시와 attachment)는 문서화한 범위에서 `done`이다(2026-11-17). P34a–i(#174·#175·#177·#178·#180·#181·#182·#183·#185)는 모두 병합됐고 병합 커밋의 main CI가 통과했다. 각 슬라이스 기록(`verification/p34a…p34i-*.md`)의 "실행하지 않았다"·"후보"·"pending" 문장은 작성 세션 당시 상태다. 추적 부분 `OPS-01.template-replacement`는 공통 Rust/client/contract 검사로, `OPS-01.user-template-files`는 #291이 공통 검사로 옮긴 파일 검사(`test:client`)와 native paste(`check:rust`)로 `implemented`다. 사용자 템플릿의 요청 순서·서비스 세대 가드와 실제 내려받기·재선택·삽입 흐름은 CI 브라우저 스크립트 `test:browser:user-template`만 검사하며, 이 스크립트는 적격 evidence로 세지 않는다. 근거와 한계: [P34 완료 기록](verification/p34-completion.md).
 
 P15 수치 기반 위에서 P19는 한정된 분자식·질량·동위원소 계산과 별도의 질량 표시 자릿수 환경 설정을 연결한다. 일반 수치 정밀도, 배치·예측·NMR 등은 후속 작업이다.
 
@@ -91,7 +54,7 @@ P33k의 `test:browser:clipboard-integration`은 production panel/hook/client→�
 
 Instance 복제·enhanced-stereo-group graph 복사·global shortcut·custom MIME·external Cut·Windows/OLE는 bounded P33 밖이다. 이 완료는 형식 전체/모든 내부 객체의 clipboard 지원을 뜻하지 않는다. 기존 conformance 보고서 집계는 재실행 없이 유지한다. CODEC-06.rest·OPS-01.rest·OPS-02.rest의 open follow-up에서는 완료된 P33을 제거한다. 고급 형식/통합 파일·text UX는 기존 codec 후속과 P48, 전문 객체의 포함/선택은 P72, 정리·키보드 UI는 P47/P85, 전문 scene/reaction 변경 집합은 해당 기존 후속에 남긴다. 선언된 native 복제/shortcut 제한에 새 구현 약속을 임의로 부여하지 않는다.
 
-현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 69, partial 12, unverified 3, not_implemented 33) · conformance 사례 123개(passed 123: accept 90·reject 33, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 71, partial 11, unverified 2, not_implemented 33) · conformance 사례 123개(passed 123: accept 90·reject 33, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 위 줄은 추적 파일과 기록된 실행에서 계산한 값이며, `npm run test:traceability`가 이 문서와 HANDOFF.ko.md에 정확히 같은 줄이 한 번씩 있는지 확인한다.
 
