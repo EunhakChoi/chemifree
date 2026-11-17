@@ -29,6 +29,9 @@ pub const TOKEN: &str = "mcp-test-token";
 /// the value is dropped.
 pub struct TestServer {
     pub url: String,
+    /// The instance this server gives in its session reply; record it with
+    /// `ServerLock::record_server`.
+    pub instance: String,
     pub data: TempDir,
     task: JoinHandle<()>,
 }
@@ -48,8 +51,11 @@ impl TestServer {
         let application =
             LocalApplication::new(LocalCapabilities, FileDocumentRepository::new(data.path()))
                 .with_preferences(FilePreferenceStore::new(data.path()));
+        // Unique per server in a test run: ports differ while both are bound.
+        let instance = format!("{port:04x}");
         let state = ApiState::new(application, TOKEN.to_owned(), port, &[])
-            .expect("the test server state is valid");
+            .expect("the test server state is valid")
+            .with_instance(instance.clone());
         let app = router(Arc::new(state));
         let task = tokio::spawn(async move {
             axum::serve(listener, app)
@@ -58,6 +64,7 @@ impl TestServer {
         });
         Self {
             url: format!("http://127.0.0.1:{port}"),
+            instance,
             data,
             task,
         }

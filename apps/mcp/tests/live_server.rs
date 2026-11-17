@@ -110,7 +110,7 @@ async fn the_running_server_is_found_through_its_recorded_address() {
     let server = TestServer::start().await;
     let lock = ServerLock::acquire(server.data.path())
         .expect("the test data directory has no other server");
-    lock.record_url(&server.url)
+    lock.record_server(&server.url, &server.instance)
         .expect("the address is recorded");
     let client = ApiClient::new(Discovery::new(None, Some(server.data.path().to_path_buf())));
 
@@ -160,7 +160,7 @@ async fn a_server_recorded_after_a_failed_call_is_found_by_the_next_call() {
 
     let lock = ServerLock::acquire(server.data.path())
         .expect("the test data directory has no other server");
-    lock.record_url(&server.url)
+    lock.record_server(&server.url, &server.instance)
         .expect("the address is recorded");
     let list = client
         .list_documents()
@@ -175,7 +175,8 @@ async fn a_recorded_address_that_refuses_is_read_again_on_the_next_call() {
     let lock = ServerLock::acquire(server.data.path())
         .expect("the test data directory has no other server");
     let dead = format!("http://127.0.0.1:{}", closed_port());
-    lock.record_url(&dead).expect("the address is recorded");
+    lock.record_server(&dead, "dead")
+        .expect("the address is recorded");
     let client = ApiClient::new(Discovery::new(None, Some(server.data.path().to_path_buf())));
 
     let refused = client
@@ -191,7 +192,7 @@ async fn a_recorded_address_that_refuses_is_read_again_on_the_next_call() {
         "the error names the refused address, got {refused}"
     );
 
-    lock.record_url(&server.url)
+    lock.record_server(&server.url, &server.instance)
         .expect("the new address is recorded");
     let list = client
         .list_documents()
@@ -362,7 +363,7 @@ async fn an_explicit_address_takes_precedence_over_the_recorded_one() {
     let server = TestServer::start().await;
     let lock = ServerLock::acquire(server.data.path())
         .expect("the test data directory has no other server");
-    lock.record_url(&format!("http://127.0.0.1:{}", closed_port()))
+    lock.record_server(&format!("http://127.0.0.1:{}", closed_port()), "c105ed")
         .expect("the address is recorded");
     let explicit: ServerUrl = server
         .url
@@ -392,7 +393,7 @@ async fn a_server_that_stopped_is_replaced_by_the_server_recorded_next() {
             .route("/api/v1/documents", get(closing_documents)),
     )
     .await;
-    lock.record_url(&first.url)
+    lock.record_server(&first.url, CLOSING_INSTANCE)
         .expect("the address is recorded");
     let client = ApiClient::new(Discovery::new(None, Some(data.path().to_path_buf())));
     client
@@ -415,7 +416,7 @@ async fn a_server_that_stopped_is_replaced_by_the_server_recorded_next() {
         "got {refused}"
     );
 
-    lock.record_url(&second.url)
+    lock.record_server(&second.url, &second.instance)
         .expect("the new address is recorded");
     let list = client
         .list_documents()
@@ -424,6 +425,56 @@ async fn a_server_that_stopped_is_replaced_by_the_server_recorded_next() {
     assert_eq!(
         list.count, 1,
         "the list comes from the second server, which holds one document"
+    );
+}
+
+#[tokio::test]
+async fn a_server_that_is_not_the_recorded_instance_is_refused() {
+    // A stopped server's record, whose port another server now answers on: the instances differ.
+    let server = TestServer::start().await;
+    let lock = ServerLock::acquire(server.data.path())
+        .expect("the test data directory has no other server");
+    lock.record_server(&server.url, "5ca1e")
+        .expect("the address is recorded");
+    let client = ApiClient::new(Discovery::new(None, Some(server.data.path().to_path_buf())));
+
+    let error = client
+        .list_documents()
+        .await
+        .expect_err("the answering server is not the recorded one");
+
+    assert!(
+        matches!(error, ClientError::NotTheRecordedServer { .. }),
+        "got {error}"
+    );
+    lock.record_server(&server.url, &server.instance)
+        .expect("the right instance is recorded");
+    client
+        .list_documents()
+        .await
+        .expect("the next call reads the record again and reaches the recorded server");
+}
+
+#[tokio::test]
+async fn a_record_without_an_instance_names_no_server() {
+    let server = TestServer::start().await;
+    let lock = ServerLock::acquire(server.data.path())
+        .expect("the test data directory has no other server");
+    lock.record_url(&server.url)
+        .expect("the address is recorded");
+    let client = ApiClient::new(Discovery::new(None, Some(server.data.path().to_path_buf())));
+
+    let error = client
+        .list_documents()
+        .await
+        .expect_err("a record that names no instance cannot be checked");
+
+    assert!(
+        matches!(
+            error,
+            ClientError::Discovery(DiscoveryError::NoServerRecorded { .. })
+        ),
+        "got {error}"
     );
 }
 
@@ -712,10 +763,15 @@ async fn fixed_session() -> Json<Value> {
 
 /// Answers like the session endpoint, and closes the connection after the reply, so that the client keeps
 /// no connection to this server in its pool.
+/// The instance of the server that `closing_session` describes.
+const CLOSING_INSTANCE: &str = "c105e";
+
 async fn closing_session() -> impl IntoResponse {
     (
         [(header::CONNECTION, "close")],
-        Json(json!({"api_version": "v1", "header": SESSION_HEADER, "token": "closing-token"})),
+        Json(
+            json!({"api_version": "v1", "header": SESSION_HEADER, "token": "closing-token", "instance": CLOSING_INSTANCE}),
+        ),
     )
 }
 

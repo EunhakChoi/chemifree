@@ -51,6 +51,8 @@ pub struct ApiClient {
 #[derive(Clone, Debug)]
 struct Session {
     url: ServerUrl,
+    /// The instance the server must give, when it was found through a record.
+    instance: Option<String>,
     header: HeaderName,
     token: HeaderValue,
 }
@@ -60,6 +62,8 @@ struct Session {
 struct SessionReply {
     header: String,
     token: String,
+    #[serde(default)]
+    instance: Option<String>,
 }
 
 /// A reply read in full: its status and its body.
@@ -171,7 +175,9 @@ impl ApiClient {
         }
         // The guards in front of the handlers refuse a request before any handler runs, so the refused
         // request changed nothing. Sending it again with the same request id cannot apply it twice.
-        let fresh = self.fetch_session(&session.url).await?;
+        let fresh = self
+            .fetch_session(&session.url, session.instance.as_deref())
+            .await?;
         self.exchange(&fresh.url, method, path, Some(&fresh), body)
             .await
     }
@@ -181,12 +187,18 @@ impl ApiClient {
         if let Some(session) = self.cached_session()? {
             return Ok(session);
         }
-        let url = self.discovery.locate().await?;
-        self.fetch_session(&url).await
+        let located = self.discovery.locate().await?;
+        self.fetch_session(&located.url, located.instance.as_deref())
+            .await
     }
 
-    /// Fetches the session of `url` with `GET /api/v1/session`, and caches it.
-    async fn fetch_session(&self, url: &ServerUrl) -> Result<Session, ClientError> {
+    /// Fetches the session of `url` with `GET /api/v1/session`, and caches it. When `instance` is
+    /// given, the server must give the same instance, or it is not the server that was recorded.
+    async fn fetch_session(
+        &self,
+        url: &ServerUrl,
+        instance: Option<&str>,
+    ) -> Result<Session, ClientError> {
         let reply = self
             .exchange(url, Method::GET, SESSION_PATH, None, None)
             .await?;
@@ -211,6 +223,12 @@ impl ApiClient {
             });
         }
         let name = HeaderName::from_static(SESSION_HEADER);
+        if let Some(expected) = instance
+            && parsed.instance.as_deref() != Some(expected)
+        {
+            self.forget_session();
+            return Err(ClientError::NotTheRecordedServer { url: url.clone() });
+        }
         let mut token =
             HeaderValue::from_str(&parsed.token).map_err(|_| ClientError::MalformedReply {
                 status,
@@ -219,6 +237,7 @@ impl ApiClient {
         token.set_sensitive(true);
         let session = Session {
             url: url.clone(),
+            instance: instance.map(str::to_owned),
             header: name,
             token,
         };
@@ -408,6 +427,9 @@ pub enum ClientError {
     ReplyTooLarge,
     /// The reply is not the JSON that the call expects.
     MalformedReply { status: StatusCode, message: String },
+    /// The server that answered at a recorded address is not the server that wrote the record: that
+    /// server stopped, and another one now uses its port.
+    NotTheRecordedServer { url: ServerUrl },
     /// The operating system had no random bytes for a request id.
     RandomSource(getrandom::Error),
     /// The session cache is unusable, because a call panicked while it held the cache.
@@ -435,6 +457,10 @@ impl fmt::Display for ClientError {
             Self::Status { status, body } => {
                 write!(f, "The Chemifree API server answered HTTP {status}: {body}")
             }
+            Self::NotTheRecordedServer { url } => write!(
+                f,
+                "The Chemifree API server at {url} is not the server recorded for this data directory: that server has stopped, and another one uses its port. Start chemifree-api for this data directory."
+            ),
             Self::ReplyTooLarge => write!(
                 f,
                 "The Chemifree API server's reply is larger than {MAX_REPLY_BYTES} bytes, so it was not read."

@@ -307,10 +307,11 @@ fn a_killed_server_leaves_no_lock_behind() {
     );
     // The killed server's record stays behind. The next start takes the lock without removing it.
     let stale_record = fs::read_to_string(&lock_path).expect("the lock record can be read");
-    assert_eq!(
-        stale_record,
-        format!("pid={}\nurl=http://127.0.0.1:{}\n", killed.pid, killed.port),
-        "the killed server left its record behind"
+    assert_record(
+        &stale_record,
+        killed.pid,
+        killed.port,
+        "the killed server left its record behind",
     );
 
     let successor = Running::start(&["--port", "0", "--data-dir", data], &[]);
@@ -321,13 +322,32 @@ fn a_killed_server_leaves_no_lock_behind() {
         "the successor serves on its own port"
     );
     let record = fs::read_to_string(&lock_path).expect("the lock record can be read");
-    assert_eq!(
-        record,
-        format!(
-            "pid={}\nurl=http://127.0.0.1:{}\n",
-            successor.pid, successor.port
-        ),
-        "the successor replaced the record with its own pid and address"
+    assert_record(
+        &record,
+        successor.pid,
+        successor.port,
+        "the successor replaced the record with its own pid and address",
+    );
+    assert_ne!(
+        record.lines().nth(2),
+        stale_record.lines().nth(2),
+        "each start records a new instance"
+    );
+}
+
+/// Checks a server record: its pid, its address, and an instance of 32 lowercase hex digits.
+fn assert_record(record: &str, pid: u32, port: u16, context: &str) {
+    let prefix = format!("pid={pid}\nurl=http://127.0.0.1:{port}\ninstance=");
+    let instance = record
+        .strip_prefix(&prefix)
+        .and_then(|rest| rest.strip_suffix('\n'))
+        .unwrap_or_else(|| panic!("{context}: unexpected record {record:?}"));
+    assert!(
+        instance.len() == 32
+            && instance
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+        "{context}: the instance {instance:?} is not 32 lowercase hex digits"
     );
 }
 

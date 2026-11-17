@@ -78,6 +78,18 @@ impl fmt::Display for InvalidServerUrl {
 
 impl std::error::Error for InvalidServerUrl {}
 
+/// A server found by [`Discovery::locate`]: its address and, when it was found through a data
+/// directory's record, the instance that record names. A server reached through that address must
+/// give the same instance in its session reply; otherwise it is not the server that wrote the record
+/// (that server stopped and another one now uses the port).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Located {
+    /// The server's address.
+    pub url: ServerUrl,
+    /// The instance the record names; `None` for an explicit address, which is not checked.
+    pub instance: Option<String>,
+}
+
 /// Where the running server is looked for: at an explicit address, or at the record in a data
 /// directory. An explicit address takes precedence.
 #[derive(Clone, Debug)]
@@ -102,10 +114,13 @@ impl Discovery {
     ///
     /// Returns [`DiscoveryError::NoDataDirectory`] when there is neither an address nor a data
     /// directory, [`DiscoveryError::NoServerRecorded`] when the data directory's record names no
-    /// server, and [`DiscoveryError::Lookup`] when the blocking read was interrupted.
-    pub async fn locate(&self) -> Result<ServerUrl, DiscoveryError> {
+    /// server or no instance, and [`DiscoveryError::Lookup`] when the blocking read was interrupted.
+    pub async fn locate(&self) -> Result<Located, DiscoveryError> {
         if let Some(url) = &self.explicit {
-            return Ok(url.clone());
+            return Ok(Located {
+                url: url.clone(),
+                instance: None,
+            });
         }
         let data_dir = self
             .data_dir
@@ -113,13 +128,20 @@ impl Discovery {
             .ok_or(DiscoveryError::NoDataDirectory)?;
         let lookup_dir = data_dir.clone();
         let recorded =
-            tokio::task::spawn_blocking(move || ServerLock::recorded_holder(&lookup_dir).url)
+            tokio::task::spawn_blocking(move || ServerLock::recorded_holder(&lookup_dir))
                 .await
                 .map_err(DiscoveryError::Lookup)?;
-        // The provider accepts the same address form as `ServerUrl`, so a recorded address parses.
-        recorded
-            .and_then(|url| url.parse::<ServerUrl>().ok())
-            .ok_or(DiscoveryError::NoServerRecorded { data_dir })
+        // The provider accepts the same address form as `ServerUrl`, so a recorded address parses. A
+        // record without an instance cannot be checked against the server that answers, so it is
+        // treated as naming no server.
+        let url = recorded.url.and_then(|url| url.parse::<ServerUrl>().ok());
+        match (url, recorded.instance) {
+            (Some(url), Some(instance)) => Ok(Located {
+                url,
+                instance: Some(instance),
+            }),
+            _ => Err(DiscoveryError::NoServerRecorded { data_dir }),
+        }
     }
 }
 
@@ -221,7 +243,13 @@ mod tests {
             .locate()
             .await
             .expect("the explicit address is returned");
-        assert_eq!(found, url);
+        assert_eq!(
+            found,
+            Located {
+                url,
+                instance: None
+            }
+        );
     }
 
     #[tokio::test]
