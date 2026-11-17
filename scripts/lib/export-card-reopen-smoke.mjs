@@ -47,9 +47,30 @@ export async function exportCardReopenSmoke({
 }) {
   const card = page.getByRole('region', { name: 'Import', exact: true })
   const button = (name) => card.getByRole('button', { name, exact: true })
-  const pick = (path) => card.getByLabel('Import file', { exact: true }).setInputFiles(path)
+  // The file input is disabled while the editor is busy (a user cannot pick then), but setInputFiles does
+  // not wait for that, so wait until it is enabled before picking.
+  const pick = async (path) => {
+    await page.waitForFunction(() => document.getElementById('import-file')?.disabled === false)
+    await card.getByLabel('Import file', { exact: true }).setInputFiles(path)
+  }
   // Reading a file is asynchronous, so wait for the detected format rather than reading the select at once.
-  const detected = (format) => page.waitForFunction((f) => document.getElementById('import-format')?.value === f, format)
+  // On a timeout, report what the card showed so a failure can be told apart from a slow read.
+  const detected = async (format) => {
+    try {
+      await page.waitForFunction((f) => document.getElementById('import-format')?.value === f, format)
+    } catch (error) {
+      const state = await page.evaluate(() => {
+        const input = document.getElementById('import-file')
+        return {
+          inputDisabled: input?.disabled ?? null,
+          inputFiles: input?.files?.length ?? null,
+          format: document.getElementById('import-format')?.value ?? null,
+          alerts: [...document.querySelectorAll('[role="alert"]')].map((node) => node.textContent),
+        }
+      })
+      throw new Error(`the Import card did not detect ${format}: ${JSON.stringify(state)}`, { cause: error })
+    }
+  }
   const documentOf = async (id) => (await api(`/api/v1/documents/${id}`)).document
   const create = async (key, title) =>
     (await apiWrite('/api/v1/documents', { request_id: `export-card-${key}`, title })).body.document.id
