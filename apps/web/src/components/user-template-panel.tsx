@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { DocumentEditor } from '@/hooks/use-document-editor'
 import { sameConversionSnapshot, settingsOf, type DocumentView, type NativeClipboardCopy, type TemplateInspection, type TemplateAttachmentOffer, type TemplateReplacementOffer, type AtomView } from '@/lib/document-contract'
+import { checkTemplateFileSize, decodeTemplateFile, templateDownloadName, templateSaveRefusal } from '@/lib/user-template-file'
 
 interface UserTemplatePanelProps {
   document: DocumentView
@@ -19,8 +20,6 @@ interface TemplateFile {
   name: string
   payload: string
 }
-
-const MAX_TEMPLATE_BYTES = 64 * 1024
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The template file operation failed.'
@@ -103,9 +102,8 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
     try {
       const copied = await editor.copyFragment(document.id, activePlacement)
       if (!current(attempt, generation)) return
-      if (copied.boundaryBonds.length > 0) {
-        throw new Error('Select complete graph components before saving a template. Crossing bonds are not template attachment instructions.')
-      }
+      const refusal = templateSaveRefusal(copied.boundaryBonds.length)
+      if (refusal !== null) throw new Error(refusal)
       setOffer(copied)
     } catch (cause: unknown) {
       if (current(attempt, generation)) setError(errorMessage(cause))
@@ -117,14 +115,14 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
   function download() {
     if (busy || !currentOffer || !name.trim() || editor.currentServiceGeneration() !== editor.serviceGeneration) return
     // Only the filename is named. The graph bytes remain the closed native v1 payload.
-    const filename = name.trim().replace(/[^\p{L}\p{N}._-]/gu, '_').replace(/^\.+/, '') || 'template'
+    const filename = templateDownloadName(name)
     setError(null)
     try {
       const url = URL.createObjectURL(new Blob([currentOffer.payload], { type: 'application/json;charset=utf-8' }))
       try {
         const anchor = globalThis.document.createElement('a')
         anchor.href = url
-        anchor.download = `${filename}.chemifree-fragment.json`
+        anchor.download = filename
         anchor.click()
       } finally {
         // Release on the next task, after the browser has consumed the download URL.
@@ -164,12 +162,10 @@ export function UserTemplatePanel({ document, editor, activePlacement }: UserTem
     if (!selected) return
     setPending('read')
     try {
-      if (selected.size > MAX_TEMPLATE_BYTES) throw new Error('Template files must be at most 64 KiB.')
+      checkTemplateFileSize(selected.size)
       const bytes = await selected.arrayBuffer()
       if (!current(attempt, generation)) return
-      // Fatal decoding prevents an invalid UTF-8 byte sequence from becoming replacement text.
-      const payload = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
-      if (!payload.trim()) throw new Error('Choose a non-empty Chemifree graph template file.')
+      const payload = decodeTemplateFile(bytes)
       if (mode === 'attach' || mode === 'replace') {
         const inspected = await editor.inspectTemplate(payload)
         if (!current(attempt, generation)) return
