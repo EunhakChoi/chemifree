@@ -2,7 +2,7 @@
 
 ## P19 완료 기록 (T1)
 
-P19(분자식·질량·동위원소 분석)는 문서화한 범위(`chem.properties`, `chemifree-properties-1`) 안에서 끝났다(2026-11-17): #81(첫 범위), #288(S1 분자식 수락 기준), #289(S2 표시 경계·프로필 구분, 병합 57540671, main CI run 44030251103). 로드맵 P19는 `done`이고, CHEM-01.rest와 선언 경로 `chem_properties`에서 P19를 뺐다(P19만 후속이던 부분은 없어 상태 변화 없음). CONTRACT의 `chem.properties` 응답 문장에 분자식 표기(Hill 순서, `[13C]`, 전하 접미사)를 적었다. 수락 기준별 근거와 한계: `docs/verification/p19-completion.md`. 하지 않은 것: 개인 질량 등록과의 호환성(로컬 `content_invalid`, 관찰 호환 프로필은 합성 자료로만 검사), 일반 `numeric_precision`(STYLE-01.rest), 불확도 전파. T1에 남은 행은 P34이며, 시작은 사용자 요청이 정한다.
+P19(분자식·질량·동위원소 분석)는 문서화한 범위(`chem.properties`, `chemifree-properties-1`) 안에서 끝났다(2026-11-17): #81(첫 범위), #288(S1 분자식 수락 기준), #289(S2 표시 경계·프로필 구분, 병합 57540671, main CI run 44030251103). 로드맵 P19는 `done`이고, CHEM-01.rest와 선언 경로 `chem_properties`에서 P19를 뺐다(P19만 후속이던 부분은 없어 상태 변화 없음). CONTRACT의 `chem.properties` 응답 문장에 분자식 표기(Hill 순서, `[13C]`, 전하 접미사)를 적었다. 수락 기준별 근거와 한계: `docs/verification/p19-completion.md`. 하지 않은 것: 개인 질량 등록과의 호환성(로컬 `content_invalid`, 관찰 호환 프로필은 합성 자료로만 검사), 일반 `numeric_precision`(STYLE-01.rest), 불확도 전파. 수락 기준의 "계산 정밀도 설정"은 CONTRACT상 유일한 정밀도 설정인 질량 표시 자릿수로 좁혀 고쳤다(원래 문구는 로드맵 메모에 남기고, 유지하려면 P19를 다시 연다). T1에 남은 행은 P34이며, 시작은 사용자 요청이 정한다.
 
 ## P19 S2: 표시 경계·프로필 구분 (T1)
 

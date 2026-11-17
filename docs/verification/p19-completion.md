@@ -1,6 +1,6 @@
 # P19 completion (bounded): formula, mass and isotope analysis
 
-Roadmap acceptance: "염·동위원소·라디칼·명시/추론 H와 표시 반올림을 각각 대조한다. 공개 데이터 기반 결과와 관찰 호환 프로필을 구분한다. 계산 정밀도 설정의 저장·적용과 기존 문서 비소급을 검사한다." Closed within the scope documented in docs/CONTRACT.md (`chem.properties`, `chemifree-properties-1`), delivered by #81, #288 (S1) and #289 (S2).
+Roadmap acceptance: "염·동위원소·라디칼·명시/추론 H와 표시 반올림을 각각 대조한다. 공개 데이터 기반 결과와 관찰 호환 프로필을 구분한다. 계산 정밀도 설정의 저장·적용과 기존 문서 비소급을 검사한다." The last sentence was narrowed when P19 closed (2026-11-17) to "질량 표시 자릿수 설정(계산 결과에 적용되는 유일한 정밀도 설정)의 저장·적용과 기존 문서 비소급": CONTRACT computes with a fixed arithmetic policy, the only precision setting is the display decimals of new mass results, and the scope asks for the setting "needed for the first calculation results"; the original wording is kept in the roadmap note, and P19 reopens if it should stand. Closed within the scope documented in docs/CONTRACT.md (`chem.properties`, `chemifree-properties-1`), delivered by #81, #288 (S1) and #289 (S2).
 
 | Criterion | Evidence |
 |---|---|
@@ -17,7 +17,7 @@ Formula notation (Hill order, `[13C]`, charge suffix) is now written in CONTRACT
 ## Documented limits (not done)
 
 - Compatibility with the separately approved personal mass registration is not verified: it is refused locally as `content_invalid`. The observed-compatible profile kind is tested only with the synthetic mass-input fixture.
-- "계산 정밀도 설정" is closed as the mass display decimals setting (0–8), as CONTRACT states; general `numeric_precision` stays `not_implemented` under STYLE-01.rest (its follow-up names P60).
+- No calculation-precision setting exists (the acceptance was narrowed to the mass display decimals, 0–8); general `numeric_precision` stays `not_implemented` under STYLE-01.rest (its follow-up names P60).
 - No uncertainty propagation (CHEM-01.rest); the web settings offer 0–5 places of the 0–8 the service accepts.
 - The synthetic conformance fixture covers carbon only.
 - Further property models and data conventions stay under CHEM-01.rest with its other follow-ups.
