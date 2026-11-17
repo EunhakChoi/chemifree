@@ -213,12 +213,14 @@ dependencies = [
 name = "chemifree-application"
 version = "0.1.0"
 dependencies = [
+ "chemifree-application",
  "chemifree-domain",
  "chemifree-numerics",
  "chemifree-providers",
  "getrandom",
  "num-bigint",
  "roxmltree",
+ "schemars",
  "serde",
  "serde_json",
  "sha2 0.10.9",

@@ -10,6 +10,7 @@ use super::settings::{LabelFontDto, font_view};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum GraphicShapeDto {
     Line,
     Rectangle,
@@ -21,6 +22,7 @@ pub enum GraphicShapeDto {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DeleteModeDto {
     Subtree,
     ObjectOnly,
@@ -28,6 +30,7 @@ pub enum DeleteModeDto {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ReferenceTargetDto {
     Object { id: String },
     Atom { id: String },
@@ -44,6 +47,7 @@ pub struct ReferenceDto {
 /// Geometry-only rigid arrangements of outermost selected scene objects.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ArrangementModeDto {
     AlignLeft,
     AlignHorizontalCenter,
@@ -75,6 +79,7 @@ impl From<ArrangementModeDto> for ObjectArrangement {
 /// Geometry-only transform about an explicit page-coordinate pivot.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum SelectionTransformDto {
     Rotate { degrees: f64 },
     // Empty struct variants keep deny_unknown_fields effective for reflection objects.
@@ -95,6 +100,7 @@ impl From<SelectionTransformDto> for SelectionTransform {
 /// Fragment runs inherit document label style and vary only their baseline treatment.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct FragmentDisplayRunDto {
     pub text: String,
     pub script: CaptionScriptDto,
@@ -103,6 +109,7 @@ pub struct FragmentDisplayRunDto {
 /// Physical alignment of a complete caption, independent of paragraph direction.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CaptionAlignmentDto {
     #[default]
     Left,
@@ -130,9 +137,10 @@ impl From<CaptionAlignment> for CaptionAlignmentDto {
     }
 }
 
-/// A complete run value; no byte or UTF-16 substring indices cross the wire.
+/// A complete run value; it carries no byte or UTF-16 substring indices.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CaptionRunDto {
     /// Omission means false; null and non-booleans are malformed.
     #[serde(default)]
@@ -162,6 +170,7 @@ pub struct CaptionRunDto {
 
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CaptionScriptDto {
     Baseline,
     Subscript,
@@ -170,6 +179,7 @@ pub enum CaptionScriptDto {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CaptionWeightDto {
     #[default]
     Normal,
@@ -178,6 +188,7 @@ pub enum CaptionWeightDto {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CaptionStyleDto {
     #[default]
     Normal,

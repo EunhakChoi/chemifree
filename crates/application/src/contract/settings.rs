@@ -10,6 +10,7 @@ use super::request::SelectionDto;
 /// The generic font family of atom labels.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum LabelFontDto {
     SansSerif,
     Serif,
@@ -19,6 +20,7 @@ pub enum LabelFontDto {
 /// The chemical label weight; independent captions retain their own run weight.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum LabelWeightDto {
     #[default]
     Normal,
@@ -28,6 +30,7 @@ pub enum LabelWeightDto {
 /// The chemical label style; independent captions retain their own run style.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum LabelStyleDto {
     #[default]
     Normal,
@@ -37,6 +40,7 @@ pub enum LabelStyleDto {
 /// Which carbons are labelled: `default` leaves a bonded carbon that records nothing bare.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CarbonLabelsDto {
     Default,
     All,
@@ -45,6 +49,7 @@ pub enum CarbonLabelsDto {
 /// The unit lengths are shown in; stored lengths are always pt.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DisplayUnitDto {
     Pt,
     Mm,

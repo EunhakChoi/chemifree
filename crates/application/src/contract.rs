@@ -4,13 +4,20 @@
 mod chemistry;
 mod command;
 mod convert;
+#[cfg(test)]
+mod corpus_tests;
 mod parse;
 mod request;
 mod response;
 mod scene;
+#[cfg(feature = "schema")]
+mod schema;
 mod settings;
 mod stereo;
 mod view;
+
+#[cfg(feature = "schema")]
+pub use schema::{command_schema, command_schema_text};
 
 pub use chemistry::{
     BondOrderDto, BondQueryDto, BondToDto, HydrogensDto, QueryBondOrderDto, QueryDto, RadicalDto,

@@ -14,6 +14,7 @@ pub struct CreateDocumentRequest {
 /// object created by command N in the same transaction.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SelectionDto {
     #[serde(default)]
     pub objects: Vec<String>,
@@ -111,6 +112,7 @@ pub struct RecoverAsCopyRequest {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PointDto {
     pub x: f64,
     pub y: f64,

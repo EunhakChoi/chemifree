@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// What an enhanced-stereo group states. `absolute` has no number.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum StereoGroupKindDto {
     Absolute,
     And,
@@ -37,12 +38,12 @@ impl From<GroupKind> for StereoGroupKindDto {
     }
 }
 
-/// A bond mark, as snapshots show it and `set_bond_mark` states it. `begin` and `end` in a mark
-/// are the bond's own `begin` and `end`; the bond is never rewritten to move the narrow end.
-/// The public functional model's `wedge_begin` and `hash_end` display values name the same
-/// facts as `wedge` and `hash` with `narrow`.
+/// A bond mark, as snapshots show it and `set_bond_mark` states it. `narrow` names the bond's
+/// own `begin` or `end` as the narrow end; the bond is never rewritten to move it, and `begin`
+/// and `end` never swap.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum MarkDto {
     /// Solid wedge on a single bond.
     Wedge { narrow: BondEndDto },
@@ -56,6 +57,7 @@ pub enum MarkDto {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum BondEndDto {
     Begin,
     End,
@@ -100,10 +102,11 @@ pub struct BondStereoView {
 
 /// What is stated about a tetrahedral stereocenter. `neighbors` are four distinct slots in
 /// canonical order: atom ids ascending, then `implicit_hydrogen`, then `lone_pair`. `turn` is
-/// seen looking from the first slot toward the center: `anticlockwise` is OpenSMILES `@` (the
-/// public model's positive `parity`), `clockwise` is `@@` (negative).
+/// seen looking from the first slot toward the center: `anticlockwise` is OpenSMILES `@`, and
+/// `clockwise` is `@@`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum AtomConfigurationDto {
     Tetrahedral {
         neighbors: [String; 4],
@@ -115,6 +118,7 @@ pub enum AtomConfigurationDto {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum TurnDto {
     Anticlockwise,
     Clockwise,
@@ -122,9 +126,11 @@ pub enum TurnDto {
 
 /// What is stated about a double bond. The neighbors are in canonical form: the
 /// lowest-identifier explicit neighbor of the end, or `implicit_hydrogen` where the end has no
-/// other explicit neighbor. `opposite_sides` is the public model's `opposite_side`.
+/// other explicit neighbor. `relation` is `same_side` or `opposite_sides`: the two named
+/// neighbors lie on the same side of the double bond, or on opposite sides.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum BondConfigurationDto {
     Relative {
         begin_neighbor: String,
@@ -137,6 +143,7 @@ pub enum BondConfigurationDto {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum RelationDto {
     SameSide,
     OppositeSides,

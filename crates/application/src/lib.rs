@@ -95,6 +95,8 @@ pub use contract::{
     StereoGroupKindDto, StereoGroupView, StereoView, TransactionRequest, TransactionSelections,
     TrashListResponse, TrashedSummary, TurnDto, UnreadableDocument, query_label,
 };
+#[cfg(feature = "schema")]
+pub use contract::{command_schema, command_schema_text};
 pub use data::{
     BindingState, BindingStatus, CheckState, DataSnapshot, DataSource, DataStatus,
     DatasetReference, DatasetStatus, DistributionPolicy, FeatureData, FeatureStatus, FileStatus,
