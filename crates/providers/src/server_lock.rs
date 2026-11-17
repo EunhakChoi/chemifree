@@ -126,6 +126,14 @@ impl ServerLock {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    /// What the lock record in `data_dir` says about the server that wrote it, read without taking
+    /// the lock. A local client uses it to find a running server; the record may be stale (a server
+    /// that has stopped leaves it), so the address is only where to try, and a client still checks
+    /// it answers. A missing or unreadable record gives an empty [`LockHolder`].
+    pub fn recorded_holder(data_dir: &Path) -> LockHolder {
+        read_holder(&data_dir.join(Self::FILE_NAME))
+    }
 }
 
 /// What a lock record says about the process that wrote it. A field is `None` unless the record
@@ -344,6 +352,40 @@ mod tests {
             fs::read_to_string(lock.path()).unwrap(),
             format!("pid={}\nurl={ADDRESS}\n", process::id())
         );
+    }
+
+    #[test]
+    fn recorded_holder_reads_a_held_record_without_taking_the_lock() {
+        let directory = tempfile::tempdir().unwrap();
+        assert_eq!(
+            ServerLock::recorded_holder(directory.path()),
+            LockHolder::default(),
+            "no record yet"
+        );
+        let lock = ServerLock::acquire(directory.path()).unwrap();
+        lock.record_url(ADDRESS).unwrap();
+
+        let holder = ServerLock::recorded_holder(directory.path());
+
+        assert_eq!(holder.pid, Some(process::id()));
+        assert_eq!(holder.url.as_deref(), Some(ADDRESS));
+        // Reading did not take the lock: the server still holds it.
+        assert!(ServerLock::acquire(directory.path()).is_err());
+    }
+
+    #[test]
+    fn recorded_holder_drops_an_address_that_is_not_the_loopback_origin() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join(ServerLock::FILE_NAME),
+            "pid=7\nurl=http://example.com:80\n",
+        )
+        .unwrap();
+
+        let holder = ServerLock::recorded_holder(directory.path());
+
+        assert_eq!(holder.pid, Some(7));
+        assert_eq!(holder.url, None);
     }
 
     #[test]

@@ -155,10 +155,12 @@ jobs:
       - name: Autosave process ownership and explicit restart reconciliation
         run: npm run test:browser:autosave-restart
       # Reuses the debug build this job compiles, not a release build, to stay within its 30-minute budget.
-      - name: Build the web app and debug binaries for the product check
-        run: npm run build:web && cargo build --locked --package chemifree-api --package chemifree-cli
+      - name: Build the web app and debug binaries for the product and MCP checks
+        run: npm run build:web && cargo build --locked --package chemifree-api --package chemifree-cli --package chemifree-mcp
       - name: Local product server (built web app on the API origin)
         run: npm run test:product -- --profile debug
+      - name: Local MCP adapter with a real MCP client
+        run: npm run test:mcp -- --profile debug
       # Runs even if the guard check failed, so each check reports on its own.
       - name: Browser smoke
         id: smoke

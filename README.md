@@ -167,6 +167,14 @@ cargo run --locked -p chemifree-api -- --port 3002 --data-dir ./tmp/chemifree-da
 
 The development proxy targets port 3001. If you choose another API port, update `apps/web/vite.config.ts` accordingly. The standalone CLI's `status` confirms its local application can run; it does not report whether an HTTP server is running. The browser holds no document state of its own: each edit is a request with the revision it was based on, and the API's working copy is authoritative until saved. An open API session and the CLI can edit the same file; saves from every process take an OS lock on the document, so a later save from the other side is refused with `save_conflict` rather than overwriting, and a crashed process never leaves the lock held.
 
+## Local MCP adapter (agents)
+
+`chemifree-mcp` lets an MCP client (an agent) on the same machine talk to a running Chemifree API server over stdio. Start the API first; the adapter finds it through the data directory's `server.lock` or `--server-url`. P82 S1 offers read-only tools only: the operation catalog, the document list and a document snapshot with its revision. See [the contract](docs/CONTRACT.md#local-mcp-adapter-p82-s1).
+
+```json
+{ "mcpServers": { "chemifree": { "command": "/path/to/target/release/chemifree-mcp", "args": ["--data-dir", "/path/to/chemifree-data"] } } }
+```
+
 ## Run as a local product
 
 Use the same tool versions as [Run locally](#run-locally): Node **22.22.2**, npm **11.13.0** and Rust **1.95.0**. Linux is the checked platform.

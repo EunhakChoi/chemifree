@@ -1,5 +1,9 @@
 # Chemifree 새 세션 인계
 
+## P82 S1: 읽기 전용 로컬 MCP 어댑터 (T2 시작)
+
+T1을 마친 뒤 사용자 요청("opus 추천대로 다음 작업")으로 T2를 시작했다(2026-11-17). `apps/mcp`(`chemifree-mcp`)는 rmcp 기반 stdio MCP 서버이며 실행 중인 `chemifree-api`의 HTTP API만 부른다(Application을 만들지 않고 서버 잠금을 잡지 않음). 서버는 `--server-url` 또는 데이터 디렉터리 `server.lock` 기록(새 `ServerLock::recorded_holder`)으로 찾는다. 도구는 연산 목록·문서 목록·문서 스냅샷과 revision 셋이고, 실제 MCP client 검사 `npm run test:mcp`를 CI 브라우저 job에 붙였다. 새 의존성: rmcp 3.10(Apache-2.0), schemars, hyper client 기능, npm devDependency `@modelcontextprotocol/sdk` 1.32.2. 남은 P82 일: 편집·저장 도구(S2), 큰 결과 요약/상세(S3), Rust DTO 스키마 생성과 TS 검증기 불일치 검사(S4), 분석·export 도구(S5), 완료 기록(S6). 보류한 사용자 결정: P41을 문서화한 한계로 닫을지(Opus 추천: 닫음), 에이전트 편집의 웹 실시간 표시는 P82 밖. 기록: `docs/verification/p82-s1-read-only-mcp.md`.
+
 ## P34 완료 기록 (T1)
 
 P34(고리·사용자 템플릿·Et 표시와 attachment 편집)는 문서화한 범위 안에서 끝났다(2026-11-17): P34a–i(#174·#175·#177·#178·#180·#181·#182·#183·#185), S1(#291 사용자 템플릿 파일 검사를 공통 검사로, 병합 addeb460, main CI run 44061022248), S2(#292 오래된 실행 기록 정리). 사용자 결정(A안)으로 "출처가 다른 템플릿을 provider로 분리"는 provider 포트 없이 기본 고리 레시피와 사용자 조각 파일이라는 두 출처로 충족한다고 보았다(범위·수락 문구는 그대로, 원하면 다시 연다). 로드맵 P34는 `done`이고, P34만 후속이던 OPS-01.template-replacement·OPS-01.user-template-files를 `implemented`로 바꿨으며 MODEL-02.rest·MODEL-04.rest·OPS-02.rest에서 P34를 뺐다. 수락 기준별 근거와 한계: `docs/verification/p34-completion.md`. 하지 않은 것: 템플릿 provider 포트·DATA 기반 라이브러리, 약어 사전과 문자→그래프 약어(사용자 문자 조각 표시는 P35p #202), 일반 치환기, 융합·스피로 연결, 배치·충돌 회피. 이 미룬 항목을 맡은 열린 로드맵 행은 없다(치환기는 P77이 가장 가깝다). T1의 행은 모두 끝났다. 다음 트랙의 시작은 사용자 요청이 정한다.

@@ -34,7 +34,17 @@ Every JSON response includes `api_version: "v1"`; HTTP paths carry the same majo
 | `POST /api/v1/trash/{id}/restore` | `chemifree documents restore ID` | Restore |
 | `POST /api/v1/operations` | `chemifree operations` (one request per line on stdin) | Operation reply (see Operation contract 1) |
 
-The CLI calls the same `Application` in-process and does not contact HTTP. Both use `--data-dir` / `CHEMIFREE_DATA_DIR` (default: the platform user-data directory, e.g. `~/.local/share/chemifree`). `status`, `capabilities`, and `show`/`list` do not write. A CLI process is its own short session, so `apply`, `undo`, and `redo` commit with a save before reporting success; if the save fails, nothing is committed. With `--json`, failures are printed to stdout as the error envelope and the exit status is 1.
+The local MCP adapter `chemifree-mcp` is a client of this HTTP API; see Local MCP adapter below. The CLI calls the same `Application` in-process and does not contact HTTP. Both use `--data-dir` / `CHEMIFREE_DATA_DIR` (default: the platform user-data directory, e.g. `~/.local/share/chemifree`). `status`, `capabilities`, and `show`/`list` do not write. A CLI process is its own short session, so `apply`, `undo`, and `redo` commit with a save before reporting success; if the save fails, nothing is committed. With `--json`, failures are printed to stdout as the error envelope and the exit status is 1.
+
+## Local MCP adapter (P82 S1)
+
+`chemifree-mcp` is a Model Context Protocol server over stdio (newline-delimited JSON-RPC) for agents on the same machine. It does not run an `Application`: it calls the HTTP API of a running `chemifree-api`, so an agent's edits (from later slices) are the server's edits and the open web editor sees them as it sees any other revision. It never starts a server.
+
+- **Finding the server.** `--server-url` / `CHEMIFREE_SERVER_URL`, accepted only as `http://127.0.0.1:` and a port of one to five digits; otherwise the `url` in `<data-dir>/server.lock`, with the data directory from `--data-dir` / `CHEMIFREE_DATA_DIR` / the platform default, read without taking the lock. The address is looked up again when none is known or after a connection failure, so the API can start after the adapter. With no running server a tool call is an error naming the data directory or address.
+- **Session.** The adapter takes the write token from `GET /api/v1/session` and sends no `Origin`. On `401` or `403` it fetches the token once more and sends the request once more.
+- **Tools (S1, read-only).** `chemifree_capabilities` runs `capabilities.inspect`; `chemifree_documents_list` is `GET /api/v1/documents`; `chemifree_document_snapshot` runs `document.snapshot` with `document_id`. Operation tools take an optional `request_id` (otherwise 32 random lowercase hex digits), so a retried call with the same id gets the server's replay. Requests use contract 1 and the `preserve-semantics` profile.
+- **Results.** `structuredContent` is the server's reply unchanged, with one text line naming the operation, outcome and document revision (or the document count). A reply whose `outcome` is not `ok`, a protocol-error reply, a reply over 8 MiB and a transport failure are tool errors (`isError`); diagnostics pass through unchanged and nothing is truncated.
+- **Not yet.** Edit, save and close tools, MCP resources, analysis and export tools, a schema drift check against the web validators, and live display of agent edits in an open editor (it learns of them through `revision_conflict`, as today). The roadmap's P82 row tracks the remaining slices.
 
 ## Inspection
 

@@ -26,6 +26,7 @@
     "test:client": "node scripts/web-client-check.mjs && node scripts/web-fragment-display-client-check.mjs && node scripts/web-graphic-points-client-check.mjs && node scripts/web-graphic-creation-client-check.mjs && node scripts/web-graphic-line-width-client-check.mjs && node scripts/web-styled-clipboard-client-check.mjs && node scripts/web-selection-rotation-client-check.mjs && node scripts/web-scene-order-client-check.mjs && node scripts/web-ellipse-client-check.mjs && node scripts/web-polygon-client-check.mjs && node scripts/web-spline-client-check.mjs && node scripts/web-image-client-check.mjs && node scripts/svg-parity-client-check.mjs",
     "test:contracts": "node scripts/contract-smoke.mjs",
     "test:product": "node scripts/product-server-check.mjs",
+    "test:mcp": "node scripts/mcp-client-check.mjs",
     "test:browser": "node scripts/browser-smoke.mjs",
     "test:browser:stereo-manual": "node scripts/web-stereo-manual-check.mjs",
     "test:browser:routes": "node scripts/browser-route-race.mjs",
@@ -69,6 +70,7 @@
     "check": "npm run lint && npm run typecheck && npm run test:client && npm run build:web && npm run check:rust && npm run test:nextest-overrides && npm run test:contracts && npm run test:conformance && npm run test:traceability && npm run test:roadmap && npm run test:checks"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
     "concurrently": "^9.2.1",
     "playwright-core": "1.56.1"
   }
