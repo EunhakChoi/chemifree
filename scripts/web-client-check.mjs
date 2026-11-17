@@ -26,6 +26,7 @@ await import('./web-label-shadow-client-check.mjs')
 await import('./web-attach-ring-client-check.mjs')
 await import('./web-template-attachment-client-check.mjs')
 await import('./web-template-replacement-client-check.mjs')
+await import('./web-user-template-client-check.mjs')
 const { ConsentRequired, DocumentClient, MAX_CLIPBOARD_SMILES_BYTES, outcomeOpen, isDocumentResponse, sameInspectionSnapshot, sameConversionSnapshot, conversionSnapshotMatcher, samePropertySnapshot } = await import('../apps/web/src/lib/document-contract.ts')
 const { DUPLICATE_OFFSET, deletePlacement, duplicatePlacement, movePlacement, newAtomPlacement, placeNewAtoms, placementAt } =
   await import(
