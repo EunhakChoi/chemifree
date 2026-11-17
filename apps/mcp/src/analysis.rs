@@ -17,67 +17,68 @@ use serde_json::{Map, Value};
 use crate::tools::{ChemifreeServer, OperationCall};
 
 /// The executable operations of the catalog that no tool offers, each with its reason. Together with the tools, this
-/// list names every operation that the catalog marks executable.
+/// list names every operation that the catalog marks executable. S2 in a reason is the edit slice of `tools`: create,
+/// transaction, undo, redo, save and close.
 pub const NOT_EXPOSED: [(&str, &str); 15] = [
     (
         "document.selection_scope",
-        "The movement scope of an editor selection; the adapter keeps no selection state and exposes no selection tool.",
+        "Not exposed yet: the read-only movement targets of a selection given in the request; editor selection and arrangement planning is not exposed in this slice.",
     ),
     (
         "document.arrangement_plan",
-        "A plan to align or distribute selected editor objects; the adapter exposes no selection or arrangement tool.",
+        "Not exposed yet: a read-only rigid alignment or distribution plan for objects given in the request; editor selection and arrangement planning is not exposed in this slice.",
     ),
     (
         "document.transform_plan",
-        "A rotation or reflection plan for an editor selection; the adapter exposes no selection or transform tool.",
+        "Not exposed yet: a read-only rotation or reflection plan for a selection given in the request; editor selection and transform planning is not exposed in this slice.",
     ),
     (
         "document.clipboard_copy",
-        "Copies a graph fragment into the editor clipboard; the adapter has no clipboard and exposes no clipboard tool.",
+        "Not exposed yet: a read-only copy of a native graph fragment, returned in the reply rather than to an editor clipboard; editor-workflow operations beyond S2 are a later scope.",
     ),
     (
         "document.clipboard_paste",
-        "Pastes a clipboard graph fragment into a document; the adapter has no clipboard and exposes no clipboard tool.",
+        "Not exposed yet: an atomic paste, as an edit at expected_revision, of a native graph fragment given in the request; edit operations beyond S2 are a later scope.",
     ),
     (
         "document.clipboard_scene_copy",
-        "Copies graphic-only scene objects into the editor clipboard; the adapter exposes no clipboard tool.",
+        "Not exposed yet: a read-only copy of graphic-only scene objects, returned in the reply rather than to an editor clipboard; editor-workflow operations beyond S2 are a later scope.",
     ),
     (
         "document.clipboard_scene_paste",
-        "Pastes graphic-only scene objects from the editor clipboard; the adapter exposes no clipboard tool.",
+        "Not exposed yet: an atomic paste, as an edit at expected_revision, of a graphic forest given in the request; edit operations beyond S2 are a later scope.",
     ),
     (
         "document.template_inspect",
-        "Validates a template for the editor's template placement; the adapter exposes no template tool.",
+        "Not exposed yet: a read-only validation of a template payload's local atoms and anchor eligibility; editor-workflow operations beyond S2 are a later scope.",
     ),
     (
         "document.template_plan",
-        "Previews attaching a template in the editor; the adapter exposes no template tool.",
+        "Not exposed yet: a read-only preview of attaching a template through one bond, with its exact source snapshot; editor-workflow operations beyond S2 are a later scope.",
     ),
     (
         "document.template_attach",
-        "Attaches a template through one bond, as an undoable edit; the adapter exposes no template tool.",
+        "Not exposed yet: an atomic edit that attaches a template through one bond; edit operations beyond S2 are a later scope.",
     ),
     (
         "document.template_replace_plan",
-        "Previews replacing a terminal atom with a template anchor; the adapter exposes no template tool.",
+        "Not exposed yet: a read-only preview of replacing a terminal atom with a template anchor; editor-workflow operations beyond S2 are a later scope.",
     ),
     (
         "document.template_replace",
-        "Replaces a terminal atom with a template anchor, as an edit; the adapter exposes no template tool.",
+        "Not exposed yet: an atomic edit that replaces a terminal atom with a template anchor; edit operations beyond S2 are a later scope.",
     ),
     (
         "document.import",
-        "Creates a document from file text, with consent for reported losses; the adapter has no import tool.",
+        "Not exposed yet: file import, where a read or preview changes nothing, a MOL or SDF import edits an existing document at expected_revision, and a CDXML or CDX import creates a drawing; edit operations beyond S2 are a later scope.",
     ),
     (
         "chem.aromaticity_convert",
-        "Converts aromatic and Kekule bonds as one undoable edit; the adapter's edit tools do not include it.",
+        "Not exposed yet: an undoable edit that converts supported aromatic and Kekule bonds under a named model; edit operations beyond S2 are a later scope.",
     ),
     (
         "layout.structure",
-        "Previews or applies 2D coordinates; apply is an undoable edit, and the adapter exposes no layout tool.",
+        "Not exposed yet: a read-only preview, or an undoable apply, of 2D coordinates for acyclic chains and isolated rings of 3 to 12 atoms; edit operations beyond S2 are a later scope.",
     ),
 ];
 
@@ -87,8 +88,8 @@ pub const NOT_EXPOSED: [(&str, &str); 15] = [
 pub struct ChemValidateArgs {
     /// The document's id, as `chemifree_documents_list` lists it.
     pub document_id: String,
-    /// An optional request id for this call. A new one is made when it is omitted. An inspection is not replayed:
-    /// a repeat with the same id inspects the document as it is then.
+    /// An optional request id: 1 to 64 ASCII letters, digits, `_` or `-`. A new one is made when it is omitted. An
+    /// inspection is not replayed: a repeat with the same id inspects the document as it is then.
     pub request_id: Option<String>,
 }
 
@@ -102,8 +103,8 @@ pub struct ChemAromaticityArgs {
     /// `time_limit` error. Omitted, the server's default of 5000 applies; above the server's maximum of 8000 the
     /// call is refused.
     pub time_limit_ms: Option<u64>,
-    /// An optional request id for this call. A new one is made when it is omitted. An inspection is not replayed:
-    /// a repeat with the same id inspects the document as it is then.
+    /// An optional request id: 1 to 64 ASCII letters, digits, `_` or `-`. A new one is made when it is omitted. An
+    /// inspection is not replayed: a repeat with the same id inspects the document as it is then.
     pub request_id: Option<String>,
 }
 
@@ -122,8 +123,8 @@ pub struct ChemIdentityArgs {
     /// `time_limit` error. Omitted, the server's default of 5000 applies; above the server's maximum of 8000 the
     /// call is refused.
     pub time_limit_ms: Option<u64>,
-    /// An optional request id for this call. A new one is made when it is omitted. An inspection is not replayed:
-    /// a repeat with the same id inspects the document as it is then.
+    /// An optional request id: 1 to 64 ASCII letters, digits, `_` or `-`. A new one is made when it is omitted. An
+    /// inspection is not replayed: a repeat with the same id inspects the document as it is then.
     pub request_id: Option<String>,
 }
 
@@ -139,8 +140,8 @@ pub struct ChemSubstructureArgs {
     /// `time_limit` error. Omitted, the server's default of 5000 applies; above the server's maximum of 8000 the
     /// call is refused.
     pub time_limit_ms: Option<u64>,
-    /// An optional request id for this call. A new one is made when it is omitted. An inspection is not replayed:
-    /// a repeat with the same id inspects the documents as they are then.
+    /// An optional request id: 1 to 64 ASCII letters, digits, `_` or `-`. A new one is made when it is omitted. An
+    /// inspection is not replayed: a repeat with the same id inspects the documents as they are then.
     pub request_id: Option<String>,
 }
 
@@ -157,8 +158,8 @@ pub struct ChemStereoArgs {
     /// `time_limit` error. Omitted, the server's default of 5000 applies; above the server's maximum of 8000 the
     /// call is refused.
     pub time_limit_ms: Option<u64>,
-    /// An optional request id for this call. A new one is made when it is omitted. An inspection is not replayed:
-    /// a repeat with the same id inspects the document as it is then.
+    /// An optional request id: 1 to 64 ASCII letters, digits, `_` or `-`. A new one is made when it is omitted. An
+    /// inspection is not replayed: a repeat with the same id inspects the document as it is then.
     pub request_id: Option<String>,
 }
 
@@ -180,8 +181,8 @@ pub struct ChemCipArgs {
     /// `time_limit` error. Omitted, the server's default of 5000 applies; above the server's maximum of 8000 the
     /// call is refused.
     pub time_limit_ms: Option<u64>,
-    /// An optional request id for this call. A new one is made when it is omitted. An inspection is not replayed:
-    /// a repeat with the same id inspects the document as it is then.
+    /// An optional request id: 1 to 64 ASCII letters, digits, `_` or `-`. A new one is made when it is omitted. An
+    /// inspection is not replayed: a repeat with the same id inspects the document as it is then.
     pub request_id: Option<String>,
 }
 
@@ -198,8 +199,8 @@ pub struct ChemInchiArgs {
     /// `time_limit` error. Omitted, the server's default of 5000 applies; above the server's maximum of 8000 the
     /// call is refused.
     pub time_limit_ms: Option<u64>,
-    /// An optional request id for this call. A new one is made when it is omitted. An inspection is not replayed:
-    /// a repeat with the same id inspects the document as it is then.
+    /// An optional request id: 1 to 64 ASCII letters, digits, `_` or `-`. A new one is made when it is omitted. An
+    /// inspection is not replayed: a repeat with the same id inspects the document as it is then.
     pub request_id: Option<String>,
 }
 
@@ -223,8 +224,8 @@ pub struct ChemPropertiesArgs {
     /// `time_limit` error. Omitted, the server's default of 5000 applies; above the server's maximum of 8000 the
     /// call is refused.
     pub time_limit_ms: Option<u64>,
-    /// An optional request id for this call. A new one is made when it is omitted. An inspection is not replayed:
-    /// a repeat with the same id inspects the document as it is then.
+    /// An optional request id: 1 to 64 ASCII letters, digits, `_` or `-`. A new one is made when it is omitted. An
+    /// inspection is not replayed: a repeat with the same id inspects the document as it is then.
     pub request_id: Option<String>,
 }
 
@@ -233,16 +234,20 @@ pub struct ChemPropertiesArgs {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DocumentExportArgs {
-    /// The format, required: `smiles`, `svg`, `cdxml`, `cdx`, `mol` or `sdf`.
+    /// The format, required: `smiles`, `svg`, `cdxml`, `cdx`, `mol`, `sdf`, `mol-v2000` or `mol-v3000`. The last two
+    /// are MOL in the named dialect. For `cdx`, `result.content` is the binary file in canonical base64; the other
+    /// formats are text.
     pub format: String,
-    /// The document to export, for `smiles`, `svg`, `cdxml` and `cdx`.
+    /// The document to export, required for `smiles`, `svg`, `cdxml` and `cdx`. The CDXML and CDX exports take a
+    /// document only; the rich-tree form, with `document` and `original`, is not exposed.
     pub document_id: Option<String>,
-    /// The documents to write, for `mol` and `sdf`: each an object with `document_id` and optionally `fields`, as
-    /// docs/CONTRACT.md describes them under MOL and SDF. It is sent as given.
+    /// The documents to write, for `mol`, `sdf`, `mol-v2000` and `mol-v3000`: each an object with `document_id` and
+    /// optionally `fields`, as docs/CONTRACT.md describes them under MOL and SDF. It is sent as given.
     pub records: Option<Vec<Map<String, Value>>>,
     /// The SMILES style, required for `smiles`: `recorded` or `canonical`.
     pub style: Option<String>,
-    /// The MOL/SDF dialect for `mol` and `sdf`: `v2000` (the default), `v3000` or `auto`.
+    /// The MOL/SDF dialect for `mol` and `sdf`: `v2000` (the default), `v3000` or `auto`. The `mol-v2000` and
+    /// `mol-v3000` formats set it, and a `ctab` that names another dialect, or `auto`, is refused.
     pub ctab: Option<String>,
     /// The `loss_digest` of an earlier refusal, which accepts the losses that the refusal showed.
     pub accepted_losses: Option<String>,
@@ -250,8 +255,8 @@ pub struct DocumentExportArgs {
     /// `time_limit` error. Omitted, the server's default of 5000 applies; above the server's maximum of 8000 the
     /// call is refused. Other formats refuse this field.
     pub time_limit_ms: Option<u64>,
-    /// An optional request id for this call. A new one is made when it is omitted. An export is not replayed: a
-    /// repeat with the same id exports the document as it is then.
+    /// An optional request id: 1 to 64 ASCII letters, digits, `_` or `-`. A new one is made when it is omitted. An
+    /// export is not replayed: a repeat with the same id exports the document as it is then.
     pub request_id: Option<String>,
 }
 
@@ -412,55 +417,47 @@ fn export_call(args: DocumentExportArgs) -> OperationCall {
 #[tool_router(router = analysis_router, vis = "pub(crate)")]
 impl ChemifreeServer {
     #[tool(
-        description = "Check the valences of a document of the running Chemifree server (operation chem.validate): one assessment per atom, under the valence model chemifree-valence-3. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
+        description = "Check the valences of a document of the running Chemifree server (operation chem.validate): one assessment per atom, under the bounded valence model chemifree-valence-3. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
         annotations(read_only_hint = true, destructive_hint = false)
     )]
     pub async fn chemifree_chem_validate(
         &self,
         Parameters(args): Parameters<ChemValidateArgs>,
     ) -> CallToolResult {
-        let call = validate_call(args);
-        self.run(call.operation, call.parameters, call.request_id)
-            .await
+        self.run_call(validate_call(args)).await
     }
 
     #[tool(
-        description = "Find the aromatic cyclic systems of a document of the running Chemifree server (operation chem.aromaticity), under the named aromaticity policy. A structure that the policy does not cover is reported as unsupported. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
+        description = "Find the aromatic cyclic systems of a document of the running Chemifree server (operation chem.aromaticity), under the named bounded aromaticity policy. A structure that the policy does not cover is reported as unsupported. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
         annotations(read_only_hint = true, destructive_hint = false)
     )]
     pub async fn chemifree_chem_aromaticity(
         &self,
         Parameters(args): Parameters<ChemAromaticityArgs>,
     ) -> CallToolResult {
-        let call = aromaticity_call(args);
-        self.run(call.operation, call.parameters, call.request_id)
-            .await
+        self.run_call(aromaticity_call(args)).await
     }
 
     #[tool(
-        description = "Examine the graph identity of a document of the running Chemifree server (operation chem.identity): a canonical code and symmetry groups under the named model and, with other_document_id, whether two graphs are equivalent. Neither model reads stereo. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
+        description = "Examine the graph identity of a document of the running Chemifree server (operation chem.identity), a bounded comparison: a canonical code and symmetry groups under the named model and, with other_document_id, whether two graphs are equivalent. Neither model reads stereo. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
         annotations(read_only_hint = true, destructive_hint = false)
     )]
     pub async fn chemifree_chem_identity(
         &self,
         Parameters(args): Parameters<ChemIdentityArgs>,
     ) -> CallToolResult {
-        let call = identity_call(args);
-        self.run(call.operation, call.parameters, call.request_id)
-            .await
+        self.run_call(identity_call(args)).await
     }
 
     #[tool(
-        description = "Map the drawing of a query document into a target document's drawing (operation chem.substructure): every atom and bond mapping, or a refusal or a limit. Read-only: nothing is changed; both results describe the current snapshots, which include unsaved edits.",
+        description = "Map the drawing of a query document into a target document's drawing (operation chem.substructure), a bounded search: every atom and bond mapping, or a refusal or a limit. Read-only: nothing is changed; both results describe the current snapshots, which include unsaved edits.",
         annotations(read_only_hint = true, destructive_hint = false)
     )]
     pub async fn chemifree_chem_substructure(
         &self,
         Parameters(args): Parameters<ChemSubstructureArgs>,
     ) -> CallToolResult {
-        let call = substructure_call(args);
-        self.run(call.operation, call.parameters, call.request_id)
-            .await
+        self.run_call(substructure_call(args)).await
     }
 
     #[tool(
@@ -471,61 +468,51 @@ impl ChemifreeServer {
         &self,
         Parameters(args): Parameters<ChemStereoArgs>,
     ) -> CallToolResult {
-        let call = stereo_call(args);
-        self.run(call.operation, call.parameters, call.request_id)
-            .await
+        self.run_call(stereo_call(args)).await
     }
 
     #[tool(
-        description = "List the CIP descriptors (R, S, E, Z) of a document of the running Chemifree server (operation chem.cip), with the reason for each item that is not labeled. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
+        description = "List the bounded CIP descriptors (R, S, E, Z) of a document of the running Chemifree server (operation chem.cip), computed from the stored configurations under CIP Rules 1a, 1b, 2 and 3 only; a tie that a rule beyond them might break is unsupported, and each item that is not labeled gives its reason. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
         annotations(read_only_hint = true, destructive_hint = false)
     )]
     pub async fn chemifree_chem_cip(
         &self,
         Parameters(args): Parameters<ChemCipArgs>,
     ) -> CallToolResult {
-        let call = cip_call(args);
-        self.run(call.operation, call.parameters, call.request_id)
-            .await
+        self.run_call(cip_call(args)).await
     }
 
     #[tool(
-        description = "Generate the standard InChI and InChIKey of a document of the running Chemifree server (operation chem.inchi). It needs an InChI provider that the server was started with; without one the server answers unsupported, which is a tool error. Losses that need consent come back as an error reply with a loss_digest; call again with accepted_losses set to that digest. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
+        description = "Generate the bounded standard InChI and InChIKey of a document of the running Chemifree server (operation chem.inchi): unsupported chemistry and AND/OR stereo groups are refused. It needs an InChI provider that the server was started with; without one the server answers unsupported, which is a tool error. Losses that need consent come back as an error reply with a loss_digest; call again with accepted_losses set to that digest. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
         annotations(read_only_hint = true, destructive_hint = false)
     )]
     pub async fn chemifree_chem_inchi(
         &self,
         Parameters(args): Parameters<ChemInchiArgs>,
     ) -> CallToolResult {
-        let call = inchi_call(args);
-        self.run(call.operation, call.parameters, call.request_id)
-            .await
+        self.run_call(inchi_call(args)).await
     }
 
     #[tool(
-        description = "Compute the formula, a selected mass, or an isotope distribution of a document of the running Chemifree server (operation chem.properties). Masses and distributions need a checked data registration. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
+        description = "Compute a bounded formula, a selected mass, or an isotope distribution of a document of the running Chemifree server (operation chem.properties). Masses and distributions need a checked data registration. Read-only: nothing is changed. The result describes the current snapshot, which includes unsaved edits.",
         annotations(read_only_hint = true, destructive_hint = false)
     )]
     pub async fn chemifree_chem_properties(
         &self,
         Parameters(args): Parameters<ChemPropertiesArgs>,
     ) -> CallToolResult {
-        let call = properties_call(args);
-        self.run(call.operation, call.parameters, call.request_id)
-            .await
+        self.run_call(properties_call(args)).await
     }
 
     #[tool(
-        description = "Export a document of the running Chemifree server as text (operation document.export): SMILES (format smiles, with style recorded or canonical), SVG (svg), CDXML or CDX (cdxml, cdx) for one document, or MOL or SDF (mol, sdf) from records. Read-only: nothing is saved or changed, and the export describes the current snapshot, which includes unsaved edits. Losses that need consent come back as an error reply with a loss_digest and no content; call again with the same arguments and accepted_losses set to that digest.",
+        description = "Export a document of the running Chemifree server (operation document.export), in these bounded formats: SMILES (format smiles, with style recorded or canonical), SVG (svg), CDXML or CDX (cdxml, cdx) for the document named by document_id, or MOL or SDF (mol, sdf, mol-v2000, mol-v3000) from records. result.content holds the export as text, except for cdx: there it is the binary .cdx file in canonical base64 (standard alphabet, padded), so decode it to bytes before writing a .cdx file. Read-only: nothing is saved or changed, and the export describes the current snapshot, which includes unsaved edits. Losses that need consent come back as an error reply with a loss_digest and no content; call again with the same arguments and accepted_losses set to that digest.",
         annotations(read_only_hint = true, destructive_hint = false)
     )]
     pub async fn chemifree_document_export(
         &self,
         Parameters(args): Parameters<DocumentExportArgs>,
     ) -> CallToolResult {
-        let call = export_call(args);
-        self.run(call.operation, call.parameters, call.request_id)
-            .await
+        self.run_call(export_call(args)).await
     }
 }
 

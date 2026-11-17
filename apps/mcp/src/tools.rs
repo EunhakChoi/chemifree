@@ -355,8 +355,15 @@ impl ChemifreeServer {
         self.run_edit(close_call(args)).await
     }
 
-    /// Runs one read operation, or one analysis or export, and maps its reply, or its failure, to a tool result.
-    pub(crate) async fn run(
+    /// Runs one operation call that an analysis or export tool makes, and maps its reply, or its failure, to a tool
+    /// result.
+    pub(crate) async fn run_call(&self, call: OperationCall) -> CallToolResult {
+        self.run(call.operation, call.parameters, call.request_id)
+            .await
+    }
+
+    /// Runs one read operation and maps its reply, or its failure, to a tool result.
+    async fn run(
         &self,
         operation: &str,
         parameters: Value,

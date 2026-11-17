@@ -2,7 +2,7 @@
 
 ## P82 S5: MCP 분석·export 도구 (T2)
 
-Opus 추천으로 S3(요약/상세)보다 먼저 했다. 읽기 전용 도구 9개(`chemifree_chem_validate`·`_aromaticity`·`_identity`·`_substructure`·`_stereo`·`_cip`·`_inchi`·`_properties`, `chemifree_document_export`)를 `apps/mcp/src/analysis.rs`에 더했다. 같은 request_id의 HTTP 응답과 같음을 확인했고, 실행 가능한 연산마다 도구나 `NOT_EXPOSED` 이유(15개)가 없으면 테스트가 실패한다. 앞으로 엔진 PR이 연산을 실행 가능하게 하면 그 PR이 MCP 도구나 이유를 더해야 한다. 큰 결과는 HTTP/CLI처럼 연산별 한도와 전체 응답 전달이며 MCP만의 요약/상세 분리는 만들지 않는다(로드맵 메모에 기록, 사용자가 원하면 되돌린다). 서버 코드는 바뀌지 않았다. 기록: `docs/verification/p82-s5-analysis-export-mcp.md`. 남은 P82 일: 스키마 생성·불일치 검사(S4), MCP 리소스(작은 S3, 선택), 완료 기록(S6).
+Opus 추천으로 S3(요약/상세)보다 먼저 했다. 읽기 전용 도구 9개(`chemifree_chem_validate`·`_aromaticity`·`_identity`·`_substructure`·`_stereo`·`_cip`·`_inchi`·`_properties`, `chemifree_document_export`)를 `apps/mcp/src/analysis.rs`에 더했다. 같은 request_id의 HTTP 응답과 같음을 확인했고, 실행 가능한 연산마다 도구나 `NOT_EXPOSED` 이유(15개)가 없으면 테스트가 실패한다. 앞으로 엔진 PR이 연산을 실행 가능하게 하면 그 PR이 MCP 도구나 이유를 더해야 한다. 큰 결과는 HTTP/CLI처럼 연산별 한도와 전체 응답 전달이며 MCP만의 요약/상세 분리는 만들지 않는다(Opus 추천). 로드맵 범위 문구 '요약/상세 결과'를 요약 줄과 전체 응답으로 충족했다고 볼지는 사용자 확인이 필요하다(P82 완료 기록 전에). 서버 코드는 바뀌지 않았다. 기록: `docs/verification/p82-s5-analysis-export-mcp.md`. 남은 P82 일: 스키마 생성·불일치 검사(S4), MCP 리소스(S3, 행 제목의 '리소스'), 완료 기록(S6).
 
 ## P82 S2: MCP 편집·저장 도구 (T2)
 

@@ -29,5 +29,7 @@ P82 stays `in_progress`. Planner decisions taken (the user asked to follow the p
 
 - Argument values are not typed beyond JSON types (enums and formats are the server's to check) until S4 generates schemas.
 - An unknown identity mode is reported at path `parameters` (serde's report), not `parameters.mode`, as over HTTP.
-- No MCP resources, no rich-tree CDXML/CDX export, no edit operations of `NOT_EXPOSED`.
+- No MCP resources (S3), no rich-tree CDXML/CDX export (`document`/`original`/`discard_opaque`), no operation of `NOT_EXPOSED`.
+- Whether the roadmap scope's "요약/상세 결과" is met by the summary line and the full reply is for the user to confirm before the completion record.
+- `no_analysis_or_export_changes_the_revision_or_the_unsaved_state` does not prove that each call reached its computation (some are refused early); parity is the main evidence.
 - An export's text appears twice in an MCP message (`structuredContent` and the JSON text in `content`).
