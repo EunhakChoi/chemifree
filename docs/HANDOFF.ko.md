@@ -1,12 +1,16 @@
 # Chemifree 새 세션 인계
 
+## P17 완료 기록 (T1)
+
+P17(고리 인식과 방향족·Kekulé 변환)은 문서화한 범위(`chemifree-aromaticity-2`) 안에서 끝났다(2026-11-17): #82(검사·변환), #284(S1 코퍼스 재번호·표기 불변성), #285(S2 공개 사례와 작은 보강, 병합 5fb36cd6, main CI run 43977176414). 로드맵 P17은 `done`이고, P17만 후속이던 제한된 부분 MODEL-02.4·MODEL-02.5·CHEM-02.1·CHEM-02.2는 `implemented`로 바꿨다. MODEL-02.rest·CHEM-02.rest·LAYOUT-03.rest와 선언 경로 `chem_graph`에서는 P17을 뺐다. 수락 기준별 근거와 한계: `docs/verification/p17-completion.md`. 하지 않은 것: 4n+2 고리·융합 블록의 인접 donor 판정, Kekulé 변환의 질소 수소 리셋(이슈 #249, 파일 형식 변경 없이 한계로 둠), 500개 명령을 넘는 변환. 남은 화학 범위는 로드맵 `tracks.on_demand` 메모가 맡고 뒤 트랙이 필요로 할 때 다시 연다. T1에 남은 행은 P19·P34이며, 시작은 사용자 요청이 정한다.
+
 ## P17 S2: 공개 사례와 작은 보강 (T1)
 
 conformance 사례 2개를 더했다: 전하 고리(피리디늄) 방향족·Kekulé 왕복, 인접 donor(1,2-dihydro-1,2-diazete) 거절 시 리비전·결합·undo 불변. `calculate`의 확인 없는 조회는 `invalid_graph`로 멈추고(CONTRACT "Limits"), `restricted_target` 값은 새 테스트가 고정한다. 동작 변화는 잘못된 그래프에서 패닉 대신 거절하는 것뿐이다. conformance 123개. 근거와 변이(C1은 자동 권한 검사가 거절해 실행하지 않음)는 `docs/verification/p17-s2-hardening.md`. 남은 P17 일은 S3 기록 PR이다.
 
 ## P17 S1: 코퍼스 재번호·표기 불변성 (T1)
 
-테스트만 더했다(`crates/providers/tests/aromaticity_corpus_invariance.rs`). 방향족 코퍼스 196개 기록을 두 가지 고정 재번호로 다시 만들어 고리계·분류·이유·전자 수·변환 결과·화학 identity가 같음을 확인하고, Kekulé·방향족 표기 80쌍 중 74쌍이 일치함을 확인한다. 나머지 6쌍(azulene, biphenylene, heptalene, cyclotriazane, trioxadithiolane, CH2 고리에 붙은 triazane)은 표기에 따라 거절 이유가 달라 결과를 표로 고정했고, CONTRACT의 "한 분자의 두 표기는 분류가 같다" 문장을 이 차이를 적도록 고쳤다. 화학 모델은 바꾸지 않았다. 변이 M1–M5 근거는 `docs/verification/p17-s1-corpus-invariance.md`. P17 마감 계획(Opus): S2 공개 conformance 사례(전하 고리 왕복, adjacent_donors 거절 시 문서 불변)와 `calculate`의 확인 없는 인덱싱 정리·`restricted_target` 고정 테스트, S3 기록 PR로 `done`. 이슈 #249의 질소 수소 리셋은 파일 형식 변경 없이 한계로 남긴다(Opus 추천 A).
+테스트만 더했다(`crates/providers/tests/aromaticity_corpus_invariance.rs`). 방향족 코퍼스 196개 기록을 두 가지 고정 재번호로 다시 만들어 고리계·분류·이유·전자 수·변환 결과·화학 identity가 같음을 확인하고, Kekulé·방향족 표기 80쌍 중 74쌍이 일치함을 확인한다. 나머지 6쌍(azulene, biphenylene, heptalene, cyclotriazane, trioxadithiolane, CH2 고리에 붙은 triazane)은 표기에 따라 거절 이유가 달라 결과를 표로 고정했고, CONTRACT의 "한 분자의 두 표기는 분류가 같다" 문장을 이 차이를 적도록 고쳤다. 화학 모델은 바꾸지 않았다. 변이 M1–M5 근거는 `docs/verification/p17-s1-corpus-invariance.md`. P17 마감 계획(Opus): S2 공개 conformance 사례(전하 고리 왕복, adjacent_donors 거절 시 문서 불변)와 `calculate`의 확인 없는 인덱싱 정리·`restricted_target` 고정 테스트, S3 기록 PR로 `done`. 이슈 #249의 질소 수소 리셋은 파일 형식 변경 없이 한계로 남긴다(CONTRACT가 Kekulé → 방향족 → Kekulé 왕복을 정확히 유지하려고 일부러 정한 동작이다).
 
 ## P48 완료 기록 (T1)
 
@@ -1208,7 +1212,7 @@ CI는 실행 중인 전역 npm을 교체하지 않는다. 별도 runner-temporar
 
 ## 추적 현황
 
-현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 65, partial 16, unverified 3, not_implemented 33) · conformance 사례 123개(passed 123: accept 90·reject 33, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
+현재 집계: 요구사항 33개(partial 21, not_implemented 12) · 부분 117개(implemented 69, partial 12, unverified 3, not_implemented 33) · conformance 사례 123개(passed 123: accept 90·reject 33, not_run 0, failed 0) · 공개 선언 2914개(구현 0, 단일 계획 할당 0)
 
 이 커밋 기준 partial 요구사항은 MODEL-01, MODEL-02, MODEL-03, CODEC-01, CODEC-02, CODEC-03, CODEC-05, CODEC-06, OPS-01, OPS-02, CHEM-01, CHEM-02, STEREO-01, LAYOUT-01, LAYOUT-02, LAYOUT-03, RENDER-01, STYLE-01, API-01, QUALITY-01, CLEANROOM-01이고 나머지는 not_implemented다. 상태는 기록한 판단이며 검사가 판단의 옳음을 보장하지 않는다. 공개 저장소에 개인·공급자 자료가 없다는 점(CLEANROOM-01.2)과 사례 작성의 독립성(QUALITY-01.2)은 자동 검사가 없어 unverified다.
 

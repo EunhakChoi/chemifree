@@ -815,7 +815,7 @@
    "acceptance": "재번호·동등 표현·융합계·전하·실패 사례를 검사한다. 변환 실패가 원래 구조를 바꾸지 않고 모델·정책이 결과에 포함된다.",
    "kind": "core",
    "id": "P17",
-   "status": "in_progress",
+   "status": "done",
    "layers": [
     "presentation",
     "logic",
@@ -826,16 +826,18 @@
    ],
    "delivered": {
     "prs": [
-     82
+     82,
+     284,
+     285
     ],
-    "merge_commit": "c4a8e44eafeb5f560743559d4797d0791c463eb2",
-    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/41225052724",
-    "note": "제한된 방향족 모델과 원자적 변환의 부분 납품이다. 더 넓은 융합계와 상태는 후속 범위다."
+    "merge_commit": "5fb36cd62e000c55bb27a1db953ef4cab59a4eb3",
+    "main_ci": "https://github.com/EunhakChoi/chemifree/actions/runs/43977176414",
+    "note": "#82(chem.aromaticity·chem.aromaticity_convert, 병합 c4a8e44e), T1 마감 S1 코퍼스 재번호·표기 불변성(#284, 병합 b9bf8b75), S2 공개 사례와 작은 보강(#285, 병합 5fb36cd6)으로 문서화한 범위 안에서 완료했다. merge_commit·main_ci는 마지막 납품(#285) 기준이다. 수락 기준별 근거: docs/verification/p17-completion.md."
    },
    "issues": [
     249
    ],
-   "note": "`chem.aromaticity`(읽기 전용: 고리 블록과 `chemifree-aromaticity-2`의 한정된 해석)와 `chem.aromaticity_convert`(지원되는 방향족·Kekulé 표현의 원자적 변환, 실패하면 입력과 이력 유지)를 납품했다(#82, 모델 보완 P21a는 #91). 포화 원자가 섞인 융합 블록과 인접 donor 고리는 unsupported로 알린다. 더 넓은 융합계·상태와 코드 후속은 이슈 #249에 있다. M1 게이트 행이며 제한된 범위로 닫는 기준은 트랙 T1에서 정한다. T1 마감 S1(테스트만): 코퍼스 196개 기록이 두 가지 재번호에서 같은 결과를 내고, Kekulé·방향족 표기 80쌍 중 74쌍이 일치하며 나머지 6쌍(문서화된 거절 차이)은 결과를 고정했다(docs/verification/p17-s1-corpus-invariance.md). S2: 전하 고리 왕복과 adjacent_donors 거절 시 문서 불변을 공개 conformance 사례로 고정하고, `calculate`의 확인 없는 조회를 `invalid_graph`로 바꾸고, `restricted_target` 값을 테스트로 고정했다(docs/verification/p17-s2-hardening.md)."
+   "note": "`chem.aromaticity`(읽기 전용: 고리 블록과 `chemifree-aromaticity-2`의 한정된 해석)와 `chem.aromaticity_convert`(지원되는 방향족·Kekulé 표현의 원자적 변환, 실패하면 입력과 이력 유지)를 납품했다(#82, 모델 보완 P21a는 #91). 포화 원자가 섞인 융합 블록과 인접 donor 고리는 unsupported로 알린다. 더 넓은 융합계·상태와 코드 후속은 이슈 #249에 있다. M1 게이트 행으로 T1에서 제한된 범위로 닫았다(2026-11-17). T1 마감 S1(테스트만): 코퍼스 196개 기록이 두 가지 재번호에서 같은 결과를 내고, Kekulé·방향족 표기 80쌍 중 74쌍이 일치하며 나머지 6쌍(문서화된 거절 차이)은 결과를 고정했다(docs/verification/p17-s1-corpus-invariance.md). S2: 전하 고리 왕복과 adjacent_donors 거절 시 문서 불변을 공개 conformance 사례로 고정하고, `calculate`의 확인 없는 조회를 `invalid_graph`로 바꾸고, `restricted_target` 값을 테스트로 고정했다(docs/verification/p17-s2-hardening.md)."
   },
   {
    "phase": "chemistry",
@@ -4591,7 +4593,7 @@
      "P34"
     ],
     "pr_estimate": "14–26",
-    "work": "제품 서버(P87)는 끝났다(2026-11-14). 배치 준비·사슬·단순 고리(P42)는 끝났다(2026-11-16). 가져오기/내보내기 UX(P48)는 끝났다(2026-11-17). 다음은 진행 중인 M1 게이트 행(P17·P19·P34)의 제한된 범위 마감. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38 마감은 T3 맨 앞으로 옮겼다."
+    "work": "제품 서버(P87)는 끝났다(2026-11-14). 배치 준비·사슬·단순 고리(P42)는 끝났다(2026-11-16). 가져오기/내보내기 UX(P48)는 끝났다(2026-11-17). 고리·방향족(P17)은 끝났다(2026-11-17). 다음은 진행 중인 M1 게이트 행(P19·P34)의 제한된 범위 마감. P38의 M1 게이트는 현재의 bounded SVG export로 판정하고 P38 마감은 T3 맨 앞으로 옮겼다."
    },
    {
     "id": "T2",
