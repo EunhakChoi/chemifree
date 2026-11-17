@@ -54,7 +54,7 @@ saved as a tool setting. Delivered by #182 and #183 with passing main CI; see th
 
 Fusion, spiro, non-terminal replacement, aromatic-bond patterns, other sizes, general abbreviation handling beyond the bounded terminal Et contraction/expansion (P34i) and
 molecular conformations remain unimplemented. The ring insertion and attachment slices were delivered by
-#174, #175 and #177 with passing main CI. See the
+#174, #175 and #177 with passing main CI. P34 stays in progress until its delivery record. See the
 [ring contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a),
 [attachment contract](docs/CONTRACT.md#attached-carbon-ring-p34c), and
 [P34c verification record](docs/verification/p34c-attached-ring.md).
@@ -117,7 +117,7 @@ P34i adds explicit terminal Et contraction/expansion over an existing two-carbon
 Atoms, bonds, IDs, coordinates and calculations remain complete. Only the canvas contracts;
 copying compact members through native clipboard/templates refuses, while chemical exports
 report a rendering loss and write the full graph. Local stereo and multiple placements are
-outside this first contraction slice. Delivered by #185 and #201 with passing main CI; see
+outside this first contraction slice. Delivered by #185 with passing main CI (Et label text editing followed in P35o, #201); see
 [the P34i record](docs/verification/p34i-ethyl-display.md).
 
 Version 14 documents and drafts require explicit nullable caption run color (null inherits theme foreground; canonical opaque sRGB #RRGGBB overrides it; v8–13 migrate as inherited), nullable caption run size overrides (finite 4–72 pt; null inherits the drawing size; v8–12 migrate as inherited), nullable caption run font overrides (null inherits the drawing font; sans-serif/serif/monospace override it; v8–11 migrate as inherited), whole-caption left/center/right alignment (v8–10 migrate as left) and explicit caption run weight/style; v8–9 captions migrate these to normal. Version 9 added and v10–14 retain per-placement Et display maps and their history. Earlier displays default empty. Documents and drafts retain the scene, selection, style, the storage for stereo marks and stated configurations (shown in every snapshot and set by the stereo commands), and enhanced-stereo groups (eight commands, shown in every snapshot as `stereo.groups` and edited in the web Stereo panel; only MOL V3000 import and export reads and writes them as `COLLECTION` entries); versions 1–4 are read in memory with the default style, version 5 keeps its stored style, versions 1–5 have no stereo, and versions 1–6 have no groups. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.

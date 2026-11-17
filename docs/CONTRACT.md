@@ -167,7 +167,7 @@ aromaticity assignment, chemical layout or collision avoidance. Multiple placeme
 sizes beyond 5/6 or other atom/bond patterns, fusion, other substituent patterns,
 abbreviation contraction/expansion and prepared legacy template framing activation remain
 unsupported. Unknown command fields are refused. Delivered by #174, #175 and #182, each with
-passing main CI; see [the P34a record](verification/p34a-independent-ring.md),
+passing main CI; P34 stays in progress until its delivery record. See [the P34a record](verification/p34a-independent-ring.md),
 [the P34b record](verification/p34b-five-ring.md), and
 [the P34g record](verification/p34g-kekule-ring.md).
 
@@ -218,8 +218,8 @@ native fragments and chemical text export paths retain their existing rules.
 The UI provides explicit anchor buttons for a selected pair and explicit Expand buttons.
 This slice has no text-to-graph parser, automatic abbreviation detection,
 provider/legacy-template activation, multi-boundary or nested abbreviation, rich-text Et,
-multiple-placement contraction or layout engine. Delivered by #185 and #201, each with passing
-main CI; see [the P34i record](verification/p34i-ethyl-display.md).
+multiple-placement contraction or layout engine. Delivered by #185 with passing main CI (Et label
+text editing followed in P35o, #201); see [the P34i record](verification/p34i-ethyl-display.md).
 
 ### Plain display labels on retained ethyl graphs (P35o)
 
