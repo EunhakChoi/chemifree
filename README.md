@@ -169,7 +169,7 @@ The development proxy targets port 3001. If you choose another API port, update 
 
 ## Local MCP adapter (agents)
 
-`chemifree-mcp` lets an MCP client (an agent) on the same machine talk to a running Chemifree API server over stdio. Start the API first; the adapter finds it through the data directory's `server.lock` or `--server-url`. P82 S1 offers read-only tools only: the operation catalog, the document list and a document snapshot with its revision. See [the contract](docs/CONTRACT.md#local-mcp-adapter-p82-s1).
+`chemifree-mcp` lets an MCP client (an agent) on the same machine talk to a running Chemifree API server over stdio. Start the API first; the adapter finds it through the data directory's `server.lock` or `--server-url`. It offers the operation catalog, the document list and a document snapshot with its revision (P82 S1), and creating, editing (transactions, undo, redo), saving and closing documents (P82 S2). Edits need the current `expected_revision` and are replayed for a repeated `request_id`; the session is shared with the open web editor, so an agent's save also commits the user's unsaved edits. See [the contract](docs/CONTRACT.md#local-mcp-adapter-p82-s1s2).
 
 ```json
 { "mcpServers": { "chemifree": { "command": "/path/to/target/release/chemifree-mcp", "args": ["--data-dir", "/path/to/chemifree-data"] } } }

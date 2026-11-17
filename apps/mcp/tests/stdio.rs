@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The instructions that the server sends in its `initialize` reply.
-const INSTRUCTIONS: &str = "Read-only tools for a running local Chemifree server: list documents, read a document snapshot and its revision, and inspect the operation catalog.";
+const INSTRUCTIONS: &str = "Tools for a running local Chemifree server: list documents, read a snapshot and its revision, inspect the operation catalog, and create, edit (transactions, undo, redo), save and close documents. Edits need the current expected_revision; the session is shared with the open web editor.";
 
 /// A `chemifree-mcp` process whose replies are read on a thread. It is killed and reaped when dropped.
 struct McpProcess {
@@ -154,9 +154,10 @@ fn a_server_address_outside_the_loopback_form_is_refused_at_startup() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn serves_the_read_only_tools_over_stdio_against_a_live_server() {
+async fn serves_the_tools_over_stdio_against_a_live_server() {
     let server = TestServer::start().await;
     let document_id = create_document(&server.http(), "stdio-create-1").await;
+    let transaction_document_id = document_id.clone();
     let process = McpProcess::start(&["--server-url", server.url.as_str()]);
 
     let (process, initialized) = step(process, |process| {
@@ -197,15 +198,27 @@ async fn serves_the_read_only_tools_over_stdio_against_a_live_server() {
         names,
         [
             "chemifree_capabilities",
+            "chemifree_document_close",
+            "chemifree_document_create",
+            "chemifree_document_save",
             "chemifree_document_snapshot",
+            "chemifree_document_transaction",
             "chemifree_documents_list",
+            "chemifree_history_redo",
+            "chemifree_history_undo",
         ]
     );
+    const READ_ONLY: [&str; 3] = [
+        "chemifree_capabilities",
+        "chemifree_document_snapshot",
+        "chemifree_documents_list",
+    ];
     for tool in tools {
+        let name = tool["name"].as_str().expect("each tool has a name");
+        let read_only = READ_ONLY.contains(&name);
         assert_eq!(
-            tool["annotations"]["readOnlyHint"], true,
-            "{} must be marked read-only",
-            tool["name"]
+            tool["annotations"]["readOnlyHint"], read_only,
+            "{name}: readOnlyHint must be {read_only}"
         );
     }
 
@@ -269,6 +282,26 @@ async fn serves_the_read_only_tools_over_stdio_against_a_live_server() {
         capabilities["result"]["content"][0]["text"],
         "capabilities.inspect: outcome ok, revision n/a",
         "{capabilities}"
+    );
+
+    let (process, transacted) = step(process, move |process| {
+        process.send(&call_request(
+            6,
+            "chemifree_document_transaction",
+            json!({
+                "document_id": transaction_document_id,
+                "expected_revision": 0,
+                "commands": [{"op": "add_atom", "element": "C", "position": {"x": 0, "y": 0}}]
+            }),
+        ));
+        process.receive()
+    })
+    .await;
+    assert_eq!(transacted["id"], 6, "{transacted}");
+    assert_eq!(transacted["result"]["isError"], false, "{transacted}");
+    assert_eq!(
+        transacted["result"]["content"][0]["text"], "document.transaction: outcome ok, revision 1",
+        "{transacted}"
     );
 
     let (_, status) = step(process, |process| process.finish()).await;

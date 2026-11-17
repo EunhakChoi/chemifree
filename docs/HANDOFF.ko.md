@@ -1,5 +1,9 @@
 # Chemifree 새 세션 인계
 
+## P82 S2: MCP 편집·저장 도구 (T2)
+
+`apps/mcp`에 도구 6개(`chemifree_document_create`·`_transaction`·`chemifree_history_undo`·`_redo`·`chemifree_document_save`·`_close`)를 더했다. Opus 추천대로 정한 것: `commands`는 열린 스키마(서버 검증)이고 Rust DTO 스키마 생성·TS 불일치 검사는 S4, `partial`은 적용된 결과라 도구 오류가 아님(S1 규칙 변경), 닫기는 `discard_unsaved`를 보내지 않음. 리뷰 반영: 트랜잭션·undo·redo·저장은 destructive(삭제 가능, undo 기록과 세션을 웹과 공유), 닫기는 idempotent 아님. 편집은 서버가 request_id로 재생하고, 응답을 잃은 편집 오류는 request_id를 알려 같은 서버 프로세스가 도는 동안 다시 묻게 한다(재시작 뒤에는 다시 적용되므로 문서를 읽으라고 말한다). 실제 MCP client 검사는 생성 재생·revision 충돌(양방향)·저장·닫기·API 재시작 뒤 재발견까지 확인한다. 한계: API가 다른 포트로 재시작하면 첫 호출은 이전 주소로 가서 실패하고 다음 호출이 기록을 다시 읽는다. 기록: `docs/verification/p82-s2-edit-save-mcp.md`. 남은 P82 일: 큰 결과 요약/상세(S3), 스키마 생성·불일치 검사(S4), 분석·export 도구(S5), 완료 기록(S6).
+
 ## P82 S1: 읽기 전용 로컬 MCP 어댑터 (T2 시작)
 
 T1을 마친 뒤 사용자 요청("opus 추천대로 다음 작업")으로 T2를 시작했다(2026-11-17). `apps/mcp`(`chemifree-mcp`)는 rmcp 기반 stdio MCP 서버이며 실행 중인 `chemifree-api`의 HTTP API만 부른다(Application을 만들지 않고 서버 잠금을 잡지 않음). 서버는 `--server-url` 또는 데이터 디렉터리 `server.lock` 기록(새 `ServerLock::recorded_holder`)으로 찾는다. 도구는 연산 목록·문서 목록·문서 스냅샷과 revision 셋이고, 실제 MCP client 검사 `npm run test:mcp`를 CI 브라우저 job에 붙였다. 새 의존성: rmcp 3.10(Apache-2.0), schemars, hyper client 기능, npm devDependency `@modelcontextprotocol/sdk` 1.32.2. 리뷰 반영으로 서버가 시작마다 새 `instance`를 `server.lock` 기록과 세션 응답에 넣고, 어댑터는 기록으로 찾은 서버의 instance가 다르면 거절한다(낡은 기록이 같은 포트의 다른 데이터 디렉터리 서버로 이어지지 않음). 남은 P82 일: 편집·저장 도구(S2), 큰 결과 요약/상세(S3), Rust DTO 스키마 생성과 TS 검증기 불일치 검사(S4), 분석·export 도구(S5), 완료 기록(S6). 보류한 사용자 결정: P41을 문서화한 한계로 닫을지(Opus 추천: 닫음), 에이전트 편집의 웹 실시간 표시는 P82 밖. 기록: `docs/verification/p82-s1-read-only-mcp.md`.

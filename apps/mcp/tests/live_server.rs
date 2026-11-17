@@ -3,12 +3,16 @@
 //!
 //! The live server is `chemifree_api::router` on a loopback port over a temporary data directory, built
 //! as the API's own tests build it. The refusal cases use a small fake server, because the real server
-//! refuses a session only after its token changes, and these tests need that to happen on demand.
+//! refuses a session only after its token changes, and these tests need that to happen on demand. The edit
+//! cases use a fake process that a test can replace, because a restart while an edit is in flight cannot be
+//! made to happen on demand with the real server.
 
 mod common;
 
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
 use axum::Json;
 use axum::Router;
@@ -535,6 +539,105 @@ async fn a_refusal_other_than_401_is_reported_without_a_second_send() {
     );
 }
 
+/// The instance of the process that takes the edits in the replaceable fake, and of its replacement.
+const FIRST_INSTANCE: &str = "f1r57";
+const REPLACEMENT_INSTANCE: &str = "2e9ac";
+
+#[tokio::test]
+async fn an_edit_whose_reply_was_lost_is_sent_again_to_the_same_process() {
+    let process = ProcessFake::start(FIRST_INSTANCE, "first-token").await;
+    let client = client_for(process.url());
+    process.cut_next_reply();
+    let lost = client
+        .run_edit("document.create", json!({"title": "Lost"}), "lost-same-1")
+        .await
+        .expect_err("the reply was cut off after the edit reached the server");
+    assert!(matches!(lost, ClientError::Transport { .. }), "got {lost}");
+
+    let reply = client
+        .run_edit("document.create", json!({"title": "Lost"}), "lost-same-1")
+        .await
+        .expect("the process that took the edit answers the repeated request");
+
+    assert_eq!(reply["outcome"], "ok", "{reply}");
+    assert_eq!(
+        process.attempts(),
+        vec![
+            attempt_on(FIRST_INSTANCE, "lost-same-1"),
+            attempt_on(FIRST_INSTANCE, "lost-same-1"),
+        ],
+        "the repeat reached the process that took the edit, and no other"
+    );
+}
+
+#[tokio::test]
+async fn an_edit_whose_reply_was_lost_is_not_sent_to_a_restarted_server() {
+    let process = ProcessFake::start(FIRST_INSTANCE, "first-token").await;
+    let client = client_for(process.url());
+    process.cut_next_reply();
+    let lost = client
+        .run_edit(
+            "document.create",
+            json!({"title": "Lost"}),
+            "lost-restart-1",
+        )
+        .await
+        .expect_err("the reply was cut off after the edit reached the server");
+    assert!(matches!(lost, ClientError::Transport { .. }), "got {lost}");
+    process.restart(REPLACEMENT_INSTANCE, "replacement-token");
+
+    let refused = client
+        .run_edit(
+            "document.create",
+            json!({"title": "Lost"}),
+            "lost-restart-1",
+        )
+        .await
+        .expect_err("the restarted server did not take the edit, so the edit is not sent to it");
+
+    assert!(
+        matches!(&refused, ClientError::ServerRestarted { request_id } if request_id == "lost-restart-1"),
+        "got {refused}"
+    );
+    assert_eq!(
+        process.attempts(),
+        vec![attempt_on(FIRST_INSTANCE, "lost-restart-1")],
+        "the edit reached only the process that took it, so it is not applied twice"
+    );
+}
+
+#[tokio::test]
+async fn a_restart_between_the_session_and_the_edit_is_refused_before_a_second_send() {
+    let process = ProcessFake::start(FIRST_INSTANCE, "first-token").await;
+    let client = client_for(process.url());
+    process.cut_next_reply();
+    client
+        .run_edit("document.create", json!({"title": "Lost"}), "lost-race-1")
+        .await
+        .expect_err("the reply was cut off after the edit reached the server");
+    // The session is fetched from the first process, and the edit then reaches its replacement, which refuses
+    // the first process's token.
+    process.restart_during_next_operation(REPLACEMENT_INSTANCE, "replacement-token");
+
+    let refused = client
+        .run_edit("document.create", json!({"title": "Lost"}), "lost-race-1")
+        .await
+        .expect_err("the replacement refuses the stale session, and does not take the edit");
+
+    assert!(
+        matches!(&refused, ClientError::ServerRestarted { request_id } if request_id == "lost-race-1"),
+        "got {refused}"
+    );
+    assert_eq!(
+        process.attempts(),
+        vec![
+            attempt_on(FIRST_INSTANCE, "lost-race-1"),
+            attempt_on(REPLACEMENT_INSTANCE, "lost-race-1"),
+        ],
+        "the replacement received the edit once, and no send followed the refused session"
+    );
+}
+
 fn client_for(url: &str) -> ApiClient {
     let url: ServerUrl = url.parse().expect("the test address is a loopback address");
     ApiClient::new(Discovery::new(Some(url), None))
@@ -784,4 +887,209 @@ async fn closing_documents() -> impl IntoResponse {
 
 async fn oversized_documents() -> Vec<u8> {
     vec![b' '; MAX_REPLY_BYTES + 1]
+}
+
+/// A server process at one address, which a test can replace with another process. A replacement has a new
+/// instance and token, and the operation endpoint records every request that reaches the address, with the
+/// instance of the process that received it.
+struct ProcessFake {
+    served: Served,
+    state: Arc<ProcessState>,
+}
+
+struct ProcessState {
+    process: Mutex<Process>,
+    /// What the next operation request does, when a test arranges it.
+    next_operation: Mutex<Option<NextOperation>>,
+    attempts: Mutex<Vec<ProcessAttempt>>,
+}
+
+/// The identity of a server process: the instance that it names in its session, and the token that it issues.
+#[derive(Clone)]
+struct Process {
+    instance: String,
+    token: String,
+}
+
+impl Process {
+    fn new(instance: &str, token: &str) -> Self {
+        Self {
+            instance: instance.to_owned(),
+            token: token.to_owned(),
+        }
+    }
+}
+
+/// One operation request that reached a process.
+#[derive(Debug, PartialEq)]
+struct ProcessAttempt {
+    instance: String,
+    request_id: Option<String>,
+}
+
+fn attempt_on(instance: &str, request_id: &str) -> ProcessAttempt {
+    ProcessAttempt {
+        instance: instance.to_owned(),
+        request_id: Some(request_id.to_owned()),
+    }
+}
+
+/// What the next operation request does.
+enum NextOperation {
+    /// The request is applied, and its reply is cut off before its end.
+    CutReply,
+    /// The address is served by this process before the request is read, so the request reaches the process
+    /// with a token that it does not issue.
+    ReplacedBy(Process),
+}
+
+impl ProcessFake {
+    async fn start(instance: &str, token: &str) -> Self {
+        let state = Arc::new(ProcessState {
+            process: Mutex::new(Process::new(instance, token)),
+            next_operation: Mutex::new(None),
+            attempts: Mutex::new(Vec::new()),
+        });
+        let router = Router::new()
+            .route("/api/v1/session", get(process_session))
+            .route("/api/v1/operations", post(process_operations))
+            .with_state(Arc::clone(&state));
+        Self {
+            served: Served::start(router).await,
+            state,
+        }
+    }
+
+    fn url(&self) -> &str {
+        &self.served.url
+    }
+
+    /// The address is served by a new process from now on, which has none of the requests of the first one.
+    fn restart(&self, instance: &str, token: &str) {
+        *self
+            .state
+            .process
+            .lock()
+            .expect("the fake state is not poisoned") = Process::new(instance, token);
+    }
+
+    /// The next operation request is applied, and its reply is cut off before its end.
+    fn cut_next_reply(&self) {
+        *self
+            .state
+            .next_operation
+            .lock()
+            .expect("the fake state is not poisoned") = Some(NextOperation::CutReply);
+    }
+
+    /// The next operation request reaches a new process, which has this instance and token.
+    fn restart_during_next_operation(&self, instance: &str, token: &str) {
+        *self
+            .state
+            .next_operation
+            .lock()
+            .expect("the fake state is not poisoned") =
+            Some(NextOperation::ReplacedBy(Process::new(instance, token)));
+    }
+
+    fn attempts(&self) -> Vec<ProcessAttempt> {
+        self.state
+            .attempts
+            .lock()
+            .expect("the fake state is not poisoned")
+            .iter()
+            .map(|attempt| ProcessAttempt {
+                instance: attempt.instance.clone(),
+                request_id: attempt.request_id.clone(),
+            })
+            .collect()
+    }
+}
+
+async fn process_session(State(state): State<Arc<ProcessState>>) -> Json<Value> {
+    let process = state
+        .process
+        .lock()
+        .expect("the fake state is not poisoned")
+        .clone();
+    Json(json!({
+        "api_version": "v1",
+        "header": SESSION_HEADER,
+        "token": process.token,
+        "instance": process.instance
+    }))
+}
+
+async fn process_operations(
+    State(state): State<Arc<ProcessState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+    let next = state
+        .next_operation
+        .lock()
+        .expect("the fake state is not poisoned")
+        .take();
+    if let Some(NextOperation::ReplacedBy(replacement)) = &next {
+        *state
+            .process
+            .lock()
+            .expect("the fake state is not poisoned") = replacement.clone();
+    }
+    let process = state
+        .process
+        .lock()
+        .expect("the fake state is not poisoned")
+        .clone();
+    state
+        .attempts
+        .lock()
+        .expect("the fake state is not poisoned")
+        .push(ProcessAttempt {
+            instance: process.instance.clone(),
+            request_id: request["request_id"].as_str().map(str::to_owned),
+        });
+    if presented_token(&headers).as_deref() != Some(process.token.as_str()) {
+        return (StatusCode::UNAUTHORIZED, Json(json!({"error": "refused"}))).into_response();
+    }
+    if matches!(next, Some(NextOperation::CutReply)) {
+        return Response::new(axum::body::Body::new(CutOffBody {
+            sent_first_bytes: false,
+        }));
+    }
+    Json(json!({
+        "envelope": "operation_result",
+        "outcome": "ok",
+        "document_revision": 1,
+        "result": {}
+    }))
+    .into_response()
+}
+
+/// A reply body that fails after its first bytes, as a reply does when its connection is cut off.
+struct CutOffBody {
+    sent_first_bytes: bool,
+}
+
+impl hyper::body::Body for CutOffBody {
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        _context: &mut Context<'_>,
+    ) -> Poll<Option<Result<hyper::body::Frame<Bytes>, Self::Error>>> {
+        if self.sent_first_bytes {
+            Poll::Ready(Some(Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionAborted,
+                "the reply was cut off",
+            ))))
+        } else {
+            self.sent_first_bytes = true;
+            Poll::Ready(Some(Ok(hyper::body::Frame::data(Bytes::from_static(
+                b"{\"envelope\":",
+            )))))
+        }
+    }
 }
