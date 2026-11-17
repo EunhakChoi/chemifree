@@ -2919,7 +2919,7 @@
     "P11",
     "P08"
    ],
-   "note": "실행 중인 로컬 서버(P87)의 클라이언트로 붙는다. 별도 프로세스가 Application을 품으면 에이전트의 미저장 편집이 열린 웹 편집기에 보이지 않기 때문이다. 도구 스키마는 Rust DTO에서 생성하고 같은 스키마를 TS 검증기 불일치 검사에 쓴다(2026-11-10 아키텍처 재검토, docs/ARCHITECTURE.md). S1(2026-11-17, T2를 사용자 요청으로 시작): 읽기 전용 stdio MCP 어댑터 `apps/mcp`(`chemifree-mcp`, rmcp)를 더했다. 실행 중인 서버를 `--server-url` 또는 데이터 디렉터리의 `server.lock` 기록으로 찾고 HTTP API만 부르며 Application을 만들지 않는다. 도구는 연산 목록(`capabilities.inspect`)·문서 목록·문서 스냅샷과 revision 셋이고, 실제 MCP client(`@modelcontextprotocol/sdk`, `npm run test:mcp`, CI)로 확인한다. 남은 일: 편집·저장 도구, 큰 결과의 요약/상세, Rust DTO 스키마 생성과 TS 검증기 불일치 검사, 분석·export 도구, 완료 기록. docs/verification/p82-s1-read-only-mcp.md."
+   "note": "실행 중인 로컬 서버(P87)의 클라이언트로 붙는다. 별도 프로세스가 Application을 품으면 에이전트의 미저장 편집이 열린 웹 편집기에 보이지 않기 때문이다. 도구 스키마는 Rust DTO에서 생성하고 같은 스키마를 TS 검증기 불일치 검사에 쓴다(2026-11-10 아키텍처 재검토, docs/ARCHITECTURE.md). S1(2026-11-17, T2를 사용자 요청으로 시작): 읽기 전용 stdio MCP 어댑터 `apps/mcp`(`chemifree-mcp`, rmcp)를 더했다. 실행 중인 서버를 `--server-url` 또는 데이터 디렉터리의 `server.lock` 기록으로 찾고 HTTP API만 부르며 Application을 만들지 않는다. 도구는 연산 목록(`capabilities.inspect`)·문서 목록·문서 스냅샷과 revision 셋이고, 실제 MCP client(`@modelcontextprotocol/sdk`, `npm run test:mcp`, CI)로 확인한다. docs/verification/p82-s1-read-only-mcp.md. S2(2026-11-17): 편집·저장 도구 6개(생성·트랜잭션·undo·redo·저장·닫기)를 더했다. 요청은 서버가 재생하고 revision으로 막으며, 응답을 잃은 편집 오류는 request_id를 알려 다시 묻게 한다. `partial`은 적용된 결과라 오류가 아니다. 저장은 웹과 공유하는 세션 전체를 저장하므로 destructive로 표시하고, 닫기는 `discard_unsaved`를 보내지 않는다. `commands`는 열린 스키마(서버 검증)이며, Rust DTO 스키마 생성과 TS 검증기 불일치 검사는 S4에서 함께 한다. docs/verification/p82-s2-edit-save-mcp.md. 남은 일: 큰 결과의 요약/상세, 스키마 생성·불일치 검사, 분석·export 도구, 완료 기록."
   },
   {
    "phase": "agent",

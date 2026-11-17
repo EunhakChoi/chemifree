@@ -1,8 +1,11 @@
 // Checks chemifree-mcp (P82) with a real MCP client. The SDK's stdio client starts the built adapter on
 // a temporary data directory where a running chemifree-api has recorded its address, then calls the
-// adapter's three read-only tools. Each reply is compared with the API's own reply to the same operation.
-// The document is created and given one unsaved edit over HTTP first, as the web editor does, so the
-// snapshot has to include work that only the running server holds. A failed step prints
+// adapter's nine tools. Each read reply is compared with the API's own reply to the same operation. The
+// document is created and given one unsaved edit over HTTP first, as the web editor does, so the snapshot
+// has to include work that only the running server holds. The edit tools then create, change, save and
+// close documents: a repeated request_id replays its reply, a stale revision is refused whichever client
+// made the last edit, and a snapshot after chemifree-api has been stopped and started again on the same
+// data directory is read through the same adapter process. A failed step prints
 // `FAILED <step>: <message>` and the API's standard error, then the run exits 1. A passing run prints
 // one line.
 //
@@ -26,8 +29,20 @@ const LISTENING = /listening on (http:\/\/127\.0\.0\.1:\d+)/
 const STARTUP_MS = 15_000
 const EXIT_MS = 15_000
 const HTTP_MS = 10_000
-// The names that tools/list must report, exactly. Sorted, because the check compares sorted names.
-const TOOL_NAMES = ['chemifree_capabilities', 'chemifree_document_snapshot', 'chemifree_documents_list']
+// The tools that tools/list must report, exactly, each with its readOnlyHint: the three read tools are
+// read-only, and the six edit tools are not. The names are compared sorted.
+const READ_ONLY_HINTS = new Map([
+  ['chemifree_capabilities', true],
+  ['chemifree_document_close', false],
+  ['chemifree_document_create', false],
+  ['chemifree_document_save', false],
+  ['chemifree_document_snapshot', true],
+  ['chemifree_document_transaction', false],
+  ['chemifree_documents_list', true],
+  ['chemifree_history_redo', false],
+  ['chemifree_history_undo', false],
+])
+const TOOL_NAMES = [...READ_ONLY_HINTS.keys()].sort()
 const USAGE = 'usage: node scripts/mcp-client-check.mjs [--profile debug|release]'
 const TIMED_OUT = Symbol('timed out')
 
@@ -186,6 +201,16 @@ function operate(baseUrl, session, operation, parameters) {
   })
 }
 
+/** The command that adds one carbon atom at `x`, in the shape that the web editor sends. */
+const carbonAt = (x) => ({ op: 'add_atom', element: 'C', position: { x, y: 300 } })
+
+/** A tool call that must not be a tool error. Its result is returned. */
+async function callSucceeds(client, name, args) {
+  const result = await client.callTool({ name, arguments: args })
+  assert.notEqual(result.isError, true, `${name} is a tool error: ${textOf(result)}`)
+  return result
+}
+
 /**
  * The whole check, in order. `state.step` names the step that runs, so a failure says where it happened.
  * The API and the client are recorded in `state` as they start, so cleanup stops them on every path.
@@ -240,8 +265,20 @@ async function run(state) {
   assert.deepEqual(tools.map((tool) => tool.name).sort(), TOOL_NAMES)
   assert.deepEqual(
     Object.fromEntries(tools.map((tool) => [tool.name, tool.annotations?.readOnlyHint])),
-    Object.fromEntries(TOOL_NAMES.map((name) => [name, true])),
+    Object.fromEntries(READ_ONLY_HINTS),
   )
+  // Only the save writes the document's file, so it is the only destructive tool.
+  assert.deepEqual(
+    tools.filter((tool) => tool.annotations?.destructiveHint === true).map((tool) => tool.name),
+    ['chemifree_document_save'],
+  )
+  const transaction = tools.find((tool) => tool.name === 'chemifree_document_transaction')
+  for (const argument of ['document_id', 'expected_revision', 'commands']) {
+    assert.ok(
+      transaction?.inputSchema?.required?.includes(argument),
+      `chemifree_document_transaction requires ${argument}`,
+    )
+  }
 
   state.step = 'chemifree_capabilities'
   const capabilities = await state.client.callTool({ name: 'chemifree_capabilities', arguments: {} })
@@ -275,10 +312,112 @@ async function run(state) {
   assert.equal(unknown.isError, true, `an unknown document is not a tool error: ${textOf(unknown)}`)
   assert.equal(textOf(unknown), 'document.snapshot: outcome error, revision n/a')
 
+  // The edit tools, through the same adapter process. Each reply is checked against the API's own state.
+  state.step = 'chemifree_document_create (repeated request_id)'
+  const createArguments = { request_id: 'mcp-s2-create-1' }
+  const createReply = await callSucceeds(state.client, 'chemifree_document_create', createArguments)
+  const createAgainReply = await callSucceeds(state.client, 'chemifree_document_create', createArguments)
+  const newDocumentId = createReply.structuredContent?.result?.document?.id
+  assert.equal(typeof newDocumentId, 'string', `the reply names no document: ${textOf(createReply)}`)
+  assert.equal(
+    createAgainReply.structuredContent?.result?.document?.id,
+    newDocumentId,
+    'a repeated request_id returns the first reply',
+  )
+  const listedAfterCreates = await callSucceeds(state.client, 'chemifree_documents_list', {})
+  assert.equal(
+    listedAfterCreates.structuredContent?.documents?.length,
+    2,
+    'the document from the HTTP check and this one, and no other: the repeat created nothing',
+  )
+
+  state.step = 'chemifree_document_transaction (agent edit at revision 0)'
+  const addFirst = {
+    document_id: newDocumentId,
+    expected_revision: 0,
+    commands: [carbonAt(300)],
+    request_id: 'mcp-s2-tx-1',
+  }
+  const transacted = await callSucceeds(state.client, 'chemifree_document_transaction', addFirst)
+  assert.equal(textOf(transacted), 'document.transaction: outcome ok, revision 1')
+  const afterEdit = await requestJson(baseUrl, 'GET', `/api/v1/documents/${newDocumentId}`, 200)
+  assert.equal(afterEdit.document.revision, 1)
+  assert.equal(afterEdit.document.atoms.length, 1)
+
+  state.step = 'chemifree_document_transaction (repeated request_id)'
+  const replayed = await callSucceeds(state.client, 'chemifree_document_transaction', addFirst)
+  assert.deepEqual(replayed.structuredContent, transacted.structuredContent)
+  assert.equal(replayed.structuredContent?.document_revision, 1)
+
+  state.step = 'web-style transaction at a stale revision (HTTP)'
+  const webStale = await requestJson(baseUrl, 'POST', `/api/v1/documents/${newDocumentId}/transactions`, 409, {
+    session,
+    body: { request_id: randomUUID(), expected_revision: 0, commands: [carbonAt(340)] },
+  })
+  assert.equal(webStale.code, 'revision_conflict')
+  assert.equal(webStale.current_revision, 1)
+
+  state.step = 'web-style edit to revision 2 (HTTP)'
+  const webEdit = await requestJson(baseUrl, 'POST', `/api/v1/documents/${newDocumentId}/transactions`, 200, {
+    session,
+    body: { request_id: randomUUID(), expected_revision: 1, commands: [carbonAt(340)] },
+  })
+  assert.equal(webEdit.document.revision, 2)
+
+  state.step = 'chemifree_document_transaction (stale revision after the web edit)'
+  const staleEdit = await state.client.callTool({
+    name: 'chemifree_document_transaction',
+    arguments: { document_id: newDocumentId, expected_revision: 1, commands: [carbonAt(380)] },
+  })
+  assert.equal(staleEdit.isError, true, `a stale edit is not a tool error: ${textOf(staleEdit)}`)
+  assert.equal(staleEdit.structuredContent?.outcome, 'error')
+  assert.equal(staleEdit.structuredContent?.diagnostics?.[0]?.code, 'revision_conflict')
+  assert.equal(staleEdit.structuredContent?.diagnostics?.[0]?.details?.current_revision, 2)
+
+  state.step = 'chemifree_document_save at revision 2'
+  const saved = await callSucceeds(state.client, 'chemifree_document_save', {
+    document_id: newDocumentId,
+    expected_revision: 2,
+  })
+  assert.equal(saved.structuredContent?.result?.session?.unsaved_changes, false)
+
+  state.step = 'chemifree_document_close'
+  const closed = await callSucceeds(state.client, 'chemifree_document_close', { document_id: newDocumentId })
+  assert.equal(closed.structuredContent?.outcome, 'ok')
+  assert.equal(closed.structuredContent?.document_revision, null)
+
+  state.step = 'chemifree_document_snapshot after the close'
+  const reopened = await callSucceeds(state.client, 'chemifree_document_snapshot', { document_id: newDocumentId })
+  assert.equal(reopened.structuredContent?.document_revision, 2)
+  assert.equal(reopened.structuredContent?.result?.document?.atoms?.length, 2)
+  assert.equal(reopened.structuredContent?.result?.session?.unsaved_changes, false)
+
+  // The client keeps the address of the server it last reached. A call made while nothing answers there
+  // drops that address, so the next call looks the server up in the data directory again.
+  state.step = 'chemifree_document_snapshot while chemifree-api is stopped'
+  await stopApi(state.api)
+  const stopped = await state.client.callTool({
+    name: 'chemifree_document_snapshot',
+    arguments: { document_id: newDocumentId },
+  })
+  assert.equal(stopped.isError, true, `a stopped server is not a tool success: ${textOf(stopped)}`)
+  assert.match(textOf(stopped), /^No running Chemifree API server answered at http:\/\/127\.0\.0\.1:\d+\./)
+
+  state.step = 'chemifree-api restarted on the same data directory'
+  await waitForListening(spawnApi(state, paths.api, dataDir))
+
+  state.step = 'chemifree_document_snapshot after the restart'
+  const restarted = await callSucceeds(state.client, 'chemifree_document_snapshot', {
+    document_id: newDocumentId,
+  })
+  assert.equal(restarted.structuredContent?.document_revision, 2)
+  assert.equal(restarted.structuredContent?.result?.document?.atoms?.length, 2)
+
   return (
-    `mcp-client-check (${state.profile}): chemifree-mcp initialized, lists ${TOOL_NAMES.length} read-only tools, ` +
-    `and its capabilities, document list and snapshot (revision ${httpSnapshot.document_revision}) match ` +
-    'chemifree-api; an unknown document is a tool error'
+    `mcp-client-check (${state.profile}): chemifree-mcp initialized and lists ${TOOL_NAMES.length} tools; ` +
+    `its reads match chemifree-api (revision ${httpSnapshot.document_revision}), and an unknown document is a ` +
+    'tool error; its edits replay by request_id, refuse a stale revision, save and close, and read back after ' +
+    'a restart of chemifree-api'
   )
 }
 

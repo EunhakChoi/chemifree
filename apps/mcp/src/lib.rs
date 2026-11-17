@@ -13,7 +13,8 @@
 //!   running server recorded in its data directory.
 //! - [`client`] makes the API calls: the session header and token, the operation envelope, request
 //!   ids and the reply size limit.
-//! - [`tools`] offers the three read-only MCP tools and maps their replies to MCP results.
+//! - [`tools`] offers the read tools and the edit tools (create, transaction, undo, redo, save, close),
+//!   and maps their replies to MCP results.
 
 pub mod client;
 pub mod discovery;

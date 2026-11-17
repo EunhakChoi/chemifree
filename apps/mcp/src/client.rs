@@ -29,9 +29,9 @@ pub const MAX_REPLY_BYTES: usize = 8 * 1024 * 1024;
 
 /// The operation contract version that every request names.
 const CONTRACT: u32 = 1;
-/// The operation profile that every request asks for.
 /// The session header of the Chemifree API (`chemifree_api::SESSION_HEADER`).
 const SESSION_HEADER: &str = "x-chemifree-session";
+/// The operation profile that every request asks for.
 const PROFILE: &str = "preserve-semantics";
 const SESSION_PATH: &str = "/api/v1/session";
 const DOCUMENTS_PATH: &str = "/api/v1/documents";
@@ -123,7 +123,8 @@ impl ApiClient {
     /// Runs one operation of the contract and returns the server's reply, as JSON.
     ///
     /// The reply is an operation result (HTTP 200, whatever its outcome) or a protocol error (HTTP
-    /// 400). The request id is `request_id` when one is given, and otherwise a new random one.
+    /// 400). The request id is `request_id` when one is given, and otherwise a new random one. A call
+    /// that fails may still have applied the operation: see [`ClientError::may_have_taken_effect`].
     ///
     /// # Errors
     ///
@@ -436,6 +437,28 @@ pub enum ClientError {
     StatePoisoned,
 }
 
+impl ClientError {
+    /// Whether the failed call may have reached the server and applied its operation, so that its outcome
+    /// is not known. That holds for a failure after the connection was made, for a reply that was too
+    /// large or not usable, and for every status but 413. The server refuses a body over its size limit
+    /// before the operation runs, so a 413 means that it was not applied. Refusals before the handler, such
+    /// as 401 and 403, also count as possibly applied, and so does a failure while the session is fetched,
+    /// before the operation is sent; those answers are conservative. A refused connection sent nothing.
+    #[must_use]
+    pub fn may_have_taken_effect(&self) -> bool {
+        match self {
+            Self::Transport { .. } | Self::ReplyTooLarge | Self::MalformedReply { .. } => true,
+            Self::Status { status, .. } => *status != StatusCode::PAYLOAD_TOO_LARGE,
+            Self::Discovery(_)
+            | Self::Unreachable { .. }
+            | Self::InvalidRequest { .. }
+            | Self::NotTheRecordedServer { .. }
+            | Self::RandomSource(_)
+            | Self::StatePoisoned => false,
+        }
+    }
+}
+
 impl fmt::Display for ClientError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -540,5 +563,59 @@ mod tests {
             matches!(reply.into_object(), Err(ClientError::MalformedReply { .. })),
             "an array is not an operation reply"
         );
+    }
+
+    #[test]
+    fn only_a_failure_after_a_request_may_have_reached_the_server_may_have_taken_effect() {
+        let url: ServerUrl = "http://127.0.0.1:8080"
+            .parse()
+            .expect("the test address is a loopback address");
+        let cases = [
+            (
+                ClientError::Transport {
+                    url: url.clone(),
+                    message: "connection reset".to_owned(),
+                },
+                true,
+            ),
+            (ClientError::ReplyTooLarge, true),
+            (
+                ClientError::MalformedReply {
+                    status: StatusCode::OK,
+                    message: "the body is not JSON".to_owned(),
+                },
+                true,
+            ),
+            (
+                ClientError::Status {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    body: String::new(),
+                },
+                true,
+            ),
+            (
+                ClientError::Status {
+                    status: StatusCode::UNAUTHORIZED,
+                    body: String::new(),
+                },
+                true,
+            ),
+            (
+                ClientError::Status {
+                    status: StatusCode::PAYLOAD_TOO_LARGE,
+                    body: String::new(),
+                },
+                false,
+            ),
+            (ClientError::NotTheRecordedServer { url }, false),
+            (
+                ClientError::Discovery(DiscoveryError::NoDataDirectory),
+                false,
+            ),
+            (ClientError::StatePoisoned, false),
+        ];
+        for (error, expected) in cases {
+            assert_eq!(error.may_have_taken_effect(), expected, "{error}");
+        }
     }
 }
