@@ -9,11 +9,14 @@
 //! or an outcome this adapter does not know. It is also one when it is a protocol error, or when the call
 //! failed. A `partial` outcome is not an error: the operation completed, and its notes or losses say what
 //! is missing. Diagnostics pass through unchanged, and nothing about the chemistry is interpreted here.
+//!
+//! The analysis and export tools, in `analysis`, are read-only operations of the same kind: each is one operation
+//! of the contract, and its reply goes out unchanged.
 
 use hyper::StatusCode;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ContentBlock};
+use rmcp::model::{CallToolResult, ContentBlock, Tool};
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::Deserialize;
@@ -116,16 +119,16 @@ fn commands_schema(_generator: &mut SchemaGenerator) -> Schema {
     })
 }
 
-/// One operation call, as the edit tools make it: the operation, its parameters, and the request id that a
-/// repeat must carry. A call without a request id gets a new one when it is sent.
+/// One operation call, as the tools make it: the operation, its parameters, and the request id that a repeat of
+/// an edit must carry. A call without a request id gets a new one when it is sent.
 #[derive(Clone, Debug, PartialEq)]
-struct OperationCall {
+pub(crate) struct OperationCall {
     /// The operation's id, as `chemifree_capabilities` lists it.
-    operation: &'static str,
+    pub(crate) operation: &'static str,
     /// The parameters, with the fields that the contract names and no others.
-    parameters: Value,
+    pub(crate) parameters: Value,
     /// The caller's request id, or `None` when the tool makes one.
-    request_id: Option<String>,
+    pub(crate) request_id: Option<String>,
 }
 
 /// The call of `chemifree_document_create`: `document.create`, with `title` only when a title is given.
@@ -195,8 +198,21 @@ impl ChemifreeServer {
     pub fn new(client: ApiClient) -> Self {
         Self {
             client,
-            tool_router: Self::tool_router(),
+            tool_router: Self::router(),
         }
+    }
+
+    /// The router of every tool: the tools of this module and the analysis and export tools of `analysis`.
+    /// Merging keeps one route per name, so two tools with the same name would silently lose one; a unit test
+    /// counts the listed tools.
+    fn router() -> ToolRouter<Self> {
+        Self::tool_router() + Self::analysis_router()
+    }
+
+    /// The tools that this server lists, in the form that `tools/list` sends them.
+    #[must_use]
+    pub fn listed_tools(&self) -> Vec<Tool> {
+        self.tool_router.list_all()
     }
 
     #[tool(
@@ -339,6 +355,13 @@ impl ChemifreeServer {
         self.run_edit(close_call(args)).await
     }
 
+    /// Runs one operation call that an analysis or export tool makes, and maps its reply, or its failure, to a tool
+    /// result.
+    pub(crate) async fn run_call(&self, call: OperationCall) -> CallToolResult {
+        self.run(call.operation, call.parameters, call.request_id)
+            .await
+    }
+
     /// Runs one read operation and maps its reply, or its failure, to a tool result.
     async fn run(
         &self,
@@ -379,7 +402,7 @@ impl ChemifreeServer {
 #[tool_handler(
     router = self.tool_router,
     name = "chemifree",
-    instructions = "Tools for a running local Chemifree server: list documents, read a snapshot and its revision, inspect the operation catalog, and create, edit (transactions, undo, redo), save and close documents. Edits need the current expected_revision; the session is shared with the open web editor."
+    instructions = "Tools for a running local Chemifree server: list documents, read a snapshot and its revision, inspect the operation catalog, run read-only analyses (valences, aromaticity, graph identity, substructure, stereo, CIP labels, InChI, properties) and exports (SMILES, SVG, CDXML, CDX, MOL and SDF) of a document, and create, edit (transactions, undo, redo), save and close documents. Edits need the current expected_revision; the session is shared with the open web editor."
 )]
 impl ServerHandler for ChemifreeServer {}
 
@@ -485,6 +508,7 @@ fn is_protocol_error(reply: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::path::PathBuf;
 
     use super::*;
@@ -501,7 +525,7 @@ mod tests {
 
     /// The listed tools, each in the form that `tools/list` sends.
     fn wire_tools() -> Vec<Value> {
-        ChemifreeServer::tool_router()
+        ChemifreeServer::router()
             .list_all()
             .iter()
             .map(|tool| serde_json::to_value(tool).expect("a listed tool serializes"))
@@ -694,6 +718,49 @@ mod tests {
         for (name, hints) in expected {
             assert_eq!(wire_tool(name)["annotations"], hints, "{name}");
         }
+        // The analysis and export tools only read: none changes a document, so none is destructive.
+        let analysis_hints = json!({"readOnlyHint": true, "destructiveHint": false});
+        for name in ANALYSIS_TOOLS {
+            assert_eq!(wire_tool(name)["annotations"], analysis_hints, "{name}");
+        }
+    }
+
+    /// The nine analysis and export tools of `analysis`, by name.
+    const ANALYSIS_TOOLS: [&str; 9] = [
+        "chemifree_chem_validate",
+        "chemifree_chem_aromaticity",
+        "chemifree_chem_identity",
+        "chemifree_chem_substructure",
+        "chemifree_chem_stereo",
+        "chemifree_chem_cip",
+        "chemifree_chem_inchi",
+        "chemifree_chem_properties",
+        "chemifree_document_export",
+    ];
+
+    #[test]
+    fn the_merged_router_lists_eighteen_tools_under_unique_names() {
+        // Merging two routers keeps one route per name, so a shared name would drop a tool without an error.
+        let names: Vec<String> = wire_tools()
+            .iter()
+            .map(|tool| {
+                tool["name"]
+                    .as_str()
+                    .expect("each tool has a name")
+                    .to_owned()
+            })
+            .collect();
+        let unique: BTreeSet<&str> = names.iter().map(String::as_str).collect();
+        assert_eq!(
+            names.len(),
+            18,
+            "the server lists eighteen tools, got {names:?}"
+        );
+        assert_eq!(
+            unique.len(),
+            names.len(),
+            "a tool name is listed twice, so one route was overwritten: {names:?}"
+        );
     }
 
     #[test]

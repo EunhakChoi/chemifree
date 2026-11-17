@@ -1,5 +1,9 @@
 # Chemifree 새 세션 인계
 
+## P82 S5: MCP 분석·export 도구 (T2)
+
+Opus 추천으로 S3(요약/상세)보다 먼저 했다. 읽기 전용 도구 9개(`chemifree_chem_validate`·`_aromaticity`·`_identity`·`_substructure`·`_stereo`·`_cip`·`_inchi`·`_properties`, `chemifree_document_export`)를 `apps/mcp/src/analysis.rs`에 더했다. 같은 request_id의 HTTP 응답과 같음을 확인했고, 실행 가능한 연산마다 도구나 `NOT_EXPOSED` 이유(15개)가 없으면 테스트가 실패한다. 앞으로 엔진 PR이 연산을 실행 가능하게 하면 그 PR이 MCP 도구나 이유를 더해야 한다. 큰 결과는 HTTP/CLI처럼 연산별 한도와 전체 응답 전달이며 MCP만의 요약/상세 분리는 만들지 않는다(Opus 추천). 로드맵 범위 문구 '요약/상세 결과'를 요약 줄과 전체 응답으로 충족했다고 볼지는 사용자 확인이 필요하다(P82 완료 기록 전에). 서버 코드는 바뀌지 않았다. 기록: `docs/verification/p82-s5-analysis-export-mcp.md`. 남은 P82 일: 스키마 생성·불일치 검사(S4), MCP 리소스(S3, 행 제목의 '리소스'), 완료 기록(S6).
+
 ## P82 S2: MCP 편집·저장 도구 (T2)
 
 `apps/mcp`에 도구 6개(`chemifree_document_create`·`_transaction`·`chemifree_history_undo`·`_redo`·`chemifree_document_save`·`_close`)를 더했다. Opus 추천대로 정한 것: `commands`는 열린 스키마(서버 검증)이고 Rust DTO 스키마 생성·TS 불일치 검사는 S4, `partial`은 적용된 결과라 도구 오류가 아님(S1 규칙 변경), 닫기는 `discard_unsaved`를 보내지 않음. 리뷰 반영: 트랜잭션·undo·redo·저장은 destructive(삭제 가능, undo 기록과 세션을 웹과 공유), 닫기는 idempotent 아님. 편집은 서버가 request_id로 재생하고, 응답을 잃은 편집 오류는 request_id를 알려 같은 서버 프로세스가 도는 동안 다시 묻게 한다(재시작 뒤에는 다시 적용되므로 문서를 읽으라고 말한다). 실제 MCP client 검사는 생성 재생·revision 충돌(양방향)·저장·닫기·API 재시작 뒤 재발견까지 확인한다. 한계: API가 다른 포트로 재시작하면 첫 호출은 이전 주소로 가서 실패하고 다음 호출이 기록을 다시 읽는다. 기록: `docs/verification/p82-s2-edit-save-mcp.md`. 남은 P82 일: 큰 결과 요약/상세(S3), 스키마 생성·불일치 검사(S4), 분석·export 도구(S5), 완료 기록(S6).

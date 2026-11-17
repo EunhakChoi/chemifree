@@ -285,6 +285,7 @@ dependencies = [
  "axum",
  "bytes",
  "chemifree-api",
+ "chemifree-host",
  "chemifree-providers",
  "clap",
  "getrandom",
