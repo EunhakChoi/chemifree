@@ -119,18 +119,18 @@ fn commands_schema(_generator: &mut SchemaGenerator) -> Schema {
 /// One operation call, as the edit tools make it: the operation, its parameters, and the request id that a
 /// repeat must carry. A call without a request id gets a new one when it is sent.
 #[derive(Clone, Debug, PartialEq)]
-pub struct OperationCall {
+struct OperationCall {
     /// The operation's id, as `chemifree_capabilities` lists it.
-    pub operation: &'static str,
+    operation: &'static str,
     /// The parameters, with the fields that the contract names and no others.
-    pub parameters: Value,
+    parameters: Value,
     /// The caller's request id, or `None` when the tool makes one.
-    pub request_id: Option<String>,
+    request_id: Option<String>,
 }
 
 /// The call of `chemifree_document_create`: `document.create`, with `title` only when a title is given.
 #[must_use]
-pub fn create_call(args: CreateArgs) -> OperationCall {
+fn create_call(args: CreateArgs) -> OperationCall {
     let parameters = match args.title {
         Some(title) => json!({"title": title}),
         None => json!({}),
@@ -144,7 +144,7 @@ pub fn create_call(args: CreateArgs) -> OperationCall {
 
 /// The call of `chemifree_document_transaction`: `document.transaction`, with its three fields.
 #[must_use]
-pub fn transaction_call(args: TransactionArgs) -> OperationCall {
+fn transaction_call(args: TransactionArgs) -> OperationCall {
     OperationCall {
         operation: "document.transaction",
         parameters: json!({
@@ -159,7 +159,7 @@ pub fn transaction_call(args: TransactionArgs) -> OperationCall {
 /// The call of `chemifree_history_undo`, `chemifree_history_redo` or `chemifree_document_save`: the named
 /// operation, with the document and the revision that the caller expects.
 #[must_use]
-pub fn revision_call(operation: &'static str, args: RevisionArgs) -> OperationCall {
+fn revision_call(operation: &'static str, args: RevisionArgs) -> OperationCall {
     OperationCall {
         operation,
         parameters: json!({
@@ -173,7 +173,7 @@ pub fn revision_call(operation: &'static str, args: RevisionArgs) -> OperationCa
 /// The call of `chemifree_document_close`: `document.close` with the document id only. The tool never sends
 /// `discard_unsaved`, so a document with unsaved changes is refused.
 #[must_use]
-pub fn close_call(args: CloseArgs) -> OperationCall {
+fn close_call(args: CloseArgs) -> OperationCall {
     OperationCall {
         operation: "document.close",
         parameters: json!({"document_id": args.document_id}),
@@ -240,7 +240,7 @@ impl ChemifreeServer {
 
     /// Creates a document, with an optional title. Its reply names the document's id.
     #[tool(
-        description = "Create a document in the running Chemifree server (operation document.create), with an optional title. Pass a request_id if you may retry; otherwise a retry creates another document. Repeating a call with the same request_id and arguments returns the first reply without applying it again.",
+        description = "Create a document in the running Chemifree server (operation document.create), with an optional title. Pass a request_id if you may retry; otherwise a retry creates another document. Repeating a call with the same request_id and arguments returns the first reply without applying it again, while the same server process still remembers it (the last 64 edits of an open document; a close forgets them).",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -254,12 +254,13 @@ impl ChemifreeServer {
         self.run_edit(create_call(args)).await
     }
 
-    /// Applies commands to a document, all or nothing, at the revision that the caller expects.
+    /// Applies commands to a document, all or nothing, at the revision that the caller expects. A command may
+    /// delete atoms or bonds, so the tool is marked destructive.
     #[tool(
-        description = "Apply commands to a document of the running Chemifree server (operation document.transaction), all or nothing. expected_revision must be the document's current revision, as chemifree_document_snapshot reports it. Each command is an object tagged by op: the op names and what they do are the parts of document.transaction in chemifree_capabilities, and the fields are as in docs/CONTRACT.md \"Edits\". Without request_id each call is a new request, and once the document has moved on, expected_revision refuses a repeat with revision_conflict. Repeating a call with the same request_id and arguments returns the first reply without applying it again.",
+        description = "Apply commands to a document of the running Chemifree server (operation document.transaction), all or nothing. expected_revision must be the document's current revision, as chemifree_document_snapshot reports it. Each command is an object tagged by op: the op names and what they do are the parts of document.transaction in chemifree_capabilities, and the fields are as in docs/CONTRACT.md \"Edits\". Without request_id each call is a new request, and once the document has moved on, expected_revision refuses a repeat with revision_conflict. Repeating a call with the same request_id and arguments returns the first reply without applying it again, while the same server process still remembers it (the last 64 edits of an open document; a close forgets them).",
         annotations(
             read_only_hint = false,
-            destructive_hint = false,
+            destructive_hint = true,
             idempotent_hint = true
         )
     )]
@@ -270,12 +271,13 @@ impl ChemifreeServer {
         self.run_edit(transaction_call(args)).await
     }
 
-    /// Undoes the last edit of a document, at the revision that the caller expects.
+    /// Undoes the last edit of a document, at the revision that the caller expects. The undo history is shared
+    /// with the web editor, so this can undo an edit that the user made.
     #[tool(
-        description = "Undo the last edit of a document in the running Chemifree server (operation history.undo). expected_revision must be the document's current revision, as chemifree_document_snapshot reports it. Without request_id each call is a new request, and once the document has moved on, expected_revision refuses a repeat with revision_conflict. Repeating a call with the same request_id and arguments returns the first reply without applying it again.",
+        description = "Undo the last edit of a document in the running Chemifree server (operation history.undo). The undo history is shared with the web editor: this undoes the document's last edit, whoever made it. expected_revision must be the document's current revision, as chemifree_document_snapshot reports it. Without request_id each call is a new request, and once the document has moved on, expected_revision refuses a repeat with revision_conflict. Repeating a call with the same request_id and arguments returns the first reply without applying it again, while the same server process still remembers it (the last 64 edits of an open document; a close forgets them).",
         annotations(
             read_only_hint = false,
-            destructive_hint = false,
+            destructive_hint = true,
             idempotent_hint = true
         )
     )]
@@ -286,12 +288,13 @@ impl ChemifreeServer {
         self.run_edit(revision_call("history.undo", args)).await
     }
 
-    /// Redoes the edit that was last undone in a document, at the revision that the caller expects.
+    /// Redoes the edit that was last undone in a document, at the revision that the caller expects. The undo
+    /// history is shared with the web editor, so this can redo an edit that the user undid.
     #[tool(
-        description = "Redo the edit that was last undone in a document of the running Chemifree server (operation history.redo). expected_revision must be the document's current revision, as chemifree_document_snapshot reports it. Without request_id each call is a new request, and once the document has moved on, expected_revision refuses a repeat with revision_conflict. Repeating a call with the same request_id and arguments returns the first reply without applying it again.",
+        description = "Redo the edit that was last undone in a document of the running Chemifree server (operation history.redo). The undo history is shared with the web editor: this redoes the last undone edit, whoever undid it. expected_revision must be the document's current revision, as chemifree_document_snapshot reports it. Without request_id each call is a new request, and once the document has moved on, expected_revision refuses a repeat with revision_conflict. Repeating a call with the same request_id and arguments returns the first reply without applying it again, while the same server process still remembers it (the last 64 edits of an open document; a close forgets them).",
         annotations(
             read_only_hint = false,
-            destructive_hint = false,
+            destructive_hint = true,
             idempotent_hint = true
         )
     )]
@@ -304,7 +307,7 @@ impl ChemifreeServer {
 
     /// Saves a document to its file, at the revision that the caller expects.
     #[tool(
-        description = "Save a document of the running Chemifree server to its file (operation document.save). expected_revision must be the document's current revision, as chemifree_document_snapshot reports it. The session is shared with the web editor, so a save also commits the user's unsaved edits at that revision. Saving an unchanged document is a successful no-op. Without request_id each call is a new request, and once the document has moved on, expected_revision refuses a repeat with revision_conflict. Repeating a call with the same request_id and arguments returns the first reply without applying it again.",
+        description = "Save a document of the running Chemifree server to its file (operation document.save). expected_revision must be the document's current revision, as chemifree_document_snapshot reports it. The session is shared with the web editor, so a save also commits the user's unsaved edits at that revision. Saving an unchanged document is a successful no-op. Without request_id each call is a new request, and once the document has moved on, expected_revision refuses a repeat with revision_conflict. Repeating a call with the same request_id and arguments returns the first reply without applying it again, while the same server process still remembers it (the last 64 edits of an open document; a close forgets them).",
         annotations(
             read_only_hint = false,
             destructive_hint = true,
@@ -318,13 +321,15 @@ impl ChemifreeServer {
         self.run_edit(revision_call("document.save", args)).await
     }
 
-    /// Closes a document. One with unsaved changes stays open, because the tool never discards edits.
+    /// Closes a document. One with unsaved changes stays open, because the tool never discards edits. The
+    /// close is not idempotent: without a request_id, a repeat can close a session that was reopened after the
+    /// first close.
     #[tool(
-        description = "Close a document in the running Chemifree server (operation document.close). A document with unsaved changes stays open, because this tool does not discard edits: save it first. Repeating a call with the same request_id and arguments returns the first reply without applying it again.",
+        description = "Close a document in the running Chemifree server (operation document.close). A document with unsaved changes stays open, because this tool does not discard edits: save it first. Pass a request_id if you may retry; the server replays a close with the same id instead of closing a session opened after it. Repeating a call with the same request_id and arguments returns the first reply without applying it again, while the same server process still remembers it (the last 64 edits of an open document; a close forgets them).",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
-            idempotent_hint = true
+            idempotent_hint = false
         )
     )]
     pub async fn chemifree_document_close(
@@ -362,7 +367,7 @@ impl ChemifreeServer {
         };
         match self
             .client
-            .run_operation(call.operation, call.parameters, Some(request_id.clone()))
+            .run_edit(call.operation, call.parameters, &request_id)
             .await
         {
             Ok(reply) => operation_result(call.operation, reply),
@@ -400,15 +405,21 @@ fn error_result(error: &ClientError) -> CallToolResult {
     CallToolResult::error(vec![ContentBlock::text(error.to_string())])
 }
 
-/// The tool error for a failed edit. A call that may have reached the server names its request id, so that
-/// the caller can repeat it with the same id and learn the outcome. A body refused for its size was not
-/// applied, so it gets the advice to split the transaction instead.
+/// The tool error for a failed edit. A call whose outcome is not known names its request id, so that the caller
+/// can repeat it with the same id and learn the outcome. The client refuses such a repeat when the server has
+/// restarted since the call, because a restarted server no longer remembers the id. A body refused for its size
+/// was not applied, so it gets the advice to split the transaction instead. A reply too large to read has a text
+/// of its own.
 fn edit_error_result(error: &ClientError, request_id: &str) -> CallToolResult {
     let text = if is_too_large(error) {
         TOO_LARGE_TEXT.to_owned()
+    } else if matches!(error, ClientError::ReplyTooLarge) {
+        format!(
+            "The reply of request {request_id} was larger than the adapter's 8 MiB limit, so its outcome cannot be shown; the operation may have been applied. Read the documents with chemifree_documents_list (a created document appears there; an edited one shows its revision) to learn whether it was applied."
+        )
     } else if error.may_have_taken_effect() {
         format!(
-            "{error} request_id {request_id}: the operation may have taken effect; call again with the same request_id and arguments to learn its outcome"
+            "{error} request_id {request_id}: the operation may have taken effect; call again with the same request_id and arguments to learn its outcome (the adapter refuses that call if the server has restarted since)."
         )
     } else {
         error.to_string()
@@ -645,10 +656,12 @@ mod tests {
 
     #[test]
     fn each_tool_declares_the_hints_of_its_operation() {
-        // A save writes the document's file, so it is destructive. A repeated call with the same arguments has
-        // no further effect for these edits: a repeat is refused by expected_revision or replayed by
-        // request_id, and a save of an unchanged document is a no-op. A create is not idempotent: a repeat
-        // makes another document.
+        // A save writes the document's file, a transaction may delete what it names, and an undo or a redo acts
+        // on the undo history that the web editor shares, so these four are destructive. A repeated call with
+        // the same arguments has no further effect for the four that check a revision: a repeat is refused by
+        // expected_revision or replayed by request_id, and a save of an unchanged document is a no-op. A create
+        // is not idempotent, and neither is a close: a repeat without a request_id makes another document, or
+        // closes a session reopened after the first close.
         let expected = [
             ("chemifree_capabilities", json!({"readOnlyHint": true})),
             ("chemifree_documents_list", json!({"readOnlyHint": true})),
@@ -659,15 +672,15 @@ mod tests {
             ),
             (
                 "chemifree_document_transaction",
-                json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true}),
+                json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true}),
             ),
             (
                 "chemifree_history_undo",
-                json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true}),
+                json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true}),
             ),
             (
                 "chemifree_history_redo",
-                json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true}),
+                json!({"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true}),
             ),
             (
                 "chemifree_document_save",
@@ -675,7 +688,7 @@ mod tests {
             ),
             (
                 "chemifree_document_close",
-                json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true}),
+                json!({"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false}),
             ),
         ];
         for (name, hints) in expected {
@@ -691,7 +704,6 @@ mod tests {
                 url,
                 message: "connection reset".to_owned(),
             },
-            ClientError::ReplyTooLarge,
             ClientError::MalformedReply {
                 status: StatusCode::OK,
                 message: "the body is not JSON".to_owned(),
@@ -707,11 +719,45 @@ mod tests {
             assert_eq!(
                 text_of(&result),
                 format!(
-                    "{failure} request_id req-42: the operation may have taken effect; call again with the same request_id and arguments to learn its outcome"
+                    "{failure} request_id req-42: the operation may have taken effect; call again with the same request_id and arguments to learn its outcome (the adapter refuses that call if the server has restarted since)."
                 ),
                 "{failure}"
             );
         }
+    }
+
+    #[test]
+    fn a_too_large_reply_to_an_edit_has_its_own_text() {
+        let result = edit_error_result(&ClientError::ReplyTooLarge, "req-42");
+        assert_eq!(result.is_error, Some(true));
+        assert_eq!(
+            text_of(&result),
+            "The reply of request req-42 was larger than the adapter's 8 MiB limit, so its outcome cannot be shown; the operation may have been applied. Read the documents with chemifree_documents_list (a created document appears there; an edited one shows its revision) to learn whether it was applied."
+        );
+    }
+
+    #[test]
+    fn a_refused_restart_is_reported_with_its_own_text_and_no_repeat_advice() {
+        let error = ClientError::ServerRestarted {
+            request_id: "req-42".to_owned(),
+        };
+        let result = edit_error_result(&error, "req-42");
+        assert_eq!(result.is_error, Some(true));
+        let text = text_of(&result);
+        assert_eq!(text, error.to_string());
+        assert!(
+            text.contains("chemifree_document_snapshot") && !text.contains("call again"),
+            "a refused restart names the reads and advises no repeat, got {text}"
+        );
+    }
+
+    #[test]
+    fn the_size_named_in_the_edit_text_is_the_reply_limit() {
+        assert_eq!(
+            crate::client::MAX_REPLY_BYTES,
+            8 * 1024 * 1024,
+            "the text of a too large reply says 8 MiB"
+        );
     }
 
     #[test]

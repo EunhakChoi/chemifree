@@ -5,12 +5,18 @@
 //! operation contract. It keeps one session, the one from the server it last reached, and sends it
 //! with every call. A server that refuses the session (401, the answer to a missing or stale token) gets
 //! one fresh session and one more send of the same request, and no more. A 403 is the server's Host or
-//! Origin guard, which a fresh token cannot change, so it is reported as it is. A transport failure drops the session, so the next call looks
-//! the server up again. There is no client-side timeout: an operation may run for as long as its own
-//! time limit allows, and the server answers when it is done.
+//! Origin guard, which a fresh token cannot change, so it is reported as it is. A transport failure drops
+//! the session, so the next call looks the server up again. There is no client-side timeout: an operation
+//! may run for as long as its own time limit allows, and the server answers when it is done.
+//!
+//! An edit whose outcome is not known is remembered with the instance of the server process that took its
+//! send, because the server remembers a request id only within its process. Such an edit is sent again only
+//! to that process. When another process answers, the call is refused with [`ClientError::ServerRestarted`]
+//! before the edit is sent again.
 
+use std::collections::VecDeque;
 use std::fmt;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, LengthLimitError, Limited};
@@ -44,6 +50,8 @@ pub struct ApiClient {
     discovery: Discovery,
     /// The session of the server last reached. The lock is never held across an await.
     session: Mutex<Option<Session>>,
+    /// The edits whose outcome is not known. The lock is never held across an await.
+    uncertain: Mutex<UncertainEdits>,
 }
 
 /// A session of one server: the header that carries the token, and the token. The token is marked
@@ -51,8 +59,10 @@ pub struct ApiClient {
 #[derive(Clone, Debug)]
 struct Session {
     url: ServerUrl,
-    /// The instance the server must give, when it was found through a record.
-    instance: Option<String>,
+    /// The instance that the record names for this address, when the address was found through a record.
+    expected_instance: Option<String>,
+    /// The instance that the server named in its session reply: the process that issued the token.
+    served_instance: Option<String>,
     header: HeaderName,
     token: HeaderValue,
 }
@@ -81,6 +91,56 @@ pub struct DocumentList {
     pub reply: Value,
 }
 
+/// The most edits whose outcome is remembered. When the list is full, its oldest entry is dropped, and a repeat of
+/// that edit is no longer guarded.
+const UNCERTAIN_LIMIT: usize = 256;
+
+/// An edit whose outcome is not known, and the server process that its last send reached.
+#[derive(Clone, Debug)]
+struct Uncertain {
+    request_id: String,
+    /// The instance that the process named in its session reply, or `None` when the process named none.
+    instance: Option<String>,
+}
+
+/// The edits whose outcome is not known, oldest first. A reply that settles an edit removes its entry.
+#[derive(Debug, Default)]
+struct UncertainEdits {
+    entries: VecDeque<Uncertain>,
+}
+
+impl UncertainEdits {
+    fn get(&self, request_id: &str) -> Option<&Uncertain> {
+        self.entries
+            .iter()
+            .find(|entry| entry.request_id == request_id)
+    }
+
+    /// Remembers that the edit `request_id` may have been applied by the process `instance`.
+    fn remember(&mut self, request_id: &str, instance: Option<String>) {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.request_id == request_id)
+        {
+            entry.instance = instance;
+            return;
+        }
+        if self.entries.len() == UNCERTAIN_LIMIT {
+            self.entries.pop_front();
+        }
+        self.entries.push_back(Uncertain {
+            request_id: request_id.to_owned(),
+            instance,
+        });
+    }
+
+    /// Forgets the edit `request_id`, whose outcome a reply has settled.
+    fn settle(&mut self, request_id: &str) {
+        self.entries.retain(|entry| entry.request_id != request_id);
+    }
+}
+
 impl ApiClient {
     /// A client that finds its server through `discovery`. Nothing is contacted until a call is made.
     #[must_use]
@@ -89,6 +149,7 @@ impl ApiClient {
             http: Client::builder(TokioExecutor::new()).build_http(),
             discovery,
             session: Mutex::new(None),
+            uncertain: Mutex::new(UncertainEdits::default()),
         }
     }
 
@@ -124,7 +185,8 @@ impl ApiClient {
     ///
     /// The reply is an operation result (HTTP 200, whatever its outcome) or a protocol error (HTTP
     /// 400). The request id is `request_id` when one is given, and otherwise a new random one. A call
-    /// that fails may still have applied the operation: see [`ClientError::may_have_taken_effect`].
+    /// that fails may still have applied the operation: see [`ClientError::may_have_taken_effect`]. An edit goes
+    /// through [`ApiClient::run_edit`], which guards a repeat of an edit whose outcome is not known.
     ///
     /// # Errors
     ///
@@ -153,6 +215,89 @@ impl ApiClient {
         }
     }
 
+    /// Runs one edit of the contract under the caller's request id, and returns the server's reply, as JSON.
+    ///
+    /// An edit whose outcome is not known (see [`ClientError::may_have_taken_effect`]) is remembered with the
+    /// server process that its last send reached. The server remembers a request id only within its process, so
+    /// such an edit is sent again only to that process, and a call that finds another process is refused with
+    /// [`ClientError::ServerRestarted`] before the edit is sent again. A reply that settles the outcome forgets the
+    /// request id.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`ApiClient::run_operation`], and [`ClientError::ServerRestarted`] when the server
+    /// that answers is not the process that may have taken the edit.
+    pub async fn run_edit(
+        &self,
+        operation: &str,
+        parameters: Value,
+        request_id: &str,
+    ) -> Result<Value, ClientError> {
+        let body = Bytes::from(operation_envelope(request_id, operation, parameters).to_string());
+        let uncertain = self.lock_uncertain()?.get(request_id).cloned();
+        let first = self.edit_session(request_id, uncertain.as_ref()).await?;
+        let sent = self
+            .exchange(
+                &first.url,
+                Method::POST,
+                OPERATIONS_PATH,
+                Some(&first),
+                Some(body.clone()),
+            )
+            .await;
+        let (session, reply) = match sent {
+            // The session guard refuses a request before the operation runs, so the refused edit was not
+            // applied. It is sent once more, with a fresh session that the same checks accept.
+            Ok(reply) if is_refusal(reply.status) => {
+                let fresh = match &uncertain {
+                    Some(entry) => {
+                        self.session_for_replay(request_id, entry.instance.as_deref())
+                            .await?
+                    }
+                    None => {
+                        self.fetch_session(&first.url, first.expected_instance.as_deref())
+                            .await?
+                    }
+                };
+                let reply = self
+                    .exchange(
+                        &fresh.url,
+                        Method::POST,
+                        OPERATIONS_PATH,
+                        Some(&fresh),
+                        Some(body),
+                    )
+                    .await;
+                (fresh, reply)
+            }
+            reply => (first, reply),
+        };
+        let outcome = match reply {
+            Ok(reply) => {
+                let status = reply.status;
+                let value = match status {
+                    StatusCode::OK | StatusCode::BAD_REQUEST => reply.into_object(),
+                    _ => Err(reply.into_status_error()),
+                };
+                value.map(|value| (status, value))
+            }
+            Err(error) => Err(error),
+        };
+        match &outcome {
+            Ok((status, value)) if reply_settles_edit(*status, value) => {
+                self.lock_uncertain()?.settle(request_id);
+            }
+            Err(error) if error.may_have_taken_effect() => {
+                self.lock_uncertain()?
+                    .remember(request_id, session.served_instance.clone());
+            }
+            // A protocol error or a reused request id says nothing about an earlier send of the id, so the id
+            // keeps its entry. A failure that sent nothing, or that was refused with 413, adds none.
+            Ok(_) | Err(_) => {}
+        }
+        outcome.map(|(_, value)| value)
+    }
+
     /// Sends one call with the session, and when the server refuses the session, sends the same request
     /// once more with a fresh session from the same server.
     async fn authorized(
@@ -177,7 +322,7 @@ impl ApiClient {
         // The guards in front of the handlers refuse a request before any handler runs, so the refused
         // request changed nothing. Sending it again with the same request id cannot apply it twice.
         let fresh = self
-            .fetch_session(&session.url, session.instance.as_deref())
+            .fetch_session(&session.url, session.expected_instance.as_deref())
             .await?;
         self.exchange(&fresh.url, method, path, Some(&fresh), body)
             .await
@@ -191,6 +336,49 @@ impl ApiClient {
         let located = self.discovery.locate().await?;
         self.fetch_session(&located.url, located.instance.as_deref())
             .await
+    }
+
+    /// The session that an edit is sent with: for an edit whose outcome is not known, a session of the process that
+    /// may have taken it (see [`Self::session_for_replay`]), and otherwise the cached session.
+    async fn edit_session(
+        &self,
+        request_id: &str,
+        uncertain: Option<&Uncertain>,
+    ) -> Result<Session, ClientError> {
+        match uncertain {
+            Some(entry) => {
+                self.session_for_replay(request_id, entry.instance.as_deref())
+                    .await
+            }
+            None => self.current_session().await,
+        }
+    }
+
+    /// A fresh session of the located server, which must be the process that `recorded` names. An edit whose
+    /// outcome is not known is replayed only by that process, so any other process is refused here, before the
+    /// edit is sent, with [`ClientError::ServerRestarted`].
+    async fn session_for_replay(
+        &self,
+        request_id: &str,
+        recorded: Option<&str>,
+    ) -> Result<Session, ClientError> {
+        let located = self.discovery.locate().await?;
+        let session = self
+            .fetch_session(&located.url, located.instance.as_deref())
+            .await?;
+        if may_resend(recorded, session.served_instance.as_deref()) {
+            Ok(session)
+        } else {
+            Err(ClientError::ServerRestarted {
+                request_id: request_id.to_owned(),
+            })
+        }
+    }
+
+    fn lock_uncertain(&self) -> Result<MutexGuard<'_, UncertainEdits>, ClientError> {
+        self.uncertain
+            .lock()
+            .map_err(|_| ClientError::StatePoisoned)
     }
 
     /// Fetches the session of `url` with `GET /api/v1/session`, and caches it. When `instance` is
@@ -238,7 +426,8 @@ impl ApiClient {
         token.set_sensitive(true);
         let session = Session {
             url: url.clone(),
-            instance: instance.map(str::to_owned),
+            expected_instance: instance.map(str::to_owned),
+            served_instance: parsed.instance,
             header: name,
             token,
         };
@@ -351,6 +540,31 @@ impl Reply {
     }
 }
 
+/// Whether an edit that the server process `recorded` may have applied can be sent to the process `served` now.
+/// A request id is remembered only within its process, so only that process can replay the edit. A process that
+/// names no instance cannot be shown to be the same one.
+#[must_use]
+fn may_resend(recorded: Option<&str>, served: Option<&str>) -> bool {
+    matches!((recorded, served), (Some(recorded), Some(served)) if recorded == served)
+}
+
+/// Whether an edit reply settles the outcome of the edit, so that its request id is forgotten: an operation result
+/// other than a reuse of the id. A protocol error (HTTP 400) is refused before the operation runs, and a reuse does
+/// not give the outcome of the edit that first used the id, so neither settles an earlier send of the id.
+#[must_use]
+fn reply_settles_edit(status: StatusCode, reply: &Value) -> bool {
+    status == StatusCode::OK && !request_id_reused(reply)
+}
+
+/// Whether an operation reply reports that the request id was used before, with other arguments.
+fn request_id_reused(reply: &Value) -> bool {
+    reply["diagnostics"].as_array().is_some_and(|diagnostics| {
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic["code"] == "request_id_reused")
+    })
+}
+
 /// Whether a status means that the server refused the session token, rather than the request itself.
 fn is_refusal(status: StatusCode) -> bool {
     status == StatusCode::UNAUTHORIZED
@@ -431,6 +645,9 @@ pub enum ClientError {
     /// The server that answered at a recorded address is not the server that wrote the record: that
     /// server stopped, and another one now uses its port.
     NotTheRecordedServer { url: ServerUrl },
+    /// The server that answers is not the process that may have applied the edit `request_id`, whose outcome is
+    /// not known. That process remembered the request id, and this one does not, so applying the edit here could repeat it.
+    ServerRestarted { request_id: String },
     /// The operating system had no random bytes for a request id.
     RandomSource(getrandom::Error),
     /// The session cache is unusable, because a call panicked while it held the cache.
@@ -443,7 +660,9 @@ impl ClientError {
     /// large or not usable, and for every status but 413. The server refuses a body over its size limit
     /// before the operation runs, so a 413 means that it was not applied. Refusals before the handler, such
     /// as 401 and 403, also count as possibly applied, and so does a failure while the session is fetched,
-    /// before the operation is sent; those answers are conservative. A refused connection sent nothing.
+    /// before the operation is sent; those answers are conservative. A refused connection sent nothing. A call
+    /// that [`ClientError::ServerRestarted`] refused was either not sent or refused by the session guard before
+    /// the operation ran, so it was not applied.
     #[must_use]
     pub fn may_have_taken_effect(&self) -> bool {
         match self {
@@ -453,6 +672,7 @@ impl ClientError {
             | Self::Unreachable { .. }
             | Self::InvalidRequest { .. }
             | Self::NotTheRecordedServer { .. }
+            | Self::ServerRestarted { .. }
             | Self::RandomSource(_)
             | Self::StatePoisoned => false,
         }
@@ -495,6 +715,10 @@ impl fmt::Display for ClientError {
             Self::RandomSource(error) => {
                 write!(f, "No random bytes were available for a request id: {error}.")
             }
+            Self::ServerRestarted { request_id } => write!(
+                f,
+                "The Chemifree API server restarted after request {request_id} may have taken effect, so it no longer remembers that request and would apply it again. Read the document (chemifree_documents_list or chemifree_document_snapshot) to learn whether it was applied."
+            ),
             Self::StatePoisoned => f.write_str(
                 "The client's session state is unusable after an internal failure; restart chemifree-mcp.",
             ),
@@ -609,6 +833,12 @@ mod tests {
             ),
             (ClientError::NotTheRecordedServer { url }, false),
             (
+                ClientError::ServerRestarted {
+                    request_id: "req-1".to_owned(),
+                },
+                false,
+            ),
+            (
                 ClientError::Discovery(DiscoveryError::NoDataDirectory),
                 false,
             ),
@@ -617,5 +847,96 @@ mod tests {
         for (error, expected) in cases {
             assert_eq!(error.may_have_taken_effect(), expected, "{error}");
         }
+    }
+
+    #[test]
+    fn may_resend_only_to_the_process_that_took_the_send() {
+        let cases = [
+            (Some("a1"), Some("a1"), true),
+            (Some("a1"), Some("b2"), false),
+            (Some("a1"), None, false),
+            (None, Some("a1"), false),
+            (None, None, false),
+        ];
+        for (recorded, served, expected) in cases {
+            assert_eq!(
+                may_resend(recorded, served),
+                expected,
+                "recorded {recorded:?}, served {served:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_an_operation_result_that_does_not_reuse_the_request_id_settles_an_edit() {
+        let applied = json!({"envelope": "operation_result", "outcome": "ok"});
+        let refused = json!({
+            "envelope": "operation_result",
+            "outcome": "refused",
+            "diagnostics": [{"code": "revision_conflict"}]
+        });
+        let reused = json!({
+            "envelope": "operation_result",
+            "outcome": "refused",
+            "diagnostics": [{"code": "request_id_reused"}]
+        });
+        let protocol = json!({"envelope": "protocol_error", "outcome": "error"});
+        let cases = [
+            (StatusCode::OK, &applied, true),
+            (StatusCode::OK, &refused, true),
+            (StatusCode::OK, &reused, false),
+            (StatusCode::BAD_REQUEST, &protocol, false),
+        ];
+        for (status, reply, expected) in cases {
+            assert_eq!(
+                reply_settles_edit(status, reply),
+                expected,
+                "status {status}, reply {reply}"
+            );
+        }
+    }
+
+    #[test]
+    fn remembered_edits_are_found_and_settled_by_request_id_and_bounded() {
+        let mut edits = UncertainEdits::default();
+        edits.remember("edit-1", Some("a1".to_owned()));
+        edits.remember("edit-1", Some("a1".to_owned()));
+        assert_eq!(edits.entries.len(), 1, "one request id is one entry");
+        assert_eq!(
+            edits
+                .get("edit-1")
+                .and_then(|entry| entry.instance.as_deref()),
+            Some("a1")
+        );
+        edits.settle("edit-1");
+        assert!(edits.get("edit-1").is_none(), "a settled edit is forgotten");
+
+        for index in 0..=UNCERTAIN_LIMIT {
+            edits.remember(&format!("edit-{index}"), Some("a1".to_owned()));
+        }
+        assert_eq!(
+            edits.entries.len(),
+            UNCERTAIN_LIMIT,
+            "the list holds at most {UNCERTAIN_LIMIT} edits"
+        );
+        assert!(
+            edits.get("edit-0").is_none(),
+            "the oldest edit is dropped when the list is full"
+        );
+        assert!(
+            edits.get(&format!("edit-{UNCERTAIN_LIMIT}")).is_some(),
+            "the newest edit is kept"
+        );
+    }
+
+    #[test]
+    fn the_restarted_server_message_names_the_request_and_the_documents_to_read() {
+        let error = ClientError::ServerRestarted {
+            request_id: "req-1".to_owned(),
+        };
+        assert_eq!(
+            error.to_string(),
+            "The Chemifree API server restarted after request req-1 may have taken effect, so it no longer remembers that request and would apply it again. Read the document (chemifree_documents_list or chemifree_document_snapshot) to learn whether it was applied."
+        );
     }
 }

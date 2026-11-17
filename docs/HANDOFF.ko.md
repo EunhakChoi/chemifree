@@ -2,7 +2,7 @@
 
 ## P82 S2: MCP 편집·저장 도구 (T2)
 
-`apps/mcp`에 도구 6개(`chemifree_document_create`·`_transaction`·`chemifree_history_undo`·`_redo`·`chemifree_document_save`·`_close`)를 더했다. Opus 추천대로 정한 것: `commands`는 열린 스키마(서버 검증)이고 Rust DTO 스키마 생성·TS 불일치 검사는 S4, `partial`은 적용된 결과라 도구 오류가 아님(S1 규칙 변경), 저장은 웹과 공유하는 세션 전체를 저장하므로 destructive 표시, 닫기는 `discard_unsaved`를 보내지 않음. 편집은 서버가 request_id로 재생하고, 응답을 잃은 편집 오류는 request_id를 알려 다시 묻게 한다. 실제 MCP client 검사는 생성 재생·revision 충돌(양방향)·저장·닫기·API 재시작 뒤 재발견까지 확인한다. 한계: API가 다른 포트로 재시작하면 첫 호출은 이전 주소로 가서 실패하고 다음 호출이 기록을 다시 읽는다. 기록: `docs/verification/p82-s2-edit-save-mcp.md`. 남은 P82 일: 큰 결과 요약/상세(S3), 스키마 생성·불일치 검사(S4), 분석·export 도구(S5), 완료 기록(S6).
+`apps/mcp`에 도구 6개(`chemifree_document_create`·`_transaction`·`chemifree_history_undo`·`_redo`·`chemifree_document_save`·`_close`)를 더했다. Opus 추천대로 정한 것: `commands`는 열린 스키마(서버 검증)이고 Rust DTO 스키마 생성·TS 불일치 검사는 S4, `partial`은 적용된 결과라 도구 오류가 아님(S1 규칙 변경), 닫기는 `discard_unsaved`를 보내지 않음. 리뷰 반영: 트랜잭션·undo·redo·저장은 destructive(삭제 가능, undo 기록과 세션을 웹과 공유), 닫기는 idempotent 아님. 편집은 서버가 request_id로 재생하고, 응답을 잃은 편집 오류는 request_id를 알려 같은 서버 프로세스가 도는 동안 다시 묻게 한다(재시작 뒤에는 다시 적용되므로 문서를 읽으라고 말한다). 실제 MCP client 검사는 생성 재생·revision 충돌(양방향)·저장·닫기·API 재시작 뒤 재발견까지 확인한다. 한계: API가 다른 포트로 재시작하면 첫 호출은 이전 주소로 가서 실패하고 다음 호출이 기록을 다시 읽는다. 기록: `docs/verification/p82-s2-edit-save-mcp.md`. 남은 P82 일: 큰 결과 요약/상세(S3), 스키마 생성·불일치 검사(S4), 분석·export 도구(S5), 완료 기록(S6).
 
 ## P82 S1: 읽기 전용 로컬 MCP 어댑터 (T2 시작)
 

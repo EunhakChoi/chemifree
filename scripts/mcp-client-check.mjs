@@ -43,6 +43,10 @@ const READ_ONLY_HINTS = new Map([
   ['chemifree_history_undo', false],
 ])
 const TOOL_NAMES = [...READ_ONLY_HINTS.keys()].sort()
+// The two forms of a tool error for a stopped server: nothing answers at the address, or a connection that was
+// made fails before its reply. Both name the loopback address, with the port that the API printed.
+const UNREACHABLE_TEXT = /^No running Chemifree API server answered at http:\/\/127\.0\.0\.1:\d+\./
+const TRANSPORT_FAILURE_TEXT = /^The request to the Chemifree API server at http:\/\/127\.0\.0\.1:\d+ failed: /
 const USAGE = 'usage: node scripts/mcp-client-check.mjs [--profile debug|release]'
 const TIMED_OUT = Symbol('timed out')
 
@@ -267,10 +271,19 @@ async function run(state) {
     Object.fromEntries(tools.map((tool) => [tool.name, tool.annotations?.readOnlyHint])),
     Object.fromEntries(READ_ONLY_HINTS),
   )
-  // Only the save writes the document's file, so it is the only destructive tool.
+  // A save writes the document's file, a transaction may delete what it names, and an undo or a redo acts on the
+  // undo history that the web editor shares. Create and close are not destructive.
   assert.deepEqual(
-    tools.filter((tool) => tool.annotations?.destructiveHint === true).map((tool) => tool.name),
-    ['chemifree_document_save'],
+    tools
+      .filter((tool) => tool.annotations?.destructiveHint === true)
+      .map((tool) => tool.name)
+      .sort(),
+    [
+      'chemifree_document_save',
+      'chemifree_document_transaction',
+      'chemifree_history_redo',
+      'chemifree_history_undo',
+    ],
   )
   const transaction = tools.find((tool) => tool.name === 'chemifree_document_transaction')
   for (const argument of ['document_id', 'expected_revision', 'commands']) {
@@ -401,7 +414,11 @@ async function run(state) {
     arguments: { document_id: newDocumentId },
   })
   assert.equal(stopped.isError, true, `a stopped server is not a tool success: ${textOf(stopped)}`)
-  assert.match(textOf(stopped), /^No running Chemifree API server answered at http:\/\/127\.0\.0\.1:\d+\./)
+  const stoppedText = textOf(stopped)
+  assert.ok(
+    UNREACHABLE_TEXT.test(stoppedText) || TRANSPORT_FAILURE_TEXT.test(stoppedText),
+    `a stopped server is named as unreachable or as a failed request: ${stoppedText}`,
+  )
 
   state.step = 'chemifree-api restarted on the same data directory'
   await waitForListening(spawnApi(state, paths.api, dataDir))
