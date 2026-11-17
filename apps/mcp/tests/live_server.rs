@@ -288,7 +288,7 @@ async fn a_refused_document_list_gets_one_fresh_session() {
 
 #[tokio::test]
 async fn a_refusal_that_persists_is_retried_only_once() {
-    let fake = FakeServer::start(StatusCode::FORBIDDEN, "token-a", "token-b").await;
+    let fake = FakeServer::start(StatusCode::UNAUTHORIZED, "token-a", "token-b").await;
     let client = client_for(fake.url());
 
     let error = client
@@ -301,7 +301,7 @@ async fn a_refusal_that_persists_is_retried_only_once() {
         .expect_err("the server refuses every session");
 
     assert!(
-        matches!(error, ClientError::Status { status, .. } if status == StatusCode::FORBIDDEN),
+        matches!(error, ClientError::Status { status, .. } if status == StatusCode::UNAUTHORIZED),
         "got {error}"
     );
     assert_eq!(
@@ -334,6 +334,27 @@ async fn a_reply_over_the_limit_is_an_error_not_a_truncated_list() {
         .expect_err("the reply is larger than the limit");
 
     assert!(matches!(error, ClientError::ReplyTooLarge), "got {error}");
+}
+
+#[tokio::test]
+async fn a_session_that_names_another_header_is_refused() {
+    let router = Router::new().route("/api/v1/session", get(foreign_header_session));
+    let served = Served::start(router).await;
+    let client = client_for(&served.url);
+
+    let error = client
+        .list_documents()
+        .await
+        .expect_err("the session names a header that is not the API's");
+
+    assert!(
+        matches!(error, ClientError::MalformedReply { .. }),
+        "got {error}"
+    );
+}
+
+async fn foreign_header_session() -> Json<Value> {
+    Json(json!({"api_version": "v1", "header": "host", "token": "t"}))
 }
 
 #[tokio::test]
@@ -407,7 +428,34 @@ async fn a_server_that_stopped_is_replaced_by_the_server_recorded_next() {
 }
 
 #[tokio::test]
-async fn a_refusal_other_than_401_or_403_is_reported_without_a_second_send() {
+async fn a_forbidden_answer_is_reported_without_a_fresh_session() {
+    // 403 is the API's Host or Origin guard; a fresh token cannot change it.
+    let fake = FakeServer::start(StatusCode::FORBIDDEN, "token-a", "token-b").await;
+    let client = client_for(fake.url());
+
+    let error = client
+        .run_operation(
+            "document.snapshot",
+            json!({"document_id": "d1"}),
+            Some("forbidden-1".to_owned()),
+        )
+        .await
+        .expect_err("the server forbids every request");
+
+    assert!(
+        matches!(error, ClientError::Status { status, .. } if status == StatusCode::FORBIDDEN),
+        "got {error}"
+    );
+    assert_eq!(fake.session_fetches(), 1, "no fresh session after a 403");
+    assert_eq!(
+        fake.operation_attempts().len(),
+        1,
+        "the request is sent once"
+    );
+}
+
+#[tokio::test]
+async fn a_refusal_other_than_401_is_reported_without_a_second_send() {
     let fake = FakeServer::start(StatusCode::INTERNAL_SERVER_ERROR, "token-a", "token-b").await;
     let client = client_for(fake.url());
 

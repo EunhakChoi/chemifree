@@ -3,8 +3,9 @@
 //! The client makes the calls that the web editor makes: `GET /api/v1/session` for the session header
 //! name and token, `GET /api/v1/documents`, and `POST /api/v1/operations` for one request of the
 //! operation contract. It keeps one session, the one from the server it last reached, and sends it
-//! with every call. A server that refuses the session (401 or 403) gets one fresh session and one more
-//! send of the same request, and no more. A transport failure drops the session, so the next call looks
+//! with every call. A server that refuses the session (401, the answer to a missing or stale token) gets
+//! one fresh session and one more send of the same request, and no more. A 403 is the server's Host or
+//! Origin guard, which a fresh token cannot change, so it is reported as it is. A transport failure drops the session, so the next call looks
 //! the server up again. There is no client-side timeout: an operation may run for as long as its own
 //! time limit allows, and the server answers when it is done.
 
@@ -29,6 +30,8 @@ pub const MAX_REPLY_BYTES: usize = 8 * 1024 * 1024;
 /// The operation contract version that every request names.
 const CONTRACT: u32 = 1;
 /// The operation profile that every request asks for.
+/// The session header of the Chemifree API (`chemifree_api::SESSION_HEADER`).
+const SESSION_HEADER: &str = "x-chemifree-session";
 const PROFILE: &str = "preserve-semantics";
 const SESSION_PATH: &str = "/api/v1/session";
 const DOCUMENTS_PATH: &str = "/api/v1/documents";
@@ -196,12 +199,18 @@ impl ApiClient {
                 status,
                 message: format!("the session reply is not a session object ({error})"),
             })?;
-        let name = HeaderName::from_bytes(parsed.header.as_bytes()).map_err(|_| {
-            ClientError::MalformedReply {
+        // The header is the API's, never one the reply chooses: a process at the recorded address
+        // that is not a Chemifree server is refused here rather than given control of a header.
+        if parsed.header != SESSION_HEADER {
+            return Err(ClientError::MalformedReply {
                 status,
-                message: "the session names no valid header".to_owned(),
-            }
-        })?;
+                message: format!(
+                    "the session names the header {:?}, not {SESSION_HEADER}",
+                    parsed.header
+                ),
+            });
+        }
+        let name = HeaderName::from_static(SESSION_HEADER);
         let mut token =
             HeaderValue::from_str(&parsed.token).map_err(|_| ClientError::MalformedReply {
                 status,
@@ -322,9 +331,9 @@ impl Reply {
     }
 }
 
-/// Whether a status means that the server refused the session, rather than the request itself.
+/// Whether a status means that the server refused the session token, rather than the request itself.
 fn is_refusal(status: StatusCode) -> bool {
-    matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
+    status == StatusCode::UNAUTHORIZED
 }
 
 /// The request for one call: the path under the server's address, the `Host` header that the API

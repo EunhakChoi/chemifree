@@ -49,8 +49,12 @@ impl FromStr for ServerUrl {
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let port = input.strip_prefix(URL_PREFIX).unwrap_or_default();
+        // A canonical port number from 1 to 65535: the API's Host guard compares the numeric port, so a
+        // leading zero would connect and then be refused as a foreign host.
         let is_port = (1..=MAX_PORT_DIGITS).contains(&port.len())
-            && port.bytes().all(|byte| byte.is_ascii_digit());
+            && port.bytes().all(|byte| byte.is_ascii_digit())
+            && !port.starts_with('0')
+            && port.parse::<u16>().is_ok();
         if is_port {
             Ok(Self(input.to_owned()))
         } else {
@@ -60,14 +64,14 @@ impl FromStr for ServerUrl {
 }
 
 /// The text is not the address of a server on loopback. The form is `http://127.0.0.1:<port>`, with a
-/// port of one to five digits and nothing after it.
+/// port from 1 to 65535 without leading zeros and nothing after it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InvalidServerUrl;
 
 impl fmt::Display for InvalidServerUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(
-            "a server address must be http://127.0.0.1:<port>, with a port of one to five digits and nothing after it",
+            "a server address must be http://127.0.0.1:<port>, with a port from 1 to 65535 written without leading zeros and nothing after it",
         )
     }
 }
@@ -194,6 +198,10 @@ mod tests {
             ("http://127.0.0.1:123456", "six-digit port"),
             ("http://127.0.0.1:41a1", "letter in the port"),
             ("http://127.0.0.1:+4141", "sign in the port"),
+            ("http://127.0.0.1:0", "port zero"),
+            ("http://127.0.0.1:04141", "leading zero"),
+            ("http://127.0.0.1:65536", "port above 65535"),
+            ("http://127.0.0.1:99999", "five digits above 65535"),
         ];
         for (input, case) in cases {
             assert_eq!(

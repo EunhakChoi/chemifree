@@ -217,8 +217,18 @@ async fn serves_the_read_only_tools_over_stdio_against_a_live_server() {
     assert_eq!(called["id"], 3, "{called}");
     assert_eq!(called["result"]["isError"], false, "{called}");
     assert_eq!(
-        called["result"]["content"][0]["text"], "1 documents",
+        called["result"]["content"][0]["text"], "1 document",
         "{called}"
+    );
+    let content_json: Value = serde_json::from_str(
+        called["result"]["content"][1]["text"]
+            .as_str()
+            .expect("the second content block is the reply as JSON text"),
+    )
+    .expect("the second content block is JSON");
+    assert_eq!(
+        content_json, called["result"]["structuredContent"],
+        "a client that reads only content gets the whole reply"
     );
     assert_eq!(
         called["result"]["structuredContent"]["documents"]

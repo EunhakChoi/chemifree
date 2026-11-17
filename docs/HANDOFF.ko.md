@@ -2,7 +2,7 @@
 
 ## P82 S1: 읽기 전용 로컬 MCP 어댑터 (T2 시작)
 
-T1을 마친 뒤 사용자 요청("opus 추천대로 다음 작업")으로 T2를 시작했다(2026-11-17). `apps/mcp`(`chemifree-mcp`)는 rmcp 기반 stdio MCP 서버이며 실행 중인 `chemifree-api`의 HTTP API만 부른다(Application을 만들지 않고 서버 잠금을 잡지 않음). 서버는 `--server-url` 또는 데이터 디렉터리 `server.lock` 기록(새 `ServerLock::recorded_holder`)으로 찾는다. 도구는 연산 목록·문서 목록·문서 스냅샷과 revision 셋이고, 실제 MCP client 검사 `npm run test:mcp`를 CI 브라우저 job에 붙였다. 새 의존성: rmcp 3.10(Apache-2.0), schemars, hyper client 기능, npm devDependency `@modelcontextprotocol/sdk` 1.32.2. 남은 P82 일: 편집·저장 도구(S2), 큰 결과 요약/상세(S3), Rust DTO 스키마 생성과 TS 검증기 불일치 검사(S4), 분석·export 도구(S5), 완료 기록(S6). 보류한 사용자 결정: P41을 문서화한 한계로 닫을지(Opus 추천: 닫음), 에이전트 편집의 웹 실시간 표시는 P82 밖. 기록: `docs/verification/p82-s1-read-only-mcp.md`.
+T1을 마친 뒤 사용자 요청("opus 추천대로 다음 작업")으로 T2를 시작했다(2026-11-17). `apps/mcp`(`chemifree-mcp`)는 rmcp 기반 stdio MCP 서버이며 실행 중인 `chemifree-api`의 HTTP API만 부른다(Application을 만들지 않고 서버 잠금을 잡지 않음). 서버는 `--server-url` 또는 데이터 디렉터리 `server.lock` 기록(새 `ServerLock::recorded_holder`)으로 찾는다. 도구는 연산 목록·문서 목록·문서 스냅샷과 revision 셋이고, 실제 MCP client 검사 `npm run test:mcp`를 CI 브라우저 job에 붙였다. 새 의존성: rmcp 3.10(Apache-2.0), schemars, hyper client 기능, npm devDependency `@modelcontextprotocol/sdk` 1.32.2. 한계: 서버 정체 확인이 없어 낡은 `server.lock` 기록이 같은 포트의 다른 데이터 디렉터리 서버로 이어질 수 있다(S2 편집 도구 전에 기록과 세션 응답에 정체를 넣어 비교). 남은 P82 일: 편집·저장 도구(S2, 서버 정체 확인 먼저), 큰 결과 요약/상세(S3), Rust DTO 스키마 생성과 TS 검증기 불일치 검사(S4), 분석·export 도구(S5), 완료 기록(S6). 보류한 사용자 결정: P41을 문서화한 한계로 닫을지(Opus 추천: 닫음), 에이전트 편집의 웹 실시간 표시는 P82 밖. 기록: `docs/verification/p82-s1-read-only-mcp.md`.
 
 ## P34 완료 기록 (T1)
 

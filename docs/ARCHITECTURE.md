@@ -23,7 +23,7 @@ Nothing on this page marks a feature as implemented. "Planned" items below have 
 | `crates/conformance` | application, host | Conformance runner |
 | `apps/api` | application, host, providers | HTTP adapter (axum); with `--web-dir` it also serves a built web app (tower-http `ServeDir`) on the same origin, under one security-header layer |
 | `apps/cli` | application, host, providers | CLI adapter |
-| `apps/mcp` | providers (lock record reader only); `chemifree-api` as a test-only dev-dependency | Local MCP adapter (stdio, `rmcp`): an HTTP client of the running local API server. It never assembles an `Application` and never takes the server lock; it finds the server through `--server-url` or the data directory's `server.lock` record (P82) |
+| `apps/mcp` | providers (the lock record reader and the default data directory; application and domain come in only as its compile-time dependencies); `chemifree-api` as a test-only dev-dependency | Local MCP adapter (stdio, `rmcp`): an HTTP client of the running local API server. It never assembles an `Application` and never takes the server lock; it finds the server through `--server-url` or the data directory's `server.lock` record (P82) |
 | `apps/web` | HTTP only | React/TypeScript editor |
 
 Dependencies point inward: a crate depends only on crates listed above it in this table,

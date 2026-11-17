@@ -127,7 +127,10 @@ fn operation_result(operation: &str, reply: Value) -> CallToolResult {
 
 /// The tool result for a document list: the reply unchanged, and its document count.
 fn documents_result(list: DocumentList) -> CallToolResult {
-    let line = format!("{} documents", list.count);
+    let line = match list.count {
+        1 => "1 document".to_owned(),
+        count => format!("{count} documents"),
+    };
     tool_result(list.reply, line, false)
 }
 
@@ -142,9 +145,10 @@ fn tool_result(reply: Value, line: String, is_error: bool) -> CallToolResult {
     } else {
         CallToolResult::structured(reply)
     };
-    // The constructors also put the JSON text in `content`. The summary line replaces it, because the
-    // reply itself is already in `structured_content`.
-    result.content = vec![ContentBlock::text(line)];
+    // The constructors put the reply's JSON text in `content`, which a client that reads only
+    // `content` needs (the MCP tools specification asks for it next to `structuredContent`). The
+    // summary line goes before it.
+    result.content.insert(0, ContentBlock::text(line));
     result
 }
 
@@ -267,11 +271,31 @@ mod tests {
         });
         let result = operation_result("document.snapshot", reply.clone());
         assert_eq!(result.is_error, Some(true));
-        assert_eq!(result.structured_content, Some(reply));
+        assert_eq!(result.structured_content, Some(reply.clone()));
         assert_eq!(
             text_of(&result),
             "document.snapshot: outcome partial, revision 1"
         );
+        // A client that reads only `content` still gets the reply, diagnostics included.
+        let json_text = result
+            .content
+            .get(1)
+            .and_then(ContentBlock::as_text)
+            .map(|text| text.text.as_str())
+            .expect("the second content block is the reply as JSON text");
+        assert_eq!(
+            serde_json::from_str::<Value>(json_text).expect("the text is JSON"),
+            reply
+        );
+    }
+
+    #[test]
+    fn a_list_of_one_document_says_document() {
+        let result = documents_result(DocumentList {
+            count: 1,
+            reply: json!({"documents": [{"id": "a"}]}),
+        });
+        assert_eq!(text_of(&result), "1 document");
     }
 
     #[test]
