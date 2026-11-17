@@ -35,14 +35,23 @@ pub struct TransactionRequest {
 /// the atom added by the `add_atom` command at index `N` earlier in the same transaction.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CommandDto {
     /// Independent regular carbon ring, optionally a six-carbon Kekulé recipe.
     InsertRing {
         instance: String,
         center: PointDto,
         #[serde(default, deserialize_with = "ring_size")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::ring_size_schema")
+        )]
         size: RingSize,
         #[serde(default, deserialize_with = "ring_pattern")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::ring_pattern_schema")
+        )]
         pattern: RingPattern,
     },
     /// A fresh regular carbon ring connected to an existing atom by one single bond.
@@ -51,8 +60,16 @@ pub enum CommandDto {
         atom: String,
         direction: RingDirectionDto,
         #[serde(default, deserialize_with = "ring_size")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::ring_size_schema")
+        )]
         size: RingSize,
         #[serde(default, deserialize_with = "ring_pattern")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::ring_pattern_schema")
+        )]
         pattern: RingPattern,
     },
     /// Exactly one of `position` (while the document has one scene instance) and `positions`
@@ -68,6 +85,10 @@ pub enum CommandDto {
         #[serde(default)]
         position: Option<PointDto>,
         #[serde(default, deserialize_with = "distinct_keys")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::point_map_schema")
+        )]
         positions: Option<BTreeMap<String, PointDto>>,
         #[serde(default)]
         bond_to: Option<BondToDto>,
@@ -193,6 +214,10 @@ pub enum CommandDto {
         instance: String,
         anchor: String,
         #[serde(deserialize_with = "nullable")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::nullable::<String>")
+        )]
         text: Option<String>,
     },
     ExpandEthyl {
@@ -262,6 +287,10 @@ pub enum CommandDto {
     SetGraphicLineWidth {
         object: String,
         #[serde(deserialize_with = "nullable")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::nullable::<f64>")
+        )]
         line_width_pt: Option<f64>,
     },
     Group {
@@ -321,6 +350,10 @@ pub enum CommandDto {
     SetBondMark {
         bond: String,
         #[serde(deserialize_with = "nullable")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::nullable::<MarkDto>")
+        )]
         mark: Option<MarkDto>,
     },
     /// States a stereocenter's neighbor order and turn (or states it unknown), or with
@@ -330,6 +363,13 @@ pub enum CommandDto {
     SetAtomConfiguration {
         atom: String,
         #[serde(deserialize_with = "nullable")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(
+                required,
+                schema_with = "super::schema::nullable::<AtomConfigurationDto>"
+            )
+        )]
         configuration: Option<AtomConfigurationDto>,
     },
     /// States how one neighbor of each end of a double bond lies across it (or states it
@@ -338,6 +378,13 @@ pub enum CommandDto {
     SetBondConfiguration {
         bond: String,
         #[serde(deserialize_with = "nullable")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(
+                required,
+                schema_with = "super::schema::nullable::<BondConfigurationDto>"
+            )
+        )]
         configuration: Option<BondConfigurationDto>,
     },
     /// Stores the configuration the bond marks and one scene instance's positions show. With
@@ -361,6 +408,10 @@ pub enum CommandDto {
         kind: StereoGroupKindDto,
         atoms: Vec<String>,
         #[serde(deserialize_with = "nullable")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::nullable::<i64>")
+        )]
         number: Option<i64>,
     },
     /// Deletes a group (`group`: a group ID or `"$N"`); its members stay configured and become
@@ -379,6 +430,10 @@ pub enum CommandDto {
     SetStereoGroupNumber {
         group: String,
         #[serde(deserialize_with = "nullable")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::nullable::<i64>")
+        )]
         number: Option<i64>,
     },
     /// Adds stored tetrahedral centers that are in no group; members already in it are left as
@@ -405,6 +460,10 @@ pub enum CommandDto {
         group: String,
         atoms: Vec<String>,
         #[serde(deserialize_with = "nullable")]
+        #[cfg_attr(
+            feature = "schema",
+            schemars(schema_with = "super::schema::nullable::<i64>")
+        )]
         number: Option<i64>,
     },
 }
@@ -468,9 +527,10 @@ fn ring_pattern<'de, D: Deserializer<'de>>(deserializer: D) -> Result<RingPatter
     }
 }
 
-/// Finite nonzero attachment direction, normalized by the Domain; magnitude is ignored.
+/// A finite, nonzero attachment direction. Only its direction counts; its magnitude is ignored.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RingDirectionDto {
     pub dx: f64,
     pub dy: f64,

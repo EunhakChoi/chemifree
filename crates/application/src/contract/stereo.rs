@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// What an enhanced-stereo group states. `absolute` has no number.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum StereoGroupKindDto {
     Absolute,
     And,
@@ -43,6 +44,7 @@ impl From<GroupKind> for StereoGroupKindDto {
 /// facts as `wedge` and `hash` with `narrow`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum MarkDto {
     /// Solid wedge on a single bond.
     Wedge { narrow: BondEndDto },
@@ -56,6 +58,7 @@ pub enum MarkDto {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum BondEndDto {
     Begin,
     End,
@@ -104,6 +107,7 @@ pub struct BondStereoView {
 /// public model's positive `parity`), `clockwise` is `@@` (negative).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum AtomConfigurationDto {
     Tetrahedral {
         neighbors: [String; 4],
@@ -115,6 +119,7 @@ pub enum AtomConfigurationDto {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum TurnDto {
     Anticlockwise,
     Clockwise,
@@ -125,6 +130,7 @@ pub enum TurnDto {
 /// other explicit neighbor. `opposite_sides` is the public model's `opposite_side`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum BondConfigurationDto {
     Relative {
         begin_neighbor: String,
@@ -137,6 +143,7 @@ pub enum BondConfigurationDto {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum RelationDto {
     SameSide,
     OppositeSides,

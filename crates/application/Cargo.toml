@@ -11,6 +11,9 @@ publish = false
 # Compiled only for the conformance runner. It can inject a dataset that is explicitly
 # identified as synthetic; production hosts still load their selected external registry.
 conformance-fixtures = []
+# Derives the JSON Schema of the command contract (`contract::command_schema`). Off in normal
+# builds; this crate's own tests turn it on through the dev-dependency below.
+schema = ["dep:schemars"]
 
 [dependencies]
 chemifree-domain.workspace = true
@@ -18,11 +21,15 @@ getrandom.workspace = true
 chemifree-numerics.workspace = true
 num-bigint = "0.5.1"
 roxmltree = "0.21.1"
+schemars = { workspace = true, optional = true }
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 
 [dev-dependencies]
+# Enables `schema` for this crate's own tests, so the golden schema test runs under a plain
+# `cargo test` and `cargo nextest run`.
+chemifree-application = { path = ".", features = ["schema"] }
 # The operation contract tests run against the real file store; providers depends on this
 # crate, which Cargo allows for tests.
 chemifree-providers.workspace = true

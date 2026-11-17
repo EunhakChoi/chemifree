@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 /// order `query` carries its expression in `query`.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum BondOrderDto {
     Single,
     Double,
@@ -21,6 +22,7 @@ pub enum BondOrderDto {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct BondToDto {
     pub atom: String,
     pub order: BondOrderDto,
@@ -32,6 +34,7 @@ pub struct BondToDto {
 /// A query atom: which elements it stands for. `chem.substructure` matches it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum QueryDto {
     /// Any atom; labelled `*`.
     Any {},
@@ -52,6 +55,7 @@ pub enum QueryDto {
 /// What a query bond stands for. `chem.substructure` matches it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum BondQueryDto {
     Any {},
     /// One of these distinct kinds.
@@ -62,6 +66,7 @@ pub enum BondQueryDto {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum QueryBondOrderDto {
     Single,
     Double,
@@ -73,6 +78,7 @@ pub enum QueryBondOrderDto {
 /// bounded inspection can derive one without changing this value.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum HydrogensDto {
     Inferred {},
     Unknown {},
@@ -84,6 +90,7 @@ pub enum HydrogensDto {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum RadicalDto {
     None,
     Singlet,
