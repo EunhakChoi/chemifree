@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { openSavedDocument } from './open-document-smoke.mjs'
+
 import { exportCardReopenSmoke } from './export-card-reopen-smoke.mjs'
 
 // The "Export card" step of browser-smoke.mjs (P48 S5). The one Export card of an open drawing is driven
@@ -70,27 +72,7 @@ export async function exportCardSmoke({ page, api, apiWrite, outDir, work, resul
         },
       }
     }
-    const openDocument = async (id) => {
-      await page.reload()
-      // The editor re-reads the session after it loads the drawing, and the Import card drops a file picked
-      // before that. So wait for the session read that follows the drawing before anything is picked.
-      let loaded = false
-      let settle
-      const settled = new Promise((resolve) => { settle = resolve })
-      const watch = (response) => {
-        const { pathname } = new URL(response.url())
-        if (response.request().method() !== 'GET') return
-        if (pathname === `/api/v1/documents/${id}`) loaded = true
-        else if (loaded && pathname === '/api/v1/session') settle()
-      }
-      page.on('response', watch)
-      try {
-        await page.locator(`li[data-document-id="${id}"]`).getByRole('button', { name: 'Open' }).click()
-        await settled
-      } finally {
-        page.off('response', watch)
-      }
-    }
+    const openDocument = (id) => openSavedDocument(page, api, id)
     const region = page.getByRole('region', { name: 'Export', exact: true })
     const flowOf = (format) => region.locator(`[data-testid="export-flow"][data-format="${format}"]`)
     // Every format change goes through the select, and the flow it mounts is awaited before its controls are used.

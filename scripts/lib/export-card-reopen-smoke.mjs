@@ -47,12 +47,7 @@ export async function exportCardReopenSmoke({
 }) {
   const card = page.getByRole('region', { name: 'Import', exact: true })
   const button = (name) => card.getByRole('button', { name, exact: true })
-  // The file input is disabled while the editor is busy (a user cannot pick then), but setInputFiles does
-  // not wait for that, so wait until it is enabled before picking.
-  const pick = async (path) => {
-    await page.waitForFunction(() => document.getElementById('import-file')?.disabled === false)
-    await card.getByLabel('Import file', { exact: true }).setInputFiles(path)
-  }
+  const pick = (path) => card.getByLabel('Import file', { exact: true }).setInputFiles(path)
   // Reading a file is asynchronous, so wait for the detected format rather than reading the select at once.
   // On a timeout, report what the card showed so a failure can be told apart from a slow read.
   const detected = async (format) => {
@@ -61,13 +56,15 @@ export async function exportCardReopenSmoke({
     } catch (error) {
       const state = await page.evaluate(() => {
         const input = document.getElementById('import-file')
+        const importCard = document.querySelector('[data-testid="import-card"]')
         return {
+          shownTitle: document.querySelector('[aria-label="Document title"]')?.value ?? null,
           inputDisabled: input?.disabled ?? null,
           inputFiles: input?.files?.length ?? null,
           format: document.getElementById('import-format')?.value ?? null,
-          alerts: [...document.querySelectorAll('[role="alert"]')].map((node) => node.textContent),
+          importCardAlerts: [...(importCard?.querySelectorAll('[role="alert"], [role="status"]') ?? [])].map((node) => node.textContent),
         }
-      })
+      }).catch((evaluateError) => ({ evaluateFailed: String(evaluateError) }))
       throw new Error(`the Import card did not detect ${format}: ${JSON.stringify(state)}`, { cause: error })
     }
   }
