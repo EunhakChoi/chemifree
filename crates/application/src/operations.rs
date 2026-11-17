@@ -555,4 +555,6 @@ impl<C: CapabilityCatalog, R: DocumentRepository> Application<C, R> {
 }
 
 #[cfg(test)]
+mod property_closure_tests;
+#[cfg(test)]
 mod property_tests;
