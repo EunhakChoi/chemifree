@@ -2,7 +2,7 @@
 
 ## P19 S1: 분자식 수락 기준 검사 (T1)
 
-테스트만 더했다(`crates/application/tests/properties_acceptance.rs`). `chem.properties` 분자식을 `Application::execute`로 불러 염(나트륨 아세테이트의 분자·성분 범위와 전하), 라디칼(이중항·일중항·삼중항의 수소 감소, 전하 라디칼은 `hydrogens_unavailable`로 거절), 명시·추론 수소, 동위원소 표기, Hill 순서(탄소가 없으면 알파벳순이라 질소 이중항은 `H2N`)를 확인한다. 변이 4개 근거는 `docs/verification/p19-s1-formula-acceptance.md`. P19 마감 계획(Opus): S2 표시 자릿수 0·8 경계, 공개 데이터와 관찰 호환 프로필 구분, 정밀도 변경 뒤 저장 문서 불변을 크레이트 내부 테스트로, S3 기록 PR로 `done`. 개인 질량 등록 호환성(로컬 `content_invalid`)은 한계로 남긴다.
+테스트만 더했다(`crates/application/tests/properties_acceptance.rs`). `chem.properties` 분자식을 `Application::execute`로 불러 염(나트륨 아세테이트의 분자·성분 범위와 전하), 라디칼(이중항·일중항·삼중항의 수소 감소, 전하 라디칼은 `hydrogens_unavailable`로 거절), 명시·추론 수소, 동위원소 표기, Hill 순서(탄소가 없으면 알파벳순이라 질소 이중항은 `H2N`)를 확인한다. 변이 4개 근거는 `docs/verification/p19-s1-formula-acceptance.md`. P19 마감 계획: S2 표시 자릿수 0·8 경계, 공개 데이터와 관찰 호환 프로필 구분, 정밀도 변경 뒤 저장 문서 불변을 크레이트 내부 테스트로, S3 기록 PR로 `done`(질량 쪽 동위원소·전하는 `crates/application/src/operations/property_tests.rs`가 이미 검사하고, `[13C]`·전하 접미사 표기는 S3에서 기록한다). 개인 질량 등록 호환성(로컬 `content_invalid`)은 한계로 남긴다.
 
 ## P17 완료 기록 (T1)
 

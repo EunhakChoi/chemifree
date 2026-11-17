@@ -64,7 +64,7 @@ fn salt_formula_by_scope() {
             {"op":"add_atom","element":"C","position":{"x":20,"y":0},"bond_to":{"atom":"$0","order":"single"}},
             {"op":"add_atom","element":"O","position":{"x":40,"y":0},"bond_to":{"atom":"$1","order":"double"}},
             {"op":"add_atom","element":"O","position":{"x":20,"y":20},"bond_to":{"atom":"$1","order":"single"}},
-            {"op":"add_atom","element":"Na","position":{"x":100,"y":0},"hydrogens":{"mode":"specified","count":0}},
+            {"op":"add_atom","element":"Na","position":{"x":100,"y":0}},
             {"op":"update_atom","atom":"a4","charge":-1},
             {"op":"update_atom","atom":"a5","charge":1}
         ]),
@@ -164,6 +164,10 @@ fn charged_radical_is_refused_without_result() {
     assert_eq!(
         reply["diagnostics"][0]["code"], "hydrogens_unavailable",
         "{reply}"
+    );
+    assert_eq!(
+        reply["diagnostics"][0]["details"]["atom"], "a1",
+        "the refusal names the charged radical: {reply}"
     );
     assert!(
         reply["result"].is_null(),

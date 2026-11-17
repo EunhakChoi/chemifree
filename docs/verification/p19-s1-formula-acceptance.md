@@ -4,9 +4,9 @@ Tests only; no production change. New `crates/application/tests/properties_accep
 
 | Test | Acceptance term | Checked |
 |---|---|---|
-| `salt_formula_by_scope` | salt | sodium acetate: molecule `C2H3NaO2` with formal charge 0; components `C2H3O2-` (−1) and `Na+` (+1) as a set |
+| `salt_formula_by_scope` | salt | sodium acetate (Na+ with inferred hydrogens, so the monatomic-ion valence row is used): molecule `C2H3NaO2` with formal charge 0; components `C2H3O2-` (−1) and `Na+` (+1) as a set |
 | `radical_hydrogen_reduction` | radical | C doublet `CH3`, singlet `CH2`, triplet `CH2`; N doublet `H2N` (no carbon, so Hill order is alphabetical) |
-| `charged_radical_is_refused_without_result` | radical, failure | C+ doublet: `unsupported`, `hydrogens_unavailable`, no result, document unchanged |
+| `charged_radical_is_refused_without_result` | radical, failure | C+ doublet: `unsupported`, `hydrogens_unavailable` naming atom `a1`, no result, document unchanged |
 | `hydrogen_modes` | explicit / inferred H | specified C H2 `CH2`; methanol with an explicit H vertex `CH4O`; selection {O} `O`, {O, H} `HO` (an explicit vertex counted once) |
 | `isotope_hill_order` | isotope | ethane with one 13C: `C[13C]H6` |
 | `hill_order_puts_carbon_and_hydrogen_first` | formula order | chloromethane `CH3Cl`; a lone Cl `ClH` |
