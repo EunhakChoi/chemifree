@@ -1,5 +1,7 @@
 # P34g 독립 Kekulé 6탄소 고리 후보
 
+> Historical implementation-session record. Merged as #182 (`80e32043`); main CI run 42185690561 on the merge commit passed the check and browser jobs. Statements below that checks, builds or browsers were not run describe the authoring session only.
+
 ## 범위와 결정
 
 P34f HEAD `3b3b2a7cdc6187ee47c6f7736c6cf504bdfb9b98` 기반 별도

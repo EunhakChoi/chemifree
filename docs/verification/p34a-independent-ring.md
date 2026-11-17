@@ -1,5 +1,7 @@
 # P34a 독립 탄소 6원 고리 검증 계획과 구현 기록
 
+> Historical implementation-session record. Merged as #174 (`71321a93`); main CI run 42157171701 on the merge commit passed the check and browser jobs. Statements below that checks, builds or browsers were not run describe the authoring session only.
+
 ## 결정과 제한
 
 `insert_ring`은 독립적으로 정의한 정육각형 탄소 고리를 생성하는 bounded transaction

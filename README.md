@@ -24,22 +24,22 @@ adds the specified point offsets, requires matching style and one destination pl
 and uses fresh IDs with one Undo/Redo step. File selection alone changes nothing.
 Crossing-bond selections, scene content and enhanced stereo groups cannot be saved as templates.
 This is file reuse, without a library, automatic attachment, rotation or layout.
-See [the P34d record](docs/verification/p34d-user-template.md); checks are written and unrun. Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
+Delivered by #178 with passing main CI; see [the P34d record](docs/verification/p34d-user-template.md).
 P34e adds **Attach template file…**: validate one connected native file, explicitly choose
 source and destination atoms and a finite nonzero dx/dy direction, preview, then connect by
 one single bond. Geometry is translated without rotation. Source-anchor stored stereo loss
 is refused; unrelated copied stereo is remapped, and destination stereo clearing/group notes
 follow ordinary bond editing. The file is unchanged. Read-only preview reserves no IDs;
-apply uses one atomic, replayable history step with frozen recovery. P34 remains in progress.
-[P34e checks](docs/verification/p34e-template-attachment.md) are authored and unrun. Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
+apply uses one atomic, replayable history step with frozen recovery.
+Delivered by #180 with passing main CI; see [the P34e record](docs/verification/p34e-template-attachment.md).
 
 
 P34f adds **Replace terminal atom…**: explicitly choose a template anchor and a destination
 atom with one single outside bond, preview, then replace. The anchor keeps the target's ID and
 position; its complete atom state is replaced. The outside bond/mark, references and neighboring
 stored stereo stay, while N−1 atoms and M internal bonds receive fresh IDs. Identical one-atom
-replacement is a no-op. See [the P34f record](docs/verification/p34f-template-replacement.md);
-checks are written and unrun in this implementation session. Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
+replacement is a no-op. Delivered by #181 with passing main CI; see
+[the P34f record](docs/verification/p34f-template-replacement.md).
 
 The independent six-carbon ring additionally offers an explicit **Kekulé alternating bonds**
 pattern (three double and three single bonds). The existing all-single default and five-carbon
@@ -48,16 +48,16 @@ one additional single connector and ordinary bond-addition stereo clearing. Ente
 atom, then choose Kekulé alternating bonds explicitly; the pressed size/pattern remain fixed
 through the gesture and uncertain-outcome recovery. This states bond orders without
 aromaticity inference. Pattern choice is retained through lost-reply recovery and is not
-saved as a tool setting. Its checks are written and unrun; see the
+saved as a tool setting. Delivered by #182 and #183 with passing main CI; see the
 [P34g record](docs/verification/p34g-kekule-ring.md) and
-[P34h record](docs/verification/p34h-attached-kekule-ring.md). Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
+[P34h record](docs/verification/p34h-attached-kekule-ring.md).
 
 Fusion, spiro, non-terminal replacement, aromatic-bond patterns, other sizes, general abbreviation handling beyond the bounded terminal Et contraction/expansion (P34i) and
-molecular conformations remain unimplemented. P34 is in progress; the new checks are written
-but have not run in this implementation session. See the
+molecular conformations remain unimplemented. The ring insertion and attachment slices were delivered by
+#174, #175 and #177 with passing main CI. See the
 [ring contract](docs/CONTRACT.md#independent-six-carbon-ring-insertion-p34a),
 [attachment contract](docs/CONTRACT.md#attached-carbon-ring-p34c), and
-[P34c verification record](docs/verification/p34c-attached-ring.md). Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
+[P34c verification record](docs/verification/p34c-attached-ring.md).
 
 ## Run locally
 
@@ -117,8 +117,8 @@ P34i adds explicit terminal Et contraction/expansion over an existing two-carbon
 Atoms, bonds, IDs, coordinates and calculations remain complete. Only the canvas contracts;
 copying compact members through native clipboard/templates refuses, while chemical exports
 report a rendering loss and write the full graph. Local stereo and multiple placements are
-outside this first contraction slice. New checks are written but unexecuted; see
-[scope and pending verification](docs/verification/p34i-ethyl-display.md). Historical: the unrun checks described here are those at the time this slice was written; see [docs/HANDOFF.ko.md](docs/HANDOFF.ko.md) for the current status of P34.
+outside this first contraction slice. Delivered by #185 and #201 with passing main CI; see
+[the P34i record](docs/verification/p34i-ethyl-display.md).
 
 Version 14 documents and drafts require explicit nullable caption run color (null inherits theme foreground; canonical opaque sRGB #RRGGBB overrides it; v8–13 migrate as inherited), nullable caption run size overrides (finite 4–72 pt; null inherits the drawing size; v8–12 migrate as inherited), nullable caption run font overrides (null inherits the drawing font; sans-serif/serif/monospace override it; v8–11 migrate as inherited), whole-caption left/center/right alignment (v8–10 migrate as left) and explicit caption run weight/style; v8–9 captions migrate these to normal. Version 9 added and v10–14 retain per-placement Et display maps and their history. Earlier displays default empty. Documents and drafts retain the scene, selection, style, the storage for stereo marks and stated configurations (shown in every snapshot and set by the stereo commands), and enhanced-stereo groups (eight commands, shown in every snapshot as `stereo.groups` and edited in the web Stereo panel; only MOL V3000 import and export reads and writes them as `COLLECTION` entries); versions 1–4 are read in memory with the default style, version 5 keeps its stored style, versions 1–5 have no stereo, and versions 1–6 have no groups. Original document bytes are kept before the first overwrite, and original draft bytes before recovery; explicitly discarding a draft does not retain a copy. Preferences are stored separately in `preferences.json`. See [the document contract](docs/CONTRACT.md) for limits and migration behavior.
 

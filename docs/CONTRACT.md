@@ -166,11 +166,10 @@ This is an independently defined 2D regular-ring drawing recipe, not conformatio
 aromaticity assignment, chemical layout or collision avoidance. Multiple placements, other ring
 sizes beyond 5/6 or other atom/bond patterns, fusion, other substituent patterns,
 abbreviation contraction/expansion and prepared legacy template framing activation remain
-unsupported. Unknown command fields are refused. P34 remains **in_progress**. The written
-checks have not been executed in this implementation session; see
-[the P34a verification plan](verification/p34a-independent-ring.md),
-[the P34b verification plan](verification/p34b-five-ring.md), and
-[the P34g verification plan](verification/p34g-kekule-ring.md).
+unsupported. Unknown command fields are refused. Delivered by #174, #175 and #182, each with
+passing main CI; see [the P34a record](verification/p34a-independent-ring.md),
+[the P34b record](verification/p34b-five-ring.md), and
+[the P34g record](verification/p34g-kekule-ring.md).
 
 ## Existing ethyl display contraction and expansion (P34i)
 
@@ -219,8 +218,8 @@ native fragments and chemical text export paths retain their existing rules.
 The UI provides explicit anchor buttons for a selected pair and explicit Expand buttons.
 This slice has no text-to-graph parser, automatic abbreviation detection,
 provider/legacy-template activation, multi-boundary or nested abbreviation, rich-text Et,
-multiple-placement contraction or layout engine. P34 remains in progress. See
-[authorship/review and pending checks](verification/p34i-ethyl-display.md).
+multiple-placement contraction or layout engine. Delivered by #185 and #201, each with passing
+main CI; see [the P34i record](verification/p34i-ethyl-display.md).
 
 ### Plain display labels on retained ethyl graphs (P35o)
 
@@ -413,8 +412,8 @@ into another process. Browser clipboard APIs are never used.
 Browser File/Download is the user-file adapter. Existing inert DATA template framing is not
 activated. No graph normalization, scale/rotation, attachment, replacement, abbreviation
 contraction/expansion, scene-template copying, template library management or layout search
-is provided. P34 remains **in_progress**. The new real-backend browser checks are written,
-not executed in this implementation session; see [P34d record](verification/p34d-user-template.md).
+is provided. Delivered by #178 with passing main CI, including the real-backend browser check;
+see [P34d record](verification/p34d-user-template.md).
 
 ## User template anchor connection (P34e)
 
@@ -494,8 +493,8 @@ File operations do not access the OS clipboard.
 
 The native file is not modified or upgraded to store anchor metadata. Fusion/spiro/non-terminal replacement,
 multi-anchor/polymer rules, disconnected attachments, library management, abbreviation expansion
-and automatic layout/conformation remain unsupported. P34 is **in_progress**. These checks have
-not run in this implementation session; see [P34e record](verification/p34e-template-attachment.md).
+and automatic layout/conformation remain unsupported. Delivered by #180 with passing main CI;
+see [P34e record](verification/p34e-template-attachment.md).
 
 ## Terminal template replacement (P34f)
 
@@ -547,8 +546,8 @@ exact body/request/process through lost replies; closed-dialog recovery remains 
 Restart or terminal revision conflict requires explicit reconciliation and never resends into
 a new process. No OS clipboard calls occur. This is bounded terminal graph replacement, without
 fusion/spiro, multi-boundary replacement, abbreviation contraction/expansion or new storage
-objects. P34 remains **in_progress**; written checks are unrun in this implementation session.
-See [P34f record](verification/p34f-template-replacement.md).
+objects. Delivered by #181 with passing main CI; see
+[P34f record](verification/p34f-template-replacement.md).
 
 ## Attached carbon ring (P34c)
 
@@ -616,8 +615,8 @@ request and process. The client checks exact alternating phase and the single co
 well as ordinary stereo/group notes. No new command, storage schema or provider is introduced.
 
 Fusion/spiro/non-terminal replacement, aromatic-bond patterns, other ring sizes, abbreviation
-expansion and layout/collision/conformation remain unsupported. P34 is **in_progress**.
-Tests/build/browser/mutation have not run for this candidate; see the
+expansion and layout/collision/conformation remain unsupported. Delivered by #177 and #183,
+each with passing main CI; see the
 [P34c record](verification/p34c-attached-ring.md) and
 [P34h record](verification/p34h-attached-kekule-ring.md).
 
