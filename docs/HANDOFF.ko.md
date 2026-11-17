@@ -2,7 +2,7 @@
 
 ## P19 S2: 표시 경계·프로필 구분 (T1)
 
-테스트만 더했다(`crates/application/src/operations/property_closure_tests.rs`). NIST 대표 탄소로 표시 자릿수 0·8 경계(`"12"`, `"12.01073590"`), 공개 데이터(NIST)와 관찰 호환(mass-input) 프로필을 함께 등록했을 때 프로필별 답과 id 없는 요청의 `mass_data_ambiguous`, 라디칼이 정확 질량을 바꾸지 않음을 확인한다. 정밀도 변경 뒤 저장 파일 불변은 기존 `settings.rs` 테스트가 바이트로 확인한다. 근거와 변이: `docs/verification/p19-s2-display-profiles.md`. 남은 P19 일은 S3 기록 PR이다.
+테스트만 더했다(`crates/application/src/operations/property_closure_tests.rs`). NIST 대표 탄소로 표시 자릿수 0·8 경계(`"12"`, `"12.01073590"`), 공개 데이터(NIST)와 관찰 호환 프로필 종류(합성 mass-input 자료로 대신함, 관찰 결과와의 호환성은 미검증)을 함께 등록했을 때 프로필별 답과 id 없는 요청의 `mass_data_ambiguous`, 명시 수소에서 라디칼이 정확 질량을 바꾸지 않음을 확인한다. 정밀도 변경 뒤 저장 파일 불변은 기존 `settings.rs` 테스트가 바이트로 확인한다. 근거와 변이: `docs/verification/p19-s2-display-profiles.md`. 남은 P19 일은 S3 기록 PR이다.
 
 ## P19 S1: 분자식 수락 기준 검사 (T1)
 

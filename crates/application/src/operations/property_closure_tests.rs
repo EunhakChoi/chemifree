@@ -1,8 +1,9 @@
 //! `chem.properties` closure checks through `Application::execute`: display rounding at the
 //! preference edges, profile selection by registration ID, and radicals against exact mass.
 //! Fixtures and the in-memory repository come from `property_tests`. The saved-document byte
-//! check is not here: the file store lives in `chemifree-providers`, which this crate's unit
-//! tests cannot use (see the report of the test-suite pass that added this file).
+//! check is not here: the file store lives in `chemifree-providers`, which depends on this crate,
+//! so its types cannot be shared with this crate's unit tests; `tests/settings.rs` covers it
+//! (docs/verification/p19-s2-display-profiles.md).
 
 use super::property_tests::{TestCapabilities, TestRepository};
 use super::*;
@@ -225,6 +226,9 @@ fn profiles_are_told_apart() {
 /// C-13 with three stated hydrogens, once as a doublet and once without a radical. Expected exact
 /// mass, from exact decimal arithmetic: 13.00335483507 + 3 x 1.00782503223 = 16.02682993176. A
 /// doublet is not an isotope or a hydrogen, so only the composition's counts could change it.
+/// With stated hydrogens the radical must not change the mass; with inferred hydrogens it does,
+/// through the hydrogen count (`tests/properties_acceptance.rs`). The mass composition ignores
+/// radicals today, so this guards a regression that is not present.
 #[test]
 fn radical_does_not_change_exact_mass() {
     // Each variant gets a fresh application: the repository hands out one document ID.
