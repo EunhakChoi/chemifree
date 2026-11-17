@@ -1,5 +1,7 @@
 # P34d 사용자 그래프 템플릿 파일 후보
 
+> Historical implementation-session record. Merged as #178 (`91938d29`); main CI run 42173476812 on the merge commit passed the check and browser jobs. Statements below that checks, builds or browsers were not run describe the authoring session only.
+
 ## 범위와 결정
 
 P34c `36893cc` 기반 `feat/p34d-user-template`의 bounded 후속이다. P34는 in_progress다.

@@ -1,5 +1,7 @@
 # P34e 명시 native template anchor 연결 후보 기록
 
+> Historical implementation-session record. Merged as #180 (`16189889`); main CI run 42179502426 on the merge commit passed the check and browser jobs. Statements below that checks, builds or browsers were not run describe the authoring session only.
+
 ## 결정과 경계
 
 P34d HEAD `8113f0f`를 기반으로 분리한 `feat/p34e-template-attach` 후보다. 구현 커밋은

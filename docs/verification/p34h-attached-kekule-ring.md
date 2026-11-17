@@ -1,5 +1,7 @@
 # P34h 기존 원자에 명시 Kekulé 6탄소 고리 연결 후보
 
+> Historical implementation-session record. Merged as #183 (`8edcfeb6`); main CI run 42189517364 on the merge commit passed the check and browser jobs. Statements below that checks, builds or browsers were not run describe the authoring session only.
+
 ## 범위와 결정
 
 P34g #182 main `80e32043f0d28538bdfd236d158f8758ee43333d` 기반 별도

@@ -1,5 +1,7 @@
 # P34c 기존 원자에 탄소 고리 연결 후보
 
+> Historical implementation-session record. Merged as #177 (`af6c724e`); main CI run 42168367473 on the merge commit passed the check and browser jobs. Statements below that checks, builds or browsers were not run describe the authoring session only.
+
 ## 범위와 정책
 
 P34b `86c584c` 기반 `feat/p34c-attach-ring` 후보이며 선행 PR 병합 후 최신 main을

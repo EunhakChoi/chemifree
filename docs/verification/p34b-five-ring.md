@@ -1,5 +1,7 @@
 # P34b 독립 탄소 5원 고리 후보 기록
 
+> Historical implementation-session record. Merged as #175 (`561be7b9`); main CI run 42166674520 on the merge commit passed the check and browser jobs. Statements below that checks, builds or browsers were not run describe the authoring session only.
+
 ## 결정과 지원 경계
 
 P34a PR HEAD `5a8c20e`에서 분리한 `feat/p34b-five-ring` 후보다. P34a squash

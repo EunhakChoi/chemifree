@@ -1,5 +1,7 @@
 # P34f 말단 atom template replacement 후보
 
+> Historical implementation-session record. Merged as #181 (`f51e0ed7`); main CI run 42183065797 on the merge commit passed the check and browser jobs. Statements below that checks, builds or browsers were not run describe the authoring session only.
+
 ## 범위와 결정
 
 P34e HEAD `7ce1c66`에서 분리한 `feat/p34f-template-replace` 후보다. P34는
