@@ -1,5 +1,7 @@
 # P34i: retained ethyl graph, compact Et display
 
+> Historical implementation-session record. Merged as #185 (`ba95baaa`); main CI run 42224417712 on the merge commit passed the check and browser jobs. The Et label text editing that followed was merged as #201 (`00332b51`, main CI run 42313107876 success). Statements below that checks, builds or browsers were not run describe the authoring session only.
+
 Current evidence: this record preserves implementation-session observations. Its candidate/pending wording is historical; merged PRs, passing CI, current scope and remaining P35 work are reconciled in [the completion audit](p35-completion-audit.md). No checks were rerun for that documentation audit.
 
 Status: implemented candidate; execution verification pending. P34 remains `in_progress`.

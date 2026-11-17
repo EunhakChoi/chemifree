@@ -2,7 +2,10 @@
 
 ## P34 S1: 사용자 템플릿 파일 검사를 공통 검사로 (T1)
 
-사용자 선택(A안: provider 포트 없이 기본 내장 레시피와 사용자 조각 파일을 출처별 분리로 본다)대로 P34를 provider 포트 없이 닫는 첫 PR이다. 사용자 템플릿 파일의 순수 검사(64 KiB 한도, 엄격한 UTF-8 해독과 빈 파일 거절, BOM 보존, 내려받기 파일명, 교차 결합 저장 거절)를 `apps/web/src/lib/user-template-file.ts`로 동작 변경 없이 옮기고, `scripts/web-user-template-client-check.mjs`(`npm run check`에 포함된 test:client)로 검사한다. 요청 순서·서비스 세대 가드와 실제 내려받기·재선택·삽입 흐름은 여전히 CI 브라우저 스크립트 `test:browser:user-template`만 검사한다. 변이 5개(한도+1, `fatal: false`, `ignoreBOM: false`, 파일명 대체값, 교차 결합 기준)를 모두 잡았다. 남은 P34 일은 오래된 실행 기록 정리 PR과 납품 기록 PR이다.
+사용자 선택(A안: provider 포트 없이 기본 내장 레시피와 사용자 조각 파일을 출처별 분리로 본다)대로 P34를 provider 포트 없이 닫는 첫 PR이다. 사용자 템플릿 파일의 순수 검사(64 KiB 한도, 엄격한 UTF-8 해독과 빈 파일 거절, BOM 보존, 내려받기 파일명, 교차 결합 저장 거절)를 `apps/web/src/lib/user-template-file.ts`로 동작 변경 없이 옮기고, `scripts/web-user-template-client-check.mjs`(`npm run check`에 포함된 test:client)로 검사한다. 요청 순서·서비스 세대 가드와 실제 내려받기·재선택·삽입 흐름은 여전히 CI 브라우저 스크립트 `test:browser:user-template`만 검사한다. 변이 5개(한도+1, `fatal: false`, `ignoreBOM: false`, 파일명 대체값, 교차 결합 기준)를 모두 잡았다. 남은 P34 일은 납품 기록 PR이다.
+## P34 S2: 오래된 실행 기록 정리 (T1)
+
+P34a–i 기록·CONTRACT·README·요구사항 요약·로드맵 P34 메모에 남아 있던 "검사 미실행"·"P34 in_progress" 문구를 병합 PR과 main CI 근거로 바꿨다. 슬라이스 기록 본문과 로드맵 메모의 슬라이스 문장은 작성 세션 기록으로 두고 맨 앞에 병합·CI 한 줄을 붙였다. #201은 P35o(Et 표시 문자 편집)이며 P34i 후속으로만 인용한다. 상태 변경은 없다(P34 `in_progress` 유지). 
 
 ## P19 완료 기록 (T1)
 
@@ -765,6 +768,8 @@ P35a–n/Et #185 및 #201/#202에 더해 #203 fragment script runs가 main84ef06
 - 테스트가 끝나면 필요한 결과·실패 증거를 보존한 뒤 완료된 일회성 테스트 환경과 해당 작업 소유의 프로세스·빌드 산출물·임시 데이터·worktree를 모두 정리한다. 테스트·빌드·브라우저·서버나 다른 작업이 사용 중이면 삭제하지 않는다. 재실행·조사 대기는 진행 중인 작업이다.
 - PR 병합과 정확한 topic branch/head를 확인하고(squash/rebase 포함), 이후 미병합 커밋이나 의존 작업이 없으면 완료된 일회성 worktree와 로컬·원격 topic branch를 삭제한다. main과 장기 유지 브랜치는 보존한다.
 - 사용자 데이터, 기존 수정·untracked 파일, dirty하거나 사용 중인 worktree와 진행 중인 작업은 보존한다. 소유권·사용 여부·완료 여부가 불명확하면 삭제하지 않고 경로/브랜치와 보류 이유를 인계한다. 자세한 절차는 [.github/CONTRIBUTING.md](../.github/CONTRIBUTING.md#clean-up-completed-work)를 따른다.
+
+> 아래 P34a–i "후보" 절은 작성 세션 당시의 기록이다. 모두 병합됐고 병합 커밋의 main CI가 통과했다: #174 `71321a93` run 42157171701, #175 `561be7b9` 42166674520, #177 `af6c724e` 42168367473, #178 `91938d29` 42173476812, #180 `16189889` 42179502426, #181 `f51e0ed7` 42183065797, #182 `80e32043` 42185690561, #183 `8edcfeb6` 42189517364, #185 `ba95baaa` 42224417712, #201 `00332b51` 42313107876. "실행하지 않았다"·"in_progress" 문구는 그 당시 상태다.
 
 ## P34i 기존 ethyl 그래프의 Et 표시 축약 후보
 
